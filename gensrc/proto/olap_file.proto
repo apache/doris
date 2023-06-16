@@ -59,7 +59,7 @@ message KeyBoundsPB {
 }
 
 message RowsetMetaPB {
-    required int64 rowset_id = 1;
+    required int64 rowset_id = 1; // Deprecated. Use rowset_id_v2 instead.
     optional int64 partition_id = 2;
     optional int64 tablet_id = 3;
     // only for pending rowset
@@ -328,7 +328,8 @@ message DeleteBitmapPB {
 message BinlogMetaEntryPB {
     optional int64 version = 1;
     optional int64 tablet_id = 2;
-    optional int64 rowset_id = 3;
+    optional int64 rowset_id = 3; // Deprecated use rowset_id_v2 instead
     optional int64 num_segments = 4;
     optional int64 creation_time = 5;
+    optional string rowset_id_v2 = 6;
 }

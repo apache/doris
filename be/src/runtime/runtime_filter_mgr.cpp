@@ -73,16 +73,13 @@ Status RuntimeFilterMgr::get_filter_by_role(const int filter_id, const RuntimeFi
     } else {
         filter_map = &_producer_map;
     }
-    auto state = Status::OK();
+
     auto iter = filter_map->find(key);
     if (iter == filter_map->end()) {
-        state = Status::InvalidArgument("unknown filter");
-        LOG_WARNING("get filter failed, key={}, role={}, reason={}", key, (int)role,
-                    state.to_string());
-    } else {
-        *target = iter->second.filter;
+        return Status::InternalError("get filter failed, key={}, role={}", key, (int)role);
     }
-    return state;
+    *target = iter->second.filter;
+    return Status::OK();
 }
 
 Status RuntimeFilterMgr::get_consume_filter(const int filter_id, IRuntimeFilter** consumer_filter) {
@@ -98,8 +95,7 @@ Status RuntimeFilterMgr::register_filter(const RuntimeFilterRole role,
                                          const TRuntimeFilterDesc& desc,
                                          const TQueryOptions& options, int node_id,
                                          bool build_bf_exactly) {
-    DCHECK((role == RuntimeFilterRole::CONSUMER && node_id >= 0) ||
-           role != RuntimeFilterRole::CONSUMER);
+    DCHECK(role != RuntimeFilterRole::CONSUMER || node_id >= 0);
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
@@ -285,8 +281,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         auto iter = _filter_map.find(std::to_string(request->filter_id()));
         VLOG_ROW << "recv filter id:" << request->filter_id() << " " << request->ShortDebugString();
         if (iter == _filter_map.end()) {
-            LOG(WARNING) << "unknown filter id:" << std::to_string(request->filter_id());
-            return Status::InvalidArgument("unknown filter id");
+            return Status::InvalidArgument("unknown filter id {}",
+                                           std::to_string(request->filter_id()));
         }
         cntVal = iter->second;
         if (auto bf = cntVal->filter->get_bloomfilter()) {

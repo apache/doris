@@ -408,6 +408,7 @@ public class NativeInsertStmt extends InsertStmt {
     private void analyzeSubquery(Analyzer analyzer) throws UserException {
         // Analyze columns mentioned in the statement.
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        List<String> realTargetColumnNames;
         if (targetColumnNames == null) {
             // the mentioned columns are columns which are visible to user, so here we use
             // getBaseSchema(), not getFullSchema()
@@ -415,7 +416,9 @@ public class NativeInsertStmt extends InsertStmt {
                 mentionedColumns.add(col.getName());
                 targetColumns.add(col);
             }
+            realTargetColumnNames = targetColumns.stream().map(column -> column.getName()).collect(Collectors.toList());
         } else {
+            realTargetColumnNames = targetColumnNames;
             for (String colName : targetColumnNames) {
                 Column col = targetTable.getColumn(colName);
                 if (col == null) {
@@ -511,7 +514,8 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         // check if size of select item equal with columns mentioned in statement
-        if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
+        if (mentionedColumns.size() != queryStmt.getResultExprs().size()
+                || realTargetColumnNames.size() != queryStmt.getResultExprs().size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
         }
 
@@ -519,10 +523,9 @@ public class NativeInsertStmt extends InsertStmt {
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        List<Column> baseColumns = targetTable.getBaseSchema();
-        int size = Math.min(baseColumns.size(), queryStmt.getResultExprs().size());
-        for (int i = 0; i < size; i++) {
-            slotToIndex.put(baseColumns.get(i).getName(), queryStmt.getResultExprs().get(i));
+        for (int i = 0; i < realTargetColumnNames.size(); i++) {
+            slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
+                    .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
         }
 
         // handle VALUES() or SELECT constant list

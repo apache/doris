@@ -101,7 +101,7 @@ public:
               index_channel(index_channel),
               partition_id(partition_id) {};
 
-    ~OpenPartitionClosure() = default;
+    ~OpenPartitionClosure() override = default;
 
     void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
@@ -174,8 +174,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
-    VLOG_PROGRESS << "mark node_id:" << node_id << " tablet_id: " << tablet_id
-                  << " as failed, err: " << err;
+    LOG(INFO) << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+              << " as failed, err: " << err;
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -1145,7 +1145,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+    if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
 

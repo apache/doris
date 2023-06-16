@@ -137,16 +137,12 @@ public:
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
-#ifdef VLOG_DEBUG_IS_ON
                 std::string msg = fmt::format(
                         "fragment instance {} ignore runtime filter(in filter id {}) because: "
                         "in_num({}) >= max_in_num({})",
                         print_id(state->fragment_instance_id()), filter_desc.filter_id,
                         hash_table_size, max_in_num);
                 RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, msg));
-#else
-                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, "ignored"));
-#endif
                 continue;
             }
 
@@ -220,11 +216,7 @@ public:
     Status publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                auto state = filter->publish();
-                if (!state) {
-                    // TODO: solve publish failed when scan not schedured
-                    LOG(WARNING) << "filter publish failed, reason=" << state.to_string();
-                }
+                RETURN_IF_ERROR(filter->publish());
             }
         }
         return Status::OK();

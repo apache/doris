@@ -163,12 +163,6 @@ public:
 
     Status finalize();
 
-    void finish_p_dependency() {
-        for (const auto& p : _pipeline->_parents) {
-            p.lock()->finish_one_dependency(_previous_schedule_id);
-        }
-    }
-
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
@@ -215,6 +209,12 @@ public:
     int get_core_id() const { return this->_core_id; }
 
 private:
+    void _finish_p_dependency() {
+        for (const auto& p : _pipeline->_parents) {
+            p.lock()->finish_one_dependency(_previous_schedule_id);
+        }
+    }
+
     Status _open();
     void _init_profile();
     void _fresh_profile_counter();
@@ -257,6 +257,7 @@ private:
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _get_block_timer;
+    RuntimeProfile::Counter* _get_block_counter;
     RuntimeProfile::Counter* _sink_timer;
     RuntimeProfile::Counter* _finalize_timer;
     RuntimeProfile::Counter* _close_timer;

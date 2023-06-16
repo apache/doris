@@ -98,6 +98,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+        order_qt_information_schema """ show tables from information_schema; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
