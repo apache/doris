@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
 import org.apache.doris.nereids.trees.expressions.ListQuery;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -240,5 +241,26 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
         return new InSubquery(newCompareExpr, (ListQuery) afterTypeCoercion.right(),
             inSubquery.getCorrelateSlots(), ((ListQuery) afterTypeCoercion.right()).getTypeCoercionExpr(),
             inSubquery.isNot());
+    }
+
+    @Override
+    public Expression visitMatch(Match match, ExpressionRewriteContext context) {
+        Expression left = match.left().accept(this, context);
+        Expression right = match.right().accept(this, context);
+        // check child type
+        if (!left.getDataType().isStringLikeType()) {
+            throw new AnalysisException(String.format(
+                    "left operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
+                            + "returns type '%s'.",
+                    left.toSql(), match.toSql(), left.getDataType()));
+        }
+
+        if (!right.getDataType().isStringLikeType() && !right.getDataType().isNullType()) {
+            throw new AnalysisException(String.format(
+                    "right operand '%s' part of predicate " + "'%s' should return type 'STRING' but "
+                            + "returns type '%s'.",
+                    right.toSql(), match.toSql(), right.getDataType()));
+        }
+        return match.withChildren(left, right);
     }
 }
