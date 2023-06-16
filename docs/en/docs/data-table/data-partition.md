@@ -139,7 +139,7 @@ A few suggested rules for defining columns include:
 
 ### Partitioning and Bucketing
 
-Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), which only supports hash partitioning.
+Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), including hash and random partitioning.
 
 It is also possible to use one layer of data partitioning, If you do not write the partition statement when creating the table, Doris will generate a default partition at this time, which is transparent to the user. In this case, it only supports data bucketing.
 
@@ -232,26 +232,26 @@ It is also possible to use one layer of data partitioning, If you do not write t
 
     In the above example, we specify `date` (DATE type) and `id` (INT type) as the partitioning columns, so the resulting partitions will be as follows:
 
-    ```
-   *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
-   *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
-   *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
+    ``` text
+        *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
+        *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
+        *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
     ```
 
    Note that in the last partition, the user only specifies the partition value of the `date` column, so the system fills in `MIN_VALUE` as the partition value of the `id` column by default. When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
 
-    ```
-   * Data --> Partition
-   * 2017-01-01, 200   --> p201701_1000
-   * 2017-01-01, 2000  --> p201701_1000
-   * 2017-02-01, 100   --> p201701_1000
-   * 2017-02-01, 2000  --> p201702_2000
-   * 2017-02-15, 5000  --> p201702_2000
-   * 2017-03-01, 2000  --> p201703_all
-   * 2017-03-10, 1     --> p201703_all
-   * 2017-04-01, 1000  --> Unable to import
-   * 2017-05-01, 1000  --> Unable to import
-    ```
+    ``` text
+       * Data --> Partition
+       * 2017-01-01, 200   --> p201701_1000
+       * 2017-01-01, 2000  --> p201701_1000
+       * 2017-02-01, 100   --> p201701_1000
+       * 2017-02-01, 2000  --> p201702_2000
+       * 2017-02-15, 5000  --> p201702_2000
+       * 2017-03-01, 2000  --> p201703_all
+       * 2017-03-10, 1     --> p201703_all
+       * 2017-04-01, 1000  --> Unable to import
+       * 2017-05-01, 1000  --> Unable to import
+       ```
 
 <version since="1.2.0">
     
