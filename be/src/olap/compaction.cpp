@@ -616,10 +616,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // 7-7 doesn't have delete bitmap.
         // 8-8 has committed, so we want 7-7 delete bitmap version is 8(dummy).
         // This part is to calculate 7-7's delete bitmap.
-
+        const ;
         // get pre_rowset_ids
         // get cur_rowset_ids
+        const uint64_t cur_version = _tablet->max_version().second;
         // get rowset_to_add and rowset_to_delete
+
         // delete all delete bitmaps in rowset_to_delete
         // every commited rowset should add new version delete bitmap to rowset_to_add
 
