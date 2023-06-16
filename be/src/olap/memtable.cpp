@@ -459,9 +459,19 @@ Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
         SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
         return Status::OK();
     }
+
+    OlapStopWatch watch;
     RETURN_IF_ERROR(_tablet->calc_delete_bitmap(rowset, segments, &_mow_context->rowset_ids,
                                                 _mow_context->delete_bitmap,
                                                 _mow_context->max_version));
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << tablet_id()
+              << ", rowset_ids: " << _mow_context->rowset_ids.size()
+              << ", cur max_version: " << _mow_context->max_version
+              << ", transaction_id: " << _mow_context->txn_id
+              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows" << total_rows;
     return Status::OK();
 }
 
