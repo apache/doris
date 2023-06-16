@@ -516,8 +516,9 @@ public class Column implements Writable, GsonPostProcessable {
         tColumn.setColUniqueId(uniqueId);
 
         if (type.isAggStateType()) {
-            tColumn.setAggregation(genericAggregationName);
-            tColumn.setResultIsNullable(((AggStateType) type).getResultIsNullable());
+            AggStateType aggState = (AggStateType) type;
+            tColumn.setAggregation(aggState.getFunctionName());
+            tColumn.setResultIsNullable(aggState.getResultIsNullable());
             for (Column column : children) {
                 tColumn.addToChildrenColumn(column.toThrift());
             }
