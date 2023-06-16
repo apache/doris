@@ -251,7 +251,8 @@ It is also possible to use one layer of data partitioning, If you do not write t
        * 2017-03-10, 1     --> p201703_all
        * 2017-04-01, 1000  --> Unable to import
        * 2017-05-01, 1000  --> Unable to import
-       ```
+    ```
+
 
 <version since="1.2.0">
     
@@ -275,7 +276,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * As in the `example_list_tbl` example above, when the table is created, the following three partitions are automatically created.
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -284,7 +285,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * If we add Partition p_uk VALUES IN ("London"), the results will be as follows:
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -293,7 +294,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * Now we delete Partition p_jp, the results will be as follows:
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_uk: ("London")
@@ -301,7 +302,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   List partitioning also supports **multi-column partitioning**. Examples are as follows:
 
-  ```
+  ```text
   PARTITION BY LIST(`id`, `city`)
   (
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
@@ -312,14 +313,14 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns, so the resulting partitions will be as follows:
 
-  ```
-  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
-  * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
-  * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+  ```text
+    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```
 
   When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
-  ```
+  ```text
   Data ---> Partition
   1, Beijing  ---> p1_city
   1, Shanghai ---> p1_city
