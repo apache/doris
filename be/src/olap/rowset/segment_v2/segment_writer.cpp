@@ -366,9 +366,13 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
     std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
-    // locate rows in base data
+    std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
+        specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+    }
+    // locate rows in base data
+    {
         for (size_t pos = row_pos; pos < num_rows; pos++) {
             std::string key = _full_encode_keys(key_columns, pos);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
@@ -377,7 +381,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             RowLocation loc;
             // save rowset shared ptr so this rowset wouldn't delete
             RowsetSharedPtr rowset;
-            auto st = _tablet->lookup_row_key(key, false, &_mow_context->rowset_ids, &loc,
+            auto st = _tablet->lookup_row_key(key, false, specified_rowsets, &loc,
                                               _mow_context->max_version, segment_caches, &rowset);
             if (st.is<NOT_FOUND>()) {
                 if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
