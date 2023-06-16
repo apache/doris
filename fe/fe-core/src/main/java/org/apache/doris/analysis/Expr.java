@@ -2519,5 +2519,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return false;
     }
+
+    public void replaceSlot(TupleDescriptor tuple) {
+        for (Expr expr : getChildren()) {
+            expr.replaceSlot(tuple);
+        }
+    }
 }
 

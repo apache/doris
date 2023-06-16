@@ -52,6 +52,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
+#include "segment_loader.h"
 #include "util/metrics.h"
 #include "util/once.h"
 #include "util/slice.h"
@@ -399,9 +400,11 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
-                          const RowsetIdUnorderedSet* rowset_ids, RowLocation* row_location,
-                          uint32_t version, RowsetSharedPtr* rowset = nullptr);
+    Status lookup_row_key(
+            const Slice& encoded_key, bool with_seq_col, const RowsetIdUnorderedSet* rowset_ids,
+            RowLocation* row_location, uint32_t version,
+            std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId>& segment_caches,
+            RowsetSharedPtr* rowset = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -429,6 +432,11 @@ public:
                               const RowsetIdUnorderedSet* specified_rowset_ids,
                               DeleteBitmapPtr delete_bitmap, int64_t version,
                               RowsetWriter* rowset_writer = nullptr);
+    Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
+                                      const segment_v2::SegmentSharedPtr& seg,
+                                      const RowsetIdUnorderedSet* specified_rowset_ids,
+                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
+                                      RowsetWriter* rowset_writer);
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
@@ -496,6 +504,7 @@ public:
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
+    void gc_binlogs(int64_t version);
 
     inline void increase_io_error_times() { ++_io_error_times; }
 
