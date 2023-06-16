@@ -128,6 +128,8 @@ public:
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
+    std::shared_ptr<RowsetWriter>& get_rowset_writer() {return _rowset_writer;}
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);
@@ -154,7 +156,7 @@ private:
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
-    std::unique_ptr<RowsetWriter> _rowset_writer;
+    std::shared_ptr<RowsetWriter> _rowset_writer;
     // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
     std::unique_ptr<MemTable> _mem_table;
     //const TabletSchema* _tablet_schema;

@@ -724,6 +724,20 @@ void TxnManager::add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tab
     txn_tablet_delta_writer_map[transaction_id][tablet_id] = delta_writer;
 }
 
+    DeltaWriter* TxnManager::get_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id) {
+        std::lock_guard<std::shared_mutex> txn_wrlock(
+                _get_txn_tablet_delta_writer_map_lock(transaction_id));
+        txn_tablet_delta_writer_map_t& txn_tablet_delta_writer_map =
+                _get_txn_tablet_delta_writer_map(transaction_id);
+        auto find = txn_tablet_delta_writer_map.find(transaction_id);
+        if (find != txn_tablet_delta_writer_map.end()) {
+            auto it = find->second.find(tablet_id);
+            if(it !=find->second.end()){
+                return it->second;
+            }
+        }
+    }
+
 void TxnManager::finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id,
                                                  int64_t node_id, bool is_succeed) {
     std::lock_guard<std::shared_mutex> txn_wrlock(

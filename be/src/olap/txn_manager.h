@@ -185,6 +185,7 @@ public:
 
     void add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id,
                                      DeltaWriter* delta_writer);
+    DeltaWriter* get_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id);
     void clear_txn_tablet_delta_writer(int64_t transaction_id);
     void finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id, int64_t node_id,
                                          bool is_succeed);

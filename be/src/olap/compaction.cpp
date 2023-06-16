@@ -49,6 +49,7 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "olap/delta_writer.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
@@ -617,10 +618,10 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // 7-7 doesn't have delete bitmap.
         // 8-8 has committed, so we want 7-7 delete bitmap version is 8(dummy).
         // This part is to calculate 7-7's delete bitmap.
-
         int64_t cur_max_version = _tablet->max_version().second;
         for (const auto &it:txn_tablet_map) {
             for(const auto &tablet_load_it:it.second){
+                DeltaWriter* delta_writer =StorageEngine::instance()->txn_manager()->get_txn_tablet_delta_writer(it.first.second, _tablet->tablet_id()) ;
                 const TabletInfo& tablet_info = tablet_load_it.first;
                 const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
                 auto beta_rowset = reinterpret_cast<BetaRowset*>(tablet_txn_info.rowset.get());
@@ -628,7 +629,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
                 RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
                         tablet_txn_info.rowset, tablet_txn_info.rowset_ids, tablet_txn_info.delete_bitmap, cur_max_version,
-                        segments, _rowset_writer.get()));
+                        segments, delta_writer->get_rowset_writer().get()));
                 StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                         it.first.first, it.first.second, _tablet->tablet_id(), _tablet->schema_hash(),
                         _tablet->tablet_uid(), true, tablet_txn_info.delete_bitmap, _tablet->all_rs_id(cur_max_version));
