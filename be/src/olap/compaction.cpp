@@ -599,9 +599,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of publish phase.
         // All rowsets which need to recalculate have been published so we don't need to acquire lock.
         // Step1: collect this tablet's all committed rowsets' delete bitmaps
-        std::map<TabletInfo,TabletTxnInfo> tablet_info_map {};
+        TxnManager::txn_tablet_map_t txn_tablet_map{};
         StorageEngine::instance()->txn_manager()->get_all_tablet_txn_infos_by_tablet(
-                _tablet, tablet_info_map);
+                _tablet, txn_tablet_map);
 
         // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
         // e.g. before compaction:
@@ -619,18 +619,20 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // This part is to calculate 7-7's delete bitmap.
 
         int64_t cur_max_version = _tablet->max_version().second;
-        for (const auto &it:tablet_info_map) {
-            const TabletInfo& tablet_info = it.first;
-            const TabletTxnInfo& tablet_txn_info = it.second;
-            auto beta_rowset = reinterpret_cast<BetaRowset*>(tablet_txn_info.rowset.get());
-            std::vector<segment_v2::SegmentSharedPtr> segments;
-            RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
-            RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                    tablet_txn_info.rowset, tablet_txn_info.rowset_ids, tablet_txn_info.delete_bitmap, cur_max_version,
-                    segments, _rowset_writer.get()));
-            StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
-                    tablet_info.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
-                    _tablet->tablet_uid(), true, it.delete_bitmap, _tablet->all_rs_id(cur_max_version));
+        for (const auto &it:txn_tablet_map) {
+            for(const auto &tablet_load_it:it.second){
+                const TabletInfo& tablet_info = tablet_load_it.first;
+                const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
+                auto beta_rowset = reinterpret_cast<BetaRowset*>(tablet_txn_info.rowset.get());
+                std::vector<segment_v2::SegmentSharedPtr> segments;
+                RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+                RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
+                        tablet_txn_info.rowset, tablet_txn_info.rowset_ids, tablet_txn_info.delete_bitmap, cur_max_version,
+                        segments, _rowset_writer.get()));
+                StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                        it.first.first, it.first.second, _tablet->tablet_id(), _tablet->schema_hash(),
+                        _tablet->tablet_uid(), true, tablet_txn_info.delete_bitmap, _tablet->all_rs_id(cur_max_version));
+            }
         }
 
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
