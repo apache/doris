@@ -139,9 +139,6 @@ public class DeleteStmt extends DdlStmt {
             } else if (column.getName().equalsIgnoreCase(Column.SEQUENCE_COL)) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(),
                         ((OlapTable) targetTable).getSequenceMapCol());
-                selectListItems.add(new SelectListItem(expr, null));
-                cols.add(Column.SEQUENCE_COL);
-                continue;
             } else if (column.isKey()) {
                 expr = new SlotRef(targetTableRef.getAliasAsName(), column.getName());
             } else if (!isMow && !column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue())) {
@@ -177,10 +174,12 @@ public class DeleteStmt extends DdlStmt {
                 LimitElement.NO_LIMIT
         );
         boolean isPartialUpdate = false;
+        /*
         if (((OlapTable) targetTable).getEnableUniqueKeyMergeOnWrite()
                 && cols.size() < targetTable.getColumns().size()) {
             isPartialUpdate = true;
         }
+        */
 
         insertStmt = new NativeInsertStmt(
                 new InsertTarget(tableName, null),
