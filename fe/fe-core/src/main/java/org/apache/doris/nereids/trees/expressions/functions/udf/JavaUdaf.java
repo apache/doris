@@ -154,7 +154,7 @@ public class JavaUdaf extends AggregateFunction implements ExplicitlyCastableSig
                 aggregate.getFinalizeFnSymbol(),
                 aggregate.getGetValueFnSymbol(),
                 aggregate.getRemoveFnSymbol(),
-                !aggregate.ignoresDistinct(),
+                false,
                 aggregate.getChecksum(),
                 virtualSlots);
 
