@@ -471,7 +471,7 @@ Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
               << ", rowset_ids: " << _mow_context->rowset_ids.size()
               << ", cur max_version: " << _mow_context->max_version
               << ", transaction_id: " << _mow_context->txn_id
-              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows" << total_rows;
+              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
 }
 
