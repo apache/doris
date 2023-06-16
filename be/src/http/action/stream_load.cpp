@@ -180,6 +180,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
+    LOG(INFO) << "http reply req " << req->debug_string() << " res " << str;
 #ifndef BE_TEST
     if (config::enable_stream_load_record) {
         str = ctx->prepare_stream_load_record(str);

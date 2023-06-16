@@ -62,6 +62,7 @@ static void on_chunked(struct evhttp_request* ev_req, void* param) {
 static void on_close(evhttp_connection* con, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
     {
+        LOG(INFO) << "close connection "<< (void*)con;
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         auto itr = g_conn_req_map.find(con);
         if (itr != g_conn_req_map.end()) {
@@ -71,6 +72,7 @@ static void on_close(evhttp_connection* con, void* arg) {
                                  << " current HttpRequest=" << request
                                  << " but orginal HttpRequest=" << itr->second;
                 }
+                LOG(INFO) << "close connection "<< (void*)con << " req " << itr->second->debug_string();
                 delete itr->second;
             }
             g_conn_req_map.erase(con);
@@ -81,6 +83,8 @@ static void on_close(evhttp_connection* con, void* arg) {
 static void on_free(struct evhttp_request* ev_req, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
     {
+        LOG(INFO) << "free request "<< (void*)arg << " conn " << ev_req->evcon
+                  << " req " << request->debug_string();
         std::lock_guard<std::mutex> l(g_conn_req_map_lock);
         auto itr = g_conn_req_map.find(ev_req->evcon);
         if (itr != g_conn_req_map.end()) {
@@ -95,6 +99,10 @@ static void on_free(struct evhttp_request* ev_req, void* arg) {
             g_conn_req_map.erase(ev_req->evcon);
         }
     }
+}
+
+static void on_error(evhttp_request_error error, void*) {
+    LOG(INFO) << "http fail, error " << error;
 }
 
 static void on_request(struct evhttp_request* ev_req, void* arg) {
@@ -308,6 +316,7 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
 
     struct evhttp_connection* httpcon = evhttp_request_get_connection(ev_req);
     evhttp_connection_set_closecb(httpcon, on_close, request.get());
+    evhttp_request_set_error_cb(ev_req, on_error);
     evhttp_request_set_on_free_cb(ev_req, on_free, request.release());
     struct bufferevent* bufev = evhttp_connection_get_bufferevent(httpcon);
     if (bufev) bufferevent_enable(bufev, EV_READ);
