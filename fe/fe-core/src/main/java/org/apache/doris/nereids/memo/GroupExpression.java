@@ -168,6 +168,10 @@ public class GroupExpression {
         toGroupExpression.ruleMasks.or(ruleMasks);
     }
 
+    public void clearApplied() {
+        ruleMasks.clear();
+    }
+
     public boolean isStatDerived() {
         return statDerived;
     }
