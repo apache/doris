@@ -567,6 +567,7 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
+    std::shared_lock meta_rlock(_tablet->get_header_lock());
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
@@ -616,22 +617,18 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // 7-7 doesn't have delete bitmap.
         // 8-8 has committed, so we want 7-7 delete bitmap version is 8(dummy).
         // This part is to calculate 7-7's delete bitmap.
-        // get pre_rowset_ids
-        const uint64_t pre_version = 0;
-        // get cur_rowset_ids
-        const uint64_t cur_version = version.second;
-        // get rowset_to_add and rowset_to_delete
 
-        // delete all delete bitmaps in rowset_to_delete
-        // every commited rowset should add new version delete bitmap to rowset_to_add
-
+        int64_t cur_max_version = _tablet->max_version().second;
         for (const auto &it:tablet_txn_infos) {
             auto beta_rowset = reinterpret_cast<BetaRowset*>(it.rowset.get());
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
             RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                    it.rowset, it.rowset_ids, it.delete_bitmap, _tablet->max_version().second,
+                    it.rowset, it.rowset_ids, it.delete_bitmap, cur_max_version,
                     segments, _rowset_writer.get()));
+            StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                    _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
+                    _tablet->tablet_uid(), true, it.delete_bitmap, _tablet->all_rs_id(cur_max_version));
         }
 
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
