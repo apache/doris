@@ -625,12 +625,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // delete all delete bitmaps in rowset_to_delete
         // every commited rowset should add new version delete bitmap to rowset_to_add
 
-        for (;;) {
-            auto beta_rowset = reinterpret_cast<BetaRowset*>(_rowset.get());
+        for (const auto &it:tablet_txn_infos) {
+            auto beta_rowset = reinterpret_cast<BetaRowset*>(it.rowset.get());
             std::vector<segment_v2::SegmentSharedPtr> segments;
             RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
             RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                    _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second,
+                    it.rowset, it.rowset_ids, it.delete_bitmap, _tablet->max_version().second,
                     segments, _rowset_writer.get()));
         }
 
