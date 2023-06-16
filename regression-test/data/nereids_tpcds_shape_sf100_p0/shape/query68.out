@@ -10,8 +10,9 @@ PhysicalTopN
 ----------PhysicalDistribute
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](dn.ss_customer_sk = customer.c_customer_sk)
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashAgg[LOCAL]
