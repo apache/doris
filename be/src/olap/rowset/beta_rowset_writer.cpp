@@ -493,6 +493,8 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
     RETURN_IF_ERROR(_create_segment_writer(&writer, ctx));
     int32_t segment_id = writer->get_segment_id();
     RETURN_IF_ERROR(_add_block(block, &writer, ctx));
+    // check the entire memtable should be flushed into a single segment
+    DCHECK_EQ(writer->get_segment_id(), segment_id);
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
     if (ctx != nullptr && ctx->generate_delete_bitmap) {
         RETURN_IF_ERROR(ctx->generate_delete_bitmap(segment_id));
