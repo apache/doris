@@ -47,6 +47,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
+import org.apache.doris.planner.JdbcTableSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -393,6 +394,9 @@ public class NativeInsertStmt extends InsertStmt {
 
         // check columns of target table
         for (Column col : baseColumns) {
+            if (col.isAutoInc()) {
+                continue;
+            }
             if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
                 continue;
             }
@@ -739,6 +743,9 @@ public class NativeInsertStmt extends InsertStmt {
             }
             if (exprByName.containsKey(col.getName())) {
                 resultExprByName.add(Pair.of(col.getName(), exprByName.get(col.getName())));
+            } else if (targetTable.getType().equals(TableIf.TableType.JDBC_EXTERNAL_TABLE)) {
+                // For JdbcTable,we do not need to generate plans for columns that are not specified at write time
+                continue;
             } else {
                 // process sequence col, map sequence column to other column
                 if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()
@@ -790,6 +797,15 @@ public class NativeInsertStmt extends InsertStmt {
                     table.getLineDelimiter(),
                     brokerDesc);
             dataPartition = dataSink.getOutputPartition();
+        } else if (targetTable instanceof JdbcTable) {
+            //for JdbcTable,we need to pass the currently written column to `JdbcTableSink`
+            //to generate the prepare insert statment
+            List<String> insertCols = Lists.newArrayList();
+            for (Column column : targetColumns) {
+                insertCols.add(column.getName());
+            }
+            dataSink = new JdbcTableSink((JdbcTable) targetTable, insertCols);
+            dataPartition = DataPartition.UNPARTITIONED;
         } else {
             dataSink = DataSink.createDataSink(targetTable);
             dataPartition = DataPartition.UNPARTITIONED;

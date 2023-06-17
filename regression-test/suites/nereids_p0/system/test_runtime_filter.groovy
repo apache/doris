@@ -18,7 +18,7 @@
 suite("test_runtime_filter", "query,p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql("use test_query_db")
+    sql("use nereids_test_query_db")
     sql("set runtime_filter_type=2")
     sql("set runtime_filter_mode='GLOBAL'")
     qt_runtime_filter "SELECT DISTINCT k5 FROM baseall where k7 <> 'wang' AND k5 in (SELECT k5 FROM test WHERE k3 < 0) ORDER BY k5"
