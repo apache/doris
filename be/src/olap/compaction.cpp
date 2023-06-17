@@ -634,7 +634,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
                 RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
                         tablet_txn_info.rowset, tablet_txn_info.rowset_ids,
-                        tablet_txn_info.delete_bitmap, cur_max_version, segments,
+                        tablet_txn_info.delete_bitmap, cur_max_version, segments, it.first.second,
                         delta_writer->get_rowset_writer()));
                 // Step3: write back updated delete bitmap and tablet info.
                 StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
