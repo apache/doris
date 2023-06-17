@@ -477,7 +477,8 @@ public:
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
             std::set<RowLocation>* missed_rows,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-            DeleteBitmap* output_rowset_delete_bitmap);
+            DeleteBitmap* output_rowset_delete_bitmap,
+            const DeleteBitmap& commit_rowset_delete_bitmap);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     Status check_rowid_conversion(
             RowsetSharedPtr dst_rowset,

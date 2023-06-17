@@ -568,6 +568,7 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
+    DeleteBitmap commit_rowset_delete_bitmap(_tablet->tablet_id());
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
@@ -581,7 +582,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of incremental data later.
         _tablet->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, &output_rowset_delete_bitmap);
+                &location_map, &output_rowset_delete_bitmap, commit_rowset_delete_bitmap);
         std::size_t missed_rows_size = missed_rows.size();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             if (stats != nullptr && stats->merged_rows != missed_rows_size) {
@@ -627,6 +628,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     continue;
                 }
                 const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
+                commit_rowset_delete_bitmap.merge(*tablet_txn_info.delete_bitmap);
                 auto beta_rowset = reinterpret_cast<BetaRowset*>(tablet_txn_info.rowset.get());
                 std::vector<segment_v2::SegmentSharedPtr> segments;
                 RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
@@ -654,7 +656,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // incremental data.
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
-                    &location_map, &output_rowset_delete_bitmap);
+                    &location_map, &output_rowset_delete_bitmap, commit_rowset_delete_bitmap);
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 DCHECK_EQ(missed_rows.size(), missed_rows_size);
                 if (missed_rows.size() != missed_rows_size) {

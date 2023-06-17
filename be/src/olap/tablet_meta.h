@@ -350,6 +350,11 @@ public:
     void remove(const BitmapKey& lower_key, const BitmapKey& upper_key);
 
     /**
+     * checks if delete bimap is empty
+     */
+    bool empty() const;
+
+    /**
      * Checks if the given row is marked deleted
      *
      * @return true if marked deleted

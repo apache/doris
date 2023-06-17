@@ -3308,7 +3308,8 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
         uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-        DeleteBitmap* output_rowset_delete_bitmap) {
+        DeleteBitmap* output_rowset_delete_bitmap,
+        const DeleteBitmap& commit_rowset_delete_bitmap) {
     RowLocation src;
     RowLocation dst;
     for (auto& rowset : input_rowsets) {
@@ -3319,6 +3320,9 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             _tablet_meta->delete_bitmap().subset({rowset->rowset_id(), seg_id, start_version},
                                                  {rowset->rowset_id(), seg_id, end_version},
                                                  &subset_map);
+            if (!commit_rowset_delete_bitmap.empty()) {
+                subset_map.merge(commit_rowset_delete_bitmap);
+            }
             // traverse all versions and convert rowid
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {
