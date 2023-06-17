@@ -185,7 +185,7 @@ private:
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
     std::unique_ptr<Arena> _arena;
-    static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
+    static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16l * 1024l * 1024l * 1024l; // 16M
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
