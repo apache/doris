@@ -41,5 +41,5 @@ suite("test_snappy", "p1") {
 
     sql "sync"
     def count = sql "select count(*) from ${tableName} limit 10"
-    assertEquals(82845, test_count[0][0])
+    assertEquals(82845, count[0][0])
 }
