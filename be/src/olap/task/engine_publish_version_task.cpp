@@ -57,7 +57,7 @@ void TabletPublishStatistics::record_in_bvar() {
     g_tablet_publish_schedule_latency << schedule_time_us;
     g_tablet_publish_lock_wait_latency << lock_wait_time_us;
     g_tablet_publish_save_meta_latency << save_meta_time_us;
-    g_tablet_publish_partial_update_latency << calc_delete_bitmap_time_us;
+    g_tablet_publish_delete_bitmap_latency << calc_delete_bitmap_time_us;
     g_tablet_publish_partial_update_latency << partial_update_write_segment_us;
     g_tablet_publish_add_inc_latency << add_inc_rowset_us;
 }
