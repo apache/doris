@@ -615,7 +615,9 @@ public class SingleNodePlanner {
             List<SlotId> conjunctSlotIds = Lists.newArrayList();
             if (allConjuncts != null) {
                 for (Expr conjunct : allConjuncts) {
-                    conjunct.getIds(null, conjunctSlotIds);
+                    if (!conjunct.isAuxExpr()) {
+                        conjunct.getIds(null, conjunctSlotIds);
+                    }
                 }
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
@@ -1330,11 +1332,10 @@ public class SingleNodePlanner {
         return root;
     }
 
-    public boolean selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer)
-            throws UserException, MVSelectFailedException {
+    public boolean selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer) throws UserException {
         boolean selectFailed = false;
         boolean haveError = false;
-        String errorMsg = "select fail reason: ";
+        StringBuilder errorMsg = new StringBuilder("select fail reason: ");
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
@@ -1388,9 +1389,9 @@ public class SingleNodePlanner {
                         }
                     } catch (Exception e) {
                         if (haveError) {
-                            errorMsg += ",";
+                            errorMsg.append(",");
                         }
-                        errorMsg += e.getMessage();
+                        errorMsg.append(e.getMessage());
                         haveError = true;
                         tupleSelectFailed = true;
                     }
@@ -1409,7 +1410,7 @@ public class SingleNodePlanner {
             }
         }
         if (haveError) {
-            throw new MVSelectFailedException(errorMsg);
+            throw new MVSelectFailedException(errorMsg.toString());
         }
         return selectFailed;
     }
