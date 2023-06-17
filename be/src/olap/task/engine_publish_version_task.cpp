@@ -44,6 +44,8 @@ using namespace ErrorCode;
 
 using std::map;
 
+static bvar::LatencyRecorder g_tablet_publish_latency("doris_pk", "tablet_publish");
+
 EnginePublishVersionTask::EnginePublishVersionTask(
         const TPublishVersionRequest& publish_version_req, std::vector<TTabletId>* error_tablet_ids,
         std::vector<TTabletId>* succ_tablet_ids)
@@ -255,6 +257,7 @@ void TabletPublishTxnTask::handle() {
     _engine_publish_version_task->add_succ_tablet_id(_tablet_info.tablet_id);
     int64_t cost_us = MonotonicMicros() - _stats.submit_time_us;
     // print stats if publish cost > 500ms
+    g_tablet_publish_latency << cost_us;
     LOG(INFO) << "publish version successfully on tablet"
               << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
               << ", transaction_id=" << _transaction_id << ", version=" << _version.first

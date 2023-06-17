@@ -96,6 +96,8 @@ std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
 
+static bvar::LatencyRecorder g_publish_task_latency("doris_pk", "publish_task");
+
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
         : _master_info(master_info),
@@ -1440,6 +1442,8 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
+
+        SCOPED_BVAR_LATENCY(g_tablet_publish_latency);
         const TPublishVersionRequest& publish_version_req = agent_task_req.publish_version_req;
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task. signature=" << agent_task_req.signature;
