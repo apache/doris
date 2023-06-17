@@ -1469,7 +1469,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
-                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done"
+                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
                                        << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
@@ -1521,7 +1521,8 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             LOG_INFO("successfully publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("tablets_num", succ_tablet_ids.size());
+                    .tag("tablets_num", succ_tablet_ids.size())
+                    .tag("cost(s)", time(nullptr) - agent_task_req.recv_time);
         }
 
         status.to_thrift(&finish_task_request.task_status);
