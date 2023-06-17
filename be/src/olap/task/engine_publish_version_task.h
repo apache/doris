@@ -55,6 +55,8 @@ struct TabletPublishStatistics {
                 schedule_time_us, lock_wait_time_us, save_meta_time_us, calc_delete_bitmap_time_us,
                 partial_update_write_segment_us, add_inc_rowset_us);
     }
+
+    void record_in_bvar();
 };
 
 class TabletPublishTxnTask {
