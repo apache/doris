@@ -568,7 +568,6 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    std::shared_lock meta_rlock(_tablet->get_header_lock());
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
