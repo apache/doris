@@ -644,6 +644,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             }
         }
 
+        // Step4: calculate all commited and published version for this compacted rowset's delete bitmap.
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
 
