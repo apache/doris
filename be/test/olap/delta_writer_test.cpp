@@ -727,10 +727,10 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     std::cout << "start to publish txn" << std::endl;
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
-    TabletPublishStatistics stats;
+    TabletPublishStatistics pstats;
     res = k_engine->txn_manager()->publish_txn(
             meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version, &stats);
+            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
     ASSERT_TRUE(res.ok());
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
