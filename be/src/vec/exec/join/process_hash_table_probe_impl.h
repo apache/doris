@@ -1036,7 +1036,8 @@ void ProcessHashTableProbe<JoinOpType>::_process_splited_equal_matched_tuples(
             *visited_map[i] |= other_hit;
         }
     }
-    _join_node->_is_any_probe_match_row_output |= simd::contain_byte(filter_map, row_count, 1);
+    _join_node->_is_any_probe_match_row_output |=
+            simd::contain_byte(filter_map + start_row_idx, row_count, 1);
 }
 
 template <int JoinOpType>
