@@ -280,7 +280,7 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
     try {
         expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
-        return Status::Error(e.code(), e.to_string());
+        return e.to_status();
     }
 
     return Status::OK();
@@ -1019,26 +1019,6 @@ public:
 
     PrimitiveType column_type() { return _column_return_type; }
 
-    void ready_for_publish() {
-        if (_filter_type == RuntimeFilterType::MINMAX_FILTER) {
-            switch (_column_return_type) {
-            case TYPE_VARCHAR:
-            case TYPE_CHAR:
-            case TYPE_STRING: {
-                StringRef* min_value = static_cast<StringRef*>(_context.minmax_func->get_min());
-                StringRef* max_value = static_cast<StringRef*>(_context.minmax_func->get_max());
-                auto min_val_ptr = _pool->add(new std::string(min_value->data));
-                auto max_val_ptr = _pool->add(new std::string(max_value->data));
-                StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
-                StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
-                _context.minmax_func->assign(&min_val, &max_val);
-            }
-            default:
-                break;
-            }
-        }
-    }
-
     bool is_bloomfilter() const { return _is_bloomfilter; }
 
     bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
@@ -1125,6 +1105,12 @@ Status IRuntimeFilter::copy_from_shared_context(vectorized::SharedRuntimeFilterC
     return Status::OK();
 }
 
+void IRuntimeFilter::copy_from_other(IRuntimeFilter* other) {
+    _wrapper->_filter_type = other->_wrapper->_filter_type;
+    _wrapper->_is_bloomfilter = other->is_bloomfilter();
+    _wrapper->_context = other->_wrapper->_context;
+}
+
 void IRuntimeFilter::insert(const void* data) {
     DCHECK(is_producer());
     if (!_is_ignored) {
@@ -1146,15 +1132,14 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column,
 Status IRuntimeFilter::publish() {
     DCHECK(is_producer());
     if (_has_local_target) {
-        IRuntimeFilter* consumer_filter = nullptr;
-        // TODO: log if err
-        DCHECK(_state != nullptr);
-        RETURN_IF_ERROR(
-                _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter));
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filters(_filter_id, filters));
         // push down
-        consumer_filter->_wrapper = _wrapper;
-        consumer_filter->update_runtime_filter_type_to_profile();
-        consumer_filter->signal();
+        for (auto filter : filters) {
+            filter->_wrapper = _wrapper;
+            filter->update_runtime_filter_type_to_profile();
+            filter->signal();
+        }
         return Status::OK();
     } else {
         TNetworkAddress addr;
@@ -1162,11 +1147,6 @@ Status IRuntimeFilter::publish() {
         RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_merge_addr(&addr));
         return push_to_remote(_state, &addr, _opt_remote_rf);
     }
-}
-
-void IRuntimeFilter::publish_finally() {
-    DCHECK(is_producer());
-    join_rpc();
 }
 
 Status IRuntimeFilter::get_push_expr_ctxs(std::vector<vectorized::VExprSPtr>* push_exprs) {
@@ -1531,10 +1511,6 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
     }
 }
 
-void IRuntimeFilter::ready_for_publish() {
-    _wrapper->ready_for_publish();
-}
-
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     if (!_is_ignored && wrapper->is_ignored_in_filter()) {
         set_ignored();
@@ -1875,11 +1851,6 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
     _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
     _profile->add_info_string("UpdateTime",
                               std::to_string(MonotonicMillis() - start_apply) + " ms");
-    return Status::OK();
-}
-
-Status IRuntimeFilter::consumer_close() {
-    DCHECK(is_consumer());
     return Status::OK();
 }
 

@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -50,6 +51,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -147,9 +149,8 @@ class NewHttpClosure : public ::google::protobuf::Closure {
 public:
     NewHttpClosure(google::protobuf::Closure* done) : _done(done) {}
     NewHttpClosure(T* request, google::protobuf::Closure* done) : _request(request), _done(done) {}
-    ~NewHttpClosure() {}
 
-    void Run() {
+    void Run() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (_request != nullptr) {
             delete _request;
@@ -285,8 +286,10 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     try {
         st = _exec_plan_fragment(request->request(), version, compact);
-    } catch (const doris::Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
+    } catch (const Exception& e) {
+        st = e.to_status();
+    } catch (...) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR);
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
@@ -577,8 +580,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<std::string> column_names;
-            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {

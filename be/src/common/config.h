@@ -185,6 +185,8 @@ DECLARE_Int32(push_worker_count_high_priority);
 DECLARE_Int32(publish_version_worker_count);
 // the count of tablet thread to publish version
 DECLARE_Int32(tablet_publish_txn_max_thread);
+// the count of thread to calc delete bitmap
+DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
@@ -457,7 +459,7 @@ DECLARE_String(ssl_certificate_path);
 // Path of private key
 DECLARE_String(ssl_private_key_path);
 // Whether to check authorization
-DECLARE_Bool(enable_http_auth);
+DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 // Period to update rate counters and sampling counters in ms.
@@ -768,10 +770,6 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
-// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
-// else we will call sync method
-DECLARE_mBool(runtime_filter_use_async_rpc);
-
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -1008,6 +1006,17 @@ DECLARE_Int32(num_broadcast_buffer);
 // semi-structure configs
 DECLARE_Bool(enable_parse_multi_dimession_array);
 
+// Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
+// In the case of time series compaction, the execution of compaction is adjusted
+// using parameters that have the prefix time_series_compaction.
+DECLARE_mString(compaction_policy);
+// the size of input files for each compaction
+DECLARE_mInt64(time_series_compaction_goal_size_mbytes);
+// the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
+DECLARE_mInt64(time_series_compaction_file_count_threshold);
+// if compaction has not been performed within 3600 seconds, a compaction will be triggered
+DECLARE_mInt64(time_series_compaction_time_threshold_seconds);
+
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
 
@@ -1037,6 +1046,11 @@ DECLARE_Bool(enable_feature_binlog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
+
+// max number of hdfs file handle in cache
+DECLARE_Int64(max_hdfs_file_handle_cache_num);
+// max number of meta info of external files, such as parquet footer
+DECLARE_Int64(max_external_file_meta_cache_num);
 
 #ifdef BE_TEST
 // test s3

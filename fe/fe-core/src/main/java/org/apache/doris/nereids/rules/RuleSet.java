@@ -67,27 +67,27 @@ import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysica
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
-import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
-import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasIntoUnionAll;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTE;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughCTEAnchor;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughRepeat;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSetOperation;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughSort;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughWindow;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownJoinOtherCondition;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughCTE;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughCTEAnchor;
-import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
+import org.apache.doris.nereids.rules.rewrite.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
+import org.apache.doris.nereids.rules.rewrite.MergeLimits;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.PushdownAliasIntoUnionAll;
+import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughCTE;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughCTEAnchor;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughRepeat;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSetOperation;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSort;
+import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushdownJoinOtherCondition;
+import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughCTE;
+import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughCTEAnchor;
+import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -98,6 +98,7 @@ import java.util.List;
  * Containers for set of different type rules.
  */
 public class RuleSet {
+
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
             .add(new MergeProjectsCBO())
             .build();
@@ -201,7 +202,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .add(JoinCommute.NON_INNER.build())
+            .add(JoinCommute.BUSHY.build())
             .addAll(OTHER_REORDER_RULES)
             .build();
 

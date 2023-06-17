@@ -1029,6 +1029,17 @@ struct TRestoreSnapshotResult {
     1: optional Status.TStatus status
 }
 
+struct TGetMasterTokenRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string password
+}
+
+struct TGetMasterTokenResult {
+    1: optional Status.TStatus status
+    2: optional string token
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1089,4 +1100,6 @@ service FrontendService {
     TQueryStatsResult getQueryStats(1: TGetQueryStatsRequest request)
 
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
+
+    TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 }

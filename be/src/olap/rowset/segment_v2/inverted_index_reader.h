@@ -106,7 +106,8 @@ public:
     static std::vector<std::wstring> get_analyse_result(const std::string& field_name,
                                                         const std::string& value,
                                                         InvertedIndexQueryType query_type,
-                                                        InvertedIndexCtx* inverted_index_ctx);
+                                                        InvertedIndexCtx* inverted_index_ctx,
+                                                        bool drop_duplicates = true);
 
 protected:
     bool _is_range_query(InvertedIndexQueryType query_type);

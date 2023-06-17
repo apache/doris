@@ -37,7 +37,7 @@ SHOW RESTORE
 语法：
 
 ```SQL
-SHOW RESTORE [FROM DB_NAME]
+SHOW [BRIEF] RESTORE [FROM DB_NAME]
 ```
 
 说明：
@@ -67,6 +67,12 @@ SHOW RESTORE [FROM DB_NAME]
             UnfinishedTasks：        在 SNAPSHOTING、DOWNLOADING 和 COMMITING 阶段会显示还未完成的子任务id
             Status：                 如果作业失败，显示失败信息
             Timeout：                作业超时时间，单位秒
+
+<version since="dev">
+
+        2. brief: 仅返回精简格式的 RESTORE 任务信息，不包含 RestoreObjs, Progress, TaskErrMsg 三列 
+
+</version>
 
 ### Example
 

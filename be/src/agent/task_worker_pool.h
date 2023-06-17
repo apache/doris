@@ -80,6 +80,7 @@ public:
         PUSH_COOLDOWN_CONF,
         PUSH_STORAGE_POLICY,
         ALTER_INVERTED_INDEX,
+        GC_BINLOG,
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -141,6 +142,8 @@ public:
             return "PUSH_STORAGE_POLICY";
         case ALTER_INVERTED_INDEX:
             return "ALTER_INVERTED_INDEX";
+        case GC_BINLOG:
+            return "GC_BINLOG";
         default:
             return "Unknown";
         }
@@ -197,6 +200,7 @@ protected:
     void _submit_table_compaction_worker_thread_callback();
     void _push_cooldown_conf_worker_thread_callback();
     void _push_storage_policy_worker_thread_callback();
+    void _gc_binlog_worker_thread_callback();
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);

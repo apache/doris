@@ -145,17 +145,6 @@ Status VScanner::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK();
     }
-    for (auto& ctx : _stale_expr_ctxs) {
-        ctx->close(state);
-    }
-
-    for (auto& conjunct : _conjuncts) {
-        conjunct->close(state);
-    }
-
-    for (auto& ctx : _common_expr_ctxs_push_down) {
-        ctx->close(state);
-    }
 
     COUNTER_UPDATE(_parent->_scanner_wait_worker_timer, _scanner_wait_worker_timer);
     _is_closed = true;

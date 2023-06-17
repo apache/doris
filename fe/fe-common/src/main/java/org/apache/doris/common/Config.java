@@ -34,10 +34,10 @@ public class Config extends ConfigBase {
      * sys_log_dir:
      *      This specifies FE log dir. FE will produces 2 log files:
      *      fe.log:      all logs of FE process.
-     *      fe.warn.log  all WARNING and ERROR log of FE process.
+     *      fe.warn.log  all WARN and ERROR log of FE process.
      *
      * sys_log_level:
-     *      INFO, WARNING, ERROR, FATAL
+     *      INFO, WARN, ERROR, FATAL
      *
      * sys_log_roll_num:
      *      Maximal FE log files to be kept within an sys_log_roll_interval.
@@ -65,8 +65,17 @@ public class Config extends ConfigBase {
             "The path of the FE log file, used to store fe.log"})
     public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
 
-    @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARNING", "ERROR", "FATAL"})
+    @ConfField(description = {"FE 日志的级别", "The level of FE log"}, options = {"INFO", "WARN", "ERROR", "FATAL"})
     public static String sys_log_level = "INFO";
+
+    @ConfField(description = {"FE 日志的输出模式，其中 NORMAL 为默认的输出模式，日志同步输出且包含位置信息，"
+            + "BRIEF 模式是日志同步输出但不包含位置信息，ASYNC 模式是日志异步输出且不包含位置信息，三种日志输出模式的性能依次递增",
+            "The output mode of FE log, and NORMAL mode is the default output mode, which means the logs are "
+                    + "synchronized and contain location information. BRIEF mode is synchronized and does not contain"
+                    + " location information. ASYNC mode is asynchronous and does not contain location information."
+                    + " The performance of the three log output modes increases in sequence"},
+            options = {"NORMAL", "BRIEF", "ASYNC"})
+    public static String sys_log_mode = "NORMAL";
 
     @ConfField(description = {"FE 日志文件的最大数量。超过这个数量后，最老的日志文件会被删除",
             "The maximum number of FE log files. After exceeding this number, the oldest log file will be deleted"})
@@ -1495,6 +1504,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
 
+    @ConfField(mutable = true)
+    public static boolean disable_shared_scan = false;
+
     @ConfField(mutable = false, masterOnly = true)
     public static int backend_rpc_timeout_ms = 60000; // 1 min
 
@@ -1767,6 +1779,15 @@ public class Config extends ConfigBase {
     public static boolean enable_fqdn_mode = false;
 
     /**
+     * enable use odbc table
+     */
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "是否开启 ODBC 外表功能，默认关闭，ODBC 外表是淘汰的功能，请使用 JDBC Catalog",
+        "Whether to enable the ODBC appearance function, it is disabled by default,"
+            + " and the ODBC appearance is an obsolete feature. Please use the JDBC Catalog"})
+    public static boolean enable_odbc_table = false;
+
+    /**
      * This is used whether to push down function to MYSQL in external Table with query sql
      * like odbc, jdbc for mysql table
      */
@@ -1937,7 +1958,10 @@ public class Config extends ConfigBase {
      * so just disable creating nesting complex data type when create table.
      * We can make it able after we fully support
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "当前默认设置为 true，不支持建表时创建复杂类型(array/struct/map)嵌套复杂类型, 仅支持array类型自身嵌套。",
+            "Now default set to true, not support create complex type(array/struct/map) nested complex type "
+                    + "when we create table, only support array type nested array"})
     public static boolean disable_nested_complex_type  = true;
     /*
      * "max_instance_num" is used to set the maximum concurrency. When the value set
