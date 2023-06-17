@@ -58,7 +58,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getSelectedPartitionIds(),
                         convertDistribution(olapScan),
                         olapScan.getPreAggStatus(),
-                        olapScan.getOutputByMvIndex(olapScan.getTable().getBaseIndexId()),
+                        olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
                         Optional.empty(),
                         olapScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
@@ -83,7 +83,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
                     HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                     List<Slot> output = olapScan.getOutput();
-                    List<Slot> baseOutput = olapScan.getOutputByMvIndex(olapScan.getTable().getBaseIndexId());
+                    List<Slot> baseOutput = olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId());
                     List<ExprId> hashColumns = Lists.newArrayList();
                     for (int i = 0; i < output.size(); i++) {
                         for (Column column : hashDistributionInfo.getDistributionColumns()) {
