@@ -623,6 +623,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 DeltaWriter* delta_writer =
                         StorageEngine::instance()->txn_manager()->get_txn_tablet_delta_writer(
                                 it.first.second, _tablet->tablet_id());
+                if (!delta_writer) {
+                    continue;
+                }
                 const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
                 auto beta_rowset = reinterpret_cast<BetaRowset*>(tablet_txn_info.rowset.get());
                 std::vector<segment_v2::SegmentSharedPtr> segments;
