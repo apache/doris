@@ -49,7 +49,7 @@ UnionSourceOperator::UnionSourceOperator(OperatorBuilderBase* operator_builder, 
 // we assumed it can read to process const expr， Although we don't know whether there is
 // ,and queue have data, could read also
 bool UnionSourceOperator::can_read() {
-    return _need_read_for_const_expr || _data_queue->remaining_has_data();
+    return _need_read_for_const_expr || _data_queue->has_data_or_finished();
 }
 
 Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* block, bool* eos) {
