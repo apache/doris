@@ -42,7 +42,7 @@ Documents include:
 	- Four bytes FileFooterPB message length for reading FileFooterPB
 	- The 8 byte MAGIC CODE is stored in the last bit to facilitate the identification of file types in different scenarios.
 
-The data in the file is organized in the form of page, which is the basic unit of coding and compression. Current page types include the following:
+The data in the file is organized in the form of a page, which is the basic unit of coding and compression. Current page types include the following:
 
 ### DataPage ###
 
@@ -121,12 +121,12 @@ SegmentFooterPB is defined as:
 ```
 message ColumnPB {
     required int32 unique_id = 1;   // The column id is used here, and the column name is not used
-    optional string name = 2;   // Column name,  when name equals __DORIS_DELETE_SIGN__, this column is a hidden delete column
+    optional string name = 2;   // Column name, when name equals __DORIS_DELETE_SIGN__, this column is a hidden delete column
     required string type = 3;   // Column type
     optional bool is_key = 4;   // Whether column is a primary key column
     optional string aggregation = 5;    // Aggregate type
-    optional bool is_nullable = 6;      // Whether column is allowed to assgin null
-    optional bytes default_value = 7;   // Defalut value
+    optional bool is_nullable = 6;      // Whether column is allowed to assign null
+    optional bytes default_value = 7;   // Default value
     optional int32 precision = 8;       // Precision of column
     optional int32 frac = 9;
     optional int32 length = 10;         // Length of column
@@ -194,7 +194,7 @@ The general writing process is as follows:
 
 Relevant issues:
 
-- How does the index of short key be generated?
+- How does the index of a short key be generated?
 	- Now we still generate a short key sparse index according to how many rows are sparse, and keep a short sparse index generated every 1024 rows. The specific content is: short key - > ordinal
 
 - What should be stored in the ordinal index?
@@ -217,7 +217,7 @@ Relevant issues:
 1. How to quickly locate a row within the page?
 
 	The data inside the page is encoding, so it cannot locate the row-level data quickly. Different encoding methods have different schemes for fast line number positioning in-house, which need to be analyzed concretely:
-	- If it is rle-coded, skip is performed by resolving the head of RLE until the RLE block containing the row is reached, and then the reverse solution is performed.
+	- If it is rle-codec, skip is performed by resolving the head of RLE until the RLE block containing the row is reached, and then the reverse solution is performed.
 	- binary plain encoding: offset information will be stored in the page, and offset information will be specified in the page header. When reading, offset information will be parsed into the array first, so that you can quickly locate the data of a row of block through offset data information of each row.
 2. How to achieve efficient block reading? Consider merging adjacent blocks while they are being read, one-time reading?
 This requires judging whether the block is continuous at the time of reading, and if it is continuous, reading it once.

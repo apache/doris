@@ -116,6 +116,7 @@ mkdir code && cd code
 git clone https://github.com/apache/doris.git
 cd doris
 git submodule update --init --recursive
+git config diff.ignoreSubmodules dirty
 ```
 
 ## Compile
@@ -125,7 +126,7 @@ Note:
 use the following command first time compiling
 
 ```bash
-sh build.sh --clean --be --fe --ui
+sh build.sh --clean --be --fe
 ```
 
 it is because build-env-for-0.15.0 version image upgraded thrift(0.9 -> 0.13), so you need to use --clean command to force use new version of thrift to generate code files, otherwise it will cause incompatibilities.
