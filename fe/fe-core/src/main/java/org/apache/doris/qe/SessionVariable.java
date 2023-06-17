@@ -1021,16 +1021,29 @@ public class SessionVariable implements Serializable, Writable {
                 break;
         }
         // pull_request_id default value is 0
-        if (Config.pull_request_id % 2 == 1) {
-            this.enablePipelineEngine = true;
-            // this.enableFoldConstantByBe = true;
-            // this.enableTwoPhaseReadOpt = false;
-            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-        } else {
-            // this.enablePipelineEngine = false;
-            // this.enableFoldConstantByBe = false;
-            // this.enableTwoPhaseReadOpt = true;
-            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+        switch (Config.pull_request_id % 4) {
+            case 0:
+                this.enablePipelineEngine = true;
+                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                this.enableNereidsPlanner = true;
+                break;
+            case 1:
+                this.enablePipelineEngine = true;
+                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                this.enableNereidsPlanner = false;
+                break;
+            case 2:
+                this.enablePipelineEngine = false;
+                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                this.enableNereidsPlanner = true;
+                break;
+            case 3:
+                this.enablePipelineEngine = false;
+                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                this.enableNereidsPlanner = false;
+                break;
+            default:
+                break;
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
