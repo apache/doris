@@ -121,8 +121,8 @@ public class StmtRewriter {
             rewriteWhereClauseSubqueries(result, analyzer);
         }
         // Rewrite all subquery in the having clause
-        if (result.getHavingClauseAfterAnaylzed() != null
-                && result.getHavingClauseAfterAnaylzed().getSubquery() != null) {
+        if (result.getHavingClauseAfterAnalyzed() != null
+                && result.getHavingClauseAfterAnalyzed().getSubquery() != null) {
             result = rewriteHavingClauseSubqueries(result, analyzer);
         }
         result.sqlString = null;
@@ -176,7 +176,7 @@ public class StmtRewriter {
         // prepare parameters
         SelectList selectList = stmt.getSelectList();
         List<String> columnLabels = stmt.getColLabels();
-        Expr havingClause = stmt.getHavingClauseAfterAnaylzed();
+        Expr havingClause = stmt.getHavingClauseAfterAnalyzed();
         List<FunctionCallExpr> aggregateExprs = stmt.getAggInfo().getAggregateExprs();
         Preconditions.checkState(havingClause != null);
         Preconditions.checkState(havingClause.getSubquery() != null);

@@ -14,18 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionSum.cpp
+// and modified by Doris
 
-#include "runtime/exec_env.h"
+#include "vec/aggregate_functions/aggregate_function_sum_old.h"
 
-#include <gen_cpp/HeartbeatService_types.h>
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/helpers.h"
 
-namespace doris {
-
-ExecEnv::ExecEnv() : _is_init(false) {}
-
-ExecEnv::~ExecEnv() {}
-
-const std::string& ExecEnv::token() const {
-    return _master_info->token;
+namespace doris::vectorized {
+void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory) {
+    factory.register_alternative_function(
+            "sum", creator_with_type::creator<AggregateFunctionSumSimpleOld>, false);
+    factory.register_alternative_function(
+            "sum", creator_with_type::creator<AggregateFunctionSumSimpleOld>, true);
 }
-} // namespace doris
+} // namespace doris::vectorized
