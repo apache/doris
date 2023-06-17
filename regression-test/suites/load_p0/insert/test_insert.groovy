@@ -78,18 +78,14 @@ suite("test_insert") {
             "replication_num"="1"
         );
     """
+    
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_nereids_dml=true """
+    sql """ insert into ${insert_tbl_dft} values() """
 
-    try {
-        for (i in 0..<2) {
-            if (i == 1) {
-                sql """ set enable_nereids_planner=true """
-                sql """ set enable_nereids_dml=true """
-            }
-            sql """ insert into ${insert_tbl_dft} values() """
-        }
-        qt_select """ select k1,k2,k3,k4,k5,k6,k8,k10,k11,k12 from ${insert_tbl_dft} """
-    } finally {
-        sql """ set enable_nereids_planner=false """
-        sql """ set enable_nereids_dml=false """   
-    }
+    sql """ set enable_nereids_planner=false """
+    sql """ set enable_nereids_dml=false """
+    sql """ insert into ${insert_tbl_dft} values() """
+    
+    qt_select """ select k1,k2,k3,k4,k5,k6,k8,k10,k11,k12 from ${insert_tbl_dft} """
 }
