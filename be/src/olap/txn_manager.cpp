@@ -331,6 +331,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (tablet == nullptr) {
         return Status::OK();
     }
+    DCHECK(stats != nullptr);
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
