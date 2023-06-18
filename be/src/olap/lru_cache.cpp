@@ -550,11 +550,11 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
 
     _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
-    _hit_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>("doris_cache", _name + "_persecond",
-                                                                _hit_count_bvar.get(), 60));
+    _hit_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
+            "doris_cache", _name + "_persecond", _hit_count_bvar.get(), 60));
     _lookup_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
-    _lookup_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>("doris_cache", _name + "_persecond",
-                                                                _lookup_count_bvar.get(), 60));
+    _lookup_count_per_second.reset(new bvar::PerSecond<bvar::Adder<uint64_t>>(
+            "doris_cache", _name + "_persecond", _lookup_count_bvar.get(), 60));
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,

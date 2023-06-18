@@ -141,14 +141,13 @@ using std::vector;
 using io::FileSystemSPtr;
 
 static bvar::LatencyRecorder g_tablet_lookup_rowkey_latency("doris_pk", "tablet_lookup_rowkey");
-static bvar::LatencyRecorder g_tablet_commit_phase_update_delete_bitmap_latency("doris_pk",
-        "commit_phase_update_delete_bitmap");
+static bvar::LatencyRecorder g_tablet_commit_phase_update_delete_bitmap_latency(
+        "doris_pk", "commit_phase_update_delete_bitmap");
 static bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk",
-        "update_delete_bitmap");
+                                                                   "update_delete_bitmap");
 static bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found");
-static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second("doris_pk",
-                                                                     "lookup_not_found_per_second",
-                                                                     &g_tablet_pk_not_found, 60);
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
+        "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 
 const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 10s;
 

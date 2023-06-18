@@ -37,21 +37,17 @@ using namespace ErrorCode;
 namespace segment_v2 {
 
 static bvar::Adder<uint64_t> g_index_reader_bytes("doris_pk", "index_reader_bytes");
-static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_bytes_per_second("doris_pk",
-                                                                     "index_reader_bytes_per_second",
-                                                                     &g_index_reader_bytes, 60);
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_bytes_per_second(
+        "doris_pk", "index_reader_bytes_per_second", &g_index_reader_bytes, 60);
 static bvar::Adder<uint64_t> g_index_reader_pages("doris_pk", "index_reader_pages");
-static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pages_per_second("doris_pk",
-                                                                     "index_reader_pages_per_second",
-                                                                     &g_index_reader_pages, 60);
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pages_per_second(
+        "doris_pk", "index_reader_pages_per_second", &g_index_reader_pages, 60);
 static bvar::Adder<uint64_t> g_index_reader_seek_count("doris_pk", "index_reader_seek_count");
-static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_seek_per_second("doris_pk",
-                                                                     "index_reader_seek_per_second",
-                                                                     &g_index_reader_seek_count, 60);
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_seek_per_second(
+        "doris_pk", "index_reader_seek_per_second", &g_index_reader_seek_count, 60);
 static bvar::Adder<uint64_t> g_index_reader_pk_pages("doris_pk", "index_reader_pk_pages");
-static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second("doris_pk",
-                                                                     "index_reader_pk_pages_per_second",
-                                                                     &g_index_reader_pk_pages, 60);
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second(
+        "doris_pk", "index_reader_pk_pages_per_second", &g_index_reader_pk_pages, 60);
 
 using strings::Substitute;
 

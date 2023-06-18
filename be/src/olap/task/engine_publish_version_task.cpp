@@ -46,12 +46,18 @@ using namespace ErrorCode;
 using std::map;
 
 static bvar::LatencyRecorder g_tablet_publish_latency("doris_pk", "tablet_publish");
-static bvar::LatencyRecorder g_tablet_publish_schedule_latency("doris_pk", "tablet_publish_schedule");
-static bvar::LatencyRecorder g_tablet_publish_lock_wait_latency("doris_pk", "tablet_publish_lock_wait");
-static bvar::LatencyRecorder g_tablet_publish_save_meta_latency("doris_pk", "tablet_publish_save_meta");
-static bvar::LatencyRecorder g_tablet_publish_delete_bitmap_latency("doris_pk", "tablet_publish_delete_bitmap");
-static bvar::LatencyRecorder g_tablet_publish_partial_update_latency("doris_pk", "tablet_publish_partial_update");
-static bvar::LatencyRecorder g_tablet_publish_add_inc_latency("doris_pk", "tablet_publish_add_inc_rowset");
+static bvar::LatencyRecorder g_tablet_publish_schedule_latency("doris_pk",
+                                                               "tablet_publish_schedule");
+static bvar::LatencyRecorder g_tablet_publish_lock_wait_latency("doris_pk",
+                                                                "tablet_publish_lock_wait");
+static bvar::LatencyRecorder g_tablet_publish_save_meta_latency("doris_pk",
+                                                                "tablet_publish_save_meta");
+static bvar::LatencyRecorder g_tablet_publish_delete_bitmap_latency("doris_pk",
+                                                                    "tablet_publish_delete_bitmap");
+static bvar::LatencyRecorder g_tablet_publish_partial_update_latency(
+        "doris_pk", "tablet_publish_partial_update");
+static bvar::LatencyRecorder g_tablet_publish_add_inc_latency("doris_pk",
+                                                              "tablet_publish_add_inc_rowset");
 
 void TabletPublishStatistics::record_in_bvar() {
     g_tablet_publish_schedule_latency << schedule_time_us;
