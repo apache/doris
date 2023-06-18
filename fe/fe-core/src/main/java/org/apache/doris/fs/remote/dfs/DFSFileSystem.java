@@ -126,7 +126,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
             if (hadoopUserName == null) {
                 hadoopUserName = "hadoop";
-                LOG.warn("hadoop.username is unset, use default user: hadoop");
+                LOG.debug(HdfsResource.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
             return UserGroupInformation.createRemoteUser(hadoopUserName);
         }
