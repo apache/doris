@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property;
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
+import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
@@ -29,10 +30,17 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.MinioProperties;
+import org.apache.doris.datasource.property.constants.ObsProperties;
+import org.apache.doris.datasource.property.constants.OssProperties;
+import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -41,10 +49,17 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 public class PropertyConverterTest extends TestWithFeService {
+
+    private final Set<String> checkSet = new HashSet<>();
+    private final Map<String, String> expectedCredential = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -53,6 +68,12 @@ public class PropertyConverterTest extends TestWithFeService {
         useDatabase("mock_db");
         createTable("create table mock_tbl1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1');");
+
+        List<String> withoutPrefix = ImmutableList.of("endpoint", "access_key", "secret_key");
+        checkSet.addAll(withoutPrefix);
+        checkSet.addAll(S3Properties.Env.REQUIRED_FIELDS);
+        expectedCredential.put("access_key", "akk");
+        expectedCredential.put("secret_key", "skk");
     }
 
     @Test
@@ -130,6 +151,7 @@ public class PropertyConverterTest extends TestWithFeService {
         Resource newResource = Resource.fromStmt(analyzedResourceStmtNew);
         // will add converted properties
         Assertions.assertEquals(newResource.getCopiedProperties().size(), 14);
+
     }
 
     @Test
@@ -272,8 +294,9 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'aws.glue.secret-key' = 'skk',\n"
                 + "    'aws.region' = 'us-east-1'\n"
                 + ");";
+        String catalogName = "hms_glue_old";
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_glue_old");
+        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(properties.size(), 20);
 
@@ -288,8 +311,9 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'glue.access_key' = 'akk',\n"
                     + "    'glue.secret_key' = 'skk'\n"
                     + ");";
+        catalogName = "hms_glue";
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
-        HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, "hms_glue");
+        HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
         Map<String, String> propertiesNew = catalogNew.getCatalogProperty().getProperties();
         Assertions.assertEquals(propertiesNew.size(), 20);
 
@@ -313,48 +337,91 @@ public class PropertyConverterTest extends TestWithFeService {
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdProps.size(), 16);
+
+        Map<String, String> expectedMetaProperties = new HashMap<>();
+        expectedMetaProperties.put("endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        expectedMetaProperties.put("AWS_ENDPOINT", "obs.cn-north-4.myhuaweicloud.com");
+        expectedMetaProperties.putAll(expectedCredential);
+        checkExpectedProperties(ObsProperties.OBS_PREFIX, properties, expectedMetaProperties);
     }
 
     @Test
-    public void testCOSCatalogPropertiesConverter() throws Exception {
-        String query = "create catalog hms_cos properties (\n"
+    public void testS3CompatibleCatalogPropertiesConverter() throws Exception {
+        String catalogName0 = "hms_cos";
+        String query0 = "create catalog " + catalogName0 + " properties (\n"
                     + "    'type'='hms',\n"
                     + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
                     + "    'cos.endpoint' = 'cos.ap-beijing.myqcloud.com',\n"
                     + "    'cos.access_key' = 'akk',\n"
-                    + "    'cos.secret_key' = 'skk',\n"
-                    + "    'enable.self.splitter'='true'\n"
+                    + "    'cos.secret_key' = 'skk'\n"
                     + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(query);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_cos");
-        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 12);
+        testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
+                    "cos.ap-beijing.myqcloud.com", query0);
 
-        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 24);
+        String catalogName1 = "hms_oss";
+        String query1 = "create catalog " + catalogName1 + " properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'oss.endpoint' = 'oss.oss-cn-beijing.aliyuncs.com',\n"
+                + "    'oss.access_key' = 'akk',\n"
+                + "    'oss.secret_key' = 'skk'\n"
+                + ");";
+        testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
+                    "oss.oss-cn-beijing.aliyuncs.com", query1);
+
+        String catalogName2 = "hms_minio";
+        String query2 = "create catalog " + catalogName2 + " properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'minio.endpoint' = 'http://127.0.0.1',\n"
+                + "    'minio.access_key' = 'akk',\n"
+                + "    'minio.secret_key' = 'skk'\n"
+                + ");";
+        testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
+                    "http://127.0.0.1", query2);
     }
 
-    @Test
-    public void testOSSCatalogPropertiesConverter() throws Exception {
-        String query = "create catalog hms_oss properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    'oss.endpoint' = 'oss.oss-cn-beijing.aliyuncs.com',\n"
-                    + "    'oss.access_key' = 'akk',\n"
-                    + "    'oss.secret_key' = 'skk'\n"
-                    + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(query);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_oss");
+    private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
+                                                            String endpoint, String sql) throws Exception {
+        Env.getCurrentEnv().getCatalogMgr().dropCatalog(new DropCatalogStmt(true, catalogName));
+        CreateCatalogStmt analyzedStmt = createStmt(sql);
+        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
         Assertions.assertEquals(properties.size(), 11);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 23);
+        Assertions.assertEquals(hdProps.size(), 20);
+
+        Map<String, String> expectedMetaProperties = new HashMap<>();
+        expectedMetaProperties.put("endpoint", endpoint);
+        expectedMetaProperties.put("AWS_ENDPOINT", endpoint);
+        expectedMetaProperties.putAll(expectedCredential);
+        checkExpectedProperties(prefix, properties, expectedMetaProperties);
+    }
+
+    private void checkExpectedProperties(String prefix, Map<String, String> properties,
+                                         Map<String, String> expectedProperties) {
+        properties.forEach((key, value) -> {
+            if (key.startsWith(prefix)) {
+                String keyToCheck = key.replace(prefix, "");
+                if (checkSet.contains(keyToCheck)) {
+                    Assertions.assertEquals(value, expectedProperties.get(keyToCheck));
+                }
+            }
+        });
     }
 
     private static HMSExternalCatalog createAndGetCatalog(CreateCatalogStmt analyzedStmt, String name)
             throws UserException {
         Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
         return (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
+    }
+
+
+    @Test
+    public void testSerialization() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
     }
 }
