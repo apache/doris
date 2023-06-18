@@ -23,11 +23,9 @@
 
 namespace doris {
 
-#define SCOPED_BVAR_LATENCY(bvar_item)              \
-    MonotonicStopWatch __watch;                     \
-    __watch.start();                                \
-    Defer __record_bvar([&] {                       \
-        bvar_item << __watch.elapsed_time() / 1000; \
-    });
+#define SCOPED_BVAR_LATENCY(bvar_item) \
+    MonotonicStopWatch __watch;        \
+    __watch.start();                   \
+    Defer __record_bvar([&] { bvar_item << __watch.elapsed_time() / 1000; });
 
 } // end namespace doris
