@@ -1172,7 +1172,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(bitmapUnionColumn);
                     // has bitmap_union column
                     if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
-                        Slot bitmapUnionSlot = context.checkContext.scan.getOutputByMvIndex(context.checkContext.index)
+                        Slot bitmapUnionSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
                                 .stream()
                                 .filter(s -> bitmapUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
@@ -1199,7 +1199,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(countColumn);
                     // has bitmap_union_count column
                     if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
-                        Slot countSlot = context.checkContext.scan.getOutputByMvIndex(context.checkContext.index)
+                        Slot countSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
                                 .stream()
                                 .filter(s -> countColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
@@ -1235,7 +1235,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
 
                         Slot bitmapUnionCountSlot = context.checkContext.scan
-                                .getOutputByMvIndex(context.checkContext.index)
+                                .getOutputByIndex(context.checkContext.index)
                                 .stream()
                                 .filter(s -> bitmapUnionCountColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
@@ -1262,7 +1262,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
 
                         Slot bitmapUnionCountSlot = context.checkContext.scan
-                                .getOutputByMvIndex(context.checkContext.index)
+                                .getOutputByIndex(context.checkContext.index)
                                 .stream()
                                 .filter(s -> bitmapUnionCountColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
@@ -1297,7 +1297,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(hllUnionColumn);
                     // has hll_union column
                     if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
-                        Slot hllUnionSlot = context.checkContext.scan.getOutputByMvIndex(context.checkContext.index)
+                        Slot hllUnionSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
                                 .stream()
                                 .filter(s -> hllUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
@@ -1332,7 +1332,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                     Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(hllUnionColumn);
                     // has hll_union column
                     if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
-                        Slot hllUnionSlot = context.checkContext.scan.getOutputByMvIndex(context.checkContext.index)
+                        Slot hllUnionSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
                                 .stream()
                                 .filter(s -> hllUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                                 .findFirst()
@@ -1367,7 +1367,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(hllUnionColumn);
                 // has hll_union column
                 if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
-                    Slot hllUnionSlot = context.checkContext.scan.getOutputByMvIndex(context.checkContext.index)
+                    Slot hllUnionSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index)
                             .stream()
                             .filter(s -> hllUnionColumn.equalsIgnoreCase(normalizeName(s.getName())))
                             .findFirst()
@@ -1470,7 +1470,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             return outputs;
         }
         return ImmutableList.<NamedExpression>builder()
-                .addAll(mvPlan.getOutputByMvIndex(mvPlan.getSelectedIndexId()))
+                .addAll(mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId()))
                 .addAll(outputs.stream()
                         .filter(s -> !(s instanceof Slot))
                         .collect(ImmutableList.toImmutableList()))
