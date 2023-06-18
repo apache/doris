@@ -452,8 +452,8 @@ Status VCollectIterator::_topn_next(Block* block) {
     // append a column to indicate scanner filter_block is already done
     auto filtered_datatype = std::make_shared<DataTypeUInt8>();
     auto filtered_column = filtered_datatype->create_column_const(block->rows(), (uint8_t)1);
-    block->insert(
-            {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
+    auto filtered_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + "scanner_filtered";
+    block->insert({filtered_column, filtered_datatype, filtered_name});
 
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();
