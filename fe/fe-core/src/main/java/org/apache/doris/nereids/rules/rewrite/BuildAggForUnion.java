@@ -27,7 +27,12 @@ import com.google.common.collect.ImmutableList;
 import java.util.Optional;
 
 /**
- * For distinct union, add agg node.
+ * Convert Union into Agg + UnionAll.
+ * <pre>
+ *             Agg
+ * Union ->     |
+ *           UnionAll
+ * </pre>
  */
 public class BuildAggForUnion extends OneRewriteRuleFactory {
     @Override
