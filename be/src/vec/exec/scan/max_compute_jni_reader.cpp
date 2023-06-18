@@ -71,7 +71,7 @@ MaxComputeJniReader::MaxComputeJniReader(const MaxComputeTableDescriptor* mc_des
                                        {"required_fields", required_fields.str()},
                                        {"columns_types", columns_types.str()}};
     _jni_connector = std::make_unique<JniConnector>(
-            "org/apache/doris/maxcompute/MaxComputeJniScanner", params, column_names);
+            "org/apache/doris/maxcompute/MaxComputeScannerLoader", params, column_names);
 }
 
 Status MaxComputeJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {

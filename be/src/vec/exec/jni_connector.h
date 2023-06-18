@@ -155,13 +155,13 @@ public:
     /**
      * Use configuration map to provide scan information. The java side should determine how the parameters
      * are parsed. For example, using "required_fields=col0,col1,...,colN" to provide the scan fields.
-     * @param connector_class Java scanner class
+     * @param scanner_loader Java scanner loader class
      * @param scanner_params Provided configuration map
      * @param column_names Fields to read, also the required_fields in scanner_params
      */
-    JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params,
+    JniConnector(std::string scanner_loader, std::map<std::string, std::string> scanner_params,
                  std::vector<std::string> column_names)
-            : _connector_class(std::move(connector_class)),
+            : _scanner_loader(std::move(scanner_loader)),
               _scanner_params(std::move(scanner_params)),
               _column_names(std::move(column_names)) {}
 
@@ -210,7 +210,7 @@ public:
     static Status generate_meta_info(Block* block, std::unique_ptr<long[]>& meta);
 
 private:
-    std::string _connector_class;
+    std::string _scanner_loader;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
 

@@ -139,7 +139,18 @@ Status JniConnector::close() {
 }
 
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
-    RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, _connector_class.c_str(), &_jni_scanner_cls));
+    // use class loader to init scanner
+    jclass scanner_loader_class = env->FindClass(_scanner_loader.c_str());
+    jmethodID scanner_loader_constructor = env->GetMethodID(scanner_loader_class, "<init>", "()V");
+    jobject scanner_loader_obj = env->NewObject(scanner_loader_class, scanner_loader_constructor);
+    jmethodID get_scanner_method =
+            env->GetMethodID(scanner_loader_class, "getScannerClass", "()Ljava/lang/Class;");
+    jclass jni_scanner_cls = (jclass)env->CallObjectMethod(scanner_loader_obj, get_scanner_method);
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_cls,
+                                              reinterpret_cast<jobject*>(&_jni_scanner_cls)));
+    env->DeleteLocalRef(jni_scanner_cls);
+    env->DeleteLocalRef(scanner_loader_class);
+    env->DeleteLocalRef(scanner_loader_obj);
     jmethodID scanner_constructor =
             env->GetMethodID(_jni_scanner_cls, "<init>", "(ILjava/util/Map;)V");
     RETURN_ERROR_IF_EXC(env);
@@ -160,7 +171,7 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
         env->DeleteLocalRef(value);
     }
     env->DeleteLocalRef(hashmap_class);
-    _jni_scanner_obj =
+    jobject jni_scanner_obj =
             env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
     env->DeleteLocalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
@@ -175,7 +186,9 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_ERROR_IF_EXC(env);
     _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");
     RETURN_ERROR_IF_EXC(env);
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _jni_scanner_obj, &_jni_scanner_obj));
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
+    env->DeleteLocalRef(jni_scanner_obj);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 

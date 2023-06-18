@@ -68,8 +68,8 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
         params[HADOOP_FS_PREFIX + kv.first] = kv.second;
     }
 
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner", params,
-                                                    required_fields);
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiScannerLoader",
+                                                    params, required_fields);
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
