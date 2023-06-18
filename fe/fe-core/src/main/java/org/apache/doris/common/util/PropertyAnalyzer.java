@@ -170,7 +170,7 @@ public class PropertyAnalyzer {
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
         String newStoragePolicy = oldDataProperty.getStoragePolicy();
         boolean hasStoragePolicy = false;
-        boolean isStorageMediumUpdated = false;
+        boolean storageMediumSpecified = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -178,10 +178,10 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
-                    isStorageMediumUpdated = true;
+                    storageMediumSpecified = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
-                    isStorageMediumUpdated = true;
+                    storageMediumSpecified = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
@@ -202,11 +202,6 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_DATA_BASE_TIME);
 
         Preconditions.checkNotNull(storageMedium);
-
-        if (!isStorageMediumUpdated) {
-            DataProperty preferredDefaultDataProperty = DataProperty.getPreferredDefaultDataProperty();
-            storageMedium = preferredDefaultDataProperty.getStorageMedium();
-        }
 
         if (storageMedium == TStorageMedium.HDD) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
@@ -253,7 +248,12 @@ public class PropertyAnalyzer {
         boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
         properties.remove(PROPERTIES_MUTABLE);
 
-        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        // check the state of data property
+        if (storageMediumSpecified) {
+            dataProperty.setStorageMediumSpecified(true);
+        }
+        return dataProperty;
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {

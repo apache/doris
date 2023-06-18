@@ -2261,17 +2261,50 @@ public class InternalCatalog implements CatalogIf<Database> {
                             "Database " + db.getFullName() + " create unpartitioned table " + tableName + " increasing "
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
                 }
-                // create partition
-                Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
-                        olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
-                        partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
-                        partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
-                        olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
-                        olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                        idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                        olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
-                        storeRowColumn, isDynamicSchema, binlogConfigForTask);
-                olapTable.addPartition(partition);
+                try {
+                    // create partition
+                    Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
+                            olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
+                            partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
+                            partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
+                            olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
+                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
+                            idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                            olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
+                            storeRowColumn, isDynamicSchema, binlogConfigForTask);
+                    olapTable.addPartition(partition);
+                } catch (DdlException e) {
+                    // check whether set storage medium from data property
+                    DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
+                    if (dataProperty.isStorageMediumSpecified()) {
+                        throw e;
+                    }
+
+                    for (Long tabletId : tabletIdSet) {
+                        Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+                    }
+                    // only remove from memory, because we have not persist it
+                    if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                        Env.getCurrentColocateIndex().removeTable(tableId);
+                    }
+                    // increment nextId and batchEndId
+                    idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
+                    // retry different storage medium to create partition
+                    TStorageMedium medium = (TStorageMedium.HDD == partitionInfo
+                            .getDataProperty(partitionId)
+                            .getStorageMedium()) ? TStorageMedium.SSD : TStorageMedium.HDD;
+                    // create partition
+                    Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
+                            olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
+                            partitionDistributionInfo, medium,
+                            partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
+                            olapTable.getCopiedIndexes(), isInMemory, storageFormat, tabletType, compressionType,
+                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
+                            idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                            olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
+                            storeRowColumn, isDynamicSchema, binlogConfigForTask);
+                    olapTable.addPartition(partition);
+                }
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -2327,17 +2360,50 @@ public class InternalCatalog implements CatalogIf<Database> {
                         storagePolicy = partionStoragePolicy;
                     }
                     Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
-                    Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
-                            olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(), olapTable.getIndexIdToMeta(),
-                            partitionDistributionInfo, dataProperty.getStorageMedium(),
-                            partitionInfo.getReplicaAllocation(entry.getValue()), versionInfo, bfColumns, bfFpp,
-                            tabletIdSet, olapTable.getCopiedIndexes(), isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()), compressionType,
-                            olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
-                            idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                            olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
-                            storeRowColumn, isDynamicSchema, binlogConfigForTask);
-                    olapTable.addPartition(partition);
+                    try {
+                        Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                                olapTable.getId(), olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
+                                olapTable.getIndexIdToMeta(), partitionDistributionInfo,
+                                dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
+                                versionInfo, bfColumns, bfFpp, tabletIdSet, olapTable.getCopiedIndexes(), isInMemory,
+                                storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
+                                olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
+                                idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                                olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
+                                storeRowColumn, isDynamicSchema, binlogConfigForTask);
+                        olapTable.addPartition(partition);
+                    } catch (DdlException e) {
+                        // check whether set storage medium from data property
+                        if (dataProperty.isStorageMediumSpecified()) {
+                            throw e;
+                        }
+
+                        for (Long tabletId : tabletIdSet) {
+                            Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+                        }
+                        // only remove from memory, because we have not persist it
+                        if (Env.getCurrentColocateIndex().isColocateTable(tableId)) {
+                            Env.getCurrentColocateIndex().removeTable(tableId);
+                        }
+                        // increment nextId and batchEndId
+                        idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
+                        // retry different storage medium to create partition
+                        TStorageMedium medium = (TStorageMedium.HDD == partitionInfo
+                                .getDataProperty(entry.getValue())
+                                .getStorageMedium()) ? TStorageMedium.SSD : TStorageMedium.HDD;
+                        // create partition
+                        Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                                olapTable.getId(), olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
+                                olapTable.getIndexIdToMeta(), partitionDistributionInfo,
+                                medium, partitionInfo.getReplicaAllocation(entry.getValue()),
+                                versionInfo, bfColumns, bfFpp, tabletIdSet, olapTable.getCopiedIndexes(), isInMemory,
+                                storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
+                                olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
+                                idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                                olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
+                                storeRowColumn, isDynamicSchema, binlogConfigForTask);
+                        olapTable.addPartition(partition);
+                    }
                 }
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
