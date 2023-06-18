@@ -109,8 +109,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
-    auto filtered_name = BeConsts::BLOCK_TEMP_COLUMN_PREFIX + "scanner_filtered";
-    if (block->has(filtered_name)) {
+    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
         // scanner filter_block is already done (only by _topn_next currently), just skip it
         return Status::OK();
     }
