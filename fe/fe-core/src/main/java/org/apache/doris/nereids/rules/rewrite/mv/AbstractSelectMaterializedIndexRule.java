@@ -386,7 +386,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         if (mvPlan.getSelectedIndexId() == mvPlan.getTable().getBaseIndexId()) {
             return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot);
         }
-        for (Slot mvSlot : mvPlan.getOutputByMvIndex(mvPlan.getSelectedIndexId())) {
+        for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
                 if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumnAggregate(mvSlot.getName())) {
