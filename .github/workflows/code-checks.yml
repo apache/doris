@@ -19,6 +19,9 @@ name: Code Checks
 
 on: [push, pull_request_target]
 
+needs:
+  - latest-code-check
+
 jobs:
   shellcheck:
     name: ShellCheck

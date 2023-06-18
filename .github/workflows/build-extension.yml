@@ -20,6 +20,8 @@ name: Build Extensions
 
 on:
   pull_request:
+needs:
+  - latest-code-check    
 
 concurrency:
   group: ${{ github.ref }} (Build Extensions)

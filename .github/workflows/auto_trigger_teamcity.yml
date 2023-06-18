@@ -22,6 +22,12 @@ on:
     types: [created, edited]
   pull_request_review_comment:
     types: [created, edited]
+needs:
+  - latest-code-check
+  - be-ut-clang
+  - be-ut-mac
+  - build-extension
+  - build-thirdparty
 
 env:
   PULL_REQUEST_NUM: $(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')

@@ -21,6 +21,9 @@ name: BE Code Formatter
 
 on: [push, pull_request]
 
+needs:
+  - latest-code-check
+
 jobs:
   clang-format:
     name: "Clang Formatter"

@@ -20,6 +20,8 @@ name: FE Code Style Checker
 
 on:
   pull_request:
+needs:
+  - latest-code-check  
 
 jobs:
   java-checkstyle:

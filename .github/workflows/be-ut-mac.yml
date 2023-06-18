@@ -21,6 +21,8 @@ on:
   pull_request:
   schedule:
     - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
+needs:
+  - latest-code-check      
 
 concurrency:
   group: ${{ github.ref }} (BE UT macOS)

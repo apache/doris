@@ -18,7 +18,9 @@
 name: Build Third Party Libraries
 
 on:
-  pull_request:
+  pull_request:   
+needs:
+  - latest-code-check
 
 concurrency:
   group: ${{ github.ref }} (Build Third Party Libraries)
