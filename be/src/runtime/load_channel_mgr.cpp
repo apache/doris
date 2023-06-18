@@ -414,8 +414,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.front()))
             << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.front())
             << ", min mem:" << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.back()))
-            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.back())
-            << "), ";
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.back()) << "), ";
         if (proc_mem_no_allocator_cache < process_soft_mem_limit) {
             oss << "because total load mem consumption "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption()) << " has exceeded";
