@@ -697,13 +697,26 @@ message PGetTabletVersionsResponse {
 };
 
 message PStreamHeader {
-    required int64 load_id = 1;
+    enum Opcode {
+        OPEN_FILE = 0;
+        APPEND_DATA = 1;
+        CLOSE_FILE = 2;
+    }
+    required PUniqueId load_id = 1;
     required int64 index_id = 2;
     required int64 tablet_id = 3;
-    required int64 rowset_id = 4;
-    required int64 segment_id = 5;  
-    required string path = 6;
-    required int64 opcode = 7;
+    required int32 segment_id = 4;
+    required Opcode opcode = 5;
+    required bool is_last_segment = 6;
+    optional int64 rowset_id = 7;
+}
+
+message POpenStreamSinkRequest {
+    optional PUniqueId id = 1;
+}
+
+message POpenStreamSinkResponse {
+    optional PStatus status = 1;
 }
 
 service PBackendService {
@@ -716,6 +729,7 @@ service PBackendService {
     rpc exec_plan_fragment_start(PExecPlanFragmentStartRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
+    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc open_partition(OpenPartitionRequest) returns (OpenPartitionResult);

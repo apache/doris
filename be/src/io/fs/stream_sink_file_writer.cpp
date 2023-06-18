@@ -26,42 +26,56 @@ StreamSinkFileWriter::StreamSinkFileWriter(brpc::StreamId stream_id) : _stream(s
 
 StreamSinkFileWriter::~StreamSinkFileWriter() {}
 
-void StreamSinkFileWriter::init(Path path, int64_t load_id, int64_t index_id, int64_t tablet_id,
-                                int64_t rowset_id, int64_t segment_id) {
+Status StreamSinkFileWriter::init(Path path, PUniqueId load_id, int64_t index_id, int64_t tablet_id,
+                                  int64_t rowset_id, int32_t segment_id, bool is_last_segment) {
     _path = path;
     _load_id = load_id;
     _index_id = index_id;
     _tablet_id = tablet_id;
     _rowset_id = rowset_id;
     _segment_id = segment_id;
+    _is_last_segment = is_last_segment;
+
+    butil::IOBuf buf;
+    PStreamHeader header;
+    header.set_opcode(PStreamHeader::OPEN_FILE);
+    buf.append(path);
+    return _stream_sender(buf);
 }
 
 Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     butil::IOBuf buf;
-    PStreamHeader header = _stream_header_builder();
-    header.set_opcode(_data);
-    buf.append(header.SerializeAsString());
-    buf.append_user_data((void*)data->get_data(), data_cnt, nullptr);
-    return _stream_sender(buf);
-}
-
-Status StreamSinkFileWriter::finalize() {
-    butil::IOBuf buf;
-    PStreamHeader header = _stream_header_builder();
-    header.set_opcode(_close);
-    buf.append(header.SerializeAsString());
-    return _stream_sender(buf);
-}
-
-PStreamHeader StreamSinkFileWriter::_stream_header_builder() {
     PStreamHeader header;
-    header.set_load_id(_load_id);
+    header.set_allocated_load_id(&_load_id);
     header.set_index_id(_index_id);
     header.set_tablet_id(_tablet_id);
     header.set_rowset_id(_rowset_id);
     header.set_segment_id(_segment_id);
-    header.set_path(_path);
-    return header;
+    header.set_is_last_segment(_is_last_segment);
+    header.set_opcode(header.APPEND_DATA);
+
+    buf.append(header.SerializeAsString());
+    buf.append_user_data((void*)data->get_data(), data_cnt, deleter);
+    Status status = _stream_sender(buf);
+    header.release_load_id();
+    return status;
+}
+
+Status StreamSinkFileWriter::finalize() {
+    butil::IOBuf buf;
+    PStreamHeader header;
+    header.set_allocated_load_id(&_load_id);
+    header.set_index_id(_index_id);
+    header.set_tablet_id(_tablet_id);
+    header.set_rowset_id(_rowset_id);
+    header.set_segment_id(_segment_id);
+    header.set_is_last_segment(_is_last_segment);
+    header.set_opcode(header.CLOSE_FILE);
+
+    buf.append(header.SerializeAsString());
+    Status status = _stream_sender(buf);
+    header.release_load_id();
+    return status;
 }
 
 Status StreamSinkFileWriter::_stream_sender(butil::IOBuf buf) {
@@ -73,15 +87,26 @@ Status StreamSinkFileWriter::_stream_sender(butil::IOBuf buf) {
             if (wait_result == 0) {
                 continue;
             } else {
-                return Status::InternalError("fail to send data");
+                return Status::InternalError("fail to send data when wait stream");
             }
         } else if (ret == EINVAL) {
-            return Status::InternalError("fail to send data");
+            return Status::InternalError("fail to send data when stream write");
         } else {
             return Status::OK();
         }
     }
 }
 
+Status StreamSinkFileWriter::abort() {
+    return Status::OK();
+}
+
+Status StreamSinkFileWriter::close() {
+    return Status::OK();
+}
+
+Status StreamSinkFileWriter::write_at(size_t offset, const Slice& data) {
+    return Status::OK();
+}
 } // namespace io
 } // namespace doris

@@ -29,29 +29,34 @@ public:
     StreamSinkFileWriter(brpc::StreamId stream);
     ~StreamSinkFileWriter() override;
 
-    void init(Path path, int64_t load_id, int64_t index_id, int64_t tablet_id, int64_t rowset_id,
-              int64_t segment_id);
+    static void deleter(void* data) {}
+
+    Status init(Path path, PUniqueId load_id, int64_t index_id, int64_t tablet_id,
+                int64_t rowset_id, int32_t segment_id, bool is_last_segment);
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
     Status finalize() override;
 
-private:
-    PStreamHeader _stream_header_builder();
+    Status close() override;
 
+    Status abort() override;
+
+    Status write_at(size_t offset, const Slice& data) override;
+
+private:
     Status _stream_sender(butil::IOBuf buf);
 
     brpc::StreamId _stream;
 
-    int64_t _data = 1;
-    int64_t _close = 2;
-
     std::string _path;
-    int64_t _load_id;
+    PUniqueId _load_id;
     int64_t _index_id;
     int64_t _tablet_id;
     int64_t _rowset_id;
-    int64_t _segment_id;
+    int32_t _segment_id;
+    bool _is_last_segment;
 };
+
 } // namespace io
 } // namespace doris
