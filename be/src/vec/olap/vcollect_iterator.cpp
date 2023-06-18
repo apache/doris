@@ -269,7 +269,7 @@ Status VCollectIterator::_topn_next(Block* block) {
     // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
     auto all_column_names = mutable_block.get_names();
     for (auto& name : all_column_names) {
-        if (name.find(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) == 0) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             mutable_block.erase(name);
         }
     }
@@ -324,7 +324,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
             auto all_column_names = block->get_names();
             for (auto& name : all_column_names) {
-                if (name.find(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) == 0) {
+                if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
                     block->erase(name);
                 }
             }

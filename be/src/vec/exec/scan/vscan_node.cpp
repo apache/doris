@@ -215,7 +215,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     Defer drop_block_temp_column {[&]() {
         auto all_column_names = block->get_names();
         for (auto& name : all_column_names) {
-            if (name.find(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) == 0) {
+            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
                 block->erase(name);
             }
         }
