@@ -7,64 +7,60 @@ PhysicalTopN
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalUnion
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute
-------------------hashAgg[LOCAL]
---------------------PhysicalUnion
-----------------------PhysicalProject
-------------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+--------------PhysicalProject
+----------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+------------------PhysicalWindow
+--------------------PhysicalQuickSort
+----------------------PhysicalDistribute
+------------------------PhysicalQuickSort
 --------------------------PhysicalWindow
 ----------------------------PhysicalQuickSort
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalQuickSort
-----------------------------------PhysicalWindow
-------------------------------------PhysicalQuickSort
+----------------------------------PhysicalProject
+------------------------------------hashAgg[GLOBAL]
 --------------------------------------PhysicalDistribute
-----------------------------------------PhysicalQuickSort
+----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------hashAgg[LOCAL]
+--------------------------------------------hashJoin[INNER_JOIN](ws.ws_order_number = wr.wr_order_number)(item = wr.wr_item_sk)
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((wr.wr_return_amt > 10000.00))
+--------------------------------------------------PhysicalOlapScan[web_returns]
+----------------------------------------------hashJoin[INNER_JOIN](ws.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((ws.ws_net_paid > 0.00)(ws.ws_quantity > 0)(ws.ws_net_profit > 1.00))
+----------------------------------------------------PhysicalOlapScan[web_sales]
+------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------hashJoin[INNER_JOIN](ws.ws_order_number = wr.wr_order_number)(item = wr.wr_item_sk)
-------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((wr.wr_return_amt > 10000.00))
-----------------------------------------------------------PhysicalOlapScan[web_returns]
-------------------------------------------------------hashJoin[INNER_JOIN](ws.ws_sold_date_sk = date_dim.d_date_sk)
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((ws.ws_net_paid > 0.00)(ws.ws_quantity > 0)(ws.ws_net_profit > 1.00))
-------------------------------------------------------------PhysicalOlapScan[web_sales]
---------------------------------------------------------PhysicalDistribute
-----------------------------------------------------------PhysicalProject
-------------------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
---------------------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalProject
-------------------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+----------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
+------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------PhysicalProject
+----------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
+------------------PhysicalWindow
+--------------------PhysicalQuickSort
+----------------------PhysicalDistribute
+------------------------PhysicalQuickSort
 --------------------------PhysicalWindow
 ----------------------------PhysicalQuickSort
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalQuickSort
-----------------------------------PhysicalWindow
-------------------------------------PhysicalQuickSort
+----------------------------------PhysicalProject
+------------------------------------hashAgg[GLOBAL]
 --------------------------------------PhysicalDistribute
-----------------------------------------PhysicalQuickSort
+----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------hashAgg[LOCAL]
+--------------------------------------------hashJoin[INNER_JOIN](cs.cs_order_number = cr.cr_order_number)(item = cr.cr_item_sk)
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((cr.cr_return_amount > 10000.00))
+--------------------------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------------------------hashJoin[INNER_JOIN](cs.cs_sold_date_sk = date_dim.d_date_sk)
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((cs.cs_net_paid > 0.00)(cs.cs_quantity > 0)(cs.cs_net_profit > 1.00))
+----------------------------------------------------PhysicalOlapScan[catalog_sales]
+------------------------------------------------PhysicalDistribute
 --------------------------------------------------PhysicalProject
-----------------------------------------------------hashJoin[INNER_JOIN](cs.cs_order_number = cr.cr_order_number)(item = cr.cr_item_sk)
-------------------------------------------------------PhysicalProject
---------------------------------------------------------filter((cr.cr_return_amount > 10000.00))
-----------------------------------------------------------PhysicalOlapScan[catalog_returns]
-------------------------------------------------------hashJoin[INNER_JOIN](cs.cs_sold_date_sk = date_dim.d_date_sk)
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((cs.cs_net_paid > 0.00)(cs.cs_quantity > 0)(cs.cs_net_profit > 1.00))
-------------------------------------------------------------PhysicalOlapScan[catalog_sales]
---------------------------------------------------------PhysicalDistribute
-----------------------------------------------------------PhysicalProject
-------------------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
---------------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------filter((date_dim.d_moy = 12)(date_dim.d_year = 1999))
+------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------filter(((return_rank <= 10) OR (currency_rank <= 10)))
 ------------------PhysicalWindow
