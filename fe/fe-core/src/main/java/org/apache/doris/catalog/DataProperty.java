@@ -24,8 +24,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Strings;
@@ -34,11 +32,7 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 public class DataProperty implements Writable, GsonPostProcessable {
     public static final TStorageMedium DEFAULT_STORAGE_MEDIUM = "SSD".equalsIgnoreCase(Config.default_storage_medium)
@@ -180,27 +174,4 @@ public class DataProperty implements Writable, GsonPostProcessable {
         this.storagePolicy = Strings.nullToEmpty(this.storagePolicy);
     }
 
-    public static DataProperty getPreferredDefaultDataProperty() {
-        SystemInfoService clusterInfo = Env.getCurrentEnv().getClusterInfo();
-        List<Backend> allBackends = clusterInfo.getAllBackends();
-        // store storage_medium numbers from all online backends
-        Set<TStorageMedium> mediumSet = new HashSet<>();
-        for (Backend backend : allBackends) {
-            if (backend.hasPathHash()) {
-                mediumSet.addAll(backend.getDisks().values().stream()
-                        .filter(d -> d.getState() == DiskInfo.DiskState.ONLINE)
-                        .map(DiskInfo::getStorageMedium)
-                        .collect(Collectors.toSet()));
-            }
-        }
-        // using SSD with default
-        TStorageMedium temp = TStorageMedium.SSD;
-        // if none storage medium configured, use HDD
-        // if only HDD detected from backends, use HDD
-        // otherwise, use SSD
-        if (mediumSet.size() == 0 || (mediumSet.size() == 1 && mediumSet.iterator().next() == TStorageMedium.HDD)) {
-            temp = TStorageMedium.HDD;
-        }
-        return new DataProperty(temp);
-    }
 }

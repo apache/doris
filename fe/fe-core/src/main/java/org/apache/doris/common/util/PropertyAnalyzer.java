@@ -163,7 +163,7 @@ public class PropertyAnalyzer {
     public static DataProperty analyzeDataProperty(Map<String, String> properties, final DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            return DataProperty.getPreferredDefaultDataProperty();
+            return oldDataProperty;
         }
 
         TStorageMedium storageMedium = oldDataProperty.getStorageMedium();
