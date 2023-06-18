@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "io/fs/benchmark/s3_benchmark.hpp"
+#include "io/fs/benchmark/hdfs_benchmark.hpp"
 
 namespace doris::io {
 
@@ -43,7 +44,22 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
                     "unknown params: fs_type: {}, op_type: {}, iterations: {}", fs_type, op_type,
                     iterations);
         }
+    } else if (fs_type == "hdfs") {
+        if (op_type == "read") {
+            *bm = new HdfsReadBenchmark(iterations, conf_map);
+        } else if (op_type == "write") {
+            *bm = new HdfsWriteBenchmark(iterations, conf_map);
+        }else if(op_type == "create"){
+            *bm = new HdfsCreateBenchmark(iterations, conf_map);
+        }else if(op_type == "delete"){
+            *bm = new HdfsDeleteBenchmark(iterations,conf_map);
+        }else {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                   "unknown params: fs_type: {}, op_type: {}, iterations: {}", fs_type, op_type,
+                   iterations);
+        }
     }
+
     return Status::OK();
 }
 
@@ -59,7 +75,25 @@ public:
         }
     }
 
-    Status init_env() { return Status::OK(); }
+    Status init_env() {
+        std::string conffile = std::string("/mnt/datadisk1/changyuwei/clion/doris/doris_be/conf/be.conf");
+        if (!doris::config::init(conffile.c_str(), true, true, true)) {
+            fprintf(stderr, "error read config file. \n");
+            return Status::Error<INTERNAL_ERROR>();
+        }
+        doris::CpuInfo::init();
+        Status status = Status::OK();
+        if (doris::config::enable_java_support) {
+            // Init jni
+            status = doris::JniUtil::Init();
+            if (!status.ok()) {
+                LOG(WARNING) << "Failed to initialize JNI: " << status;
+                exit(1);
+            }
+        }
+
+        return Status::OK();
+    }
 
     Status init_bms() {
         BaseBenchmark* bm;
@@ -81,3 +115,4 @@ private:
 };
 
 } // namespace doris::io
+
