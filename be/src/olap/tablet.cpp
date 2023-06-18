@@ -145,8 +145,8 @@ static bvar::LatencyRecorder g_tablet_commit_phase_update_delete_bitmap_latency(
         "commit_phase_update_delete_bitmap");
 static bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk",
         "update_delete_bitmap");
-bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found");
-bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second("doris_pk",
+static bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found");
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second("doris_pk",
                                                                      "lookup_not_found_per_second",
                                                                      &g_tablet_pk_not_found, 60);
 
