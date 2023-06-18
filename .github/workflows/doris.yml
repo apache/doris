@@ -1,0 +1,462 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+---
+name: Doris CI
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+jobs:
+  latest-code-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Add remote and fetch main branch
+        run: |
+          git remote add upstream https://github.com/apache/doris.git
+          git fetch upstream master
+
+      - name: Check if code includes latest code of master branch
+        run: |
+          if git merge-base --is-ancestor upstream/master HEAD; then
+             echo "Your branch is up-to-date with master"
+          else
+             echo "Your branch is behind master, please rebase your branch with master"
+             exit 1
+          fi
+  java-checkstyle:
+    name: "CheckStyle"
+    needs: latest-code-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths Filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            fe_changes:
+              - 'fe/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
+      - name: Setup Maven Action
+        if: steps.filter.outputs.fe_changes == 'true'
+        uses: ./.github/actions/setup-maven
+        with:
+          maven-version: 3.8.4
+
+      - name: Run java checkstyle
+        if: steps.filter.outputs.fe_changes == 'true'
+        run:
+          cd fe && mvn clean checkstyle:check
+  clang-format:
+    name: "Clang Formatter"
+    needs: latest-code-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/src/**'
+              - 'be/test/**'
+
+      - name: "Format it!"
+        if: ${{ steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/clang-format-lint-action
+        id: be_clang_format
+        with:
+          source: "be/src be/test"
+          clangFormatVersion: 16
+          inplace: False
+
+      - name: Ignore it!
+        if: ${{ steps.filter.outputs.be_changes == 'false' }}
+        run: echo 'No need to check.'
+  run-ut:
+    name: BE UT (Clang)
+    needs: clang-format
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout easimon/maximize-build-space
+        run: |
+          git clone -b v7 https://github.com/easimon/maximize-build-space
+
+      - name: Maximize build space
+        uses: ./maximize-build-space
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths Filter
+        if: ${{ github.event_name != 'schedule' }}
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
+      - name: Ccache ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: BE-UT-Clang
+          max-size: "2G"
+          restore-keys: BE-UT-Clang-
+
+      - name: Run UT ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        run: |
+          export DEFAULT_DIR='/opt/doris'
+
+          mkdir "${DEFAULT_DIR}"
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+            -q -O /tmp/ldb_toolchain_gen.sh
+          bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
+          rm /tmp/ldb_toolchain_gen.sh
+
+          sudo apt update
+          sudo DEBIAN_FRONTEND=noninteractive apt install --yes tzdata byacc
+
+          # set timezone
+          sudo ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+          sudo dpkg-reconfigure --frontend noninteractive tzdata
+
+          pushd thirdparty
+          branch="${{ github.base_ref }}"
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+              -o - | tar -Jxf -
+          else
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-linux-x86_64.tar.xz" \
+              -o - | tar -Jxf -
+          fi
+          popd
+
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+          DORIS_TOOLCHAIN=clang ./run-be-ut.sh -j "$(nproc)" --clean --run --filter=-CGroupUtilTest.*
+  run-ut-macos:
+    name: BE UT (macOS)
+    needs: clang-format
+    runs-on: macos-12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths Filter
+        if: ${{ github.event_name != 'schedule' }}
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            be_changes:
+              - 'be/**'
+              - 'gensrc/proto/**'
+              - 'gensrc/thrift/**'
+
+      - name: Ccache ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        uses: ./.github/actions/ccache-action
+        with:
+          key: BE-UT-macOS
+          max-size: "2G"
+          restore-keys: BE-UT-macOS-
+
+      - name: Run UT ${{ github.ref }}
+        if: ${{ github.event_name == 'schedule' || steps.filter.outputs.be_changes == 'true' }}
+        run: |
+          cellars=(
+            'automake'
+            'autoconf'
+            'libtool'
+            'pkg-config'
+            'texinfo'
+            'coreutils'
+            'gnu-getopt'
+            'python@3'
+            'cmake'
+            'ninja'
+            'ccache'
+            'bison'
+            'byacc'
+            'gettext'
+            'wget'
+            'pcre'
+            'openjdk@11'
+            'maven'
+            'node'
+            'llvm@16'
+          )
+          brew install "${cellars[@]}"
+
+          pushd thirdparty
+          branch="${{ github.base_ref }}"
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
+              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          else
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz" \
+              -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          fi
+          tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+          popd
+
+          ./run-be-ut.sh --run -j "$(nproc)" --clean
+  changes:
+    name: Detect Changes
+    needs: java-checkstyle
+    runs-on: ubuntu-latest
+    outputs:
+      broker_changes: ${{ steps.filter.outputs.broker_changes }}
+      docs_changes: ${{ steps.filter.outputs.docs_changes }}
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Paths filter
+        uses: ./.github/actions/paths-filter
+        id: filter
+        with:
+          filters: |
+            broker_changes:
+              - 'fs_brokers/**'
+            docs_changes:
+              - 'docs/**'
+  build-broker:
+    name: Build Broker
+    needs: changes
+    if: ${{ needs.changes.outputs.broker_changes == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+
+      - name: Setup java
+        uses: actions/setup-java@v2
+        with:
+          distribution: adopt
+          java-version: '8'
+
+      - name: Setup thrift
+        run: |
+          pushd thirdparty
+          branch="${{ github.base_ref }}"
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+            curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          else
+            curl -L "https://github.com/apache/doris-thirdparty/releases/download/automation-${branch/branch-/}/doris-thirdparty-prebuilt-linux-x86_64.tar.xz" \
+              -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          fi
+          tar -xvf doris-thirdparty-prebuilt-linux-x86_64.tar.xz
+          popd
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin/:$(pwd)/thirdparty/installed/bin/:${PATH}"
+
+          thrift --version
+          # mkdir -p thirdparty/installed/bin/
+          # cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Build broker
+        run: |
+          cd fs_brokers/apache_hdfs_broker/ && /bin/bash build.sh
+  build-docs:
+    name: Build Documents
+    needs: changes
+    if: ${{ needs.changes.outputs.docs_changes == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+
+      - name: Build docs
+        run: |
+          cd docs && /bin/bash build_help_zip.sh
+      - name: Build
+        run: |
+          git clone https://github.com/apache/doris-website.git website
+          cd website
+          mkdir -p docs
+          cp -R ../docs/en/docs/* docs/
+          cp -R ../docs/sidebars.json sidebars.json
+          mkdir -p i18n/zh-CN/docusaurus-plugin-content-docs/current
+          cp -R ../docs/zh-CN/docs/* i18n/zh-CN/docusaurus-plugin-content-docs/current/
+          cp -R ../docs/dev.json i18n/zh-CN/docusaurus-plugin-content-docs/current.json
+
+          mkdir -p community
+          cp -R ../docs/en/community/* community/
+          mkdir -p i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
+          cp -R ../docs/zh-CN/community/* i18n/zh-CN/docusaurus-plugin-content-docs-community/current/
+          cp -R ../docs/sidebarsCommunity.json .
+
+          cp -R ../docs/images static/
+          npm install -g yarn
+          yarn cache clean
+          yarn && yarn build
+          cd ../
+          rm -rf website
+  build_linux:
+    name: Build Third Party Libraries (Linux)
+    needs: changes
+    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+
+      - name: Download
+        run: |
+          cd thirdparty
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+            -o doris-thirdparty-source.tgz
+          tar -zxvf doris-thirdparty-source.tgz
+
+      - name: Prepare
+        run: |
+          export DEFAULT_DIR='/opt/doris'
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin:${PATH}"
+
+          packages=(
+            'build-essential'
+            'automake'
+            'autoconf'
+            'libtool-bin'
+            'pkg-config'
+            'cmake'
+            'ninja-build'
+            'ccache'
+            'python-is-python3'
+            'bison'
+            'byacc'
+            'flex'
+            'binutils-dev'
+            'libiberty-dev'
+            'curl'
+            'git'
+            'zip'
+            'unzip'
+            'autopoint'
+            'openjdk-8-jdk'
+            'openjdk-8-jdk-headless'
+            'maven'
+          )
+
+          sudo apt update
+          sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
+
+          mkdir -p "${DEFAULT_DIR}"
+          wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
+            -q -O /tmp/ldb_toolchain_gen.sh
+          bash /tmp/ldb_toolchain_gen.sh "${DEFAULT_DIR}/ldb-toolchain"
+
+      - name: Build
+        run: |
+          export DEFAULT_DIR='/opt/doris'
+          export PATH="${DEFAULT_DIR}/ldb-toolchain/bin:${PATH}"
+          export PATH="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 1 -type d -name 'bin'):${PATH}"
+          export JAVA_HOME="$(find /usr/lib/jvm/java-8-openjdk* -maxdepth 0)"
+          export DORIS_TOOLCHAIN=gcc
+
+          cd thirdparty
+          ./build-thirdparty.sh -j "$(nproc)"
+
+  build_macos:
+    name: Build Third Party Libraries (macOS)
+    needs: changes
+    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
+    runs-on: macos-12
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v3
+
+      - name: Download
+        run: |
+          cd thirdparty
+          curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz \
+            -o doris-thirdparty-source.tgz
+          tar -zxvf doris-thirdparty-source.tgz
+
+      - name: Prepare
+        run: |
+          packages=(
+            'automake'
+            'autoconf'
+            'libtool'
+            'pkg-config'
+            'texinfo'
+            'coreutils'
+            'gnu-getopt'
+            'python@3'
+            'cmake'
+            'ninja'
+            'ccache'
+            'bison'
+            'byacc'
+            'gettext'
+            'wget'
+            'pcre'
+            'openjdk@11'
+            'maven'
+            'node'
+            'llvm@16'
+          )
+
+          brew install "${packages[@]}"
+
+      - name: Build
+        run: |
+          cd thirdparty
+          ./build-thirdparty.sh -j "$(nproc)"
