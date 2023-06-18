@@ -70,7 +70,9 @@ RUN rm -f /etc/profile.d/ccache.* \
     && cp /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt
 
 # clone lastest source code, download and build third party
-COPY doris ${DEFAULT_DIR}/doris
+WORKDIR ${DEFAULT_DIR}
+RUN git clone --recurse-submodules https://github.com/apache/doris.git
+
 RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
     && rm -rf ${DEFAULT_DIR}/doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
