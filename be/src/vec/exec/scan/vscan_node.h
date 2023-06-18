@@ -247,6 +247,8 @@ protected:
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
+    doris::Mutex _block_lock;
+
     // These two values are from query_options
     int _max_scan_key_num;
     int _max_pushdown_conditions_per_column;
