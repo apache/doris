@@ -213,6 +213,10 @@ void TaskWorkerPool::start() {
         _worker_count = 1;
         _cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
         break;
+    case TaskWorkerType::GC_BINLOG:
+        _worker_count = 1;
+        _cb = std::bind<void>(&TaskWorkerPool::_gc_binlog_worker_thread_callback, this);
+        break;
     default:
         // pass
         break;
@@ -1465,7 +1469,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
-                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done"
+                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
                                        << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
@@ -1517,7 +1521,8 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             LOG_INFO("successfully publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("tablets_num", succ_tablet_ids.size());
+                    .tag("tablets_num", succ_tablet_ids.size())
+                    .tag("cost(s)", time(nullptr) - agent_task_req.recv_time);
         }
 
         status.to_thrift(&finish_task_request.task_status);
@@ -1703,6 +1708,41 @@ void AlterTableTaskPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, 
                 .tag("new_tablet_id", new_tablet_id);
     }
     finish_task_request->__set_task_status(status.to_thrift());
+}
+
+void TaskWorkerPool::_gc_binlog_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+
+        std::unordered_map<int64_t, int64_t> gc_tablet_infos;
+        if (!agent_task_req.__isset.gc_binlog_req) {
+            LOG(WARNING) << "gc binlog task is not valid";
+            return;
+        }
+        if (!agent_task_req.gc_binlog_req.__isset.tablet_gc_binlog_infos) {
+            LOG(WARNING) << "gc binlog task tablet_gc_binlog_infos is not valid";
+            return;
+        }
+
+        auto& tablet_gc_binlog_infos = agent_task_req.gc_binlog_req.tablet_gc_binlog_infos;
+        for (auto& tablet_info : tablet_gc_binlog_infos) {
+            // gc_tablet_infos.emplace(tablet_info.tablet_id, tablet_info.schema_hash);
+            gc_tablet_infos.emplace(tablet_info.tablet_id, tablet_info.version);
+        }
+
+        StorageEngine::instance()->gc_binlogs(gc_tablet_infos);
+    }
 }
 
 CloneTaskPool::CloneTaskPool(ExecEnv* env, ThreadModel thread_model)

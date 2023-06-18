@@ -1031,6 +1031,12 @@ public class EditLog {
                             alterDatabasePropertyInfo.getProperties());
                     break;
                 }
+                case OperationType.OP_GC_BINLOG: {
+                    BinlogGcInfo binlogGcInfo = (BinlogGcInfo) journal.getData();
+                    LOG.info("replay gc binlog: {}", binlogGcInfo);
+                    env.replayGcBinlog(binlogGcInfo);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1796,5 +1802,9 @@ public class EditLog {
 
     public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
         logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
+    }
+
+    public void logGcBinlog(BinlogGcInfo log) {
+        logEdit(OperationType.OP_GC_BINLOG, log);
     }
 }

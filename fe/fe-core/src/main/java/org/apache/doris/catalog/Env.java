@@ -79,6 +79,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -172,6 +173,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
@@ -448,6 +450,8 @@ public class Env {
 
     private BinlogManager binlogManager;
 
+    private BinlogGcer binlogGcer;
+
     /**
      * TODO(tsy): to be removed after load refactor
      */
@@ -666,6 +670,7 @@ public class Env {
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
         this.binlogManager = new BinlogManager();
+        this.binlogGcer = new BinlogGcer();
     }
 
     public static void destroyCheckpoint() {
@@ -1480,6 +1485,9 @@ public class Env {
         // start mtmv jobManager
         mtmvJobManager.start();
         getRefreshManager().start();
+
+        // binlog gcer
+        binlogGcer.start();
     }
 
     // start threads that should running on all FE
@@ -2803,6 +2811,10 @@ public class Env {
 
     public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException, DdlException {
         getInternalCatalog().replayRecoverPartition(info);
+    }
+
+    public void replayGcBinlog(BinlogGcInfo binlogGcInfo) {
+        binlogManager.replayGc(binlogGcInfo);
     }
 
     public static void getDdlStmt(TableIf table, List<String> createTableStmt, List<String> addPartitionStmt,

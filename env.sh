@@ -162,6 +162,7 @@ else
     exit 1
 fi
 
+export CCACHE_COMPILERCHECK=content
 if [[ "${ENABLE_PCH}" == "ON" ]]; then
     export CCACHE_PCH_EXTSUM=true
     export CCACHE_SLOPPINESS="pch_defines,time_macros"
