@@ -143,7 +143,7 @@ public class MaterializedViewSelector {
     }
 
     private Map<Long, List<Column>> predicates(OlapScanNode scanNode) throws AnalysisException {
-        // Step1: all of predicates is compensating predicates
+        // Step1: all predicates is compensating predicates
         Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta = scanNode.getOlapTable().getVisibleIndexIdToMeta();
         OlapTable table = scanNode.getOlapTable();
         Preconditions.checkState(table != null);
