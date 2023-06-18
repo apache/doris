@@ -125,7 +125,7 @@ if [[ "${NEED_CPP_COMPILER}" -eq 1 ]]; then
             DORIS_GCC_HOME="$(dirname "$(command -v gcc)")"/..
             export DORIS_GCC_HOME
         fi
-    
+
         gcc_ver="$("${DORIS_GCC_HOME}/bin/gcc" -dumpfullversion -dumpversion)"
         required_ver="11.0.0"
         if [[ ! "$(printf '%s\n' "${required_ver}" "${gcc_ver}" | sort -V | head -n1)" = "${required_ver}" ]]; then
