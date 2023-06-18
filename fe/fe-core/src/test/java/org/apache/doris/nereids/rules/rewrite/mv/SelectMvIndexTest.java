@@ -79,8 +79,9 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
 
     @BeforeEach
     void before() throws Exception {
+        // NOTICE: make COMMISSION as uppercase to test select mv with uppercase column name.
         createTable("create table " + HR_DB_NAME + "." + EMPS_TABLE_NAME + " (time_col date, empid int, "
-                + "name varchar, deptno int, salary int, commission int) partition by range (time_col) "
+                + "name varchar, deptno int, salary int, COMMISSION int) partition by range (time_col) "
                 + "(partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3"
                 + " properties('replication_num' = '1');");
 
@@ -147,16 +148,14 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         testMv(query2, EMPS_MV_NAME);
     }
 
-    // @Test
-    // public void testProjectionMV4() throws Exception {
-    //     String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select name, deptno, salary from "
-    //             + EMPS_TABLE_NAME + ";";
-    //     String query1 = "select name from " + EMPS_TABLE_NAME + " where deptno > 30 and salary > 3000;";
-    //     createMv(createMVSql);
-    //     testMv(query1, EMPS_MV_NAME);
-    //     String query2 = "select empid from " + EMPS_TABLE_NAME + " where deptno > 30 and empid > 10;";
-    //     dorisAssert.query(query2).explainWithout(QUERY_USE_EMPS_MV);
-    // }
+    @Test
+    public void testProjectionMV4() throws Exception {
+        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select name, deptno, salary from "
+                + EMPS_TABLE_NAME + ";";
+        String query1 = "select name from " + EMPS_TABLE_NAME + " where deptno > 30 and salary > 3000;";
+        createMv(createMVSql);
+        testMv(query1, EMPS_MV_NAME);
+    }
 
     @Test
     public void testUnionQueryOnProjectionMV() throws Exception {
@@ -272,8 +271,8 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
 
     /**
      * Query with cube and arithmetic expr
-     * TODO: enable this when group by cube is supported.
      */
+    @Test
     public void testAggQueryOnAggMV9() throws Exception {
         String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, commission, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno, commission;";
@@ -301,12 +300,38 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
      */
     @Test
     public void testAggQueryOnAggMV11() throws Exception {
-        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, count(salary) "
+        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
-        String query = "select deptno, count(salary) + count(1) from " + EMPS_TABLE_NAME
+        String query = "select deptno, sum(salary) + sum(1) from " + EMPS_TABLE_NAME
                 + " group by deptno;";
         createMv(createMVSql);
         testMv(query, EMPS_TABLE_NAME);
+    }
+
+    /**
+     * Aggregation query with distinct on value
+     */
+    @Test
+    public void testAggQueryOnAggMV12() throws Exception {
+        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
+                + "from " + EMPS_TABLE_NAME + " group by deptno;";
+        String query = "select deptno, sum(distinct salary) from " + EMPS_TABLE_NAME
+                + " group by deptno;";
+        createMv(createMVSql);
+        testMv(query, EMPS_TABLE_NAME);
+    }
+
+    /**
+     * Aggregation query with distinct on key
+     */
+    @Test
+    public void testAggQueryOnAggMV13() throws Exception {
+        String createMVSql = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary) "
+                + "from " + EMPS_TABLE_NAME + " group by deptno;";
+        String query = "select deptno, min(distinct deptno), sum(salary) from " + EMPS_TABLE_NAME
+                + " group by deptno;";
+        createMv(createMVSql);
+        testMv(query, EMPS_MV_NAME);
     }
 
     @Test
