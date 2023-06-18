@@ -32,7 +32,7 @@ import java.time.LocalDateTime;
 public class DateTimeV2Literal extends DateTimeLiteral {
 
     public DateTimeV2Literal(String s) {
-        this(DateTimeV2Type.forTypeFromVarcharLiteral(s), s);
+        this(DateTimeV2Type.forTypeFromString(s), s);
     }
 
     public DateTimeV2Literal(DateTimeV2Type dateType, String s) {
