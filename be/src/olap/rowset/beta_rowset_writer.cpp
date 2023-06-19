@@ -37,6 +37,7 @@
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/stream_sink_file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -713,16 +714,20 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
-    if (config::experimental_olap_table_sink_v2) {
-        // TODO: create stream sink writer
-        auto tablet_id = _rowset_meta->tablet_id();
-        auto s = segment_id;
-        auto p = path;
-        auto load_id = _rowset_meta->load_id();
-        auto rowset_id = _rowset_meta->rowset_id();
-        auto stream_id = *_streams.begin();
-        LOG(INFO) << tablet_id << load_id << s << p << rowset_id << stream_id;
-    }
+    // TODO: fix index_id and rowset_id
+    //if (config::experimental_olap_table_sink_v2) {
+    //    // TODO: create stream sink writer
+    //    auto index_id = _rowset_meta->index_id();
+    //    auto tablet_id = _rowset_meta->tablet_id();
+    //    auto s = segment_id;
+    //    auto p = path;
+    //    auto load_id = _rowset_meta->load_id();
+    //    auto rowset_id = _rowset_meta->rowset_id();
+    //    auto stream_id = *_streams.begin();
+
+    //    io::StreamSinkFileWriter writer(stream_id);
+    //    writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
+    //}
     // TODO: else
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
@@ -869,6 +874,33 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     writer->reset();
 
     return Status::OK();
+}
+
+void BetaRowsetWriter::notify_last() {
+    if (config::experimental_olap_table_sink_v2) {
+        io::FileWriterPtr file_writer;
+        // TODO: create stream sink writer
+        //auto index_id = _rowset_meta->index_id();
+        //auto tablet_id = _rowset_meta->tablet_id();
+        int32_t segment_id = allocate_segment_id();
+        //auto p = path;
+        //auto load_id = _rowset_meta->load_id();
+        //auto rowset_id = _rowset_meta->rowset_id();
+        //auto stream_id = *_streams.begin();
+        //io::StreamSinkFileWriter writer(stream_id);
+        //writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
+        //file_writer = writer;
+
+        segment_v2::SegmentWriterOptions writer_options;
+        writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+        writer_options.rowset_ctx = &_context;
+        writer_options.write_type = _context.write_type;
+        _segment_writer.reset(new segment_v2::SegmentWriter(
+                file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
+                _context.data_dir, _context.max_rows_per_segment, writer_options,
+                _context.mow_context));
+        flush();
+    }
 }
 
 } // namespace doris
