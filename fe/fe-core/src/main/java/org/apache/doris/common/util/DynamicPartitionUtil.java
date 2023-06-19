@@ -619,8 +619,9 @@ public class DynamicPartitionUtil {
             String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
             checkReplicationNum(val, db);
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+            replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
+                    replicaAlloc.toCreateStmt());
         } else {
             replicaAlloc = olapTable.getDefaultReplicaAllocation();
             checkReplicaAllocation(replicaAlloc, db);
