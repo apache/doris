@@ -938,12 +938,6 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getLastFailedVersion() >= 0) {
-                                    LOG.info("publish version failed for transaction {} on tablet {},"
-                                             + " on replica {} due to lastFailedVersion >= 0",
-                                             transactionState, tablet, replica);
-                                    continue;
-                                }
                                 if (!errorReplicaIds.contains(replica.getId())) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                         ++healthReplicaNum;
@@ -960,7 +954,8 @@ public class DatabaseTransactionMgr {
                                     ++healthReplicaNum;
                                 } else {
                                     LOG.info("publish version failed for transaction {} on tablet {},"
-                                             + " on replica {} due to version hole", transactionState, tablet, replica);
+                                             + " on replica {} due to version hole or error", transactionState,
+                                             tablet, replica);
                                 }
                             }
 
@@ -1637,10 +1632,7 @@ public class DatabaseTransactionMgr {
                             long newVersion = newCommitVersion;
                             long lastSuccessVersion = replica.getLastSuccessVersion();
                             if (!errorReplicaIds.contains(replica.getId())) {
-                                if (replica.getLastFailedVersion() > 0) {
-                                    // if the replica is a failed replica, then not changing version
-                                    newVersion = replica.getVersion();
-                                } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
+                                if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                     // this means the replica has error in the past, but we did not observe it
                                     // during upgrade, one job maybe in quorum finished state, for example,
                                     // A,B,C 3 replica A,B 's version is 10, C's version is 10 but C' 10 is abnormal
