@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -51,19 +50,20 @@ import java.util.Optional;
 public class DeleteCommand extends Command implements ForwardWithSync, Explainable {
     private final List<String> nameParts;
     private final String tableAlias;
-    private final List<String> partitions;
+    private final Optional<List<String>> partitions;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
 
     /**
      * constructor
      */
-    public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions, LogicalPlan logicalQuery) {
+    public DeleteCommand(List<String> nameParts, String tableAlias, Optional<List<String>> partitions,
+            LogicalPlan logicalQuery) {
         super(PlanType.DELETE_COMMAND);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
                 "nameParts in DeleteCommand cannot be null"));
         this.tableAlias = tableAlias;
-        this.partitions = Utils.copyIfNotNull(partitions);
+        this.partitions = partitions;
         this.logicalQuery = logicalQuery;
     }
 
@@ -114,7 +114,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundOlapTableSink<>(nameParts, Optional.of(cols), Optional.empty(),
-                Optional.ofNullable(partitions), logicalQuery);
+                partitions, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {
