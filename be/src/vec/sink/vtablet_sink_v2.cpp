@@ -96,10 +96,37 @@ namespace stream_load {
 
 int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                             size_t size) {
+    for (size_t i = 0; i < size; i++) {
+        butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
+        PWriteStreamSinkResponse response;
+        response.ParseFromZeroCopyStream(&wrapper);
+
+        // TODO: get replica num
+        int replica = 1;
+
+        auto key = std::make_pair(response.index_id(), response.tablet_id());
+
+        if (response.success()) {
+            if (_sink->tablet_success_map.count(key) == 0) {
+                _sink->tablet_success_map.insert({key, {}});
+            }
+            _sink->tablet_success_map[key].push_back(response.backend_id());
+        } else {
+            LOG(WARNING) << "stream sink failed: " << response.error_msg();
+            if (_sink->tablet_error_map.count(key) == 0) {
+                _sink->tablet_error_map.insert({key, {}});
+            }
+            _sink->tablet_error_map[key].push_back(response.backend_id());
+            if (_sink->tablet_error_map[key].size() * 2 >= replica) {
+                // TODO: cancel load
+            }
+        }
+    }
     return 0;
 }
 
 void StreamSinkHandler::on_closed(brpc::StreamId id) {
+    _sink->all_stream_done_cv.notify_one();
 }
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -485,6 +512,41 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_filter_timer, _filter_ns);
         COUNTER_SET(_validate_data_timer, _validate_data_ns);
+
+        // join all write memtable tasks
+        for (auto& th : _write_memtable_threads) {
+            if (th) {
+                bthread_join(th, nullptr);
+            }
+        }
+
+        // close streams
+        if (_stream_pool.use_count() == 1) {
+            for (const auto& stream_id : *_stream_pool) {
+                brpc::StreamClose(stream_id);
+            }
+        }
+        _stream_pool.reset();
+
+        // wait all stream replies
+        {
+            std::unique_lock lock(all_stream_done_mutex);
+            all_stream_done_cv.wait(lock);
+        }
+
+        std::vector<TTabletCommitInfo> tablet_commit_infos;
+        for (auto& entry : tablet_success_map) {
+            for (int64_t be_id : entry.second) {
+                TTabletCommitInfo commit_info;
+                commit_info.tabletId = entry.first.first;
+                commit_info.backendId = be_id;
+                tablet_commit_infos.emplace_back(std::move(commit_info));
+            }
+        }
+        state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
+                                            std::make_move_iterator(tablet_commit_infos.begin()),
+                                            std::make_move_iterator(tablet_commit_infos.end()));
+
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
                                       state->num_rows_load_unselected();
@@ -502,14 +564,13 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id
                   << ", canceled all node channels due to error: " << status;
-    }
 
-    for (auto& th : _write_memtable_threads) {
-        if (th) {
-            bthread_join(th, nullptr);
+        for (auto& th : _write_memtable_threads) {
+            if (th) {
+                bthread_stop(th);
+            }
         }
     }
-    // TODO: wait all stream done
 
     _close_status = status;
     DataSink::close(state, exec_status);

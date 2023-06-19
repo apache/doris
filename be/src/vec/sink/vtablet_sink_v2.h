@@ -155,6 +155,11 @@ public:
     // Returns the runtime profile for the sink.
     RuntimeProfile* profile() override { return _profile; }
 
+    std::mutex all_stream_done_mutex;
+    std::condition_variable all_stream_done_cv;
+    std::unordered_map<TabletID, std::vector<int64_t>> tablet_error_map;
+    std::unordered_map<TabletID, std::vector<int64_t>> tablet_success_map;
+
 private:
 
     Status _init_stream_pool(StreamPool& stream_pool);

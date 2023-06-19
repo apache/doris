@@ -81,6 +81,14 @@ message POpenStreamSinkResponse {
     optional PStatus status = 1;
 };
 
+message PWriteStreamSinkResponse {
+    optional bool success = 1;
+    optional string error_msg = 2;
+    optional int64 index_id = 3;
+    optional int64 tablet_id = 4;
+    optional int64 backend_id = 5;
+};
+
 // open a tablet writer
 message PTabletWriterOpenRequest {
     required PUniqueId id = 1;
