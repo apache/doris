@@ -1018,12 +1018,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
-
 DEFINE_Bool(enable_unify_properties_parse, "true");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
-
 
 #ifdef BE_TEST
 // test s3
