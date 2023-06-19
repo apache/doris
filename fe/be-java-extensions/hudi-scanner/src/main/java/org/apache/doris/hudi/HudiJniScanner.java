@@ -41,6 +41,7 @@ import org.apache.log4j.Logger;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -62,6 +63,8 @@ public class HudiJniScanner extends JniScanner {
     private StructObjectInspector rowInspector;
     private Deserializer deserializer;
     private final ClassLoader classLoader;
+
+    private long getRecordReaderTimeNs = 0;
 
     public HudiJniScanner(int fetchSize, Map<String, String> params) {
         if (LOG.isDebugEnabled()) {
@@ -182,6 +185,7 @@ public class HudiJniScanner extends JniScanner {
             }
         }, 100, 1000, TimeUnit.MILLISECONDS);
 
+        long startTime = System.nanoTime();
         if (ugi != null) {
             reader = ugi.doAs((PrivilegedExceptionAction<RecordReader<NullWritable, ArrayWritable>>) () -> {
                 RecordReader<NullWritable, ArrayWritable> ugiReader
@@ -193,6 +197,7 @@ public class HudiJniScanner extends JniScanner {
             reader = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass
                     .getRecordReader(hudiSplit, jobConf, Reporter.NULL);
         }
+        getRecordReaderTimeNs += System.nanoTime() - startTime;
         isKilled.set(true);
         executorService.shutdownNow();
 
@@ -207,4 +212,8 @@ public class HudiJniScanner extends JniScanner {
         }
     }
 
+    @Override
+    public Map<String, String> getStatistics() {
+        return Collections.singletonMap("timer:GetRecordReaderTime", String.valueOf(getRecordReaderTimeNs));
+    }
 }
