@@ -74,13 +74,11 @@ public:
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer
-    virtual Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                         std::vector<MysqlRowBuffer<false>>& result, int row_idx,
-                                         int start, int end, bool col_const) const = 0;
+    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                         int row_idx, bool col_const) const = 0;
 
-    virtual Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                         std::vector<MysqlRowBuffer<true>>& result, int start,
-                                         int row_idx, int end, bool col_const) const = 0;
+    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                         int row_idx, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
     // ORC serializer and deserializer
@@ -95,6 +93,11 @@ public:
                                        int end) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                         int end, const cctz::time_zone& ctz) const = 0;
+
+    virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
+
+protected:
+    bool _return_object_as_string = false;
 };
 
 inline void checkArrowStatus(const arrow::Status& status, const std::string& column,

@@ -36,6 +36,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/txn_manager.h"
 #include "olap/utils.h"
+#include "util/bvar_helper.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -43,6 +44,29 @@ namespace doris {
 using namespace ErrorCode;
 
 using std::map;
+
+static bvar::LatencyRecorder g_tablet_publish_latency("doris_pk", "tablet_publish");
+static bvar::LatencyRecorder g_tablet_publish_schedule_latency("doris_pk",
+                                                               "tablet_publish_schedule");
+static bvar::LatencyRecorder g_tablet_publish_lock_wait_latency("doris_pk",
+                                                                "tablet_publish_lock_wait");
+static bvar::LatencyRecorder g_tablet_publish_save_meta_latency("doris_pk",
+                                                                "tablet_publish_save_meta");
+static bvar::LatencyRecorder g_tablet_publish_delete_bitmap_latency("doris_pk",
+                                                                    "tablet_publish_delete_bitmap");
+static bvar::LatencyRecorder g_tablet_publish_partial_update_latency(
+        "doris_pk", "tablet_publish_partial_update");
+static bvar::LatencyRecorder g_tablet_publish_add_inc_latency("doris_pk",
+                                                              "tablet_publish_add_inc_rowset");
+
+void TabletPublishStatistics::record_in_bvar() {
+    g_tablet_publish_schedule_latency << schedule_time_us;
+    g_tablet_publish_lock_wait_latency << lock_wait_time_us;
+    g_tablet_publish_save_meta_latency << save_meta_time_us;
+    g_tablet_publish_delete_bitmap_latency << calc_delete_bitmap_time_us;
+    g_tablet_publish_partial_update_latency << partial_update_write_segment_us;
+    g_tablet_publish_add_inc_latency << add_inc_rowset_us;
+}
 
 EnginePublishVersionTask::EnginePublishVersionTask(
         const TPublishVersionRequest& publish_version_req, std::vector<TTabletId>* error_tablet_ids,
@@ -255,6 +279,8 @@ void TabletPublishTxnTask::handle() {
     _engine_publish_version_task->add_succ_tablet_id(_tablet_info.tablet_id);
     int64_t cost_us = MonotonicMicros() - _stats.submit_time_us;
     // print stats if publish cost > 500ms
+    g_tablet_publish_latency << cost_us;
+    _stats.record_in_bvar();
     LOG(INFO) << "publish version successfully on tablet"
               << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
               << ", transaction_id=" << _transaction_id << ", version=" << _version.first

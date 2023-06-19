@@ -700,6 +700,7 @@
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/backends",
+                                "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group"
                             ]
                         },
@@ -1244,6 +1245,7 @@
             "label": "Release notes",
             "items": [
                 "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",

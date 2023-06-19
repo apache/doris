@@ -218,21 +218,28 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
-            // we need to execute this rule at the end of rewrite
-            // to avoid two consecutive same project appear when we do optimization.
             topic("Others optimization",
-                    bottomUp(ImmutableList.<RuleFactory>builder().addAll(ImmutableList.of(
-                            new EliminateNotNull(),
-                            new EliminateLimit(),
-                            new EliminateFilter(),
-                            new EliminateAggregate(),
-                            new MergeSetOperations(),
-                            new PushdownLimit(),
-                            new BuildAggForUnion()
-                            // after eliminate filter, the project maybe can push down again,
-                            // so we add push down rules
-                    )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
+                    bottomUp(ImmutableList.<RuleFactory>builder()
+                            .addAll(ImmutableList.of(
+                                    new EliminateNotNull(),
+                                    new EliminateLimit(),
+                                    new EliminateFilter(),
+                                    new EliminateAggregate(),
+                                    new PushdownLimit()
+                            ))
+                            // after eliminate some plan, we maybe can push down some plan again, so add push down rules
+                            .add(new PushdownLimit())
+                            .addAll(RuleSet.PUSH_DOWN_FILTERS)
+                            .build()
+                    )
             ),
+
+            topic("Intersection optimization",
+                    // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                    bottomUp(new MergeSetOperations()),
+                    bottomUp(new BuildAggForUnion())
+            ),
+
             topic("Window optimization",
                     topDown(
                             new PushdownLimit(),

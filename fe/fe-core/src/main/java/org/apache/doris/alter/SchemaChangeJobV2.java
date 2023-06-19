@@ -365,7 +365,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
-                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)), null);
+                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)),
+                    indexChange ? indexes : tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId)).getIndexes());
         }
 
         tbl.rebuildFullSchema();

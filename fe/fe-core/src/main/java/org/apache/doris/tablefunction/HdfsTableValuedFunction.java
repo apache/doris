@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFileType;
@@ -41,24 +42,17 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
 
     public static final String NAME = "hdfs";
     public static final String HDFS_URI = "uri";
-    public static String HADOOP_FS_NAME = "fs.defaultFS";
     // simple or kerberos
-    public static String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
-    public static String HADOOP_USER_NAME = "hadoop.username";
-    public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-    public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    public static String HADOOP_SHORT_CIRCUIT = "dfs.client.read.shortcircuit";
-    public static String HADOOP_SOCKET_PATH = "dfs.domain.socket.path";
 
     private static final ImmutableSet<String> LOCATION_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(HDFS_URI)
-            .add(HADOOP_SECURITY_AUTHENTICATION)
-            .add(HADOOP_FS_NAME)
-            .add(HADOOP_USER_NAME)
-            .add(HADOOP_KERBEROS_PRINCIPAL)
-            .add(HADOOP_KERBEROS_KEYTAB)
-            .add(HADOOP_SHORT_CIRCUIT)
-            .add(HADOOP_SOCKET_PATH)
+            .add(HdfsResource.HADOOP_SECURITY_AUTHENTICATION)
+            .add(HdfsResource.HADOOP_FS_NAME)
+            .add(HdfsResource.HADOOP_USER_NAME)
+            .add(HdfsResource.HADOOP_KERBEROS_PRINCIPAL)
+            .add(HdfsResource.HADOOP_KERBEROS_KEYTAB)
+            .add(HdfsResource.HADOOP_SHORT_CIRCUIT)
+            .add(HdfsResource.HADOOP_SOCKET_PATH)
             .build();
 
     private URI hdfsUri;
@@ -72,8 +66,8 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
                 fileFormatParams.put(key, params.get(key));
             } else {
                 // because HADOOP_FS_NAME contains upper and lower case
-                if (HADOOP_FS_NAME.equalsIgnoreCase(key)) {
-                    locationProperties.put(HADOOP_FS_NAME, params.get(key));
+                if (HdfsResource.HADOOP_FS_NAME.equalsIgnoreCase(key)) {
+                    locationProperties.put(HdfsResource.HADOOP_FS_NAME, params.get(key));
                 } else {
                     locationProperties.put(key, params.get(key));
                 }
@@ -85,7 +79,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
         }
         ExportStmt.checkPath(locationProperties.get(HDFS_URI), StorageType.HDFS);
         hdfsUri = URI.create(locationProperties.get(HDFS_URI));
-        filePath = locationProperties.get(HADOOP_FS_NAME) + hdfsUri.getPath();
+        filePath = locationProperties.get(HdfsResource.HADOOP_FS_NAME) + hdfsUri.getPath();
 
         parseProperties(fileFormatParams);
         parseFile();
