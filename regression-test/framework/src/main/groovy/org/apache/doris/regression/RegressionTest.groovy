@@ -194,6 +194,7 @@ class RegressionTest {
         log.info('Start to run scripts')
         runScripts(config, recorder, directoryFilter,
                 { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
+
         return recorder
     }
 
