@@ -59,7 +59,7 @@ public class BinlogTombstone {
         this.commitSeq = commitSeq;
     }
 
-    public BinlogTombstone(long dbId, Long tableId, long commitSeq) {
+    public BinlogTombstone(long dbId, long tableId, long commitSeq) {
         this.dbBinlogTombstone = false;
         this.dbId = dbId;
         this.tableIds = new ArrayList<Long>(Arrays.asList(tableId));
