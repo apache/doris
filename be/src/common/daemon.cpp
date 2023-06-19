@@ -187,7 +187,8 @@ void Daemon::memory_maintenance_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
+                   std::chrono::milliseconds(interval_milliseconds)) &&
+           !k_doris_exit) {
         if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
@@ -225,7 +226,8 @@ void Daemon::memory_gc_thread() {
     int32_t memory_minor_gc_sleep_time_ms = 0;
     int32_t memory_full_gc_sleep_time_ms = 0;
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
+                   std::chrono::milliseconds(interval_milliseconds)) &&
+           !k_doris_exit) {
         if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
@@ -272,7 +274,8 @@ void Daemon::load_channel_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms))) {
+                   std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms)) &&
+           !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
             doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
         }
@@ -280,7 +283,8 @@ void Daemon::load_channel_tracker_refresh_thread() {
 }
 
 void Daemon::memory_tracker_profile_refresh_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(50))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(100)) &&
+           !k_doris_exit) {
         MemTracker::refresh_all_tracker_profile();
         MemTrackerLimiter::refresh_all_tracker_profile();
     }

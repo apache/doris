@@ -97,11 +97,6 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
 
 RowGroupReader::~RowGroupReader() {
     _column_readers.clear();
-    for (auto& ctx : _dict_filter_conjuncts) {
-        if (ctx) {
-            ctx->close(_state);
-        }
-    }
     _obj_pool->clear();
 }
 

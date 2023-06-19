@@ -1276,9 +1276,19 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
         UpdateRuntimeFilterParamsV2 params(request, attach_data, pool);
         int filter_id = request->filter_id();
-        IRuntimeFilter* real_filter = nullptr;
-        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filter(filter_id, &real_filter));
-        RETURN_IF_ERROR(real_filter->update_filter(&params, start_apply));
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(runtime_filter_mgr->get_consume_filters(filter_id, filters));
+
+        IRuntimeFilter* first_filter = nullptr;
+        for (auto filter : filters) {
+            if (!first_filter) {
+                RETURN_IF_ERROR(filter->update_filter(&params, start_apply));
+                first_filter = filter;
+            } else {
+                filter->copy_from_other(first_filter);
+                filter->signal();
+            }
+        }
     }
 
     return Status::OK();

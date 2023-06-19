@@ -42,6 +42,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "util/time.h"
 
 namespace doris {
@@ -78,7 +79,7 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_map_locks = new std::shared_mutex[_txn_map_shard_size];
     _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
     _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
-    _txn_mutex = new std::mutex[_txn_shard_size];
+    _txn_mutex = new std::shared_mutex[_txn_shard_size];
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
 }
@@ -165,9 +166,11 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const TabletSharedPtr& 
 }
 
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                               TTransactionId transaction_id, const Version& version) {
+                               TTransactionId transaction_id, const Version& version,
+                               TabletPublishStatistics* stats) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
-                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), version);
+                       tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), version,
+                       stats);
 }
 
 // delete the txn from manager if it is not committed(not have a valid rowset)
@@ -192,7 +195,7 @@ void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
 
-    std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
+    std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     {
         // get tx
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
@@ -236,7 +239,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
         return Status::Error<ROWSET_INVALID>();
     }
 
-    std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
+    std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     // this while loop just run only once, just for if break
     do {
         // get tx
@@ -322,21 +325,24 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 // remove a txn from txn manager
 Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TTransactionId transaction_id, TTabletId tablet_id,
-                               SchemaHash schema_hash, TabletUid tablet_uid,
-                               const Version& version) {
+                               SchemaHash schema_hash, TabletUid tablet_uid, const Version& version,
+                               TabletPublishStatistics* stats) {
     auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
     }
+    DCHECK(stats != nullptr);
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset = nullptr;
     TabletTxnInfo tablet_txn_info;
+    int64_t t1 = MonotonicMicros();
     /// Step 1: get rowset, tablet_txn_info by key
     {
-        std::unique_lock<std::mutex> txn_rlock(_get_txn_lock(transaction_id));
+        std::shared_lock txn_rlock(_get_txn_lock(transaction_id));
         std::shared_lock txn_map_rlock(_get_txn_map_lock(transaction_id));
+        stats->lock_wait_time_us += MonotonicMicros() - t1;
 
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
         if (auto it = txn_tablet_map.find(key); it != txn_tablet_map.end()) {
@@ -368,8 +374,12 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         std::unique_ptr<RowsetWriter> rowset_writer;
         _create_transient_rowset_writer(tablet, rowset, &rowset_writer);
 
-        RETURN_IF_ERROR(
-                tablet->update_delete_bitmap(rowset, &tablet_txn_info, rowset_writer.get()));
+        int64_t t2 = MonotonicMicros();
+        RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
+                                                     tablet_txn_info.delete_bitmap, transaction_id,
+                                                     rowset_writer.get()));
+        int64_t t3 = MonotonicMicros();
+        stats->calc_delete_bitmap_time_us = t3 - t2;
         if (rowset->tablet_schema()->is_partial_update()) {
             // build rowset writer and merge transient rowset
             RETURN_IF_ERROR(rowset_writer->flush());
@@ -379,8 +389,11 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             // erase segment cache cause we will add a segment to rowset
             SegmentLoader::instance()->erase_segment(rowset->rowset_id());
         }
+        stats->partial_update_write_segment_us = MonotonicMicros() - t3;
+        int64_t t4 = MonotonicMicros();
         std::shared_lock rlock(tablet->get_header_lock());
         tablet->save_meta();
+        stats->save_meta_time_us = MonotonicMicros() - t4;
     }
 
     /// Step 3:  add to binlog
@@ -396,8 +409,10 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     /// Step 4: save meta
+    int64_t t5 = MonotonicMicros();
     auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(),
                                           rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
+    stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
         LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
                      << rowset->rowset_id() << ", tablet id: " << tablet_id
@@ -414,14 +429,16 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
 
     /// Step 5: remove tablet_info from tnx_tablet_map
     // txn_tablet_map[key] empty, remove key from txn_tablet_map
-    std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
+    int64_t t6 = MonotonicMicros();
+    std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
+    stats->lock_wait_time_us += MonotonicMicros() - t6;
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
     if (auto it = txn_tablet_map.find(key); it != txn_tablet_map.end()) {
         it->second.erase(tablet_info);
         VLOG_NOTICE << "publish txn successfully."
                     << " partition_id: " << key.first << ", txn_id: " << key.second
-                    << ", tablet: " << tablet_info.to_string()
+                    << ", tablet_id: " << tablet_info.tablet_id
                     << ", rowsetid: " << rowset->rowset_id() << ", version: " << version.first
                     << "," << version.second;
         if (it->second.empty()) {

@@ -308,6 +308,7 @@ under the License.
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!-- paimon -->
         <paimon.version>0.4.0-incubating</paimon.version>
+        <disruptor.version>3.3.4</disruptor.version>
     </properties>
     <profiles>
         <profile>
@@ -710,6 +711,11 @@ under the License.
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
                 <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lmax</groupId>
+                <artifactId>disruptor</artifactId>
+                <version>${disruptor.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
             <dependency>

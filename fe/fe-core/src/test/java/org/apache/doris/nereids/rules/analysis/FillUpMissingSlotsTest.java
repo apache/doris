@@ -538,4 +538,11 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         .map(Alias::toSlot).collect(Collectors.toList()))
                         ));
     }
+
+    @Test
+    void testSortHavingAgg() {
+        String sql = "SELECT pk FROM t1 GROUP BY pk HAVING SUM(a1) > (SELECT AVG(a1) FROM t1) ORDER BY SUM(a1)";
+        PlanChecker.from(connectContext).analyze(sql)
+                .matches(logicalFilter());
+    }
 }

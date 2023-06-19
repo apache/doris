@@ -82,7 +82,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1, tb2 where tb1.k1 = 1 and tb1.k1 = tb2.k1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2 where tb1.k1 = 1 and tb1.k1 = tb2.k1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
     }
@@ -102,7 +102,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 inner join tb3"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 inner join tb3"
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb3.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
@@ -114,7 +114,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 left semi join tb2 on tb1.k1 = tb2.k1 and tb2.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 left semi join tb2 on tb1.k1 = tb2.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
     }
@@ -124,7 +124,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 left semi join tb2 on tb1.k1 = tb2.k1 and tb1.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 left semi join tb2 on tb1.k1 = tb2.k1 and tb1.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
     }
@@ -196,7 +196,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 right outer join tb3 on tb2.k1 = tb3.k1"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 on tb1.k1 = tb2.k1 right outer join tb3 on tb2.k1 = tb3.k1"
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
@@ -208,7 +208,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 and tb1.k1 between 1 and 2";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 on tb1.k1 = tb2.k1 and tb1.k1 between 1 and 2";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` >= 1"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` <= 2"));
@@ -219,7 +219,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 and tb1.k1 in (2)";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 on tb1.k1 = tb2.k1 and tb1.k1 in (2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (2)"));
     }
@@ -229,7 +229,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1, tb2, tb3 where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb3.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1, tb2, tb3 where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb3.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
@@ -240,7 +240,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 inner join tb3"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 inner join tb3"
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb3.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
@@ -252,7 +252,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 left outer join tb3 on tb3.k1 = tb2.k1"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 left outer join tb3 on tb3.k1 = tb2.k1"
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb3.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
@@ -264,7 +264,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 left outer join tb3 on tb3.k1 = tb2.k1"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 left outer join tb3 on tb3.k1 = tb2.k1"
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
@@ -276,7 +276,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 right outer join tb3 on tb2.k1 = tb3.k1"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 on tb1.k1 = tb2.k1 right outer join tb3 on tb2.k1 = tb3.k1"
                 + " where tb1.k1 = tb2.k1 and tb2.k1 = tb3.k1 and tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
@@ -300,7 +300,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 inner join tb3"
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 inner join tb3"
                 + " where tb1.k1 = tb3.k1 and tb2.k1 = tb3.k1 and tb1.k1 is not null";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb3`.`k1` IS NOT NULL"));
@@ -312,7 +312,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 where tb1.k1 = tb2.k1 and tb1.k1 in (2)";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 where tb1.k1 = tb2.k1 and tb1.k1 in (2)";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` IN (2)"));
     }
@@ -322,7 +322,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 where tb1.k1 = tb2.k1 and tb1.k1 between 1 and 2";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 where tb1.k1 = tb2.k1 and tb1.k1 between 1 and 2";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` >= 1"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` <= 2"));
@@ -333,7 +333,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 left join tb2 on tb1.k1 = tb2.k1 where tb2.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 left join tb2 on tb1.k1 = tb2.k1 where tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
     }
@@ -343,7 +343,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 where tb2.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 on tb1.k1 = tb2.k1 where tb2.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
     }
@@ -353,7 +353,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 left join tb2 on tb1.k1 = tb2.k1 where tb1.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 left join tb2 on tb1.k1 = tb2.k1 where tb1.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
     }
@@ -363,7 +363,7 @@ public class InferFiltersRuleTest {
         SessionVariable sessionVariable = dorisAssert.getSessionVariable();
         sessionVariable.setEnableInferPredicate(true);
         Assert.assertTrue(sessionVariable.isEnableInferPredicate());
-        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 where tb1.k1 = 1";
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from tb1 inner join tb2 on tb1.k1 = tb2.k1 where tb1.k1 = 1";
         String planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`tb2`.`k1` = 1"));
     }

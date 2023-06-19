@@ -17,7 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 
 import com.google.common.collect.ImmutableList;
 
@@ -29,7 +31,9 @@ import com.google.common.collect.ImmutableList;
  */
 public class BuiltinTableValuedFunctions implements FunctionHelper {
     public final ImmutableList<TableValuedFunc> tableValuedFunctions = ImmutableList.of(
-            tableValued(Numbers.class, "numbers")
+            tableValued(Numbers.class, "numbers"),
+            tableValued(Hdfs.class, "hdfs"),
+            tableValued(S3.class, "s3")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

@@ -42,15 +42,12 @@ public:
     VDataGenFunctionScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VDataGenFunctionScanNode() override = default;
 
-    // initialize _mysql_scanner, and create _text_converter.
     Status prepare(RuntimeState* state) override;
 
-    // Start MySQL scan using _mysql_scanner.
     Status open(RuntimeState* state) override;
 
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
-    // Close the _mysql_scanner, and report errors.
     Status close(RuntimeState* state) override;
 
     // No use
@@ -64,6 +61,8 @@ protected:
 
     // Descriptor of tuples generated
     const TupleDescriptor* _tuple_desc;
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 };
 
 } // namespace vectorized

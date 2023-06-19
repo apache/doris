@@ -97,13 +97,6 @@ using std::vector;
 using strings::Substitute;
 
 namespace doris {
-namespace {
-inline int64_t now_ms() {
-    auto duration = std::chrono::steady_clock::now().time_since_epoch();
-    return static_cast<int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
-}
-} // namespace
 using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
@@ -686,8 +679,6 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         }
     }
 
-    // _gc_binlogs();
-
     if (usage != nullptr) {
         *usage = tmp_usage; // update usage
     }
@@ -776,136 +767,13 @@ void StorageEngine::_clean_unused_rowset_metas() {
     }
 }
 
-void StorageEngine::_gc_binlogs() {
-    LOG(INFO) << "start to gc binlogs";
+void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
+    for (auto [tablet_id, version] : gc_tablet_infos) {
+        LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
+                                 version);
 
-    auto data_dirs = get_stores();
-    struct tablet_info {
-        std::string tablet_path;
-        int64_t binlog_ttl_ms;
-    };
-    std::unordered_map<int64_t, tablet_info> tablets_info;
-
-    auto get_tablet_info = [&tablets_info, this](int64_t tablet_id) -> const tablet_info& {
-        if (auto iter = tablets_info.find(tablet_id); iter != tablets_info.end()) {
-            return iter->second;
-        }
-
-        auto tablet = tablet_manager()->get_tablet(tablet_id);
-        if (tablet == nullptr) {
-            LOG(WARNING) << "failed to find tablet " << tablet_id;
-            static tablet_info empty_tablet_info;
-            return empty_tablet_info;
-        }
-
-        auto tablet_path = tablet->tablet_path();
-        auto binlog_ttl_ms = tablet->binlog_ttl_ms();
-        tablets_info.emplace(tablet_id, tablet_info {tablet_path, binlog_ttl_ms});
-        return tablets_info[tablet_id];
-    };
-
-    for (auto data_dir : data_dirs) {
-        std::string prefix_key {kBinlogMetaPrefix};
-        OlapMeta* meta = data_dir->get_meta();
-        DCHECK(meta != nullptr);
-
-        auto now = now_ms();
-        int64_t last_tablet_id = 0;
-        std::vector<std::string> wait_for_deleted_binlog_keys;
-        std::vector<std::string> wait_for_deleted_binlog_files;
-        auto add_to_wait_for_deleted_binlog_keys =
-                [&wait_for_deleted_binlog_keys](std::string_view key) {
-                    wait_for_deleted_binlog_keys.emplace_back(key);
-                    wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
-                };
-
-        auto add_to_wait_for_deleted = [&add_to_wait_for_deleted_binlog_keys,
-                                        &wait_for_deleted_binlog_files](
-                                               std::string_view key, std::string_view tablet_path,
-                                               int64_t rowset_id, int64_t num_segments) {
-            add_to_wait_for_deleted_binlog_keys(key);
-            for (int64_t i = 0; i < num_segments; ++i) {
-                auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
-                wait_for_deleted_binlog_files.emplace_back(
-                        fmt::format("{}/_binlog/{}", tablet_path, segment_file));
-            }
-        };
-
-        auto check_binlog_ttl = [now, &get_tablet_info, &last_tablet_id,
-                                 &add_to_wait_for_deleted_binlog_keys, &add_to_wait_for_deleted](
-                                        const std::string& key,
-                                        const std::string& value) mutable -> bool {
-            LOG(INFO) << fmt::format("check binlog ttl, key:{}, value:{}", key, value);
-            if (!starts_with_binlog_meta(key)) {
-                last_tablet_id = -1;
-                return false;
-            }
-
-            BinlogMetaEntryPB binlog_meta_entry_pb;
-            if (!binlog_meta_entry_pb.ParseFromString(value)) {
-                LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
-                return true;
-            }
-
-            auto tablet_id = binlog_meta_entry_pb.tablet_id();
-            last_tablet_id = tablet_id;
-            const auto& tablet_info = get_tablet_info(tablet_id);
-            std::string_view tablet_path = tablet_info.tablet_path;
-            // tablet has been removed, removed all these binlog meta
-            if (tablet_path.empty()) {
-                add_to_wait_for_deleted_binlog_keys(key);
-                return true;
-            }
-
-            // check by ttl
-            auto rowset_id = binlog_meta_entry_pb.rowset_id();
-            auto binlog_ttl_ms = tablet_info.binlog_ttl_ms;
-            auto num_segments = binlog_meta_entry_pb.num_segments();
-            // binlog has been disabled, remove all
-            if (binlog_ttl_ms <= 0) {
-                add_to_wait_for_deleted(key, tablet_path, rowset_id, num_segments);
-                return true;
-            }
-            auto binlog_creation_time_ms = binlog_meta_entry_pb.creation_time();
-            if (now - binlog_creation_time_ms > binlog_ttl_ms) {
-                add_to_wait_for_deleted(key, tablet_path, rowset_id, num_segments);
-                return true;
-            }
-
-            // binlog not stale, skip
-            return false;
-        };
-
-        while (last_tablet_id >= 0) {
-            // every loop iterate one tablet
-            // get binlog meta by prefix
-            auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, check_binlog_ttl);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
-                break;
-            }
-
-            prefix_key = make_binlog_meta_key_prefix(last_tablet_id);
-        }
-
-        // first remove binlog files, if failed, just break, then retry next time
-        // this keep binlog meta in meta store, so that binlog can be removed next time
-        bool remove_binlog_files_failed = false;
-        for (auto& file : wait_for_deleted_binlog_files) {
-            if (unlink(file.c_str()) != 0) {
-                // file not exist, continue
-                if (errno == ENOENT) {
-                    continue;
-                }
-
-                remove_binlog_files_failed = true;
-                LOG(WARNING) << "failed to remove binlog file:" << file << ", errno:" << errno;
-                break;
-            }
-        }
-        if (remove_binlog_files_failed) {
-            meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
-        }
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        tablet->gc_binlogs(version);
     }
 }
 

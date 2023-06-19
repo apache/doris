@@ -29,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
@@ -314,6 +315,17 @@ public:
 
 using FunctionBuilderPtr = std::shared_ptr<IFunctionBuilder>;
 
+inline std::string get_types_string(const ColumnsWithTypeAndName& arguments) {
+    std::string types;
+    for (const auto& argument : arguments) {
+        if (!types.empty()) {
+            types += ", ";
+        }
+        types += argument.type->get_name();
+    }
+    return types;
+}
+
 /// used in function_factory. when we register a function, save a builder. to get a function, to get a builder.
 /// will use DefaultFunctionBuilder as the default builder in function's registration if we didn't explicitly specify.
 class FunctionBuilderImpl : public IFunctionBuilder {
@@ -322,16 +334,20 @@ public:
                           const DataTypePtr& return_type) const final {
         const DataTypePtr& func_return_type = get_return_type(arguments);
         // check return types equal.
-        DCHECK(return_type->equals(*func_return_type) ||
-               // For null constant argument, `get_return_type` would return
-               // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
-               (return_type->is_nullable() && func_return_type->is_nullable() &&
-                is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
-               is_date_or_datetime_or_decimal(return_type, func_return_type) ||
-               is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))
-                << " for function '" << this->get_name() << "' with " << return_type->get_name()
-                << " and " << func_return_type->get_name();
-
+        if (!(return_type->equals(*func_return_type) ||
+              // For null constant argument, `get_return_type` would return
+              // Nullable<DataTypeNothing> when `use_default_implementation_for_nulls` is true.
+              (return_type->is_nullable() && func_return_type->is_nullable() &&
+               is_nothing(((DataTypeNullable*)func_return_type.get())->get_nested_type())) ||
+              is_date_or_datetime_or_decimal(return_type, func_return_type) ||
+              is_array_nested_type_date_or_datetime_or_decimal(return_type, func_return_type))) {
+            LOG_WARNING(
+                    "function return type check failed, function_name={}, "
+                    "expect_return_type={}, real_return_type={}, input_arguments={}",
+                    get_name(), return_type->get_name(), func_return_type->get_name(),
+                    get_types_string(arguments));
+            return nullptr;
+        }
         return build_impl(arguments, return_type);
     }
 
