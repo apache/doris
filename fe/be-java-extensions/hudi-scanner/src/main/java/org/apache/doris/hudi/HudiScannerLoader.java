@@ -51,8 +51,10 @@ public class HudiScannerLoader implements ScannerLoader {
     @Override
     public Class getScannerClass() throws ClassNotFoundException {
         try {
-            LOG.info("Get hudi scanner from scanner loader, and use ChildFirstClassLoader");
-            return classLoader.loadClass("org.apache.doris.hudi.HudiJniScanner");
+            Class hudi = classLoader.loadClass("org.apache.doris.hudi.HudiJniScanner");
+            LOG.info("Get hudi scanner from scanner loader, path="
+                    + ChildFirstClassLoader.getClassLoadPath(hudi).getPath());
+            return hudi;
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
             throw e;

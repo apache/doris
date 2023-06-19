@@ -61,9 +61,8 @@ public class ChildFirstClassLoader extends URLClassLoader {
         try {
             return super.loadClass(name, resolve);
         } catch (ClassNotFoundException cnf) {
-            LOG.error("loadClass error", cnf);
+            return parent.loadClass(name, resolve);
         }
-        return parent.loadClass(name, resolve);
     }
 
     @Override
