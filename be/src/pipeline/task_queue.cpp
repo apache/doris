@@ -213,9 +213,9 @@ bool TaskGroupTaskQueue::TaskGroupSchedEntityComparator::operator()(
         auto l_share = lhs_ptr->cpu_share();
         auto r_share = rhs_ptr->cpu_share();
         if (l_share != r_share) {
-            return l_share < rhs_val;
+            return l_share < r_share;
         } else {
-            return lhs_ptr < rhs_ptr;
+            return lhs_ptr->task_group_id() < rhs_ptr->task_group_id();
         }
     }
 }
@@ -350,8 +350,8 @@ void TaskGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_spen
     }
 }
 
-void TaskGroupTaskQueue::update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                                           taskgroup::TaskGroupPtr& task_group) {
+void TaskGroupTaskQueue::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                                             taskgroup::TaskGroupPtr task_group) {
     std::unique_lock<std::mutex> lock(_rs_mutex);
     auto* entity = task_group->task_entity();
     bool is_in_queue = _group_entities.find(entity) != _group_entities.end();
@@ -359,7 +359,7 @@ void TaskGroupTaskQueue::update_task_group(const taskgroup::TaskGroupInfo& task_
         _group_entities.erase(entity);
         _total_cpu_share -= entity->cpu_share();
     }
-    task_group->check_and_update(task_group_info);
+    task_group->update_cpu_share_unlock(task_group_info);
     if (is_in_queue) {
         _group_entities.emplace(entity);
         _total_cpu_share += entity->cpu_share();

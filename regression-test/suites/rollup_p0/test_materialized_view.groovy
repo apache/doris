@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view") {
+
+    // because nereids cannot support rollup correctly forbid it temporary
+    sql """set enable_nereids_planner=false"""
+
     def tbName1 = "test_materialized_view1"
     def tbName2 = "test_materialized_view2"
 

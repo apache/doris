@@ -79,6 +79,7 @@ public class OperationType {
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+    public static final short OP_INVERTED_INDEX_JOB = 221;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -131,6 +132,8 @@ public class OperationType {
     // replaced by OP_GLOBAL_VARIABLE_V2
     public static final short OP_GLOBAL_VARIABLE = 73;
 
+    @Deprecated
+    // remove be removed in 3.0
     public static final short OP_CREATE_CLUSTER = 74;
     public static final short OP_DROP_CLUSTER = 75;
     public static final short OP_EXPAND_CLUSTER = 76;
@@ -263,6 +266,7 @@ public class OperationType {
 
     public static final short OP_CREATE_MTMV_TASK = 340;
     public static final short OP_DROP_MTMV_TASK = 341;
+    @Deprecated
     public static final short OP_CHANGE_MTMV_TASK = 342;
 
     public static final short OP_ALTER_MTMV_STMT = 345;
@@ -281,10 +285,29 @@ public class OperationType {
     public static final short OP_COOLDOWN_DELETE = 402;
     public static final short OP_ALTER_LIGHT_SCHEMA_CHANGE = 403;
 
-    // resource group 410 ~ 419
-    public static final short OP_CREATE_RESOURCE_GROUP = 410;
-    public static final short OP_DROP_RESOURCE_GROUP = 411;
-    public static final short OP_ALTER_RESOURCE_GROUP = 412;
+    // workload group 410 ~ 419
+    public static final short OP_CREATE_WORKLOAD_GROUP = 410;
+    public static final short OP_DROP_WORKLOAD_GROUP = 411;
+    public static final short OP_ALTER_WORKLOAD_GROUP = 412;
+
+    // query stats 440 ~ 424
+    public static final short OP_CLEAN_QUERY_STATS = 420;
+
+    // update binlog config
+    public static final short OP_UPDATE_BINLOG_CONFIG = 425;
+
+    public static final short OP_CREATE_ANALYSIS_TASK = 430;
+
+    public static final short OP_DELETE_ANALYSIS_TASK = 431;
+
+    public static final short OP_CREATE_ANALYSIS_JOB = 432;
+
+    public static final short OP_DELETE_ANALYSIS_JOB = 433;
+
+    public static final short OP_ALTER_DATABASE_PROPERTY = 434;
+
+    public static final short OP_GC_BINLOG = 435;
+
 
     /**
      * Get opcode name by op code.

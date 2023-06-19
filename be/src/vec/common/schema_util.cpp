@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/olap_common.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -273,11 +274,11 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     return Status::OK();
 }
 
-void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
     auto dynamic_col = block.get_by_position(dynamic_col_position).column->assume_mutable();
     auto* column_object_ptr = assert_cast<ColumnObject*>(dynamic_col.get());
     if (column_object_ptr->empty()) {
-        return;
+        return Status::OK();
     }
     size_t num_rows = column_object_ptr->size();
     CHECK(block.rows() <= num_rows);
@@ -308,7 +309,8 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
             }
             if (cast_to_original_type && !dst_type->equals(*types[i])) {
                 // Cast static columns to original slot type
-                schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column);
+                RETURN_IF_ERROR(
+                        schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column));
             }
             // replace original column
             column_type_name->column = column;
@@ -326,6 +328,16 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
             entry.column->assume_mutable()->insert_many_defaults(num_rows - entry.column->size());
         }
     }
+#ifndef NDEBUG
+    for (const auto& column_type_name : block) {
+        if (column_type_name.column->size() != num_rows) {
+            LOG(FATAL) << "unmatched column:" << column_type_name.name
+                       << ", expeted rows:" << num_rows
+                       << ", but meet:" << column_type_name.column->size();
+        }
+    }
+#endif
+    return Status::OK();
 }
 
 void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,

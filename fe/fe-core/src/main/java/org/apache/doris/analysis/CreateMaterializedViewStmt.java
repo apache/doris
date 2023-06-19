@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -320,24 +321,17 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The key of columns in mv must be all of group by columns");
         }
         for (int i = 0; i < orderByElements.size(); i++) {
-            Expr orderByElement = orderByElements.get(i).getExpr();
-            if (!(orderByElement instanceof SlotRef)) {
-                throw new AnalysisException("The column in order clause must be original column without calculation. "
-                        + "Error column: " + orderByElement.toSql());
-            }
+            Expr orderByElement = selectStmt.getExprFromAliasSMapDirect(orderByElements.get(i).getExpr());
+
             MVColumnItem mvColumnItem = mvColumnItemList.get(i);
-            SlotRef slotRef = (SlotRef) orderByElement;
             if (mvColumnItem.getName() == null) {
                 throw new AnalysisException("mvColumnItem.getName() is null");
             }
-            if (slotRef.getColumnName() == null) {
-                throw new AnalysisException("slotRef.getColumnName() is null");
-            }
-            if (!MaterializedIndexMeta.matchColumnName(mvColumnBreaker(mvColumnItem.getName()),
-                    slotRef.getColumnName())) {
+
+            if (!mvColumnItem.getDefineExpr().equals(orderByElement)) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
-                        + "the order of columns in select list, " + mvColumnItem.getName() + " vs "
-                        + slotRef.getColumnName());
+                        + "the order of columns in select list, " + mvColumnItem.getDefineExpr().toSql() + " vs "
+                        + orderByElement.toSql());
             }
             Preconditions.checkState(mvColumnItem.getAggregationType() == null);
             mvColumnItem.setIsKey(true);
@@ -566,6 +560,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     public static String mvColumnBuilder(String name) {
         return new StringBuilder().append(MATERIALIZED_VIEW_NAME_PREFIX).append(name).toString();
+    }
+
+    public static String mvColumnBuilder(Optional<String> functionName, String sourceColumnName) {
+        return functionName.map(s -> mvAggregateColumnBuilder(s, sourceColumnName))
+                    .orElseGet(() -> mvColumnBuilder(sourceColumnName));
     }
 
     public static String mvColumnBreaker(String name) {

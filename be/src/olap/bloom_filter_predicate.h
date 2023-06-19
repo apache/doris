@@ -30,6 +30,7 @@
 namespace doris {
 
 // only use in runtime filter and segment v2
+
 template <PrimitiveType T>
 class BloomFilterColumnPredicate : public ColumnPredicate {
 public:
@@ -40,7 +41,7 @@ public:
                                int be_exec_version)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())),
+              _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())),
               _be_exec_version(be_exec_version) {}
     ~BloomFilterColumnPredicate() override = default;
 
@@ -132,10 +133,10 @@ private:
         return info;
     }
 
+    int get_filter_id() const override { return _filter->get_filter_id(); }
+
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
-    mutable uint64_t _evaluated_rows = 1;
-    mutable uint64_t _passed_rows = 0;
     mutable bool _always_true = false;
     mutable bool _has_calculate_filter = false;
     int _be_exec_version;

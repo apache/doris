@@ -151,12 +151,12 @@ Status RowSourcesBuffer::_create_buffer_file() {
     }
     std::stringstream file_path_ss;
     file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
-    if (_reader_type == READER_BASE_COMPACTION) {
+    if (_reader_type == ReaderType::READER_BASE_COMPACTION) {
         file_path_ss << "_base";
-    } else if (_reader_type == READER_CUMULATIVE_COMPACTION ||
-               _reader_type == READER_SEGMENT_COMPACTION) {
+    } else if (_reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
+               _reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
         file_path_ss << "_cumu";
-    } else if (_reader_type == READER_COLD_DATA_COMPACTION) {
+    } else if (_reader_type == ReaderType::READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";
     } else {
         DCHECK(false);
@@ -504,6 +504,99 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
     return Status::OK();
 }
 
+//  ----------------  VerticalFifoMergeIterator  -------------  //
+Status VerticalFifoMergeIterator::next_batch(Block* block) {
+    size_t row_idx = 0;
+    std::vector<RowSource> tmp_row_sources;
+    if (UNLIKELY(_record_rowids)) {
+        _block_row_locations.resize(_block_row_max);
+    }
+    while (_get_size(block) < _block_row_max) {
+        if (_cur_iter_ctx == nullptr) {
+            VLOG_NOTICE << "_merge_list empty";
+            break;
+        }
+
+        tmp_row_sources.emplace_back(_cur_iter_ctx->order(), false);
+
+        // Fifo only for duplicate no key
+        _cur_iter_ctx->add_cur_batch();
+        if (UNLIKELY(_record_rowids)) {
+            _block_row_locations[row_idx] = _cur_iter_ctx->current_row_location();
+        }
+        row_idx++;
+        if (_cur_iter_ctx->is_cur_block_finished() || row_idx >= _block_row_max) {
+            // current block finished, ctx not advance
+            // so copy start_idx = (_index_in_block - _cur_batch_num + 1)
+            _cur_iter_ctx->copy_rows(block, false);
+        }
+
+        RETURN_IF_ERROR(_cur_iter_ctx->advance());
+        if (!_cur_iter_ctx->valid()) {
+            // take the ownership of _cur_iter_ctx.
+            std::unique_ptr<VerticalMergeIteratorContext> ctx(_cur_iter_ctx.release());
+            // push next iterator in same rowset into heap
+            for (auto cur_order = ctx->order() + 1; cur_order < _iterator_init_flags.size();
+                 cur_order++) {
+                auto& next_iter = _origin_iters[cur_order];
+                std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
+                        new VerticalMergeIteratorContext(std::move(next_iter),
+                                                         _rowset_ids[cur_order], _ori_return_cols,
+                                                         cur_order, _seq_col_idx));
+                RETURN_IF_ERROR(next_ctx->init(_opts));
+                if (next_ctx->valid()) {
+                    _cur_iter_ctx.swap(next_ctx);
+                    break;
+                }
+            }
+            // ctx resource will release automated.
+        }
+    }
+    RETURN_IF_ERROR(_row_sources_buf->append(tmp_row_sources));
+    if (_cur_iter_ctx) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_record_rowids)) {
+        _block_row_locations.resize(row_idx);
+    }
+    return Status::EndOfFile("no more data in segment");
+}
+
+Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
+    DCHECK(_origin_iters.size() == _iterator_init_flags.size());
+    DCHECK(_keys_type == KeysType::DUP_KEYS);
+    _record_rowids = opts.record_rowids;
+    if (_origin_iters.empty()) {
+        return Status::OK();
+    }
+    _schema = &(*_origin_iters.begin())->schema();
+
+    auto seg_order = 0;
+    // Init contxt depends on _iterator_init_flags
+    // for example, the vector is [1,0,0,1,1], mean that order 0,3,4 iterator needs
+    // to be inited and [0-2] is in same rowset.
+    // Notice: if iterator[0] is empty it will be invalid when init succeed, but it
+    // will not be pushed into heap, we should init next one util we find a valid iter
+    // so this rowset can work in heap
+    for (auto& iter : _origin_iters) {
+        std::unique_ptr<VerticalMergeIteratorContext> ctx(
+                new VerticalMergeIteratorContext(std::move(iter), _rowset_ids[seg_order],
+                                                 _ori_return_cols, seg_order, _seq_col_idx));
+        RETURN_IF_ERROR(ctx->init(opts));
+        if (!ctx->valid()) {
+            ++seg_order;
+            continue;
+        }
+        ++seg_order;
+        _cur_iter_ctx.swap(ctx);
+        break;
+    }
+
+    _opts = opts;
+    _block_row_max = opts.block_row_max;
+    return Status::OK();
+}
+
 //  ----------------  VerticalMaskMergeIterator  -------------  //
 Status VerticalMaskMergeIterator::check_all_iter_finished() {
     for (auto iter : _origin_iter_ctx) {
@@ -642,6 +735,15 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
         const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
         uint32_t seq_col_idx, RowSourcesBuffer* row_sources) {
     return std::make_shared<VerticalHeapMergeIterator>(std::move(inputs), iterator_init_flag,
+                                                       rowset_ids, ori_return_cols, keys_type,
+                                                       seq_col_idx, row_sources);
+}
+
+std::shared_ptr<RowwiseIterator> new_vertical_fifo_merge_iterator(
+        std::vector<RowwiseIteratorUPtr>&& inputs, const std::vector<bool>& iterator_init_flag,
+        const std::vector<RowsetId>& rowset_ids, size_t ori_return_cols, KeysType keys_type,
+        uint32_t seq_col_idx, RowSourcesBuffer* row_sources) {
+    return std::make_shared<VerticalFifoMergeIterator>(std::move(inputs), iterator_init_flag,
                                                        rowset_ids, ori_return_cols, keys_type,
                                                        seq_col_idx, row_sources);
 }

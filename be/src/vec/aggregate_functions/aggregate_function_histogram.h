@@ -137,10 +137,10 @@ struct AggregateFunctionHistogramData {
         for (auto i = 0; i < pair_vector.size(); i++) {
             const auto& element = pair_vector[i];
             if constexpr (std::is_same_v<T, std::string>) {
-                static_cast<ColumnString&>(to).insert_data(element.second.c_str(),
+                assert_cast<ColumnString&>(to).insert_data(element.second.c_str(),
                                                            element.second.length());
             } else {
-                static_cast<ColVecType&>(to).get_data().push_back(element.second);
+                assert_cast<ColVecType&>(to).get_data().push_back(element.second);
             }
         }
     }
@@ -192,14 +192,14 @@ public:
 
         if (has_input_param) {
             this->data(place).set_parameters(
-                    static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
+                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
         }
 
         if constexpr (std::is_same_v<T, std::string>) {
             this->data(place).add(
-                    static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+                    assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
         } else {
-            this->data(place).add(static_cast<const ColVecType&>(*columns[0]).get_data()[row_num]);
+            this->data(place).add(assert_cast<const ColVecType&>(*columns[0]).get_data()[row_num]);
         }
     }
 

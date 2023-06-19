@@ -146,7 +146,7 @@ public class InsertArrayStmtTest {
         stmtExecutor = new StmtExecutor(connectContext, insertStmt);
         stmtExecutor.execute();
         QueryState state = connectContext.getState();
-        Assert.assertEquals(MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(state.getErrorMessage(), MysqlStateType.OK, state.getStateType());
     }
 }
 

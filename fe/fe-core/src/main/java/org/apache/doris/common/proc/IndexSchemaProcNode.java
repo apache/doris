@@ -59,10 +59,13 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             // Extra string (aggregation and bloom filter)
             List<String> extras = Lists.newArrayList();
             if (column.getAggregationType() != null) {
-                extras.add(column.getAggregationType().name());
+                extras.add(column.getAggregationString());
             }
             if (bfColumns != null && bfColumns.contains(column.getName())) {
                 extras.add("BLOOM_FILTER");
+            }
+            if (column.isAutoInc()) {
+                extras.add("AUTO_INCREMENT");
             }
             String extraStr = StringUtils.join(extras, ",");
 

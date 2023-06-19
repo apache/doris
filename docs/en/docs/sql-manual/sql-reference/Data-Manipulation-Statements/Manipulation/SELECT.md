@@ -145,8 +145,8 @@ To specify common table expressions, use the `WITH` clause with one or more comm
 
 ```sql
 WITH
-  cte1 AS（SELECT a，b FROM table1），
-  cte2 AS（SELECT c，d FROM table2）
+  cte1 AS (SELECT a，b FROM table1),
+  cte2 AS (SELECT c，d FROM table2)
 SELECT b，d FROM cte1 JOIN cte2
 WHERE cte1.a = cte2.c;
 ```
@@ -155,7 +155,7 @@ In a statement containing the `WITH` clause, each CTE name can be referenced to 
 
 CTE names can be referenced in other CTEs, allowing CTEs to be defined based on other CTEs.
 
-A CTE can refer to itself to define a recursive CTE. Common applications of recursive CTEs include sequence generation and traversal of hierarchical or tree-structured data.
+Recursive CTE is currently not supported.
 
 ### example
 
@@ -411,4 +411,3 @@ A CTE can refer to itself to define a recursive CTE. Common applications of recu
       - In the inner join condition, in addition to supporting equal-valued joins, it also supports unequal-valued joins. For performance reasons, it is recommended to use equal-valued joins.
       - Other joins only support equivalent joins
 
-   

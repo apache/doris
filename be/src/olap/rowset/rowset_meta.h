@@ -109,10 +109,6 @@ public:
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 
-    void set_resource_id(std::string resource_id) {
-        _rowset_meta_pb.set_resource_id(std::move(resource_id));
-    }
-
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
     RowsetId rowset_id() const { return _rowset_id; }
@@ -169,13 +165,7 @@ public:
 
     int64_t start_version() const { return _rowset_meta_pb.start_version(); }
 
-    void set_start_version(int64_t start_version) {
-        _rowset_meta_pb.set_start_version(start_version);
-    }
-
     int64_t end_version() const { return _rowset_meta_pb.end_version(); }
-
-    void set_end_version(int64_t end_version) { _rowset_meta_pb.set_end_version(end_version); }
 
     int64_t num_rows() const { return _rowset_meta_pb.num_rows(); }
 
@@ -331,6 +321,9 @@ public:
             segments_key_bounds->push_back(key_range);
         }
     }
+
+    auto& get_segments_key_bounds() { return _rowset_meta_pb.segments_key_bounds(); }
+
     virtual bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {

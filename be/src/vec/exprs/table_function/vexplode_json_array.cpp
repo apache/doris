@@ -138,12 +138,12 @@ VExplodeJsonArrayTableFunction::VExplodeJsonArrayTableFunction(ExplodeJsonArrayT
 }
 
 Status VExplodeJsonArrayTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 1)
-            << _vexpr_context->root()->children().size();
+    CHECK(_expr_context->root()->children().size() == 1)
+            << _expr_context->root()->children().size();
 
     int text_column_idx = -1;
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &text_column_idx));
     _text_column = block->get_by_position(text_column_idx).column;
 
     return Status::OK();

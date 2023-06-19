@@ -109,7 +109,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
-            return;
         }
     }
 
@@ -257,7 +256,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
         }
 
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
 
         boolean ok = false;
         BackendService.Client client = null;

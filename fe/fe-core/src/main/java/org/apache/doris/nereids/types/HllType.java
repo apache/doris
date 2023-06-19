@@ -22,7 +22,7 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
- * Bitmap type in Nereids.
+ * HyperLogLog type in Nereids.
  */
 public class HllType extends PrimitiveType {
 

@@ -29,26 +29,39 @@ public class AggregateParam {
 
     public final AggMode aggMode;
 
+    // TODO remove this flag, and generate it in enforce and cost job
+    public boolean needColocateScan;
+
     /** AggregateParam */
     public AggregateParam(AggPhase aggPhase, AggMode aggMode) {
+        this(aggPhase, aggMode, false);
+    }
+
+    /** AggregateParam */
+    public AggregateParam(AggPhase aggPhase, AggMode aggMode, boolean needColocateScan) {
         this.aggMode = Objects.requireNonNull(aggMode, "aggMode cannot be null");
         this.aggPhase = Objects.requireNonNull(aggPhase, "aggPhase cannot be null");
+        this.needColocateScan = needColocateScan;
     }
 
     public static AggregateParam localResult() {
-        return new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT);
+        return new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_RESULT, true);
     }
 
     public AggregateParam withAggPhase(AggPhase aggPhase) {
-        return new AggregateParam(aggPhase, aggMode);
+        return new AggregateParam(aggPhase, aggMode, needColocateScan);
     }
 
     public AggregateParam withAggPhase(AggMode aggMode) {
-        return new AggregateParam(aggPhase, aggMode);
+        return new AggregateParam(aggPhase, aggMode, needColocateScan);
     }
 
     public AggregateParam withAppPhaseAndAppMode(AggPhase aggPhase, AggMode aggMode) {
-        return new AggregateParam(aggPhase, aggMode);
+        return new AggregateParam(aggPhase, aggMode, needColocateScan);
+    }
+
+    public AggregateParam withNeedColocateScan(boolean needColocateScan) {
+        return new AggregateParam(aggPhase, aggMode, needColocateScan);
     }
 
     @Override
@@ -74,6 +87,7 @@ public class AggregateParam {
         return "AggregateParam{"
                 + "aggPhase=" + aggPhase
                 + ", aggMode=" + aggMode
+                + ", needColocateScan=" + needColocateScan
                 + '}';
     }
 }

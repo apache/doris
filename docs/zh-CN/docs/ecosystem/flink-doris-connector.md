@@ -28,7 +28,6 @@ under the License.
 
 # Flink Doris Connector
 
-> 本文档适用于flink-doris-connector 1.1.0之后的版本，1.1.0之前的版本参考[这里](https://doris.apache.org/zh-CN/docs/0.15/extending-doris/flink-doris-connector)
 
 
 
@@ -48,85 +47,24 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.0     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.0     | 1.15  | 1.0+   | 8    | -         |
+| 1.1.1     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1     | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
+| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
 
 ## 编译与安装
 
 准备工作
 
-1.修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
+1. 修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
 
-2.指定thrift安装目录
+2. 在源码目录下执行：
+`sh build.sh`
+根据提示输入你需要的 flink 版本进行编译。
 
-```bash
-##源文件内容
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
+编译成功后，会在 `dist` 目录生成目标jar包，如：`flink-doris-connector-1.3.0-SNAPSHOT.jar`。
+将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
-##修改如下,MacOS为例
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
-```
-
-安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
- Windows: 
-    1.下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`(下载目录自己指定)
-    2.修改thrift-0.13.0.exe 为 thrift
- 
- MacOS: 
-    1. 下载：`brew install thrift@0.13.0`
-    2. 默认下载地址：/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-    
- 
- 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
- Linux:
-  ```bash
-    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # 下载源码包
-    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # 安装依赖
-    3. tar zxvf thrift-0.13.0.tar.gz
-    4. cd thrift-0.13.0
-    5. ./configure --without-tests
-    6. make
-    7. make install
-    8. thrift --version  # 安装完成后查看版本
-   ```
-   注：如果编译过Doris，则不需要安装thrift,可以直接使用 `$DORIS_HOME/thirdparty/installed/bin/thrift`
-
-在源码目录下执行：
-
-```bash
-sh build.sh
-
-  Usage:
-    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
-    build.sh --tag           # this is a build from tag
-  e.g.:
-    build.sh --flink 1.16.0
-    build.sh --tag
-```
-然后按照你需要版本执行命令编译即可,例如：
-`sh build.sh --flink 1.16.0`
-
-编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `classpath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
-
-**备注**
-
-1. Doris FE 要在配置中配置启用 http v2
-
-​       conf/fe.conf
-
-```
-enable_http_server_v2 = true
-```
 
 ## 使用 Maven 管理
 
@@ -372,8 +310,9 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 | sink.properties.*                | --                 | N        | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' 定义列分隔符，  'sink.properties.escape_delimiters' = 'true' 特殊字符作为分隔符,'\x01'会被转换为二进制的0x01  <br/><br/>JSON格式导入<br/>'sink.properties.format' = 'json' 'sink.properties.read_json_by_line' = 'true' |
 | sink.enable-delete               | TRUE               | N        | 是否启用删除。此选项需要 Doris 表开启批量删除功能(Doris0.15+版本默认开启)，只支持 Unique 模型。 |
 | sink.enable-2pc                  | TRUE               | N        | 是否开启两阶段提交(2pc)，默认为true，保证Exactly-Once语义。关于两阶段提交可参考[这里](../data-operate/import/import-way/stream-load-manual.md)。 |
-
-
+| sink.buffer-size                 | 1MB                | N        | 写数据缓存buffer大小，单位字节。不建议修改，默认配置即可     |
+| sink.buffer-count                | 3                  | N        | 写数据缓存buffer个数。不建议修改，默认配置即可               |
+| sink.max-retries                 | 3                  | N        | Commit失败后的最大重试次数，默认3次                          |
 
 ## Doris 和 Flink 列类型映射关系
 
@@ -397,7 +336,7 @@ env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
 
-## 使用 Flink CDC 接入 Doris 示例（支持 Insert / Update / Delete 事件）
+## 使用FlinkSQL通过CDC接入Doris示例（支持Insert/Update/Delete事件）
 ```sql
 -- enable checkpoint
 SET 'execution.checkpointing.interval' = '10s';
@@ -436,6 +375,57 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
+## 使用FlinkCDC接入多表或整库示例
+### 语法
+```
+<FLINK_HOME>/bin/flink run \
+    -c org.apache.doris.flink.tools.cdc.CdcTools \
+    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+    mysql-sync-database \
+    --database <doris-database-name> \
+    [--job-name <flink-job-name>] \
+    [--table-prefix <doris-table-prefix>] \
+    [--table-suffix <doris-table-suffix>] \
+    [--including-tables <mysql-table-name|name-regular-expr>] \
+    [--excluding-tables <mysql-table-name|name-regular-expr>] \
+    --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
+    --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
+    [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
+```
+
+- **--job-name** Flink任务名称, 非必需。
+- **--database** 同步到Doris的数据库名。
+- **--table-prefix**  Doris表前缀名，例如 --table-prefix ods_。
+- **--table-suffix** 同上，Doris表的后缀名。
+- **--including-tables** 需要同步的MySQL表，可以使用"|" 分隔多个表，并支持正则表达式。 比如--including-tables table1|tbl.*就是同步table1和所有以tbl开头的表。
+- **--excluding-tables** 不需要同步的表，用法同上。
+- **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。
+- **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
+- **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
+
+### 示例
+```
+<FLINK_HOME>/bin/flink run \
+    -Dexecution.checkpointing.interval=10s \
+    -Dparallelism.default=1 \
+    -c org.apache.doris.flink.tools.cdc.CdcTools \
+    lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+    mysql-sync-database \
+    --database test_db \
+    --mysql-conf hostname=127.0.0.1 \
+    --mysql-conf username=root \
+    --mysql-conf password=123456 \
+    --mysql-conf database-name=mysql_db \
+    --including-tables "tbl1|test.*" \
+    --sink-conf fenodes=127.0.0.1:8030 \
+    --sink-conf username=root \
+    --sink-conf password=123456 \
+    --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+    --sink-conf sink.label-prefix=label \
+    --table-conf replication_num=1 
+```
+
+
 ## 使用FlinkCDC更新Key列
 一般在业务数据库中，会使用编号来作为表的主键，比如Student表，会使用编号(id)来作为主键，但是随着业务的发展，数据对应的编号有可能是会发生变化的。
 在这种场景下，使用FlinkCDC + Doris Connector同步数据，便可以自动更新Doris主键列的数据。
@@ -445,6 +435,45 @@ Flink CDC底层的采集工具是Debezium，Debezium内部使用op字段来标�
 
 ### 使用
 Flink程序可参考上面CDC同步的示例，成功提交任务后，在MySQL侧执行Update主键列的语句(`update  student set id = '1002' where id = '1001'`)，即可修改Doris中的数据。
+
+## 使用Flink根据指定列删除数据
+
+一般Kafka中的消息会使用特定字段来标记操作类型，比如{"op_type":"delete",data:{...}}。针对这类数据，希望将op_type=delete的数据删除掉。
+
+DorisSink默认会根据RowKind来区分事件的类型，通常这种在cdc情况下可以直接获取到事件类型，对隐藏列`__DORIS_DELETE_SIGN__`进行赋值达到删除的目的，而Kafka则需要根据业务逻辑判断，显示的传入隐藏列的值。
+
+### 使用
+
+```sql
+-- 比如上游数据: {"op_type":"delete",data:{"id":1,"name":"zhangsan"}}
+CREATE TABLE KAFKA_SOURCE(
+  data STRING,
+  op_type STRING
+) WITH (
+  'connector' = 'kafka',
+  ...
+);
+
+CREATE TABLE DORIS_SINK(
+  id INT,
+  name STRING,
+  __DORIS_DELETE_SIGN__ INT
+) WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'db.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.enable-delete' = 'false',        -- false表示不从RowKind获取事件类型
+  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- 显示指定streamload的导入列
+);
+
+INSERT INTO KAFKA_SOURCE
+SELECT json_value(data,'$.id') as id,
+json_value(data,'$.name') as name, 
+if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 
+from KAFKA_SOURCE;
+```
 
 ## Java示例
 

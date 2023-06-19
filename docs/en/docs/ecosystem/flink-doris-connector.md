@@ -26,7 +26,6 @@ under the License.
 
 # Flink Doris Connector
 
-> This document applies to flink-doris-connector versions after 1.1.0, for versions before 1.1.0 refer to [here](https://doris.apache.org/docs/0.15/extending-doris/flink-doris-connector)
 
 
 
@@ -46,86 +45,25 @@ Github: https://github.com/apache/doris-flink-connector
 | Connector Version | Flink Version | Doris Version | Java Version | Scala Version |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.3     | 1.11+ | 0.15+  | 8    | 2.11,2.12 |
-| 1.1.0     | 1.14  | 1.0+   | 8    | 2.11,2.12 |
-| 1.2.0     | 1.15  | 1.0+   | 8    | -         |
+| 1.1.1    | 1.14  | 1.0+   | 8    | 2.11,2.12 |
+| 1.2.1    | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
+| 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
 
 ## Build and Install
 
 Ready to work
 
-1.Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
+1. Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
 
-2.Specify the thrift installation directory
+2. Execute following command in source dir:
+`sh build.sh`
+Enter the flink version you need to compile according to the prompt.
 
-```bash
-##source file content
-#export THRIFT_BIN=
-#export MVN_BIN=
-#export JAVA_HOME=
-
-##amend as below,MacOS as an example
-export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-#export MVN_BIN=
-#export JAVA_HOME=
-```
-
-Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
-Windows:
-  1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-  2. Modify thrift-0.13.0.exe to thrift 
- 
-MacOS:
-  1. Download: `brew install thrift@0.13.0`
-  2. default address: /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
-
-Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
-    1. `brew tap-new $USER/local-tap`
-    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
-    3. `brew install thrift@0.13.0`
- Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
- 
-Linux:
-   ```bash
-    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # Download source package
-    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # Install dependencies
-    3. tar zxvf thrift-0.13.0.tar.gz
-    4. cd thrift-0.13.0
-    5. ./configure --without-tests
-    6. make
-    7. make install
-    8. thrift --version  # Check the version after installation is complete
-   ```
-   Note: If you have compiled Doris, you do not need to install thrift, you can directly use `$DORIS_HOME/thirdparty/installed/bin/thrift`
+After the compilation is successful, the target jar package will be generated in the `dist` directory, such as: `flink-doris-connector-1.3.0-SNAPSHOT.jar`.
+Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 
-Execute following command in source dir:
-
-```bash
-sh build.sh
-
-  Usage:
-    build.sh --flink version # specify flink version (after flink-doris-connector v1.2 and flink-1.15, there is no need to provide scala version)
-    build.sh --tag           # this is a build from tag
-  e.g.:
-    build.sh --flink 1.16.0
-    build.sh --tag
-```
-Then, for example, execute the command to compile according to the version you need:
-`sh build.sh --flink 1.16.0`
-
-
-After successful compilation, the file `flink-doris-connector-1.16-1.3.0-SNAPSHOT.jar` will be generated in the `target/` directory. Copy this file to `classpath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
-
-**Remarks:** 
-
-1. Doris FE should be configured to enable http v2 in the configuration
-
-   conf/fe.conf
-
-```
-enable_http_server_v2 = true
-```
 ## Using Maven
 
 Add flink-doris-connector Maven dependencies
@@ -373,10 +311,10 @@ refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/
 | doris.read.field            | --            | N           | List of column names in the Doris table, separated by commas                  |
 | doris.filter.query          | --            | N           | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
 | sink.label-prefix | -- | Y | The label prefix used by stream load imports. In the 2pc scenario, global uniqueness is required to ensure the EOS semantics of Flink. |
-| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true' |
+| sink.properties.*     | --               | N              | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.read_json_by_line' ='true' |
 | sink.enable-delete     | true               | N              | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
 | sink.enable-2pc                  | true              | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.max-retries                 | 1                  | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |
+| sink.max-retries                 | 3                 | N        | In the 2pc scenario, the number of retries after the commit phase fails.                                                                                                                                                                                                                                         |
 | sink.buffer-size                 | 1048576(1MB)       | N        | Write data cache buffer size, in bytes. It is not recommended to modify, the default configuration is sufficient.                                                                                                                                                                                                                                 |
 | sink.buffer-count                | 3                  | N        | The number of write data cache buffers, it is not recommended to modify, the default configuration is sufficient.                                                                                                                               
 
@@ -441,6 +379,56 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
+## Use Flink CDC to access multi-table or database
+### grammar
+```
+<FLINK_HOME>/bin/flink run \
+     -c org.apache.doris.flink.tools.cdc.CdcTools\
+     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+     mysql-sync-database \
+     --database <doris-database-name> \
+     [--job-name <flink-job-name>] \
+     [--table-prefix <doris-table-prefix>] \
+     [--table-suffix <doris-table-suffix>] \
+     [--including-tables <mysql-table-name|name-regular-expr>] \
+     [--excluding-tables <mysql-table-name|name-regular-expr>] \
+     --mysql-conf <mysql-cdc-source-conf> [--mysql-conf <mysql-cdc-source-conf> ...] \
+     --sink-conf <doris-sink-conf> [--table-conf <doris-sink-conf> ...] \
+     [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
+```
+
+- **--job-name** Flink job name, not required.
+- **--database** Synchronize to the database name of Doris.
+- **--table-prefix** Doris table prefix name, for example --table-prefix ods_.
+- **--table-suffix** Same as above, the suffix name of the Doris table.
+- **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
+- **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
+- **--mysql-conf** MySQL CDCSource configuration, for example --mysql-conf hostname=127.0.0.1 , you can find it in [here](https://ververica.github.io/flink-cdc-connectors/master /content/connectors/mysql-cdc.html) to view all configurations of MySQL-CDC, where hostname/username/password/database-name are required.
+- **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
+- **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
+
+### Example
+```
+<FLINK_HOME>/bin/flink run \
+     -Dexecution.checkpointing.interval=10s\
+     -Dparallelism.default=1\
+     -c org.apache.doris.flink.tools.cdc.CdcTools\
+     lib/flink-doris-connector-1.16-1.4.0-SNAPSHOT.jar \
+     mysql-sync-database\
+     --database test_db \
+     --mysql-conf hostname=127.0.0.1 \
+     --mysql-conf username=root \
+     --mysql-conf password=123456 \
+     --mysql-conf database-name=mysql_db \
+     --including-tables "tbl1|test.*" \
+     --sink-conf fenodes=127.0.0.1:8030 \
+     --sink-conf username=root \
+     --sink-conf password=123456 \
+     --sink-conf jdbc-url=jdbc:mysql://127.0.0.1:9030 \
+     --sink-conf sink.label-prefix=label \
+     --table-conf replication_num=1
+```
+
 ## Use FlinkCDC to update Key column
 Generally, in a business database, the number is used as the primary key of the table, such as the Student table, the number (id) is used as the primary key, but with the development of the business, the number corresponding to the data may change.
 In this scenario, using FlinkCDC + Doris Connector to synchronize data can automatically update the data in the Doris primary key column.
@@ -450,6 +438,45 @@ For the update of the primary key column, FlinkCDC will send DELETE and INSERT e
 
 ### Example
 The Flink program can refer to the CDC synchronization example above. After the task is successfully submitted, execute the Update primary key column statement (`update student set id = '1002' where id = '1001'`) on the MySQL side to modify the data in Doris .
+
+## Use Flink to delete data based on specified columns
+
+Generally, messages in Kafka use specific fields to mark the operation type, such as {"op_type":"delete",data:{...}}. For this type of data, it is hoped that the data with op_type=delete will be deleted.
+
+By default, DorisSink will distinguish the type of event based on RowKind. Usually, in the case of cdc, the event type can be obtained directly, and the hidden column `__DORIS_DELETE_SIGN__` is assigned to achieve the purpose of deletion, while Kafka needs to be based on business logic. Judgment, display the value passed in to the hidden column.
+
+### Example
+
+```sql
+-- Such as upstream data: {"op_type":"delete",data:{"id":1,"name":"zhangsan"}}
+CREATE TABLE KAFKA_SOURCE(
+  data STRING,
+  op_type STRING
+) WITH (
+  'connector' = 'kafka',
+  ...
+);
+
+CREATE TABLE DORIS_SINK(
+  id INT,
+  name STRING,
+  __DORIS_DELETE_SIGN__ INT
+) WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'db.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.enable-delete' = 'false',        -- false means not to get the event type from RowKind
+  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- Display the import column of the specified streamload
+);
+
+INSERT INTO KAFKA_SOURCE
+SELECT json_value(data,'$.id') as id,
+json_value(data,'$.name') as name, 
+if(op_type='delete',1,0) as __DORIS_DELETE_SIGN__ 
+from KAFKA_SOURCE;
+```
 
 ## Java example
 

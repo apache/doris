@@ -51,13 +51,6 @@ bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     return lhs == rhs;
 }
 
-//to_tcolumn_type_thrift only test
-TColumnType to_tcolumn_type_thrift(TPrimitiveType::type ttype) {
-    TColumnType t;
-    t.__set_type(ttype);
-    return t;
-}
-
 TExprOpcode::type to_in_opcode(PrimitiveType t) {
     return TExprOpcode::FILTER_IN;
 }
@@ -156,10 +149,15 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::STRUCT:
         return TYPE_STRUCT;
+
     case TPrimitiveType::LAMBDA_FUNCTION:
         return TYPE_LAMBDA_FUNCTION;
 
+    case TPrimitiveType::AGG_STATE:
+        return TYPE_AGG_STATE;
+
     default:
+        CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
     }
 }
@@ -352,6 +350,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
 
+    case TYPE_AGG_STATE:
+        return "AGG_STATE";
+
     case TYPE_ARRAY:
         return "ARRAY";
 
@@ -451,8 +452,12 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "object";
+
     case TYPE_QUANTILE_STATE:
         return "quantile_state";
+
+    case TYPE_AGG_STATE:
+        return "agg_state";
     };
 
     return "unknown";

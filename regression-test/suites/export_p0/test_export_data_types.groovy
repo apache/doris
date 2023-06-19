@@ -54,40 +54,43 @@ suite("test_export_data_types", "p0") {
     def table_load_name = "test_load_data_types"
     def outfile_path_prefix = """/tmp/test_export"""
 
-    // create table
-    sql """ DROP TABLE IF EXISTS ${table_export_name} """
-    sql """
-    CREATE TABLE IF NOT EXISTS ${table_export_name} (
-        `user_id` INT NOT NULL COMMENT "用户id",
-        `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-        `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间2",
-        `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-        `datetimev2_1` DATETIMEV2 NOT NULL COMMENT "数据灌入日期时间",
-        `datetimev2_2` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-        `datetimev2_3` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-        `city` VARCHAR(20) COMMENT "用户所在城市",
-        `street` STRING COMMENT "用户所在街道",
-        `age` SMALLINT COMMENT "用户年龄",
-        `sex` TINYINT COMMENT "用户性别",
-        `bool_col` boolean COMMENT "",
-        `int_col` int COMMENT "",
-        `bigint_col` bigint COMMENT "",
-        `largeint_col` largeint COMMENT "",
-        `float_col` float COMMENT "",
-        `double_col` double COMMENT "",
-        `char_col` CHAR(10) COMMENT "",
-        `decimal_col` decimal COMMENT "",
-        `decimalv3_col` decimalv3 COMMENT "",
-        `decimalv3_col2` decimalv3(1,0) COMMENT "",
-        `decimalv3_col3` decimalv3(1,1) COMMENT "",
-        `decimalv3_col4` decimalv3(9,8) COMMENT "",
-        `decimalv3_col5` decimalv3(20,10) COMMENT "",
-        `decimalv3_col6` decimalv3(38,0) COMMENT "",
-        `decimalv3_col7` decimalv3(38,37) COMMENT "",
-        `decimalv3_col8` decimalv3(38,38) COMMENT ""
-        )
-        DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-    """
+    def create_table = {table_name -> 
+        sql """ DROP TABLE IF EXISTS ${table_name} """
+        sql """
+        CREATE TABLE IF NOT EXISTS ${table_name} (
+            `user_id` INT NOT NULL COMMENT "用户id",
+            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
+            `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间2",
+            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
+            `datetimev2_1` DATETIMEV2 NOT NULL COMMENT "数据灌入日期时间",
+            `datetimev2_2` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
+            `datetimev2_3` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
+            `city` VARCHAR(20) COMMENT "用户所在城市",
+            `street` STRING COMMENT "用户所在街道",
+            `age` SMALLINT COMMENT "用户年龄",
+            `sex` TINYINT COMMENT "用户性别",
+            `bool_col` boolean COMMENT "",
+            `int_col` int COMMENT "",
+            `bigint_col` bigint COMMENT "",
+            `largeint_col` largeint COMMENT "",
+            `float_col` float COMMENT "",
+            `double_col` double COMMENT "",
+            `char_col` CHAR(10) COMMENT "",
+            `decimal_col` decimal COMMENT "",
+            `decimalv3_col` decimalv3 COMMENT "",
+            `decimalv3_col2` decimalv3(1,0) COMMENT "",
+            `decimalv3_col3` decimalv3(1,1) COMMENT "",
+            `decimalv3_col4` decimalv3(9,8) COMMENT "",
+            `decimalv3_col5` decimalv3(20,10) COMMENT "",
+            `decimalv3_col6` decimalv3(38,0) COMMENT "",
+            `decimalv3_col7` decimalv3(38,37) COMMENT "",
+            `decimalv3_col8` decimalv3(38,38) COMMENT ""
+            )
+            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
+        """
+    }
+
+    create_table(table_export_name);
 
     StringBuilder sb = new StringBuilder()
     int i = 1
@@ -101,14 +104,14 @@ suite("test_export_data_types", "p0") {
     sb.append("""
         (${++i}, '9999-12-31', '9999-12-31', '9999-12-31 23:59:59', '9999-12-31 23:59:59', '2023-04-20 00:00:00.12', '2023-04-20 00:00:00.3344',
         '', 'Haidian',
-        ${Short.MIN_VALUE}, ${Byte.MIN_VALUE}, true, ${Integer.MIN_VALUE}, ${Long.MIN_VALUE}, ${i}, ${Float.MIN_VALUE}, ${Double.MIN_VALUE}, 'char${i}',
+        ${Short.MIN_VALUE}, ${Byte.MIN_VALUE}, true, ${Integer.MIN_VALUE}, ${Long.MIN_VALUE}, -170141183460469231731687303715884105728, ${Float.MIN_VALUE}, ${Double.MIN_VALUE}, 'char${i}',
         100000000, 100000000, 4, 0.1, 0.99999999, 9999999999.9999999999, 99999999999999999999999999999999999999, 9.9999999999999999999999999999999999999, 0.99999999999999999999999999999999999999),
     """)
     
     sb.append("""
             (${++i}, '2023-04-21', '2023-04-21', '2023-04-20 12:34:56', '2023-04-20 00:00:00', '2023-04-20 00:00:00.123', '2023-04-20 00:00:00.123456',
             'Beijing', '', 
-            ${Short.MAX_VALUE}, ${Byte.MAX_VALUE}, true, ${Integer.MAX_VALUE}, ${Long.MAX_VALUE}, ${i}, ${Float.MAX_VALUE}, ${Double.MAX_VALUE}, 'char${i}',
+            ${Short.MAX_VALUE}, ${Byte.MAX_VALUE}, true, ${Integer.MAX_VALUE}, ${Long.MAX_VALUE}, 170141183460469231731687303715884105727, ${Float.MAX_VALUE}, ${Double.MAX_VALUE}, 'char${i}',
             999999999, 999999999, 9, 0.9, 9.99999999, 1234567890.0123456789, 12345678901234567890123456789012345678, 1.2345678901234567890123456789012345678, 0.12345678901234567890123456789012345678),
         """)
 
@@ -124,6 +127,8 @@ suite("test_export_data_types", "p0") {
             ${sb.toString()}
         """
    
+    def insert_res = sql "show last insert;"
+    logger.info("insert result: " + insert_res.toString())
     qt_select_export1 """ SELECT * FROM ${table_export_name} t ORDER BY user_id; """
 
     def check_path_exists = { dir_path ->
@@ -187,40 +192,7 @@ suite("test_export_data_types", "p0") {
         // check file amounts
         check_file_amounts.call("${outFilePath}", 1)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间2",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_1` DATETIMEV2 NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_2` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_3` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `street` STRING COMMENT "用户所在街道",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `largeint_col` largeint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT "",
-            `decimalv3_col` decimalv3 COMMENT "",
-            `decimalv3_col2` decimalv3(1,0) COMMENT "",
-            `decimalv3_col3` decimalv3(1,1) COMMENT "",
-            `decimalv3_col4` decimalv3(9,8) COMMENT "",
-            `decimalv3_col5` decimalv3(20,10) COMMENT "",
-            `decimalv3_col6` decimalv3(38,0) COMMENT "",
-            `decimalv3_col7` decimalv3(38,37) COMMENT "",
-            `decimalv3_col8` decimalv3(38,38) COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
+        create_table(table_load_name);
 
         File[] files = new File("${outFilePath}").listFiles()
         String file_path = files[0].getAbsolutePath()
@@ -264,11 +236,10 @@ suite("test_export_data_types", "p0") {
 
         // exec export
         sql """
-            EXPORT TABLE ${table_export_name} where user_id<4 TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
-                "format" = "parquet",
-                "columns" = "user_id, date, datev2, datetime, datetimev2_1, datetimev2_2, datetimev2_3, city, street, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col, decimalv3_col, decimalv3_col2, decimalv3_col3, decimalv3_col4, decimalv3_col5, decimalv3_col6, decimalv3_col7, decimalv3_col8"
+                "format" = "parquet"
             );
         """
         waiting_export.call(label)
@@ -276,39 +247,7 @@ suite("test_export_data_types", "p0") {
         // check file amounts
         check_file_amounts.call("${outFilePath}", 1)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间2",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_1` DATETIMEV2 NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_2` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_3` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `street` STRING COMMENT "用户所在街道",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT "",
-            `decimalv3_col` decimalv3 COMMENT "",
-            `decimalv3_col2` decimalv3(1,0) COMMENT "",
-            `decimalv3_col3` decimalv3(1,1) COMMENT "",
-            `decimalv3_col4` decimalv3(9,8) COMMENT "",
-            `decimalv3_col5` decimalv3(20,10) COMMENT "",
-            `decimalv3_col6` decimalv3(38,0) COMMENT "",
-            `decimalv3_col7` decimalv3(38,37) COMMENT "",
-            `decimalv3_col8` decimalv3(38,38) COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
+        create_table(table_load_name);
 
         File[] files = new File("${outFilePath}").listFiles()
         String file_path = files[0].getAbsolutePath()
@@ -328,7 +267,7 @@ suite("test_export_data_types", "p0") {
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertEquals(3, json.NumberTotalRows)
+                assertEquals(4, json.NumberTotalRows)
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
@@ -353,8 +292,7 @@ suite("test_export_data_types", "p0") {
             EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
             PROPERTIES(
                 "label" = "${label}",
-                "format" = "orc",
-                "columns" = "user_id, date, city, street, age, sex, bool_col, int_col, bigint_col, float_col, double_col, char_col, decimal_col"
+                "format" = "orc"
             );
         """
         waiting_export.call(label)
@@ -362,26 +300,7 @@ suite("test_export_data_types", "p0") {
         // check file amounts
         check_file_amounts.call("${outFilePath}", 1)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `street` STRING COMMENT "用户所在街道",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
+        create_table(table_load_name);
 
         File[] files = new File("${outFilePath}").listFiles()
         String file_path = files[0].getAbsolutePath()
@@ -435,40 +354,7 @@ suite("test_export_data_types", "p0") {
         // check file amounts
         check_file_amounts.call("${outFilePath}", 1)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间2",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_1` DATETIMEV2 NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_2` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_3` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `street` STRING COMMENT "用户所在街道",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `largeint_col` largeint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT "",
-            `decimalv3_col` decimalv3 COMMENT "",
-            `decimalv3_col2` decimalv3(1,0) COMMENT "",
-            `decimalv3_col3` decimalv3(1,1) COMMENT "",
-            `decimalv3_col4` decimalv3(9,8) COMMENT "",
-            `decimalv3_col5` decimalv3(20,10) COMMENT "",
-            `decimalv3_col6` decimalv3(38,0) COMMENT "",
-            `decimalv3_col7` decimalv3(38,37) COMMENT "",
-            `decimalv3_col8` decimalv3(38,38) COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
+        create_table(table_load_name);
 
         File[] files = new File("${outFilePath}").listFiles()
         String file_path = files[0].getAbsolutePath()
@@ -524,40 +410,7 @@ suite("test_export_data_types", "p0") {
         // check file amounts
         check_file_amounts.call("${outFilePath}", 1)
 
-        // check data correctness
-        sql """ DROP TABLE IF EXISTS ${table_load_name} """
-        sql """
-        CREATE TABLE IF NOT EXISTS ${table_load_name} (
-            `user_id` INT NOT NULL COMMENT "用户id",
-            `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-            `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间2",
-            `datetime` DATETIME NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_1` DATETIMEV2 NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_2` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-            `datetimev2_3` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-            `city` VARCHAR(20) COMMENT "用户所在城市",
-            `street` STRING COMMENT "用户所在街道",
-            `age` SMALLINT COMMENT "用户年龄",
-            `sex` TINYINT COMMENT "用户性别",
-            `bool_col` boolean COMMENT "",
-            `int_col` int COMMENT "",
-            `bigint_col` bigint COMMENT "",
-            `largeint_col` largeint COMMENT "",
-            `float_col` float COMMENT "",
-            `double_col` double COMMENT "",
-            `char_col` CHAR(10) COMMENT "",
-            `decimal_col` decimal COMMENT "",
-            `decimalv3_col` decimalv3 COMMENT "",
-            `decimalv3_col2` decimalv3(1,0) COMMENT "",
-            `decimalv3_col3` decimalv3(1,1) COMMENT "",
-            `decimalv3_col4` decimalv3(9,8) COMMENT "",
-            `decimalv3_col5` decimalv3(20,10) COMMENT "",
-            `decimalv3_col6` decimalv3(38,0) COMMENT "",
-            `decimalv3_col7` decimalv3(38,37) COMMENT "",
-            `decimalv3_col8` decimalv3(38,38) COMMENT ""
-            )
-            DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
-        """
+        create_table(table_load_name);
 
         File[] files = new File("${outFilePath}").listFiles()
         String file_path = files[0].getAbsolutePath()

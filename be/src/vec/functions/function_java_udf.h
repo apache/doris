@@ -76,6 +76,8 @@ public:
 
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
+    bool is_use_default_implementation_for_constants() const override { return true; }
+
 private:
     const TFunction& fn_;
     const DataTypes _argument_types;

@@ -45,14 +45,15 @@ public class KafkaUtil {
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
             Map<String, String> convertedCustomProperties) throws UserException {
         TNetworkAddress address = null;
+        Backend be = null;
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }
             Collections.shuffle(backendIds);
-            Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
@@ -77,9 +78,10 @@ public class KafkaUtil {
                 return result.getKafkaMetaResult().getPartitionIdsList();
             }
         } catch (Exception e) {
-            LOG.warn("failed to get partitions.", e);
+            LOG.warn("failed to get partitions from backend[{}].", be.getId(), e);
             throw new LoadException(
-                    "Failed to get all partitions of kafka topic: " + topic + ". error: " + e.getMessage());
+                    "Failed to get all partitions of kafka topic: " + topic + " from backend[" + be.getId()
+                        + "]. error: " + e.getMessage());
         }
     }
 
@@ -92,13 +94,13 @@ public class KafkaUtil {
         TNetworkAddress address = null;
         LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get offset for times. No alive backends");
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
@@ -152,13 +154,13 @@ public class KafkaUtil {
         LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
                 partitionIds, topic, taskId, jobId);
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get latest offsets. No alive backends");
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             // create request
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =

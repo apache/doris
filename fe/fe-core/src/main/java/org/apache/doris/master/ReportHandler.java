@@ -81,6 +81,7 @@ import org.apache.doris.thrift.TStorageResource;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
+import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -91,7 +92,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -194,6 +194,11 @@ public class ReportHandler extends Daemon {
 
         LOG.info("receive report from be {}. type: {}, current queue size: {}",
                 backend.getId(), reportType, reportQueue.size());
+        if (reportType == ReportType.DISK) {
+            Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
+            int numCores = request.getNumCores();
+            beinfoCollector.addBeInfo(beId, numCores);
+        }
         return result;
     }
 
@@ -420,7 +425,7 @@ public class ReportHandler extends Daemon {
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
-        List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
+        List<TTabletMetaInfo> tabletToUpdate = Lists.newArrayList();
 
         List<CooldownConf> cooldownConfToPush = new LinkedList<>();
         List<CooldownConf> cooldownConfToUpdate = new LinkedList<>();
@@ -434,7 +439,7 @@ public class ReportHandler extends Daemon {
                 transactionsToPublish,
                 transactionsToClear,
                 tabletRecoveryMap,
-                tabletToInMemory,
+                tabletToUpdate,
                 cooldownConfToPush,
                 cooldownConfToUpdate);
 
@@ -474,9 +479,9 @@ public class ReportHandler extends Daemon {
             handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId);
         }
 
-        // 9. send set tablet in memory to be
-        if (!tabletToInMemory.isEmpty()) {
-            handleSetTabletInMemory(backendId, tabletToInMemory);
+        // 9. send tablet meta to be for updating
+        if (!tabletToUpdate.isEmpty()) {
+            handleUpdateTabletMeta(backendId, tabletToUpdate);
         }
 
         // handle cooldown conf
@@ -775,6 +780,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
+                                            olapTable.enableSingleReplicaCompaction(),
+                                            olapTable.skipWriteIndexOnLoad(),
                                             olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
                                     createReplicaTask.setIsRecoverTask(true);
@@ -847,6 +854,7 @@ public class ReportHandler extends Daemon {
             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
             boolean needDelete = false;
             TabletMeta tabletMeta = null;
+            LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
             if (!tabletFoundInMeta.contains(tabletId)) {
                 if (isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet meta is still in invertedIndex. try to add it.
@@ -855,8 +863,9 @@ public class ReportHandler extends Daemon {
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
+                        LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                     } else {
-                        LOG.debug("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                        LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;
                     }
                 } else {
@@ -871,7 +880,7 @@ public class ReportHandler extends Daemon {
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
                         backendTabletInfo.getSchemaHash(), isDropTableOrPartition);
                 batchTask.addTask(task);
-                LOG.debug("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
+                LOG.info("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
                 ++deleteFromBackendCounter;
             }
         } // end for backendTabletIds
@@ -1032,10 +1041,14 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void handleSetTabletInMemory(long backendId, List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
+    private static void handleUpdateTabletMeta(long backendId, List<TTabletMetaInfo> tabletToUpdate) {
+        final int updateBatchSize = 4096;
         AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
-        batchTask.addTask(task);
+        for (int start = 0; start < tabletToUpdate.size(); start += updateBatchSize) {
+            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId,
+                    tabletToUpdate.subList(start, Math.min(start + updateBatchSize, tabletToUpdate.size())));
+            batchTask.addTask(task);
+        }
         AgentTaskExecutor.submit(batchTask);
     }
 
@@ -1128,14 +1141,15 @@ public class ReportHandler extends Daemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus status =
                         tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
-                return status != TabletStatus.HEALTHY;
+                if (status == TabletStatus.HEALTHY) {
+                    return false;
+                }
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
-                    db.getClusterName(), visibleVersion,
-                    replicaAlloc, aliveBeIdsInCluster);
+                    visibleVersion, replicaAlloc, aliveBeIds);
 
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {

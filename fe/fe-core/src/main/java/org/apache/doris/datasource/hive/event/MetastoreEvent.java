@@ -128,6 +128,9 @@ public abstract class MetastoreEvent {
 
     /**
      * Process the information available in the NotificationEvent.
+     * Better not to call (direct/indirect) apis of {@link org.apache.doris.datasource.hive.PooledHiveMetaStoreClient}
+     * during handling hms events (Reference to https://github.com/apache/doris/pull/19120).
+     * Try to add some fallback strategies if it is highly necessary.
      */
     protected abstract void process() throws MetastoreNotificationException;
 

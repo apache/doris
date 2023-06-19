@@ -108,7 +108,7 @@ public class LocalFileDeployManager extends DeployManager {
 
                 for (String endpoint : endpoints) {
                     Pair<String, Integer> hostPorts = SystemInfoService.validateHostAndPort(endpoint);
-                    result.add(new SystemInfoService.HostInfo(hostPorts.first, null, hostPorts.second));
+                    result.add(new SystemInfoService.HostInfo(hostPorts.first, hostPorts.second));
                 }
 
                 // only need one line

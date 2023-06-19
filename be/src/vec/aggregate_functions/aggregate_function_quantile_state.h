@@ -126,11 +126,11 @@ public:
             auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
             if (!nullable_column.is_null_at(row_num)) {
                 const auto& column =
-                        static_cast<const ColVecType&>(nullable_column.get_nested_column());
+                        assert_cast<const ColVecType&>(nullable_column.get_nested_column());
                 this->data(place).add(column.get_data()[row_num]);
             }
         } else {
-            const auto& column = static_cast<const ColVecType&>(*columns[0]);
+            const auto& column = assert_cast<const ColVecType&>(*columns[0]);
             this->data(place).add(column.get_data()[row_num]);
         }
     }
@@ -152,7 +152,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColVecResult&>(to);
+        auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(
                 const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(place))
                         .get());

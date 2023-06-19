@@ -25,6 +25,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -46,6 +47,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -330,28 +332,72 @@ static TDescriptorTable create_descriptor_tablet() {
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("k11").column_pos(10).build());
 
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("v1").column_pos(11).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("v2").column_pos(12).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_INT).column_name("v3").column_pos(13).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("v4").column_pos(14).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("v5").column_pos(15).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATE).column_name("v6").column_pos(16).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v7").column_pos(17).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(4).column_name("v8").column_pos(18).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65).column_name("v9").column_pos(19).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().decimal_type(6, 3).column_name("v10").column_pos(20).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("v11").column_pos(21).build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_TINYINT)
+                                   .column_name("v1")
+                                   .column_pos(11)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_SMALLINT)
+                                   .column_name("v2")
+                                   .column_pos(12)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_INT)
+                                   .column_name("v3")
+                                   .column_pos(13)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_BIGINT)
+                                   .column_name("v4")
+                                   .column_pos(14)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_LARGEINT)
+                                   .column_name("v5")
+                                   .column_pos(15)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATE)
+                                   .column_name("v6")
+                                   .column_pos(16)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATETIME)
+                                   .column_name("v7")
+                                   .column_pos(17)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .string_type(4)
+                                   .column_name("v8")
+                                   .column_pos(18)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .string_type(65)
+                                   .column_name("v9")
+                                   .column_pos(19)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .decimal_type(6, 3)
+                                   .column_name("v10")
+                                   .column_pos(20)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATEV2)
+                                   .column_name("v11")
+                                   .column_pos(21)
+                                   .nullable(false)
+                                   .build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -365,14 +411,23 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
             TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("k1").column_pos(0).build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("k2").column_pos(1).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(2).build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("v2").column_pos(3).build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATETIME)
+                                   .column_name("v1")
+                                   .column_pos(2)
+                                   .nullable(false)
+                                   .build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATEV2)
+                                   .column_name("v2")
+                                   .column_pos(3)
+                                   .nullable(false)
+                                   .build());
     tuple_builder.add_slot(TSlotDescriptorBuilder()
                                    .type(TYPE_INT)
                                    .column_name(SEQUENCE_COL)
                                    .column_pos(4)
+                                   .nullable(false)
                                    .build());
     tuple_builder.build(&dtb);
 
@@ -412,7 +467,9 @@ TEST_F(TestDeltaWriter, open) {
     DeltaWriter* delta_writer = nullptr;
 
     // test vec delta writer
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
@@ -444,7 +501,9 @@ TEST_F(TestDeltaWriter, vec_write) {
     WriteRequest write_req = {10004,   270068376,  WriteType::LOAD,        20002, 30002,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -552,9 +611,10 @@ TEST_F(TestDeltaWriter, vec_write) {
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
-                                                   tablet_rs.first.tablet_uid, version);
+                                                   tablet_rs.first.tablet_uid, version, &stats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -589,7 +649,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
                               load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer, TUniqueId());
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -665,9 +727,10 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     std::cout << "start to publish txn" << std::endl;
     RowsetSharedPtr rowset = tablet_related_rs.begin()->second;
+    TabletPublishStatistics pstats;
     res = k_engine->txn_manager()->publish_txn(
             meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version);
+            write_req.schema_hash, tablet_related_rs.begin()->first.tablet_uid, version, &pstats);
     ASSERT_TRUE(res.ok());
     std::cout << "start to add inc rowset:" << rowset->rowset_id()
               << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
@@ -688,7 +751,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
-    Schema schema(rowset->tablet_schema());
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();

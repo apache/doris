@@ -63,15 +63,19 @@ public class SimplifyDecimalV3Comparison extends AbstractExpressionRewriteRule {
     private Expression doProcess(ComparisonPredicate cp, Cast left, DecimalV3Literal right) {
         BigDecimal trailingZerosValue = right.getValue().stripTrailingZeros();
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
-        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
+        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(trailingZerosValue);
         Expression castChild = left.child();
         Preconditions.checkState(castChild.getDataType() instanceof DecimalV3Type);
         DecimalV3Type leftType = (DecimalV3Type) castChild.getDataType();
-        // precision and scale of literal must all smaller than left, otherwise we need to do cast on right.
-        Preconditions.checkState(scale <= leftType.getScale(), "right scale should not greater than left");
-        Preconditions.checkState(precision <= leftType.getPrecision(), "right precision should not greater than left");
-        DecimalV3Literal newRight = new DecimalV3Literal(
-                DecimalV3Type.createDecimalV3Type(leftType.getPrecision(), leftType.getScale()), trailingZerosValue);
-        return cp.withChildren(castChild, newRight);
+
+        if (scale <= leftType.getScale() && precision - scale <= leftType.getPrecision() - leftType.getScale()) {
+            // precision and scale of literal all smaller than left, we don't need the cast
+            DecimalV3Literal newRight = new DecimalV3Literal(
+                    DecimalV3Type.createDecimalV3Type(leftType.getPrecision(), leftType.getScale()),
+                    trailingZerosValue);
+            return cp.withChildren(castChild, newRight);
+        } else {
+            return cp;
+        }
     }
 }

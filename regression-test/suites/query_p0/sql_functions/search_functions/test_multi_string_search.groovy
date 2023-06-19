@@ -16,6 +16,39 @@
 // under the License.
 
 suite("test_multi_string_search") {
+    def table_name = "test_multi_string_search_strings"
+
+    sql """ DROP TABLE IF EXISTS ${table_name} """
+    sql """ CREATE TABLE IF NOT EXISTS ${table_name}
+            (
+                `col1`      INT NOT NULL,
+                `content`   TEXT NULL,
+                `mode`      ARRAY<TEXT> NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`col1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`col1`) BUCKETS 3
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+        """
+
+    sql """ INSERT INTO ${table_name} (col1, content, mode) VALUES
+            (1, 'Hello, World!', ['hello', 'world'] ),
+            (2, 'Hello, World!', ['hello', 'world', 'Hello', '!'] ),
+            (3, 'hello, world!', ['Hello', 'world'] ),
+            (4, 'hello, world!', ['hello', 'world', 'Hello', '!'] ),
+            (5, 'HHHHW!', ['H', 'HHHH', 'HW', 'WH'] ),
+            (6, 'abc', null),
+            (7, null, null),
+            (8, null, ['a', 'b', 'c']);
+        """
+
+    qt_select1 "select multi_match_any(content, ['hello', '!', 'world', 'Hello', 'World']) from ${table_name} order by col1"
+    qt_select2 "select multi_match_any(content, mode) from ${table_name} order by col1"
+
     qt_select "select multi_match_any('mpnsguhwsitzvuleiwebwjfitmsg', ['wbirxqoabpblrnvvmjizj', 'cfcxhuvrexyzyjsh', 'oldhtubemyuqlqbwvwwkwin', 'bumoozxdkjglzu', 'intxlfohlxmajjomw', 'dxkeghohv', 'arsvmwwkjeopnlwnan', 'ouugllgowpqtaxslcopkytbfhifaxbgt', 'hkedmjlbcrzvryaopjqdjjc', 'tbqkljywstuahzh', 'o', 'wowoclosyfcuwotmvjygzuzhrery', 'vpefjiffkhlggntcu', 'ytdixvasrorhripzfhjdmlhqksmctyycwp'])"
     qt_select "select multi_match_any('qjjzqexjpgkglgxpzrbqbnskq', ['vaiatcjacmlffdzsejpdareqzy', 'xspcfzdufkmecud', 'bcvtbuqtctq', 'nkcopwbfytgemkqcfnnno', 'dylxnzuyhq', 'tno', 'scukuhufly', 'cdyquzuqlptv', 'ohluyfeksyxepezdhqmtfmgkvzsyph', 'ualzwtahvqvtijwp', 'jg', 'gwbawqlngzcknzgtmlj', 'qimvjcgbkkp', 'eaedbcgyrdvv', 'qcwrncjoewwedyyewcdkh', 'uqcvhngoqngmitjfxpznqomertqnqcveoqk', 'ydrgjiankgygpm', 'axepgap'])"
     qt_select "select multi_match_any('fdkmtqmxnegwvnjhghjq', ['vynkybvdmhgeezybbdqfrukibisj', 'knazzamgjjpavwhvdkwigykh', 'peumnifrmdhhmrqqnemw', 'lmsnyvqoisinlaqobxojlwfbi', 'oqwfzs', 'dymudxxeodwjpgbibnkvr', 'vomtfsnizkplgzktqyoiw', 'yoyfuhlpgrzds', 'cefao', 'gi', 'srpgxfjwl', 'etsjusdeiwbfe', 'ikvtzdopxo', 'ljfkavrau', 'soqdhxtenfrkmeic', 'ktprjwfcelzbup', 'pcvuoddqwsaurcqdtjfnczekwni', 'agkqkqxkfbkfgyqliahsljim'])"

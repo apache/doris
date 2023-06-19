@@ -47,6 +47,7 @@ suite("test_hive_other", "p0") {
         qt_q48 """ select k2, k5 from table_with_x01 where dt in ('2022-11-25') order by k2 desc limit 10;"""
         qt_q49 """ select k2, k5 from table_with_x01 where dt in ('2022-11-10', '2022-11-10') order by k2 desc limit 10;"""
         qt_q50 """ select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
+        qt_q51 """ select col_2 from test1;"""
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
@@ -56,11 +57,10 @@ suite("test_hive_other", "p0") {
         String catalog_name = "hive_test_other"
 
         sql """drop catalog if exists ${catalog_name}"""
-        sql """create resource if not exists hms_resource_hive_other properties (
+        sql """create catalog if not exists ${catalog_name} properties (
             "type"="hms",
             'hive.metastore.uris' = 'thrift://127.0.0.1:${hms_port}'
         );"""
-        sql """create catalog if not exists ${catalog_name} with resource hms_resource_hive_other;"""
 
         // test user's grants on external catalog
         sql """drop user if exists ext_catalog_user"""
@@ -87,6 +87,5 @@ suite("test_hive_other", "p0") {
         order_qt_after_refresh """ select dt, dt, k2, k5, dt from table_with_vertical_line where dt in ('2022-11-25') or dt in ('2022-11-24') order by k2 desc limit 10;"""
 
         sql """drop catalog if exists ${catalog_name}"""
-        sql """drop resource if exists hms_resource_hive_other"""
     }
 }

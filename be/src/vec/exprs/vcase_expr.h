@@ -32,7 +32,6 @@ class TExprNode;
 
 namespace vectorized {
 class Block;
-class VExprContext;
 } // namespace vectorized
 } // namespace doris
 
@@ -50,11 +49,8 @@ public:
                            VExprContext* context) override;
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope) override;
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(VCaseExpr::create_unique(*this).release());
-    }
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    VExprSPtr clone() const override { return VCaseExpr::create_shared(*this); }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;
 

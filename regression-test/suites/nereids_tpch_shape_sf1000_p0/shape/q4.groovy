@@ -24,11 +24,8 @@ suite("q4") {
     sql 'set enable_fallback_to_original_planner=false'
     sql "set runtime_filter_mode='GLOBAL'"
     sql 'set exec_mem_limit=21G'
-    def result = sql "show backends;"
-    if (result.size() != 1) {
-        print("backends num: ${result.size()}");
-        return;
-    }   
+    sql 'SET enable_pipeline_engine = true'
+sql 'set be_number_for_test=3'   
 
 
 

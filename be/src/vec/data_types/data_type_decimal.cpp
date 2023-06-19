@@ -142,14 +142,6 @@ template <typename T>
 Field DataTypeDecimal<T>::get_default() const {
     return DecimalField(T(0), scale);
 }
-
-template <typename T>
-DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
-    using PromotedType = std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
-                                            DataTypeDecimal<Decimal128I>>;
-    return std::make_shared<PromotedType>(PromotedType::max_precision(), scale);
-}
-
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     if constexpr (IsDecimalV2<T>) {
@@ -172,13 +164,16 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
     if (precision_value < min_decimal_precision() ||
         precision_value > max_decimal_precision<Decimal128>()) {
-        LOG(WARNING) << "Wrong precision " << precision_value;
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Wrong precision {}, min: {}, max: {}", precision_value,
+                               min_decimal_precision(), max_decimal_precision<Decimal128>());
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
-        LOG(WARNING) << "Negative scales and scales larger than precision are not supported";
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Negative scales and scales larger than precision are not "
+                               "supported, scale_value: {}, precision_value: {}",
+                               scale_value, precision_value);
     }
 
     if (use_v2) {

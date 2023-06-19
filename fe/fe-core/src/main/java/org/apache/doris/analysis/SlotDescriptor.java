@@ -343,7 +343,7 @@ public class SlotDescriptor {
                 .append("id=").append(id)
                 .append(", col=").append(column == null ? "null" : column.getName())
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
-                .append(", type=").append(type == null ? "null" : type.toString())
+                .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
                 .append("}")
                 .toString();

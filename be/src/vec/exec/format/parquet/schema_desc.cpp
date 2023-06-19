@@ -240,6 +240,18 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logi
         type = TypeDescriptor(TYPE_TIMEV2);
     } else if (logicalType.__isset.TIMESTAMP) {
         type = TypeDescriptor(TYPE_DATETIMEV2);
+        const auto& time_unit = logicalType.TIMESTAMP.unit;
+        if (time_unit.__isset.MILLIS) {
+            type.scale = 3;
+        } else if (time_unit.__isset.MICROS) {
+            type.scale = 6;
+        } else if (time_unit.__isset.NANOS) {
+            // will lose precision
+            type.scale = 6;
+        } else {
+            // default precision
+            type.scale = 6;
+        }
     } else {
         type = TypeDescriptor(INVALID_TYPE);
     }
@@ -266,9 +278,12 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(
         type = TypeDescriptor(TYPE_TIMEV2);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
-        [[fallthrough]];
+        type = TypeDescriptor(TYPE_DATETIMEV2);
+        type.scale = 3;
+        break;
     case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
         type = TypeDescriptor(TYPE_DATETIMEV2);
+        type.scale = 6;
         break;
     case tparquet::ConvertedType::type::INT_8:
         type = TypeDescriptor(TYPE_TINYINT);

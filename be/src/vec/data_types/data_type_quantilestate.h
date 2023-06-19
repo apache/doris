@@ -82,13 +82,9 @@ public:
     }
     bool have_maximum_size_of_value() const override { return false; }
 
-    bool can_be_used_as_version() const override { return false; }
-
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    bool is_categorial() const override { return is_value_represented_by_integer(); }
 
     bool can_be_inside_low_cardinality() const override { return false; }
 
@@ -100,6 +96,10 @@ public:
     [[noreturn]] virtual Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
         __builtin_unreachable();
+    }
+
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for quantilestate";
     }
 
     static void serialize_as_stream(const QuantileState<T>& value, BufferWritable& buf);

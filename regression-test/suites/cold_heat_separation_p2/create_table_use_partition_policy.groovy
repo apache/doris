@@ -34,7 +34,7 @@ suite("create_table_use_partition_policy") {
     // data_sizes is one arrayList<Long>, t is tablet
     def fetchDataSize = { data_sizes, t ->
         def tabletId = t[0]
-        String meta_url = t[16]
+        String meta_url = t[17]
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
@@ -48,6 +48,7 @@ suite("create_table_use_partition_policy") {
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
     def tableName = "lineitem1"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
             table tableName
@@ -227,7 +228,8 @@ suite("create_table_use_partition_policy") {
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
-    while (RemoteDataSize1 != originLocalDataSize1) {
+    Long sleepTimes = 0;
+    while (RemoteDataSize1 != originLocalDataSize1 && sleepTimes < 60) {
         log.info( "test remote size is same with origin size, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -236,6 +238,7 @@ suite("create_table_use_partition_policy") {
         fetchDataSize(sizes, tablets[0])
         LocalDataSize1 = sizes[0]
         RemoteDataSize1 = sizes[1]
+        sleepTimes += 1
     }
     log.info( "test local size is  zero")
     assertEquals(LocalDataSize1, 0)
@@ -336,7 +339,8 @@ suite("create_table_use_partition_policy") {
     assertTrue(tablets.size() > 0)
     LocalDataSize1 = sizes[0]
     RemoteDataSize1 = sizes[1]
-    while (RemoteDataSize1 != originLocalDataSize1) {
+    sleepTimes = 0
+    while (RemoteDataSize1 != originLocalDataSize1 && sleepTimes < 60) {
         log.info( "test remote size is same with origin size, sleep 10s")
         sleep(10000)
         tablets = sql """
@@ -345,6 +349,7 @@ suite("create_table_use_partition_policy") {
         fetchDataSize(sizes, tablets[0])
         LocalDataSize1 = sizes[0]
         RemoteDataSize1 = sizes[1]
+        sleepTimes += 1
     }
     log.info( "test local size is zero")
     assertEquals(LocalDataSize1, 0)

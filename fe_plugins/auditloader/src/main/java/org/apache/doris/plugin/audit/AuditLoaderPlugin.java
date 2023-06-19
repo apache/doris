@@ -17,15 +17,15 @@
 
 package org.apache.doris.plugin.audit;
 
-import com.google.common.collect.Queues;
+import org.apache.doris.common.Config;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
 import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.common.Config;
 
+import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,8 +39,10 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
@@ -54,8 +56,8 @@ import java.util.stream.Collectors;
 public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private final static Logger LOG = LogManager.getLogger(AuditLoaderPlugin.class);
 
-    private static final ThreadLocal<SimpleDateFormat> dateFormatContainer = ThreadLocal.withInitial(
-            () -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+            .withZone(ZoneId.systemDefault());
 
     private StringBuilder auditLogBuffer = new StringBuilder();
     private StringBuilder slowLogBuffer = new StringBuilder();
@@ -339,6 +341,6 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         if (timeStamp <= 0L) {
             return "1900-01-01 00:00:00";
         }
-        return dateFormatContainer.get().format(new Date(timeStamp));
+        return DATETIME_FORMAT.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), ZoneId.systemDefault()));
     }
 }

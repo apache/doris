@@ -243,19 +243,19 @@ alter table lineitem modify column l_suppkey set stats ('ndv'='10031328', 'num_n
 '''
 
 sql '''
-alter table lineitem modify column l_quantity set stats ('ndv'='50', 'num_nulls'='0', 'min_value'='1.000000000', 'max_value'='50.000000000', 'row_count'='5999989709');
+alter table lineitem modify column l_quantity set stats ('ndv'='50', 'num_nulls'='0', 'min_value'='1.00', 'max_value'='50.00', 'row_count'='5999989709');
 '''
 
 sql '''
-alter table lineitem modify column l_extendedprice set stats ('ndv'='3793003', 'num_nulls'='0', 'min_value'='900.000000000', 'max_value'='104950.000000000', 'row_count'='5999989709');
+alter table lineitem modify column l_extendedprice set stats ('ndv'='3793003', 'num_nulls'='0', 'min_value'='900.00', 'max_value'='104950.00', 'row_count'='5999989709');
 '''
 
 sql '''
-alter table lineitem modify column l_discount set stats ('ndv'='11', 'num_nulls'='0', 'min_value'='0.000000000', 'max_value'='0.100000000', 'row_count'='5999989709');
+alter table lineitem modify column l_discount set stats ('ndv'='11', 'num_nulls'='0', 'min_value'='0.00', 'max_value'='0.10', 'row_count'='5999989709');
 '''
 
 sql '''
-alter table lineitem modify column l_tax set stats ('ndv'='9', 'num_nulls'='0', 'min_value'='0.000000000', 'max_value'='0.080000000', 'row_count'='5999989709');
+alter table lineitem modify column l_tax set stats ('ndv'='9', 'num_nulls'='0', 'min_value'='0.00', 'max_value'='0.08', 'row_count'='5999989709');
 '''
 
 sql '''
@@ -304,7 +304,7 @@ alter table orders modify column o_orderstatus set stats ('ndv'='3', 'num_nulls'
 '''
 
 sql '''
-alter table orders modify column o_totalprice set stats ('ndv'='41700404', 'num_nulls'='0', 'min_value'='810.870000000', 'max_value'='602901.810000000', 'row_count'='1500000000');
+alter table orders modify column o_totalprice set stats ('ndv'='41700404', 'num_nulls'='0', 'min_value'='810.87', 'max_value'='602901.81', 'row_count'='1500000000');
 '''
 
 sql '''
@@ -337,7 +337,7 @@ alter table partsupp modify column ps_availqty set stats ('ndv'='10008', 'num_nu
 '''
 
 sql '''
-alter table partsupp modify column ps_supplycost set stats ('ndv'='100279', 'num_nulls'='0', 'min_value'='1.000000000', 'max_value'='1000.000000000', 'row_count'='800000000');
+alter table partsupp modify column ps_supplycost set stats ('ndv'='100279', 'num_nulls'='0', 'min_value'='1.00', 'max_value'='1000.00', 'row_count'='800000000');
 '''
 
 sql '''
@@ -375,7 +375,7 @@ alter table part modify column p_container set stats ('ndv'='40', 'num_nulls'='0
 '''
 
 sql '''
-alter table part modify column p_retailprice set stats ('ndv'='120904', 'num_nulls'='0', 'min_value'='900.000000000', 'max_value'='2099.000000000', 'row_count'='200000000');
+alter table part modify column p_retailprice set stats ('ndv'='120904', 'num_nulls'='0', 'min_value'='900.00', 'max_value'='2099.00', 'row_count'='200000000');
 '''
 
 sql '''
@@ -405,7 +405,7 @@ alter table supplier modify column s_phone set stats ('ndv'='9975965', 'num_null
 '''
 
 sql '''
-alter table supplier modify column s_acctbal set stats ('ndv'='1109296', 'num_nulls'='0', 'min_value'='-999.990000000', 'max_value'='9999.990000000', 'row_count'='10000000');
+alter table supplier modify column s_acctbal set stats ('ndv'='1109296', 'num_nulls'='0', 'min_value'='-999.99', 'max_value'='9999.99', 'row_count'='10000000');
 '''
 
 sql '''
@@ -435,7 +435,7 @@ alter table customer modify column c_phone set stats ('ndv'='150226160', 'num_nu
 '''
 
 sql '''
-alter table customer modify column c_acctbal set stats ('ndv'='1109296', 'num_nulls'='0', 'min_value'='-999.990000000', 'max_value'='9999.990000000', 'row_count'='150000000');
+alter table customer modify column c_acctbal set stats ('ndv'='1109296', 'num_nulls'='0', 'min_value'='-999.99', 'max_value'='9999.99', 'row_count'='150000000');
 '''
 
 sql '''

@@ -57,6 +57,7 @@ enum TPlanNodeType {
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
   TEST_EXTERNAL_SCAN_NODE,
+  PARTITION_SORT_NODE,
 }
 
 // phases of an execution node
@@ -113,6 +114,7 @@ enum TFileFormatType {
     FORMAT_ORC,
     FORMAT_JSON,
     FORMAT_PROTO,
+    FORMAT_JNI,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -127,7 +129,8 @@ enum TFileCompressType {
     LZO,
     BZ2,
     LZ4FRAME,
-    DEFLATE
+    DEFLATE,
+    LZOP,
 }
 
 struct THdfsConf {
@@ -183,8 +186,8 @@ struct TBrokerScanRangeParams {
     1: required i8 column_separator;
     2: required i8 line_delimiter;
 
-    // We construct one line in file to a tuple. And each field of line 
-    // correspond to a slot in this tuple. 
+    // We construct one line in file to a tuple. And each field of line
+    // correspond to a slot in this tuple.
     // src_tuple_id is the tuple id of the input file
     3: required Types.TTupleId src_tuple_id
     // src_slot_ids is the slot_ids of the input file
@@ -285,9 +288,48 @@ struct TIcebergFileDesc {
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
+struct TPaimonFileDesc {
+    1: optional binary paimon_split
+    2: optional string paimon_column_ids
+    3: optional string paimon_column_types
+    4: optional string paimon_column_names
+    5: optional string hive_metastore_uris
+    6: optional string warehouse
+    7: optional string db_name
+    8: optional string table_name
+    9: optional string length_byte
+}
+
+
+struct THudiFileDesc {
+    1: optional string instant_time;
+    2: optional string serde;
+    3: optional string input_format;
+    4: optional string base_path;
+    5: optional string data_file_path;
+    6: optional i64 data_file_length;
+    7: optional list<string> delta_logs;
+    8: optional list<string> column_names;
+    9: optional list<string> column_types;
+    10: optional list<string> nested_fields;
+}
+
+struct TTransactionalHiveDeleteDeltaDesc {
+    1: optional string directory_location
+    2: optional list<string> file_names
+}
+
+struct TTransactionalHiveDesc {
+    1: optional string partition
+    2: optional list<TTransactionalHiveDeleteDeltaDesc> delete_deltas
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
+    3: optional THudiFileDesc hudi_params
+    4: optional TPaimonFileDesc paimon_params
+    5: optional TTransactionalHiveDesc transactional_hive_params
 }
 
 struct TFileScanRangeParams {
@@ -328,6 +370,7 @@ struct TFileScanRangeParams {
     18: optional list<i32> column_idxs
     // Map of slot to its position in table schema. Only for Hive external table.
     19: optional map<string, i32> slot_name_to_schema_pos
+    20: optional list<Exprs.TExpr> pre_filter_exprs_list
 }
 
 struct TFileRangeDesc {
@@ -348,6 +391,8 @@ struct TFileRangeDesc {
     7: optional list<string> columns_from_path_keys;
     // For data lake table format
     8: optional TTableFormatFileDesc table_format_params
+    // Use modification time to determine whether the file is changed
+    9: optional i64 modification_time
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
@@ -551,7 +596,7 @@ struct TSortInfo {
   4: optional list<Exprs.TExpr> sort_tuple_slot_exprs
 
   // Indicates the nullable info of sort_tuple_slot_exprs is changed after substitute by child's smap
-  5: optional list<bool> slot_exprs_nullability_changed_flags   
+  5: optional list<bool> slot_exprs_nullability_changed_flags
   // Indicates whether topn query using two phase read
   6: optional bool use_two_phase_read
 }
@@ -582,6 +627,7 @@ struct TOlapScanNode {
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
   15: optional set<i32> output_column_unique_ids
   16: optional list<i32> distribute_column_ids
+  17: optional i32 schema_version
 }
 
 struct TEqJoinCondition {
@@ -590,7 +636,7 @@ struct TEqJoinCondition {
   // right-hand side of "<a> = <b>"
   2: required Exprs.TExpr right;
   // operator of equal join
-  3: optional Opcodes.TExprOpcode opcode; 
+  3: optional Opcodes.TExprOpcode opcode;
 }
 
 enum TJoinOp {
@@ -661,6 +707,8 @@ struct TNestedLoopJoinNode {
   6: optional Exprs.TExpr vjoin_conjunct
 
   7: optional bool is_mark
+
+  8: optional list<Exprs.TExpr> join_conjuncts
 }
 
 struct TMergeJoinNode {
@@ -691,7 +739,7 @@ enum TAggregationOp {
   DENSE_RANK,
   ROW_NUMBER,
   LAG,
-  HLL_C, 
+  HLL_C,
   BITMAP_UNION,
   NTILE,
 }
@@ -762,6 +810,19 @@ struct TSortNode {
   7: optional bool use_topn_opt
 }
 
+enum TopNAlgorithm {
+   RANK,
+   DENSE_RANK,
+   ROW_NUMBER
+ }
+
+ struct TPartitionSortNode {
+   1: optional list<Exprs.TExpr> partition_exprs
+   2: optional TSortInfo sort_info
+   3: optional bool has_global_limit
+   4: optional TopNAlgorithm top_n_algorithm
+   5: optional i64 partition_inner_limit
+ }
 enum TAnalyticWindowType {
   // Specifies the window as a logical offset
   RANGE,
@@ -905,8 +966,6 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
-  // Nodes in this cluster, used for second phase fetch
-  4: optional Descriptors.TPaloNodesInfo nodes_info
 }
 
 struct TOlapRewriteNode {
@@ -1071,6 +1130,7 @@ struct TPlanNode {
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id
+  103: optional TPartitionSortNode partition_sort_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -22,11 +22,17 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -76,8 +82,14 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return windowExpressions;
     }
 
-    public LogicalWindow withChecked(List<NamedExpression> windowExpressions, Plan child) {
-        return new LogicalWindow(windowExpressions, true, Optional.empty(), Optional.empty(), child);
+    public LogicalWindow<Plan> withExpression(List<NamedExpression> windowExpressions, Plan child) {
+        return new LogicalWindow<>(windowExpressions, isChecked, Optional.empty(),
+                Optional.empty(), child);
+    }
+
+    public LogicalWindow<Plan> withChecked(List<NamedExpression> windowExpressions, Plan child) {
+        return new LogicalWindow<>(windowExpressions, true, Optional.empty(),
+                Optional.of(getLogicalProperties()), child);
     }
 
     @Override
@@ -152,5 +164,63 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public int hashCode() {
         return Objects.hash(windowExpressions, isChecked);
+    }
+
+    /**
+     * pushPartitionLimitThroughWindow is used to push the partitionLimit through the window
+     * and generate the partitionTopN. If the window can not meet the requirement,
+     * it will return null. So when we use this function, we need check the null in the outside.
+     */
+    public Optional<Plan> pushPartitionLimitThroughWindow(long partitionLimit, boolean hasGlobalLimit) {
+        if (!ConnectContext.get().getSessionVariable().isEnablePartitionTopN()) {
+            return Optional.empty();
+        }
+        // We have already done such optimization rule, so just ignore it.
+        if (child(0) instanceof LogicalPartitionTopN) {
+            return Optional.empty();
+        }
+
+        // Check the window function. There are some restrictions for window function:
+        // 1. The number of window function should be 1.
+        // 2. The window function should be one of the 'row_number()', 'rank()', 'dense_rank()'.
+        // 3. The window frame should be 'UNBOUNDED' to 'CURRENT'.
+        // 4. The 'PARTITION' key and 'ORDER' key can not be empty at the same time.
+        if (windowExpressions.size() != 1) {
+            return Optional.empty();
+        }
+        NamedExpression windowExpr = windowExpressions.get(0);
+        if (windowExpr.children().size() != 1 || !(windowExpr.child(0) instanceof WindowExpression)) {
+            return Optional.empty();
+        }
+
+        WindowExpression windowFunc = (WindowExpression) windowExpr.child(0);
+        // Check the window function name.
+        if (!(windowFunc.getFunction() instanceof RowNumber
+                || windowFunc.getFunction() instanceof Rank
+                || windowFunc.getFunction() instanceof DenseRank)) {
+            return Optional.empty();
+        }
+
+        // Check the partition key and order key.
+        if (windowFunc.getPartitionKeys().isEmpty() && windowFunc.getOrderKeys().isEmpty()) {
+            return Optional.empty();
+        }
+
+        // Check the window type and window frame.
+        Optional<WindowFrame> windowFrame = windowFunc.getWindowFrame();
+        if (windowFrame.isPresent()) {
+            WindowFrame frame = windowFrame.get();
+            if (!(frame.getLeftBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING
+                    && frame.getRightBoundary().getFrameBoundType() == WindowFrame.FrameBoundType.CURRENT_ROW)) {
+                return Optional.empty();
+            }
+        } else {
+            return Optional.empty();
+        }
+
+        LogicalWindow<?> window = (LogicalWindow<?>) withChildren(new LogicalPartitionTopN<>(windowFunc, hasGlobalLimit,
+                partitionLimit, child(0)));
+
+        return Optional.ofNullable(window);
     }
 }

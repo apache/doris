@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
@@ -135,6 +136,39 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
         Preconditions.checkNotNull(literalExpr);
         return literalExpr;
+    }
+
+    public Expr convertTo(Type targetType) throws AnalysisException {
+        Preconditions.checkArgument(!targetType.equals(Type.INVALID));
+        if (this instanceof NullLiteral) {
+            return NullLiteral.create(targetType);
+        } else if (targetType.isBoolean()) {
+            if (this instanceof StringLiteral || this instanceof JsonLiteral) {
+                return new BoolLiteral(getStringValue());
+            } else {
+                if (getLongValue() != 0) {
+                    return new BoolLiteral(true);
+                } else {
+                    return new BoolLiteral(false);
+                }
+            }
+        } else if (targetType.isIntegerType()) {
+            return new IntLiteral(getLongValue(), targetType);
+        } else if (targetType.isLargeIntType()) {
+            return new LargeIntLiteral(getStringValue());
+        } else if (targetType.isFloatingPointType()) {
+            return new FloatLiteral(getDoubleValue(), targetType);
+        } else if (targetType.isDecimalV2() || targetType.isDecimalV3()) {
+            DecimalLiteral literal = new DecimalLiteral(getStringValue(),
+                    ((ScalarType) targetType).getScalarScale());
+            literal.setType(targetType);
+            return literal;
+        } else if (targetType.isStringType()) {
+            return new StringLiteral(getStringValue());
+        } else if (targetType.isDateType()) {
+            return new StringLiteral(getStringValue()).convertToDate(targetType);
+        }
+        return this;
     }
 
     public static LiteralExpr createInfinity(Type type, boolean isMax) throws AnalysisException {

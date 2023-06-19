@@ -77,6 +77,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -415,7 +416,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 timeout = Config.broker_load_default_timeout_second;
                 break;
             case INSERT:
-                timeout = Config.insert_load_default_timeout_second;
+                timeout = Optional.ofNullable(ConnectContext.get())
+                                    .map(ConnectContext::getExecTimeout)
+                                    .orElse(Config.insert_load_default_timeout_second);
                 break;
             case MINI:
                 timeout = Config.stream_load_default_timeout_second;
@@ -760,18 +763,20 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(state.name());
 
             // progress
+            // check null
+            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(id));
             switch (state) {
                 case PENDING:
-                    jobInfo.add("ETL:0%; LOAD:0%");
+                    jobInfo.add("0%");
                     break;
                 case CANCELLED:
-                    jobInfo.add("ETL:N/A; LOAD:N/A");
+                    jobInfo.add(progress);
                     break;
                 case ETL:
-                    jobInfo.add("ETL:" + progress + "%; LOAD:0%");
+                    jobInfo.add(progress);
                     break;
                 default:
-                    jobInfo.add("ETL:100%; LOAD:" + progress + "%");
+                    jobInfo.add(progress);
                     break;
             }
 

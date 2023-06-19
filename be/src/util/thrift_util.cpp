@@ -44,8 +44,14 @@ class TProtocol;
 #ifdef UNLIKELY
 #undef UNLIKELY
 #endif
+#ifndef SIGNED_RIGHT_SHIFT_IS
 #define SIGNED_RIGHT_SHIFT_IS 1
+#endif
+
+#ifndef ARITHMETIC_RIGHT_SHIFT
 #define ARITHMETIC_RIGHT_SHIFT 1
+#endif
+
 #include <thrift/protocol/TCompactProtocol.h>
 
 #include <sstream>

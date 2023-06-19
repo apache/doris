@@ -17,10 +17,9 @@
 
 #include "http/action/version_action.h"
 
-#include <gen_cpp/version.h>
-
 #include <string>
 
+#include "common/version_internal.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -31,7 +30,9 @@ namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-VersionAction::VersionAction() {}
+VersionAction::VersionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                             TPrivilegeType::type type)
+        : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void VersionAction::handle(HttpRequest* req) {
     EasyJson be_version_info;
@@ -39,16 +40,16 @@ void VersionAction::handle(HttpRequest* req) {
     be_version_info["code"] = 0;
     EasyJson data = be_version_info.Set("data", EasyJson::kObject);
     EasyJson version_info = data.Set("beVersionInfo", EasyJson::kObject);
-    version_info["dorisBuildVersionPrefix"] = DORIS_BUILD_VERSION_PREFIX;
-    version_info["dorisBuildVersionMajor"] = DORIS_BUILD_VERSION_MAJOR;
-    version_info["dorisBuildVersionMinor"] = DORIS_BUILD_VERSION_MINOR;
-    version_info["dorisBuildVersionPatch"] = DORIS_BUILD_VERSION_PATCH;
-    version_info["dorisBuildVersionRcVersion"] = DORIS_BUILD_VERSION_RC_VERSION;
-    version_info["dorisBuildVersion"] = DORIS_BUILD_VERSION;
-    version_info["dorisBuildHash"] = DORIS_BUILD_HASH;
-    version_info["dorisBuildShortHash"] = DORIS_BUILD_SHORT_HASH;
-    version_info["dorisBuildTime"] = DORIS_BUILD_TIME;
-    version_info["dorisBuildInfo"] = DORIS_BUILD_INFO;
+    version_info["dorisBuildVersionPrefix"] = version::doris_build_version_prefix();
+    version_info["dorisBuildVersionMajor"] = version::doris_build_version_major();
+    version_info["dorisBuildVersionMinor"] = version::doris_build_version_minor();
+    version_info["dorisBuildVersionPatch"] = version::doris_build_version_patch();
+    version_info["dorisBuildVersionRcVersion"] = version::doris_build_version_rc_version();
+    version_info["dorisBuildVersion"] = version::doris_build_version();
+    version_info["dorisBuildHash"] = version::doris_build_hash();
+    version_info["dorisBuildShortHash"] = version::doris_build_short_hash();
+    version_info["dorisBuildTime"] = version::doris_build_time();
+    version_info["dorisBuildInfo"] = version::doris_build_info();
     be_version_info["count"] = 0;
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());

@@ -31,6 +31,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -49,6 +50,8 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/core/block.h"
+#include "vec/data_types/serde/data_type_serde.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
@@ -57,10 +60,6 @@ class PTabletKeyLookupResponse;
 class RuntimeState;
 class TDescriptorTable;
 class TExpr;
-
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 
 // For caching point lookup pre allocted blocks and exprs
 class Reusable {
@@ -76,12 +75,18 @@ public:
 
     std::unique_ptr<vectorized::Block> get_block();
 
+    const vectorized::DataTypeSerDeSPtrs& get_data_type_serdes() const { return _data_type_serdes; }
+
+    const std::unordered_map<uint32_t, uint32_t>& get_col_uid_to_idx() const {
+        return _col_uid_to_idx;
+    }
+
     // do not touch block after returned
     void return_block(std::unique_ptr<vectorized::Block>& block);
 
     TupleDescriptor* tuple_desc() { return _desc_tbl->get_tuple_descriptor(0); }
 
-    const std::vector<vectorized::VExprContext*>& output_exprs() { return _output_exprs_ctxs; }
+    const vectorized::VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
 private:
     // caching TupleDescriptor, output_expr, etc...
@@ -90,8 +95,10 @@ private:
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
-    std::vector<vectorized::VExprContext*> _output_exprs_ctxs;
+    vectorized::VExprContextSPtrs _output_exprs_ctxs;
     int64_t _create_timestamp = 0;
+    vectorized::DataTypeSerDeSPtrs _data_type_serdes;
+    std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
 };
 
 // RowCache is a LRU cache for row store
@@ -264,6 +271,9 @@ struct Metrics {
     RuntimeProfile::Counter lookup_data_ns;
     RuntimeProfile::Counter output_data_ns;
     OlapReaderStatistics read_stats;
+    size_t row_cache_hits = 0;
+    bool hit_lookup_cache = false;
+    size_t result_data_bytes;
 };
 
 // An util to do tablet lookup
@@ -309,8 +319,6 @@ private:
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
-    size_t _row_cache_hits = 0;
-    bool _hit_lookup_cache = false;
     bool _binary_row_format = false;
 };
 

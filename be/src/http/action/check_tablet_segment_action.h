@@ -19,15 +19,23 @@
 
 #include <string>
 
-#include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
+#include "util/easy_json.h"
 
 namespace doris {
 class HttpRequest;
 
-class CheckTabletSegmentAction : public HttpHandler {
+class ExecEnv;
+
+class CheckTabletSegmentAction : public HttpHandlerWithAuth {
 public:
-    CheckTabletSegmentAction();
+    CheckTabletSegmentAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                             TPrivilegeType::type type);
+
+    ~CheckTabletSegmentAction() override = default;
+
     void handle(HttpRequest* req) override;
+
     std::string host() { return _host; }
 
 private:

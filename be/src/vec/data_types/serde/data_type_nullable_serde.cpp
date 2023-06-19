@@ -26,6 +26,7 @@
 
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -129,6 +130,31 @@ void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow:
     }
     return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
                                                 ctz);
+}
+
+template <bool is_binary_format>
+Status DataTypeNullableSerDe::_write_column_to_mysql(
+        const IColumn& column, bool return_object_data_as_binary,
+        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
+        bool col_const) const {
+    int buf_ret = 0;
+    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        const auto col_index = index_check_const(i, col_const);
+        if (col.is_null_at(col_index)) {
+            buf_ret = result[row_idx].push_null();
+        } else {
+            RETURN_IF_ERROR(nested_serde->write_column_to_mysql(
+                    nested_col, return_object_data_as_binary, result, row_idx, col_index,
+                    col_index + 1, col_const));
+        }
+        ++row_idx;
+    }
+    return Status::OK();
 }
 
 } // namespace vectorized

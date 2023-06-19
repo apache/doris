@@ -17,7 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
@@ -49,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -56,24 +56,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * eg usage information, current administrative state etc.
  */
 public class Backend implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Backend.class);
 
     // Represent a meaningless IP
     public static final String DUMMY_IP = "0.0.0.0";
 
-    public enum BackendState {
-        using, /* backend is belong to a cluster*/
-        offline,
-        free /* backend is not belong to any clusters */
-    }
-
-    private static final Logger LOG = LogManager.getLogger(Backend.class);
-
     @SerializedName("id")
     private long id;
     @SerializedName("host")
-    private volatile String ip;
-    @SerializedName("hostName")
-    private String hostName;
+    private volatile String host;
     private String version;
 
     @SerializedName("heartbeatPort")
@@ -96,14 +87,6 @@ public class Backend implements Writable {
 
     @SerializedName("isDecommissioned")
     private AtomicBoolean isDecommissioned;
-    @SerializedName("decommissionType")
-    private volatile int decommissionType;
-    @SerializedName("ownerClusterName")
-    private volatile String ownerClusterName;
-    // to index the state in some cluster
-    @SerializedName("backendState")
-    private volatile int backendState;
-    // private BackendState backendState;
 
     // rootPath -> DiskInfo
     @SerializedName("disksRef")
@@ -145,7 +128,7 @@ public class Backend implements Writable {
     private int heartbeatFailureCounter = 0;
 
     public Backend() {
-        this.ip = "";
+        this.host = "";
         this.version = "";
         this.lastUpdateMs = 0;
         this.lastStartTime = 0;
@@ -157,20 +140,12 @@ public class Backend implements Writable {
         this.beRpcPort = 0;
         this.disksRef = ImmutableMap.of();
 
-        this.ownerClusterName = "";
-        this.backendState = BackendState.free.ordinal();
-        this.decommissionType = DecommissionType.SystemDecommission.ordinal();
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
-    public Backend(long id, String ip, int heartbeatPort) {
-        this(id, ip, null, heartbeatPort);
-    }
-
-    public Backend(long id, String ip, String hostName, int heartbeatPort) {
+    public Backend(long id, String host, int heartbeatPort) {
         this.id = id;
-        this.ip = ip;
-        this.hostName = hostName;
+        this.host = host;
         this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = -1;
@@ -183,9 +158,6 @@ public class Backend implements Writable {
         this.isAlive = new AtomicBoolean(false);
         this.isDecommissioned = new AtomicBoolean(false);
 
-        this.ownerClusterName = "";
-        this.backendState = BackendState.free.ordinal();
-        this.decommissionType = DecommissionType.SystemDecommission.ordinal();
         this.tagMap.put(locationTag.type, locationTag.value);
     }
 
@@ -193,12 +165,8 @@ public class Backend implements Writable {
         return id;
     }
 
-    public String getIp() {
-        return ip;
-    }
-
-    public String getHostName() {
-        return hostName;
+    public String getHost() {
+        return host;
     }
 
     public String getVersion() {
@@ -286,12 +254,8 @@ public class Backend implements Writable {
         return false;
     }
 
-    public void setBackendState(BackendState state) {
-        this.backendState = state.ordinal();
-    }
-
-    public void setIp(String ip) {
-        this.ip = ip;
+    public void setHost(String host) {
+        this.host = host;
     }
 
     public void setAlive(boolean isAlive) {
@@ -304,10 +268,6 @@ public class Backend implements Writable {
 
     public void setHttpPort(int httpPort) {
         this.httpPort = httpPort;
-    }
-
-    public void setHostName(String hostName) {
-        this.hostName = hostName;
     }
 
     public void setBeRpcPort(int beRpcPort) {
@@ -370,15 +330,6 @@ public class Backend implements Writable {
         return heartbeatFailureCounter;
     }
 
-    /**
-     * backend is free, and it isn't belong to any cluster
-     *
-     * @return
-     */
-    public boolean isFreeFromCluster() {
-        return this.backendState == BackendState.free.ordinal();
-    }
-
     public ImmutableMap<String, DiskInfo> getDisks() {
         return this.disksRef;
     }
@@ -403,7 +354,7 @@ public class Backend implements Writable {
     }
 
     public long getAvailableCapacityB() {
-        // when cluster init, disks is empty, return 1L.
+        // when system init, disks is empty, return 1L.
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long availableCapacityB = 1L;
         for (DiskInfo diskInfo : disks.values()) {
@@ -513,7 +464,6 @@ public class Backend implements Writable {
             long dataUsedCapacityB = tDisk.getDataUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
             boolean isUsed = tDisk.isUsed();
-
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
@@ -602,7 +552,7 @@ public class Backend implements Writable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, ip, heartbeatPort, bePort, isAlive);
+        return Objects.hash(id, host, heartbeatPort, bePort, isAlive);
     }
 
     @Override
@@ -616,49 +566,20 @@ public class Backend implements Writable {
 
         Backend backend = (Backend) obj;
 
-        return (id == backend.id) && (ip.equals(backend.ip)) && (heartbeatPort == backend.heartbeatPort)
-                && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
+        return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort) && (bePort
+                == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
-        return "Backend [id=" + id + ", host=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime)
-                + ", tags: " + tagMap + "]";
+        return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
+                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", tags: " + tagMap + "]";
     }
 
-    public String getOwnerClusterName() {
-        return ownerClusterName;
-    }
-
-    public void setOwnerClusterName(String name) {
-        ownerClusterName = name;
-    }
-
-    public void clearClusterName() {
-        ownerClusterName = "";
-    }
-
-    public BackendState getBackendState() {
-        switch (backendState) {
-            case 0:
-                return BackendState.using;
-            case 1:
-                return BackendState.offline;
-            default:
-                return BackendState.free;
-        }
-    }
-
-    public void setDecommissionType(DecommissionType type) {
-        decommissionType = type.ordinal();
-    }
-
-    public DecommissionType getDecommissionType() {
-        if (decommissionType == DecommissionType.ClusterDecommission.ordinal()) {
-            return DecommissionType.ClusterDecommission;
-        }
-        return DecommissionType.SystemDecommission;
+    public String getHealthyStatus() {
+        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
+                + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
+                + TimeUtils.longToTimeString(lastUpdateMs);
     }
 
     /**
@@ -761,6 +682,13 @@ public class Backend implements Writable {
         public volatile boolean isQueryDisabled = false;
         @SerializedName("isLoadDisabled")
         public volatile boolean isLoadDisabled = false;
+
+        @Override
+        public String toString() {
+            return "[" + "lastSuccessReportTabletsTime='" + lastSuccessReportTabletsTime + '\''
+                    + ", lastStreamLoadTime=" + lastStreamLoadTime + ", isQueryDisabled=" + isQueryDisabled
+                    + ", isLoadDisabled=" + isLoadDisabled + "]";
+        }
     }
 
     public Tag getLocationTag() {
@@ -793,10 +721,70 @@ public class Backend implements Writable {
     }
 
     public TNetworkAddress getBrpcAdress() {
-        return new TNetworkAddress(getIp(), getBrpcPort());
+        return new TNetworkAddress(getHost(), getBrpcPort());
     }
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    public static BeInfoCollector getBeInfoCollector() {
+        return BeInfoCollector.get();
+    }
+
+    public static class BeInfoCollector {
+        private int numCores = 1;
+        private static volatile BeInfoCollector instance = null;
+        private static final Map<Long, BeInfoCollector> Info = new ConcurrentHashMap<>();
+
+        private BeInfoCollector(int numCores) {
+            this.numCores = numCores;
+        }
+
+        public static BeInfoCollector get() {
+            if (instance == null) {
+                synchronized (BeInfoCollector.class) {
+                    if (instance == null) {
+                        instance = new BeInfoCollector(Integer.MAX_VALUE);
+                    }
+                }
+            }
+            return instance;
+        }
+
+        public int getNumCores() {
+            return numCores;
+        }
+
+        public void clear() {
+            Info.clear();
+        }
+
+        public void addBeInfo(long beId, int numCores) {
+            Info.put(beId, new BeInfoCollector(numCores));
+        }
+
+        public void dropBeInfo(long beId) {
+            Info.remove(beId);
+        }
+
+        public int getMinNumCores() {
+            int minNumCores = Integer.MAX_VALUE;
+            for (BeInfoCollector beinfo : Info.values()) {
+                minNumCores = Math.min(minNumCores, beinfo.getNumCores());
+            }
+            return Math.max(1, minNumCores);
+        }
+
+        public int getParallelExecInstanceNum() {
+            if (getMinNumCores() == Integer.MAX_VALUE) {
+                return 1;
+            }
+            return (getMinNumCores() + 1) / 2;
+        }
+
+        public BeInfoCollector getBeInfoCollectorById(long beId) {
+            return Info.get(beId);
+        }
     }
 }

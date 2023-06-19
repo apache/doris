@@ -37,37 +37,45 @@ class TPlanNode;
 namespace vectorized {
 
 VSelectNode::VSelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs), _child_eos(false) {}
+        : RuntimeFilterConsumerNode(pool, tnode, descs), _child_eos(false) {}
 
 Status VSelectNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    return ExecNode::init(tnode, state);
+    return RuntimeFilterConsumerNode::init(tnode, state);
 }
 
 Status VSelectNode::prepare(RuntimeState* state) {
-    return ExecNode::prepare(state);
+    return RuntimeFilterConsumerNode::prepare(state);
 }
 
 Status VSelectNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::open");
-    RETURN_IF_ERROR(ExecNode::open(state));
+    RETURN_IF_ERROR(RuntimeFilterConsumerNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
 
+Status VSelectNode::alloc_resource(RuntimeState* state) {
+    if (_opened) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(RuntimeFilterConsumerNode::alloc_resource(state));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_CANCELLED(state);
+    _opened = true;
+    return Status::OK();
+}
+
 Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     do {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR_AND_CHECK_SPAN(
-                _children[0]->get_next_after_projects(
-                        state, block, &_child_eos,
-                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                          ExecNode::get_next,
-                                  _children[0], std::placeholders::_1, std::placeholders::_2,
-                                  std::placeholders::_3)),
-                _children[0]->get_next_span(), _child_eos);
+        RETURN_IF_ERROR(_children[0]->get_next_after_projects(
+                state, block, &_child_eos,
+                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                  ExecNode::get_next,
+                          _children[0], std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         if (_child_eos) {
             *eos = true;
             break;
@@ -78,10 +86,8 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
 }
 
 Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSelectNode::pull");
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(
-            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);
 
     return Status::OK();
@@ -91,7 +97,6 @@ Status VSelectNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSelectNode::close");
     return ExecNode::close(state);
 }
 

@@ -58,7 +58,7 @@ mysql> select k1,k2,k3 from collect_list_test order by k1;
 |    4 | 2023-01-03 | sql   |
 +------+------------+-------+
 
-mysql> select collect_list(k1),collect_list(k1,2) from collect_list_test;
+mysql> select collect_list(k1),collect_list(k1,3) from collect_list_test;
 +-------------------------+--------------------------+
 | collect_list(`k1`)      | collect_list(`k1`,3)     |
 +-------------------------+--------------------------+

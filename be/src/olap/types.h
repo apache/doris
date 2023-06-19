@@ -739,6 +739,12 @@ template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE> {
     using CppType = Slice;
 };
+
+template <>
+struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE> {
+    using CppType = Slice;
+};
+
 template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRUCT> {
     using CppType = StructValue;
@@ -914,7 +920,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
                 current += snprintf(current, end - current, "%" PRIu64, prefix);
                 current += snprintf(current, end - current, "%.19" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
-            } else if (OLAP_LIKELY(middle > 0)) {
+            } else if (LIKELY(middle > 0)) {
                 current += snprintf(current, end - current, "%" PRIu64, middle);
                 current += snprintf(current, end - current, "%.19" PRIu64, suffix);
             } else {
@@ -1408,6 +1414,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_OBJECT>
 
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>
+        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_AGG_STATE>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {};
 
 // Instantiate this template to get static access to the type traits.

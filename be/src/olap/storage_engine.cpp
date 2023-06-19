@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/container/detail/std_fwd.hpp>
+#include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <list>
@@ -49,14 +50,18 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
+#include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
+#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/task/engine_task.h"
@@ -140,13 +145,15 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
-    _clear();
 
     if (_base_compaction_thread_pool) {
         _base_compaction_thread_pool->shutdown();
     }
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
+    }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
     }
 
     if (_seg_compaction_thread_pool) {
@@ -155,6 +162,7 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    _clear();
     _s_instance = nullptr;
 }
 
@@ -542,6 +550,7 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
+    THREAD_JOIN(_update_replica_infos_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
@@ -607,6 +616,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_cache() {
     SegmentLoader::instance()->prune();
+    SchemaCache::instance()->prune();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
@@ -628,8 +638,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     const double guard_space =
             ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
-    RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
-                      "failed to get root path stat info when sweep trash.")
+    RETURN_NOT_OK_STATUS_WITH_WARN(get_all_data_dir_info(&data_dir_infos, false),
+                                   "failed to get root path stat info when sweep trash.")
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
 
     time_t now = time(nullptr); //获取UTC时间
@@ -754,6 +764,16 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
+    }
+}
+
+void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
+    for (auto [tablet_id, version] : gc_tablet_infos) {
+        LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
+                                 version);
+
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        tablet->gc_binlogs(version);
     }
 }
 
@@ -903,7 +923,6 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
-    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 
@@ -969,11 +988,6 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
 
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                                                                 request.tablet_id);
-    res = TabletMeta::reset_tablet_uid(header_path);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail reset tablet uid file path = " << header_path << " res=" << res;
-        return res;
-    }
     res = _tablet_manager->load_tablet_from_dir(store, request.tablet_id, request.schema_hash,
                                                 schema_hash_path_stream.str(), false, restore);
     if (!res.ok()) {
@@ -1023,6 +1037,35 @@ void StorageEngine::create_cumulative_compaction(
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
     base_compaction.reset(new BaseCompaction(best_tablet));
+}
+
+void StorageEngine::create_single_replica_compaction(
+        TabletSharedPtr best_tablet,
+        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
+        CompactionType compaction_type) {
+    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
+}
+
+bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
+                                          std::string* token) {
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_peer_replica_infos.count(tablet_id) &&
+        _peer_replica_infos[tablet_id].replica_id !=
+                _tablet_manager->get_tablet(tablet_id)->replica_id()) {
+        *replica = _peer_replica_infos[tablet_id];
+        *token = _token;
+        return true;
+    }
+    return false;
+}
+
+bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_peer_replica_infos.count(tablet_id)) {
+        return _peer_replica_infos[tablet_id].replica_id !=
+               _tablet_manager->get_tablet(tablet_id)->replica_id();
+    }
+    return false;
 }
 
 // Return json:

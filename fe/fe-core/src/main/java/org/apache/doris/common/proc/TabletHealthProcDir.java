@@ -57,7 +57,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TabletNum").add("HealthyNum").add("ReplicaMissingNum")
             .add("VersionIncompleteNum").add("ReplicaRelocatingNum").add("RedundantNum")
-            .add("ReplicaMissingInClusterNum").add("ReplicaMissingForTagNum")
+            .add("ReplicaMissingForTagNum")
             .add("ForceRedundantNum").add("ColocateMismatchNum").add("ColocateRedundantNum")
             .add("NeedFurtherRepairNum").add("UnrecoverableNum").add("ReplicaCompactionTooSlowNum")
             .add("InconsistentNum").add("OversizeNum").add("CloningNum")
@@ -112,7 +112,6 @@ public class TabletHealthProcDir implements ProcDirInterface {
         int versionIncompleteNum;
         int replicaRelocatingNum;
         int redundantNum;
-        int replicaMissingInClusterNum;
         int replicaMissingForTagNum;
         int forceRedundantNum;
         int colocateMismatchNum;
@@ -128,7 +127,6 @@ public class TabletHealthProcDir implements ProcDirInterface {
         Set<Long> versionIncompleteTabletIds;
         Set<Long> replicaRelocatingTabletIds;
         Set<Long> redundantTabletIds;
-        Set<Long> replicaMissingInClusterTabletIds;
         Set<Long> replicaMissingForTagTabletIds;
         Set<Long> forceRedundantTabletIds;
         Set<Long> colocateMismatchTabletIds;
@@ -153,7 +151,6 @@ public class TabletHealthProcDir implements ProcDirInterface {
             this.versionIncompleteTabletIds = new HashSet<>();
             this.replicaRelocatingTabletIds = new HashSet<>();
             this.redundantTabletIds = new HashSet<>();
-            this.replicaMissingInClusterTabletIds = new HashSet<>();
             this.replicaMissingForTagTabletIds = new HashSet<>();
             this.forceRedundantTabletIds = new HashSet<>();
             this.colocateMismatchTabletIds = new HashSet<>();
@@ -167,7 +164,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();
             ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
-            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(SystemInfoService.DEFAULT_CLUSTER, true);
+            List<Long> aliveBeIds = infoService.getAllBackendIds(true);
             this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
                     .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
             this.cloningNum = cloningTabletIds.size();
@@ -192,10 +189,9 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc,
                                             backendsSet);
                                 } else {
-                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair =
-                                            tablet.getHealthStatusWithPriority(infoService,
-                                                    SystemInfoService.DEFAULT_CLUSTER, partition.getVisibleVersion(),
-                                                    replicaAlloc, aliveBeIdsInCluster);
+                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair
+                                            = tablet.getHealthStatusWithPriority(infoService,
+                                            partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
                                     res = pair.first;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
@@ -218,17 +214,13 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                         redundantNum++;
                                         redundantTabletIds.add(tablet.getId());
                                         break;
-                                    case REPLICA_MISSING_IN_CLUSTER:
-                                        replicaMissingInClusterNum++;
-                                        replicaMissingInClusterTabletIds.add(tablet.getId());
+                                    case FORCE_REDUNDANT:
+                                        forceRedundantNum++;
+                                        forceRedundantTabletIds.add(tablet.getId());
                                         break;
                                     case REPLICA_MISSING_FOR_TAG:
                                         replicaMissingForTagNum++;
                                         replicaMissingForTagTabletIds.add(tablet.getId());
-                                        break;
-                                    case FORCE_REDUNDANT:
-                                        forceRedundantNum++;
-                                        forceRedundantTabletIds.add(tablet.getId());
                                         break;
                                     case COLOCATE_MISMATCH:
                                         colocateMismatchNum++;
@@ -284,9 +276,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
                 this.versionIncompleteNum += other.versionIncompleteNum;
                 this.replicaRelocatingNum += other.replicaRelocatingNum;
                 this.redundantNum += other.redundantNum;
-                this.replicaMissingInClusterNum += other.replicaMissingInClusterNum;
-                this.replicaMissingForTagNum += other.replicaMissingForTagNum;
                 this.forceRedundantNum += other.forceRedundantNum;
+                this.replicaMissingForTagNum += other.replicaMissingForTagNum;
                 this.colocateMismatchNum += other.colocateMismatchNum;
                 this.colocateRedundantNum += other.colocateRedundantNum;
                 this.needFurtherRepairNum += other.needFurtherRepairNum;
@@ -319,7 +310,6 @@ public class TabletHealthProcDir implements ProcDirInterface {
             row.add(versionIncompleteNum);
             row.add(replicaRelocatingNum);
             row.add(redundantNum);
-            row.add(replicaMissingInClusterNum);
             row.add(replicaMissingForTagNum);
             row.add(forceRedundantNum);
             row.add(colocateMismatchNum);

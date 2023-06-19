@@ -55,7 +55,7 @@ auditloader plugin的配置位于`${DORIS}/fe_plugins/auditloader/src/main/assem
 
 ### 安装
 
-部署完成后，安装插件前，需要创建之前在 `plugin.conf` 中指定的审计数据库和表。若开启了慢查询日志导入功能，需要创建慢表 `doris_slow_log_tbl__`，其表结构与 `doris_audit_log_tbl__` 一致。其中建库与建表语句如下：
+部署完成后，安装插件前，需要创建之前在 `plugin.conf` 中指定的审计日志数据库和表。若开启了慢查询日志导入功能，需要创建慢表 `doris_slow_log_tbl__`，其表结构与 `doris_audit_log_tbl__` 一致。其中建库与建表语句如下：
 
 ```
 create database doris_audit_db__;

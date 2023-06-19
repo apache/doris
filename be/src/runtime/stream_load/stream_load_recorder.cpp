@@ -27,6 +27,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -45,8 +46,14 @@ StreamLoadRecorder::~StreamLoadRecorder() {
             _db->DestroyColumnFamilyHandle(handle);
             handle = nullptr;
         }
+        rocksdb::Status s = _db->SyncWAL();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
+        }
+        rocksdb::CancelAllBackgroundWork(_db, true);
         delete _db;
         _db = nullptr;
+        LOG(INFO) << "finish close rocksdb for ~StreamLoadRecorder";
     }
 }
 

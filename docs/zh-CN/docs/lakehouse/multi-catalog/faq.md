@@ -110,3 +110,33 @@ under the License.
     ```
     'fs.defaultFS' = 'hdfs://<your_nameservice_or_actually_HDFS_IP_and_port>'
     ```
+12. 在hive上可以查到hudi表分区字段的值，但是在doris查不到。
+
+    doris和hive目前查询hudi的方式不一样，doris需要在hudi表结构的avsc文件里添加上分区字段,如果没加，就会导致doris查询partition_val为空（即使设置了hoodie.datasource.hive_sync.partition_fields=partition_val也不可以）
+    ```
+    {
+        "type": "record",
+        "name": "record",
+        "fields": [{
+            "name": "partition_val",
+            "type": [
+                "null",
+                "string"
+                ],
+            "doc": "Preset partition field, empty string when not partitioned",
+            "default": null
+            },
+            {
+            "name": "name",
+            "type": "string",
+            "doc": "名称"
+            },
+            {
+            "name": "create_time",
+            "type": "string",
+            "doc": "创建时间"
+            }
+        ]
+    }
+    ```
+

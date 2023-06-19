@@ -29,7 +29,7 @@
 #include <utility>
 #include <vector>
 
-#include "common/configbase.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"

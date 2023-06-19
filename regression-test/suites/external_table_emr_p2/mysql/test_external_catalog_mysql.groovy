@@ -24,7 +24,6 @@ suite("test_external_catalog_mysql", "p2") {
         String extMysqlUser = context.config.otherConfigs.get("extMysqlUser")
         String extMysqlPassword = context.config.otherConfigs.get("extMysqlPassword")
         String mysqlDatabaseName01 = "external_mysql_catalog_database01"
-        String mysqlResource01 = "mysql_catalog_resource_01"
         String mysqlCatalogName = "mysql_jdbc"
         String mysqlTableName01 = "lineorder"
         String mysqlTableName02 = "customer"
@@ -36,9 +35,8 @@ suite("test_external_catalog_mysql", "p2") {
 
 
         sql """drop catalog if exists ${mysqlCatalogName};"""
-        sql """drop resource if exists ${mysqlResource01};"""
         sql """
-            CREATE RESOURCE ${mysqlResource01}
+            CREATE CATALOG ${mysqlCatalogName}
             properties (
                 "type"="jdbc",
                 "user"="${extMysqlUser}",
@@ -48,22 +46,6 @@ suite("test_external_catalog_mysql", "p2") {
                 "driver_class"="com.mysql.cj.jdbc.Driver"
             );
             """
-
-        sql """CREATE CATALOG ${mysqlCatalogName} WITH RESOURCE ${mysqlResource01};"""
-//        sql """drop catalog if exists ${mysqlCatalogName};"""
-
-
-//        sql """
-//            CREATE CATALOG ${mysqlCatalogName}
-//            PROPERTIES(
-//                "type"="jdbc",
-//                "jdbc.user"="${extMysqlUser}",
-//                "jdbc.password"="${extMysqlPassword}",
-//                "jdbc.jdbc_url"="jdbc:mysql://${extMysqlHost}:${extMysqlPort}/ssb?useUnicode=true&characterEncoding=UTF-8&allowMultiQueries=true&serverTimezone=Asia/Shanghai&useSSL=false",
-//                "jdbc.driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
-//                "jdbc.driver_class"="com.mysql.cj.jdbc.Driver"
-//            );
-//            """
 
         sql """switch ${mysqlCatalogName}"""
 

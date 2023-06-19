@@ -68,6 +68,8 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     //for light schema change
     @SerializedName(value = "maxColUniqueId")
     private int maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
+    @SerializedName(value = "indexes")
+    private List<Index> indexes;
 
     private Expr whereClause;
     private Map<String, Column> nameToColumn;
@@ -78,6 +80,13 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
+        this(indexId, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
+                defineStmt, null); // indexes is null by default
+    }
+
+    public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt,
+            List<Index> indexes) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -90,6 +99,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         Preconditions.checkState(keysType != null);
         this.keysType = keysType;
         this.defineStmt = defineStmt;
+        this.indexes = indexes != null ? indexes : Lists.newArrayList();
         initColumnNameMap();
     }
 
@@ -115,6 +125,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public TStorageType getStorageType() {
         return storageType;
+    }
+
+    public List<Index> getIndexes() {
+        return indexes != null ? indexes : Lists.newArrayList();
     }
 
     public List<Column> getSchema() {

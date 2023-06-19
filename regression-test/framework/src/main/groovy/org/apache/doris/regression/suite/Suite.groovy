@@ -190,9 +190,22 @@ class Suite implements GroovyInterceptable {
         return context.connect(user, password, url, actionSupplier)
     }
 
+    Syncer getSyncer() {
+        return context.getSyncer(this)
+    }
+
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
         def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {
+        logger.info("Execute ${isOrder ? "order_" : ""}target_sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(context.getTargetConnection(this), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -380,6 +393,40 @@ class Suite implements GroovyInterceptable {
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
     }
+    
+    void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
+        String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
+        if (!fromDst) {
+            cmd = "scp -r ${files} ${username}@${host}:${filePath}"
+        }
+        logger.info("Execute: ${cmd}".toString())
+        Process process = cmd.execute()
+        def code = process.waitFor()
+        Assert.assertEquals(0, code)
+    }
+    
+    void sshExec(String username, String host, String cmd) {
+        String command = "ssh ${username}@${host} '${cmd}'"
+        def cmds = ["/bin/bash", "-c", command]
+        logger.info("Execute: ${cmds}".toString())
+        Process p = cmds.execute()
+        def errMsg = new StringBuilder()
+        def msg = new StringBuilder()
+        p.waitForProcessOutput(msg, errMsg)
+        assert errMsg.length() == 0: "error occurred!" + errMsg
+        assert p.exitValue() == 0
+    }
+    
+
+    void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
+        List<List<Object>> backends = sql("show backends");
+        String backend_id;
+        for (List<Object> backend : backends) {
+            backendId_to_backendIP.put(String.valueOf(backend[0]), String.valueOf(backend[1]));
+            backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
+        }
+        return;
+    } 
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)

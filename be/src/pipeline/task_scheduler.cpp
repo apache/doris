@@ -204,8 +204,6 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     ready_tasks.emplace_back(task);
 }
 
-/////////////////////////  TaskScheduler  ///////////////////////////////////////////////////////////////////////////
-
 TaskScheduler::~TaskScheduler() {
     shutdown();
 }
@@ -241,8 +239,8 @@ void TaskScheduler::_do_work(size_t index) {
         }
         task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
-        doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
-        doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
+        signal::query_id_hi = fragment_ctx->get_query_id().hi;
+        signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
         auto check_state = task->get_state();
@@ -259,6 +257,10 @@ void TaskScheduler::_do_work(size_t index) {
         if (canceled) {
             // may change from pending FINISH，should called cancel
             // also may change form BLOCK, other task called cancel
+
+            // If pipeline is canceled caused by memory limit, we should send report to FE in order
+            // to cancel all pipeline tasks in this query
+            fragment_ctx->send_report(true);
             _try_close_task(task, PipelineTaskState::CANCELED);
             continue;
         }
@@ -266,11 +268,18 @@ void TaskScheduler::_do_work(size_t index) {
         DCHECK(check_state == PipelineTaskState::RUNNABLE);
         // task exec
         bool eos = false;
-        auto status = task->execute(&eos);
+        auto status = Status::OK();
+
+        try {
+            status = task->execute(&eos);
+        } catch (const Exception& e) {
+            status = e.to_status();
+        }
+
         task->set_previous_core_id(index);
         if (!status.ok()) {
-            LOG(WARNING) << fmt::format("Pipeline task [{}] failed: {}", task->debug_string(),
-                                        status.to_string());
+            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}, task: \n{}",
+                                        status.to_string(), task->debug_string());
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
             fragment_ctx->send_report(true);
@@ -288,7 +297,6 @@ void TaskScheduler::_do_work(size_t index) {
                                      "finalize fail:" + status.to_string());
                 _try_close_task(task, PipelineTaskState::CANCELED);
             } else {
-                task->finish_p_dependency();
                 _try_close_task(task, PipelineTaskState::FINISHED);
             }
             continue;
@@ -329,10 +337,6 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
             return;
         }
         task->set_state(state);
-        // TODO: rethink the logic
-        if (state == PipelineTaskState::CANCELED) {
-            task->finish_p_dependency();
-        }
         task->fragment_context()->close_a_pipeline();
     }
 }
@@ -354,12 +358,9 @@ void TaskScheduler::shutdown() {
     }
 }
 
-void TaskScheduler::try_update_task_group(const taskgroup::TaskGroupInfo& task_group_info,
-                                          taskgroup::TaskGroupPtr& task_group) {
-    if (!task_group->check_version(task_group_info._version)) {
-        return;
-    }
-    _task_queue->update_task_group(task_group_info, task_group);
+void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
+                                        taskgroup::TaskGroupPtr task_group) {
+    _task_queue->update_tg_cpu_share(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline

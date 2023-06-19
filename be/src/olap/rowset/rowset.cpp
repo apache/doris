@@ -51,8 +51,8 @@ Status Rowset::load(bool use_cache) {
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
             // first do load, then change the state
-            RETURN_NOT_OK(do_load(use_cache));
-            RETURN_NOT_OK(_rowset_state_machine.on_load());
+            RETURN_IF_ERROR(do_load(use_cache));
+            RETURN_IF_ERROR(_rowset_state_machine.on_load());
         }
     }
     // load is done
@@ -73,9 +73,7 @@ void Rowset::make_visible(Version version) {
 
     if (_rowset_meta->has_delete_predicate()) {
         _rowset_meta->mutable_delete_predicate()->set_version(version.first);
-        return;
     }
-    make_visible_extra(version);
 }
 
 bool Rowset::check_rowset_segment() {

@@ -1036,6 +1036,7 @@ public class FileSystemManager {
                     brokerFileStatus.setSize(fileStatus.getLen());
                     brokerFileStatus.setIsSplitable(true);
                 }
+                brokerFileStatus.setModificationTime(fileStatus.getModificationTime());
                 if (fileNameOnly) {
                     // return like this: file.txt
                     brokerFileStatus.setPath(fileStatus.getPath().getName());

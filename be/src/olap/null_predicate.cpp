@@ -59,7 +59,7 @@ Status NullPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iter
     //  and be treated as false in WHERE
     InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
     RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-    roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
     if (null_bitmap) {
         if (_is_null) {
             *bitmap &= *null_bitmap;

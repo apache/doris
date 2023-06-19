@@ -39,6 +39,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "exprs/json_functions.h"
 #include "io/file_factory.h"
 #include "io/fs/buffered_reader.h"
@@ -149,7 +150,12 @@ void NewJsonReader::_init_file_description() {
     _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
 }
 
-Status NewJsonReader::init_reader() {
+Status NewJsonReader::init_reader(
+        const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+                col_default_value_ctx) {
+    // generate _col_default_value_map
+    RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
+
     if (config::enable_simdjson_reader) {
         RETURN_IF_ERROR(_simdjson_init_reader());
         return Status::OK();
@@ -372,12 +378,15 @@ Status NewJsonReader::_open_file_reader() {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
+                                                        _state->fragment_instance_id()));
     } else {
-        io::FileCachePolicy cache_policy = FileFactory::get_cache_policy(_state);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
+        reader_options.modification_time =
+                _range.__isset.modification_time ? _range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
                 _profile, _system_properties, _file_description, &_file_system, &_file_reader,
-                io::DelegateReader::AccessMode::SEQUENTIAL, cache_policy, _io_ctx,
+                io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
     }
     return Status::OK();
@@ -458,8 +467,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     _bytes_read_counter += size;
     auto& dynamic_column = block.get_columns().back()->assume_mutable_ref();
     auto& column_object = assert_cast<vectorized::ColumnObject&>(dynamic_column);
-    Defer __finalize_clousure([&] {
-        // Reached buffer size, unfold intermediate column object
+    auto finalize_column = [&]() -> Status {
         size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
         if (column_object.size() >= batch_size || _reader_eof) {
             column_object.finalize();
@@ -468,35 +476,22 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
             }
             // Unfold object columns for the purpose of extracting static columns and
             // fill default values missing in static columns
-            schema_util::unfold_object(block.columns() - 1, block,
-                                       true /*cast to original column type*/);
+            RETURN_IF_ERROR(schema_util::unfold_object(block.columns() - 1, block,
+                                                       true /*cast to original column type*/));
         }
-    });
+        return Status::OK();
+    };
     // read all data, then return
     if (size == 0 || *eof) {
         *is_empty_row = true;
+        RETURN_IF_ERROR(finalize_column());
         return Status::OK();
     }
-    Status st = doris::vectorized::parse_json_to_variant(column_object, StringRef {json_str, size},
-                                                         _json_parser.get());
-    if (st.is<DATA_QUALITY_ERROR>()) {
-        fmt::memory_buffer error_msg;
-        fmt::format_to(error_msg, "Parse json data for JsonDoc failed. error info: {}",
-                       st.to_string());
-        RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                [&]() -> std::string { return std::string((char*)json_str, size); },
-                [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
-        _counter->num_rows_filtered++;
-        if (*_scanner_eof) {
-            // Case A: if _scanner_eof is set to true in "append_error_msg_to_file", which means
-            // we meet enough invalid rows and the scanner should be stopped.
-            // So we set eof to true and return OK, the caller will stop the process as we meet the end of file.
-            *eof = true;
-            return Status::OK();
-        }
-        return Status::DataQualityError(fmt::to_string(error_msg));
-    }
 
+    RETURN_IF_CATCH_EXCEPTION(doris::vectorized::parse_json_to_variant(
+            column_object, StringRef {json_str, size}, _json_parser.get()));
+    // TODO correctly handle data quality error
+    RETURN_IF_ERROR(finalize_column());
     return Status::OK();
 }
 
@@ -803,7 +798,6 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
-    size_t cur_row_count = block.rows();
     for (auto slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -830,41 +824,25 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                 return Status::OK();
             }
             has_valid_value = true;
-        } else { // not found
-            // When the entire row has no valid value, this row should be filtered,
-            // so the default value cannot be directly inserted here
-            if (!slot_desc->is_nullable()) {
-                RETURN_IF_ERROR(_append_error_msg(
-                        objectValue,
-                        "The column `{}` is not nullable, but it's not found in jsondata.",
-                        slot_desc->col_name(), valid));
-                break;
+        } else {
+            // not found, filling with default value
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            if (!(*valid)) {
+                return Status::OK();
             }
         }
     }
     if (!has_valid_value) {
+        // there is no valid value in json line but has filled with default value before
+        // so remove this line in block
+        for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(_append_error_msg(objectValue, "All fields is null, this is a invalid row.",
                                           "", valid));
         return Status::OK();
     }
-    ctx_idx = 0;
-    int nullcount = 0;
-    // fill missing slot
-    for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
-        if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
-            ++nullcount;
-        }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
-    }
-    // There is at least one valid value here
-    DCHECK(nullcount < block.columns());
     *valid = true;
     return Status::OK();
 }
@@ -926,6 +904,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
                     slot_desc->col_name(), valid));
             return Status::OK();
         }
+
         // return immediately to prevent from repeatedly insert_data
         *valid = true;
         return Status::OK();
@@ -952,7 +931,6 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                                                  Block& block, bool* valid) {
     int ctx_idx = 0;
     bool has_valid_value = false;
-    size_t cur_row_count = block.rows();
     for (auto slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
             continue;
@@ -966,17 +944,7 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                     _parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator(),
                     &wrap_explicitly);
         }
-
-        if (json_values == nullptr) {
-            // not match in jsondata.
-            if (!slot_descs[i]->is_nullable()) {
-                RETURN_IF_ERROR(_append_error_msg(
-                        objectValue,
-                        "The column `{}` is not nullable, but it's not found in jsondata.",
-                        slot_descs[i]->col_name(), valid));
-                return Status::OK();
-            }
-        } else {
+        if (json_values != nullptr) {
             CHECK(json_values->IsArray());
             if (json_values->Size() == 1 && wrap_explicitly) {
                 // NOTICE1: JsonFunctions::get_json_array_from_parsed_json() will wrap the single json object with an array.
@@ -989,26 +957,25 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                 return Status::OK();
             }
             has_valid_value = true;
+        } else {
+            // not found, filling with default value
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            if (!(*valid)) {
+                return Status::OK();
+            }
         }
     }
     if (!has_valid_value) {
+        // there is no valid value in json line but has filled with default value before
+        // so remove this line in block
+        for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(_append_error_msg(
                 objectValue, "All fields is null or not matched, this is a invalid row.", "",
                 valid));
         return Status::OK();
-    }
-    ctx_idx = 0;
-    for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
-        if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
-        }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
     }
     return Status::OK();
 }
@@ -1105,7 +1072,6 @@ Status NewJsonReader::_simdjson_init_reader() {
         _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
-    _prev_positions.resize(_file_slot_descs.size());
     return Status::OK();
 }
 
@@ -1433,7 +1399,10 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            if (!(*valid)) {
+                return Status::OK();
+            }
             ++nullcount;
         }
         DCHECK(column_ptr->size() == cur_row_count + 1);
@@ -1670,10 +1639,12 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         simdjson::ondemand::object* value, const std::vector<SlotDescriptor*>& slot_descs,
         Block& block, bool* valid) {
     // write by jsonpath
-    size_t column_num = slot_descs.size();
     bool has_valid_value = false;
-    size_t cur_row_count = block.rows();
-    for (size_t i = 0; i < column_num; i++) {
+    for (size_t i = 0; i < slot_descs.size(); i++) {
+        auto slot_desc = slot_descs[i];
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
         auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         simdjson::ondemand::value json_value;
         Status st;
@@ -1684,16 +1655,14 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             }
         }
         if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
-            // not match in jsondata.
-            if (!slot_descs[i]->is_nullable()) {
-                RETURN_IF_ERROR(_append_error_msg(
-                        value, "The column `{}` is not nullable, but it's not found in jsondata.",
-                        slot_descs[i]->col_name(), valid));
+            // not match in jsondata, filling with default value
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            if (!(*valid)) {
                 return Status::OK();
             }
         } else {
             RETURN_IF_ERROR(
-                    _simdjson_write_data_to_column(json_value, slot_descs[i], column_ptr, valid));
+                    _simdjson_write_data_to_column(json_value, slot_desc, column_ptr, valid));
             if (!(*valid)) {
                 return Status::OK();
             }
@@ -1701,29 +1670,65 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
         }
     }
     if (!has_valid_value) {
+        // there is no valid value in json line but has filled with default value before
+        // so remove this line in block
+        for (int i = 0; i < block.columns(); ++i) {
+            auto column = block.get_by_position(i).column->assume_mutable();
+            column->pop_back(1);
+        }
         RETURN_IF_ERROR(
                 _append_error_msg(value, "All fields is null, this is a invalid row.", "", valid));
         return Status::OK();
     }
+    *valid = true;
+    return Status::OK();
+}
 
-    // fill missing slot
-    int ctx_idx = 0;
-    int nullcount = 0;
+Status NewJsonReader::_get_column_default_value(
+        const std::vector<SlotDescriptor*>& slot_descs,
+        const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+                col_default_value_ctx) {
     for (auto slot_desc : slot_descs) {
-        if (!slot_desc->is_materialized()) {
-            continue;
+        auto it = col_default_value_ctx.find(slot_desc->col_name());
+        if (it != col_default_value_ctx.end() && it->second != nullptr) {
+            auto& ctx = it->second;
+            // empty block to save default value of slot_desc->col_name()
+            Block block;
+            // If block is empty, some functions will produce no result. So we insert a column with
+            // single value here.
+            block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
+            int result = -1;
+            RETURN_IF_ERROR(ctx->execute(&block, &result));
+            DCHECK(result != -1);
+            auto column = block.get_by_position(result).column;
+            DCHECK(column->size() == 1);
+            _col_default_value_map.emplace(slot_desc->col_name(),
+                                           column->get_data_at(0).to_string());
         }
-        int dest_index = ctx_idx++;
-        auto* column_ptr = block.get_by_position(dest_index).column->assume_mutable().get();
-        if (column_ptr->size() < cur_row_count + 1) {
-            DCHECK(column_ptr->size() == cur_row_count);
-            column_ptr->assume_mutable()->insert_default();
-            ++nullcount;
-        }
-        DCHECK(column_ptr->size() == cur_row_count + 1);
     }
-    // There is at least one valid value here
-    DCHECK(nullcount < block.columns());
+    return Status::OK();
+}
+
+Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc,
+                                           vectorized::IColumn* column_ptr, bool* valid) {
+    if (slot_desc->is_nullable()) {
+        vectorized::ColumnNullable* nullable_column =
+                reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+        column_ptr = &nullable_column->get_nested_column();
+        auto col_value = _col_default_value_map.find(slot_desc->col_name());
+        if (col_value == _col_default_value_map.end()) {
+            nullable_column->insert_default();
+        } else {
+            const std::string& v_str = col_value->second;
+            nullable_column->get_null_map_data().push_back(0);
+            assert_cast<ColumnString*>(column_ptr)->insert_data(v_str.c_str(), v_str.size());
+        }
+    } else {
+        RETURN_IF_ERROR(_append_error_msg(
+                nullptr, "The column `{}` is not nullable, but it's not found in jsondata.",
+                slot_desc->col_name(), valid));
+    }
+
     *valid = true;
     return Status::OK();
 }

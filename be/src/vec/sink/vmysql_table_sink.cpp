@@ -52,7 +52,6 @@ Status VMysqlTableSink::init(const TDataSink& t_sink) {
 }
 
 Status VMysqlTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::open");
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VTableSink::open(state));
     // create writer
@@ -62,12 +61,10 @@ Status VMysqlTableSink::open(RuntimeState* state) {
 }
 
 Status VMysqlTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VMysqlTableSink::send");
     return _writer->append(block);
 }
 
 Status VMysqlTableSink::close(RuntimeState* state, Status exec_status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlTableSink::close");
     RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     return Status::OK();
 }

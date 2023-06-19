@@ -41,20 +41,20 @@ VExplodeNumbersTableFunction::VExplodeNumbersTableFunction() {
 }
 
 Status VExplodeNumbersTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 1)
+    CHECK(_expr_context->root()->children().size() == 1)
             << "VExplodeSplitTableFunction must be have 1 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int value_column_idx = -1;
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &value_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &value_column_idx));
     _value_column = block->get_by_position(value_column_idx).column;
     if (is_column_const(*_value_column)) {
         _cur_size = 0;
         auto& column_nested = assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
         if (column_nested->is_nullable()) {
             if (!column_nested->is_null_at(0)) {
-                _cur_size = static_cast<const ColumnNullable*>(column_nested.get())
+                _cur_size = assert_cast<const ColumnNullable*>(column_nested.get())
                                     ->get_nested_column()
                                     .get_int(0);
             }
@@ -95,14 +95,14 @@ void VExplodeNumbersTableFunction::get_value(MutableColumnPtr& column) {
         column->insert_default();
     } else {
         if (_is_nullable) {
-            static_cast<ColumnInt32*>(
-                    static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
+            assert_cast<ColumnInt32*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
                     ->insert_value(_cur_offset);
-            static_cast<ColumnUInt8*>(
-                    static_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
+            assert_cast<ColumnUInt8*>(
+                    assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                     ->insert_default();
         } else {
-            static_cast<ColumnInt32*>(column.get())->insert_value(_cur_offset);
+            assert_cast<ColumnInt32*>(column.get())->insert_value(_cur_offset);
         }
     }
 }

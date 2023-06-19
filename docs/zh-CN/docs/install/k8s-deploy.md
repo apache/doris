@@ -77,9 +77,9 @@ under the License.
   用户需要自行挂载pvc，持久化元数据信息，数据信息或者日志信息等
 - 怎么安全缩容BE节点？
 
-  BE:当前缩容之前需要用户手动执行[ALTER-SYSTEM-DECOMMISSION-BACKEND](../../docs/sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND)
+  BE:当前缩容之前需要用户手动执行[ALTER-SYSTEM-DECOMMISSION-BACKEND](../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND)
 
-  BE(角色类型为 Compute Node): 不存储数据文件，可以直接进行缩容，[关于计算节点](../../docs/advanced/compute_node)
+  BE(角色类型为 Compute Node): 不存储数据文件，可以直接进行缩容，[关于计算节点](../../advanced/compute_node)
 - FE启动报错"failed to init statefulSetName"
 
   doris_follower.yml的环境变量 statefulSetName和serviceName必须成对出现，比如配置了CN_SERVICE，就必须配置CN_STATEFULSET

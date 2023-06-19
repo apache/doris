@@ -30,6 +30,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/schema.h"
 #include "olap/segment_loader.h"
 #include "vec/core/block.h"
 
@@ -87,7 +88,7 @@ public:
 private:
     bool _should_push_down_value_predicates() const;
 
-    std::shared_ptr<Schema> _input_schema;
+    SchemaSPtr _input_schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 

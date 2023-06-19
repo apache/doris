@@ -35,6 +35,7 @@ import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TParquetCompressionType;
+import org.apache.doris.thrift.TParquetDataLogicalType;
 import org.apache.doris.thrift.TParquetDataType;
 import org.apache.doris.thrift.TParquetRepetitionType;
 import org.apache.doris.thrift.TParquetSchema;
@@ -65,6 +66,7 @@ public class OutFileClause {
     public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();
     public static final Map<String, TParquetRepetitionType> PARQUET_REPETITION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetDataType> PARQUET_DATA_TYPE_MAP = Maps.newHashMap();
+    public static final Map<String, TParquetDataLogicalType> PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetCompressionType> PARQUET_COMPRESSION_TYPE_MAP = Maps.newHashMap();
     public static final Map<String, TParquetVersion> PARQUET_VERSION_MAP = Maps.newHashMap();
     public static final Set<String> ORC_DATA_TYPE = Sets.newHashSet();
@@ -96,6 +98,11 @@ public class OutFileClause {
         PARQUET_DATA_TYPE_MAP.put("float", TParquetDataType.FLOAT);
         PARQUET_DATA_TYPE_MAP.put("double", TParquetDataType.DOUBLE);
         PARQUET_DATA_TYPE_MAP.put("fixed_len_byte_array", TParquetDataType.FIXED_LEN_BYTE_ARRAY);
+
+        PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("date", TParquetDataLogicalType.DATE);
+        PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("datetime", TParquetDataLogicalType.TIMESTAMP);
+        // TODO(ftw): add other logical type
+        PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("none", TParquetDataLogicalType.NONE);
 
         PARQUET_COMPRESSION_TYPE_MAP.put("snappy", TParquetCompressionType.SNAPPY);
         PARQUET_COMPRESSION_TYPE_MAP.put("gzip", TParquetCompressionType.GZIP);
@@ -130,8 +137,8 @@ public class OutFileClause {
     public static final String PROP_LINE_DELIMITER = "line_delimiter";
     public static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
+    public static final String PROP_DELETE_EXISTING_FILES = "delete_existing_files";
     private static final String PARQUET_PROP_PREFIX = "parquet.";
-    private static final String ORC_PROP_PREFIX = "orc.";
     private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
@@ -148,6 +155,7 @@ public class OutFileClause {
     private String lineDelimiter = "\n";
     private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
+    private boolean deleteExistingFiles = false;
     private BrokerDesc brokerDesc = null;
     // True if result is written to local disk.
     // If set to true, the brokerDesc must be null.
@@ -282,6 +290,7 @@ public class OutFileClause {
                     }
                     type = "string";
                     break;
+                case LARGEINT:
                 case DATE:
                 case DATETIME:
                 case DATETIMEV2:
@@ -353,6 +362,7 @@ public class OutFileClause {
                                 + " but the type of column " + i + " is " + schema.second);
                     }
                     break;
+                case LARGEINT:
                 case DATE:
                 case DATETIME:
                 case DATETIMEV2:
@@ -419,13 +429,13 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
+                case DATE:
                     if (!PARQUET_DATA_TYPE_MAP.get("int32").equals(type)) {
                         throw new AnalysisException("project field type is TINYINT/SMALLINT/INT,"
                                 + "should use int32, " + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case BIGINT:
-                case DATE:
                 case DATETIME:
                     if (!PARQUET_DATA_TYPE_MAP.get("int64").equals(type)) {
                         throw new AnalysisException("project field type is BIGINT/DATE/DATETIME,"
@@ -453,9 +463,10 @@ public class OutFileClause {
                 case DECIMALV2:
                 case DATETIMEV2:
                 case DATEV2:
+                case LARGEINT:
                     if (!PARQUET_DATA_TYPE_MAP.get("byte_array").equals(type)) {
                         throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL/DATEV2"
-                                + "/DATETIMEV2, should use byte_array, but the definition type of column "
+                                + "/DATETIMEV2/LARGEINT, should use byte_array, but the definition type of column "
                                 + i + " is " + type);
                     }
                     break;
@@ -496,10 +507,10 @@ public class OutFileClause {
                 case TINYINT:
                 case SMALLINT:
                 case INT:
+                case DATE:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int32");
                     break;
                 case BIGINT:
-                case DATE:
                 case DATETIME:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("int64");
                     break;
@@ -518,6 +529,7 @@ public class OutFileClause {
                 case DECIMAL128:
                 case DATETIMEV2:
                 case DATEV2:
+                case LARGEINT:
                     parquetSchema.schema_data_type = PARQUET_DATA_TYPE_MAP.get("byte_array");
                     break;
                 case HLL:
@@ -531,6 +543,18 @@ public class OutFileClause {
                     throw new AnalysisException("currently parquet do not support column type: "
                             + expr.getType().getPrimitiveType());
             }
+
+            switch (expr.getType().getPrimitiveType()) {
+                case DATE:
+                    parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("date");
+                    break;
+                case DATETIME:
+                    parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("datetime");
+                    break;
+                default:
+                    parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("none");
+            }
+
             parquetSchema.schema_column_name = colLabels.get(i);
             parquetSchemas.add(parquetSchema);
         }
@@ -595,6 +619,12 @@ public class OutFileClause {
                 throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
             processedPropKeys.add(PROP_MAX_FILE_SIZE);
+        }
+
+        if (properties.containsKey(PROP_DELETE_EXISTING_FILES)) {
+            deleteExistingFiles = Boolean.parseBoolean(properties.get(PROP_DELETE_EXISTING_FILES))
+                                    & Config.enable_delete_existing_files;
+            processedPropKeys.add(PROP_DELETE_EXISTING_FILES);
         }
 
         if (properties.containsKey(PROP_SUCCESS_FILE_NAME)) {
@@ -833,6 +863,7 @@ public class OutFileClause {
             sinkOptions.setLineDelimiter(lineDelimiter);
         }
         sinkOptions.setMaxFileSizeBytes(maxFileSizeBytes);
+        sinkOptions.setDeleteExistingFiles(deleteExistingFiles);
         if (brokerDesc != null) {
             sinkOptions.setBrokerProperties(brokerDesc.getProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.

@@ -28,6 +28,8 @@
 
 namespace doris {
 
+const int128_t DecimalV2Value::MAX_DECIMAL_VALUE;
+
 static inline int128_t abs(const int128_t& x) {
     return (x < 0) ? -x : x;
 }

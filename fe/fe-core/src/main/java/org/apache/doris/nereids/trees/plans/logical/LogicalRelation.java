@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -130,5 +131,16 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     public ObjectId getId() {
         return id;
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject logicalRelation = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("ObjectId", id.toString());
+        properties.put("Table", table.toString());
+        properties.put("Qualifier", qualifier.toString());
+        logicalRelation.put("Properties", properties);
+        return logicalRelation;
     }
 }

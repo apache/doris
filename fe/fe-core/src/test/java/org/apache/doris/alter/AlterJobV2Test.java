@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -196,6 +197,41 @@ public class AlterJobV2Test {
                 + "user_id,\n"
                 + "date;");
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
+    }
+
+    @Test
+    public void testDupTableWithoutKeysSchemaChange() throws Exception {
+
+        createTable("CREATE TABLE test.dup_table_without_keys (\n"
+                + "  k1 bigint(20) NULL ,\n"
+                + "  k2 bigint(20) NULL ,\n"
+                + "  k3 bigint(20) NULL,\n"
+                + "  v1 bigint(20) NULL ,\n"
+                + "  v2 varchar(1) NULL,\n"
+                + "  v3 varchar(1) NULL \n"
+                + ") ENGINE=OLAP\n"
+                + "PARTITION BY RANGE(k1, v1)\n"
+                + "(PARTITION p1 VALUES LESS THAN (\"10\", \"10\"))\n"
+                + "DISTRIBUTED BY HASH(v1,k2) BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"enable_duplicate_without_keys_by_default\" = \"true\""
+                + ");");
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Duplicate table without keys do not support alter rollup!",
+                                () -> alterTable("alter table test.dup_table_without_keys add rollup r1(v1,v2,k2,k1);"));
+        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table_without_keys modify column v2 varchar(2);"));
+        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table_without_keys add column v4 varchar(2);"));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Duplicate table without keys do not support add key column!",
+                                () -> alterTable("alter table test.dup_table_without_keys add column new_col INT KEY DEFAULT \"0\" AFTER k3;"));
+
+        createMaterializedView("create materialized view k1_k33 as select k2, k1 from test.dup_table_without_keys;");
+        Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
+
+        createMaterializedView("create materialized view k1_k24 as select k2, k1 from test.dup_table_without_keys order by k2,k1;");
+        alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
     }
 }

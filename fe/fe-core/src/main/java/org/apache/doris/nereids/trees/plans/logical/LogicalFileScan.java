@@ -20,33 +20,41 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical file scan for external catalog.
  */
 public class LogicalFileScan extends LogicalRelation {
 
+    private final Set<Expression> conjuncts;
+
     /**
      * Constructor for LogicalFileScan.
      */
     public LogicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
-                           Optional<LogicalProperties> logicalProperties) {
+                           Optional<LogicalProperties> logicalProperties,
+                           Set<Expression> conjuncts) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
+        this.conjuncts = conjuncts;
     }
 
     public LogicalFileScan(ObjectId id, ExternalTable table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty());
+        this(id, table, qualifier, Optional.empty(), Optional.empty(), Sets.newHashSet());
     }
 
     @Override
@@ -64,19 +72,33 @@ public class LogicalFileScan extends LogicalRelation {
     }
 
     @Override
+    public boolean equals(Object o) {
+        return super.equals(o) && Objects.equals(conjuncts, ((LogicalFileScan) o).conjuncts);
+    }
+
+    @Override
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalFileScan(id, (ExternalTable) table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()));
+                Optional.of(getLogicalProperties()), conjuncts);
     }
 
     @Override
     public LogicalFileScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalFileScan(id, (ExternalTable) table, qualifier, groupExpression,
-            logicalProperties);
+            logicalProperties, conjuncts);
+    }
+
+    public LogicalFileScan withConjuncts(Set<Expression> conjuncts) {
+        return new LogicalFileScan(id, (ExternalTable) table, qualifier, groupExpression,
+            Optional.of(getLogicalProperties()), conjuncts);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalFileScan(this, context);
+    }
+
+    public Set<Expression> getConjuncts() {
+        return this.conjuncts;
     }
 }

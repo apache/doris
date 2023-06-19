@@ -71,7 +71,7 @@ public class FsBrokerTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         FsBroker readBroker = FsBroker.readIn(dis);
-        Assert.assertEquals(fsBroker.ip, readBroker.ip);
+        Assert.assertEquals(fsBroker.host, readBroker.host);
         Assert.assertEquals(fsBroker.port, readBroker.port);
         Assert.assertEquals(fsBroker.isAlive, readBroker.isAlive);
         Assert.assertTrue(fsBroker.isAlive);
@@ -98,7 +98,7 @@ public class FsBrokerTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
         FsBroker readBroker = FsBroker.readIn(dis);
-        Assert.assertEquals(fsBroker.ip, readBroker.ip);
+        Assert.assertEquals(fsBroker.host, readBroker.host);
         Assert.assertEquals(fsBroker.port, readBroker.port);
         Assert.assertEquals(fsBroker.isAlive, readBroker.isAlive);
         Assert.assertFalse(fsBroker.isAlive);

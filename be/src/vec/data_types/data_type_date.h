@@ -54,7 +54,6 @@ public:
     const char* get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "Date"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
@@ -63,6 +62,16 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     static void cast_to_date(Int64& x);
+    Field get_field(const TExprNode& node) const override {
+        VecDateTimeValue value;
+        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
+            value.cast_to_date();
+            return Int64(*reinterpret_cast<__int64_t*>(&value));
+        } else {
+            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                                   "Invalid value: {} for type Date", node.date_literal.value);
+        }
+    }
 
     MutableColumnPtr create_column() const override;
 

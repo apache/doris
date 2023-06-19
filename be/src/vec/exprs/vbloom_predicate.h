@@ -49,11 +49,8 @@ public:
                           VExprContext* context) override;
     doris::Status open(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(VBloomPredicate::create_unique(*this).release());
-    }
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    VExprSPtr clone() const override { return VBloomPredicate::create_shared(*this); }
     const std::string& expr_name() const override;
     void set_filter(std::shared_ptr<BloomFilterFuncBase>& filter);
 

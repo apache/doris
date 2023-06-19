@@ -174,7 +174,7 @@ public class RuntimeProfile {
                         LOG.error("Cannot update counters with the same name but different types"
                                 + " type=" + tcounter.type);
                     } else {
-                        counter.setValue(tcounter.value);
+                        counter.setValue(tcounter.type, tcounter.value);
                     }
                 }
             }
@@ -322,6 +322,10 @@ public class RuntimeProfile {
         StringBuilder builder = new StringBuilder();
         long tmpValue = value;
         switch (type) {
+            case NONE: {
+                // Do nothing, it is just a label
+                break;
+            }
             case UNIT: {
                 Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
                 if (pair.second.isEmpty()) {
@@ -346,6 +350,15 @@ public class RuntimeProfile {
                     builder.append(tmpValue / 1000).append(".").append(tmpValue % 1000).append("us");
                 } else {
                     builder.append(tmpValue).append("ns");
+                }
+                break;
+            }
+            case TIME_MS: {
+                if (tmpValue >= DebugUtil.THOUSAND) {
+                    // If the time is over a second, print it up to ms.
+                    DebugUtil.printTimeMs(tmpValue, builder);
+                } else {
+                    builder.append(tmpValue).append("ms");
                 }
                 break;
             }
@@ -505,3 +518,4 @@ public class RuntimeProfile {
         return infoStrings;
     }
 }
+

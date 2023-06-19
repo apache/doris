@@ -206,6 +206,8 @@ private:
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
+    OpentelemetrySpan _span;
+
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges

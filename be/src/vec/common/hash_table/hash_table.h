@@ -238,6 +238,8 @@ void insert_set_mapped(MappedType* dest, const ValueType& src) {
     *dest = src.second;
 }
 
+static doris::vectorized::Int32 double_resize_threshold = doris::config::double_resize_threshold;
+
 /** Determines the size of the hash table, and when and how much it should be resized.
   */
 template <size_t initial_size_degree = 10>
@@ -246,6 +248,8 @@ struct HashTableGrower {
     doris::vectorized::UInt8 size_degree = initial_size_degree;
     doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
+    doris::vectorized::Int32 max_fill_rate = doris::config::max_fill_rate;
+
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
@@ -253,7 +257,7 @@ struct HashTableGrower {
     size_t max_fill() const {
         return size_degree < double_grow_degree
                        ? 1ULL << (size_degree - 1)
-                       : (1ULL << size_degree) - (1ULL << (size_degree - 2));
+                       : (1ULL << size_degree) - (1ULL << (size_degree - max_fill_rate));
     }
 
     size_t mask() const { return buf_size() - 1; }
@@ -271,7 +275,7 @@ struct HashTableGrower {
     bool overflow(size_t elems) const { return elems > max_fill(); }
 
     /// Increase the size of the hash table.
-    void increase_size() { size_degree += size_degree >= 23 ? 1 : 2; }
+    void increase_size() { size_degree += size_degree >= double_resize_threshold ? 1 : 2; }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
@@ -336,7 +340,7 @@ public:
     bool overflow(size_t elems) const { return elems > precalculated_max_fill; }
 
     /// Increase the size of the hash table.
-    void increase_size() { increase_size_degree(size_degree_ >= 23 ? 1 : 2); }
+    void increase_size() { increase_size_degree(size_degree_ >= double_resize_threshold ? 1 : 2); }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {

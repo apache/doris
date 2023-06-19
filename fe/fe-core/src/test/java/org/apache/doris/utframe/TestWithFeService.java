@@ -405,7 +405,6 @@ public abstract class TestWithFeService {
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(false);
-        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(beThriftPort);
         be.setHttpPort(beHttpPort);
         be.setBrpcPort(beBrpcPort);
@@ -529,6 +528,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql) throws Exception {
         try {
+            Config.enable_odbc_table = true;
             createTables(sql);
         } catch (ConcurrentModificationException e) {
             e.printStackTrace();

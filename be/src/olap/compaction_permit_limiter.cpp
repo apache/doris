@@ -24,7 +24,7 @@ namespace doris {
 
 CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 
-bool CompactionPermitLimiter::request(int64_t permits) {
+void CompactionPermitLimiter::request(int64_t permits) {
     DorisMetrics::instance()->compaction_waitting_permits->set_value(permits);
     if (permits > config::total_permits_for_compaction_score) {
         // when tablet's compaction score is larger than "config::total_permits_for_compaction_score",
@@ -46,7 +46,6 @@ bool CompactionPermitLimiter::request(int64_t permits) {
     _used_permits += permits;
     DorisMetrics::instance()->compaction_waitting_permits->set_value(0);
     DorisMetrics::instance()->compaction_used_permits->set_value(_used_permits);
-    return true;
 }
 
 void CompactionPermitLimiter::release(int64_t permits) {

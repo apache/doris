@@ -113,7 +113,7 @@ TEST_F(SystemMetricsTest, normal) {
         EXPECT_TRUE(cpu_guest_nice != nullptr);
         EXPECT_STREQ("0", cpu_guest_nice->to_string().c_str());
 
-        // memroy
+        // memory
         Metric* memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
         EXPECT_TRUE(memory_allocated_bytes != nullptr);
         Metric* memory_pgpgin = entity->get_metric("memory_pgpgin");
@@ -254,7 +254,7 @@ TEST_F(SystemMetricsTest, no_proc_file) {
         auto cpu_entity = registry.get_entity("cpu", {{"device", "cpu"}});
         EXPECT_TRUE(cpu_entity == nullptr);
 
-        // memroy
+        // memory
         Metric* memory_allocated_bytes = entity->get_metric("memory_allocated_bytes");
         EXPECT_TRUE(memory_allocated_bytes != nullptr);
         Metric* memory_pgpgin = entity->get_metric("memory_pgpgin");

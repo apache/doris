@@ -32,7 +32,7 @@ SHOW PARTITIONS
 
 ### Description
 
-该语句用于展示分区信息
+该语句用于展示分区信息。支持 Internal catalog 和 Hive Catalog
 
 语法：
 
@@ -42,8 +42,16 @@ SHOW PARTITIONS
 
 说明:
 
+对于 Internal catalog：
 1. 支持PartitionId,PartitionName,State,Buckets,ReplicationNum,LastConsistencyCheckTime等列的过滤
 2. TEMPORARY指定列出临时分区
+
+<version since="dev">
+
+对于 Hive Catalog：
+支持返回所有分区，包括多级分区
+
+</version>
 
 ### Example
 

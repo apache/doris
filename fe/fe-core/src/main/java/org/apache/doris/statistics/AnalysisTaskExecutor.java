@@ -75,10 +75,10 @@ public class AnalysisTaskExecutor extends Thread {
             try {
                 AnalysisTaskWrapper taskWrapper = taskQueue.take();
                 try {
-                    long timeout = StatisticConstants.STATISTICS_TASKS_TIMEOUT_IN_MS;
+                    long timeout = TimeUnit.MINUTES.toMillis(Config.analyze_task_timeout_in_minutes);
                     taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
-                    taskWrapper.cancel();
+                    taskWrapper.cancel(e.getMessage());
                 }
             } catch (Throwable throwable) {
                 LOG.warn(throwable);

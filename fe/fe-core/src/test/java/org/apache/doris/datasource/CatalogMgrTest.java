@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.AlterCatalogNameStmt;
 import org.apache.doris.analysis.AlterCatalogPropertyStmt;
 import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
@@ -116,13 +115,9 @@ public class CatalogMgrTest extends TestWithFeService {
         // TODO: 2023/1/20 zdtodo
         //        Assert.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
 
-        // create hms catalog by resource
-        CreateResourceStmt hmsResource = (CreateResourceStmt) parseAndAnalyzeStmt(
-                "create resource hms_resource properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
-                rootCtx);
-        env.getResourceMgr().createResource(hmsResource);
+        // create hms catalog
         CreateCatalogStmt hiveCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog hive with resource hms_resource;",
+                "create catalog hive properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
         env.getCatalogMgr().createCatalog(hiveCatalog);
         // deprecated: create hms catalog by properties
@@ -136,14 +131,9 @@ public class CatalogMgrTest extends TestWithFeService {
                 rootCtx);
         env.getCatalogMgr().createCatalog(iceBergCatalog);
 
-        // create es catalog by resource
-        CreateResourceStmt esResource = (CreateResourceStmt) parseAndAnalyzeStmt(
-                "create resource es_resource properties('type' = 'es', 'hosts' = 'http://192.168.0.1', 'user' = 'user1');",
-                rootCtx);
-
-        env.getResourceMgr().createResource(esResource);
+        // create es catalog
         CreateCatalogStmt esCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog es with resource es_resource;",
+                "create catalog es properties('type' = 'es', 'hosts' = 'http://192.168.0.1', 'user' = 'user1');",
                 rootCtx);
         env.getCatalogMgr().createCatalog(esCatalog);
         // deprecated: create es catalog by properties
@@ -242,7 +232,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         CatalogIf catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
         // type, hive.metastore.uris and create_time
-        Assert.assertEquals(3, catalog.getProperties().size());
+        Assert.assertEquals(4, catalog.getProperties().size());
         Assert.assertEquals("thrift://172.16.5.9:9083", catalog.getProperties().get("hive.metastore.uris"));
 
         // test add property
@@ -252,14 +242,14 @@ public class CatalogMgrTest extends TestWithFeService {
         AlterCatalogPropertyStmt alterStmt = new AlterCatalogPropertyStmt(MY_CATALOG, alterProps2);
         mgr.alterCatalogProps(alterStmt);
         catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
-        Assert.assertEquals(5, catalog.getProperties().size());
+        Assert.assertEquals(6, catalog.getProperties().size());
         Assert.assertEquals("service1", catalog.getProperties().get("dfs.nameservices"));
 
         String showDetailCatalog = "SHOW CATALOG my_catalog";
         ShowCatalogStmt showDetailStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showDetailCatalog);
         showResultSet = mgr.showCatalogs(showDetailStmt);
 
-        Assert.assertEquals(5, showResultSet.getResultRows().size());
+        Assert.assertEquals(6, showResultSet.getResultRows().size());
         for (List<String> row : showResultSet.getResultRows()) {
             Assertions.assertEquals(2, row.size());
             if (row.get(0).equalsIgnoreCase("type")) {
@@ -328,7 +318,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         properties = hms.getProperties();
-        Assert.assertEquals(5, properties.size());
+        Assert.assertEquals(6, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
         Assert.assertEquals("thrift://172.16.5.9:9083", properties.get("hive.metastore.uris"));
 
@@ -466,7 +456,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 Lists.newArrayList("y=2020/m=1", "y=2020/m=2"), metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
         metaStoreCache.dropPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("y=2020/m=1", "y=2020/m=2"),
-                partitionValueCacheKey.getTypes(), false);
+                false);
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 0);
     }
@@ -496,7 +486,7 @@ public class CatalogMgrTest extends TestWithFeService {
                 Lists.newArrayList("m=1", "m=2"), metaStoreCache);
         metaStoreCache.putPartitionValuesCacheForTest(partitionValueCacheKey, hivePartitionValues);
         metaStoreCache.dropPartitionsCache("hiveDb", "hiveTable", Lists.newArrayList("m=1", "m=2"),
-                partitionValueCacheKey.getTypes(), false);
+                false);
         HivePartitionValues partitionValues = metaStoreCache.getPartitionValues(partitionValueCacheKey);
         Assert.assertEquals(partitionValues.getPartitionNameToIdMap().size(), 0);
     }

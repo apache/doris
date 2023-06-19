@@ -30,7 +30,6 @@
 #include "olap/olap_define.h"
 #include "util/slice.h"
 
-using std::min;
 using std::nothrow;
 using std::string;
 using std::vector;
@@ -77,7 +76,7 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
 
 Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
                         const std::vector<uint32_t>& columns) {
-    _schema.reset(new Schema(*shared_schema.get()));
+    _schema.reset(new Schema(*shared_schema));
     return _init(columns);
 }
 
@@ -106,7 +105,7 @@ Status RowCursor::_init_scan_key(TabletSchemaSPtr schema,
     }
 
     // variable_len for null bytes
-    RETURN_NOT_OK(_alloc_buf());
+    RETURN_IF_ERROR(_alloc_buf());
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;
     char** long_text_ptr = _long_text_buf;
@@ -157,7 +156,7 @@ Status RowCursor::init(TabletSchemaSPtr schema, size_t column_count) {
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_NOT_OK(_init(schema->columns(), columns));
+    RETURN_IF_ERROR(_init(schema->columns(), columns));
     return Status::OK();
 }
 
@@ -173,12 +172,12 @@ Status RowCursor::init(const std::vector<TabletColumn>& schema, size_t column_co
     for (size_t i = 0; i < column_count; ++i) {
         columns.push_back(i);
     }
-    RETURN_NOT_OK(_init(schema, columns));
+    RETURN_IF_ERROR(_init(schema, columns));
     return Status::OK();
 }
 
 Status RowCursor::init(TabletSchemaSPtr schema, const std::vector<uint32_t>& columns) {
-    RETURN_NOT_OK(_init(schema->columns(), columns));
+    RETURN_IF_ERROR(_init(schema->columns(), columns));
     return Status::OK();
 }
 
@@ -196,7 +195,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema,
     std::vector<uint32_t> columns(scan_key_size);
     std::iota(columns.begin(), columns.end(), 0);
 
-    RETURN_NOT_OK(_init(schema->columns(), columns));
+    RETURN_IF_ERROR(_init(schema->columns(), columns));
 
     return _init_scan_key(schema, scan_keys);
 }
@@ -210,7 +209,7 @@ Status RowCursor::init_scan_key(TabletSchemaSPtr schema, const std::vector<std::
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(shared_schema, columns));
+    RETURN_IF_ERROR(_init(shared_schema, columns));
 
     return _init_scan_key(schema, scan_keys);
 }
@@ -223,7 +222,7 @@ Status RowCursor::allocate_memory_for_string_type(TabletSchemaSPtr schema) {
         return Status::OK();
     }
     DCHECK(_variable_buf == nullptr) << "allocate memory twice";
-    RETURN_NOT_OK(_alloc_buf());
+    RETURN_IF_ERROR(_alloc_buf());
     // init slice of char, varchar, hll type
     char* fixed_ptr = _fixed_buf;
     char* variable_ptr = _variable_buf;

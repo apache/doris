@@ -43,7 +43,7 @@ suite("test_array_functions") {
             )
         """
     sql """ INSERT INTO ${tableName} VALUES(1,[1,2,3],["a","b",""],[1,2],["hi"],["2015-03-13"],["2015-03-13 12:36:38"],["2023-02-05","2023-02-06"],["2023-02-07","2023-02-06"],['2022-10-15 10:30:00.999', '2022-08-31 12:00:00.999'],['2022-10-16 10:30:00.999', '2022-08-31 12:00:00.999'],[111.111, 222.222],[222.222, 333.333]) """
-    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL,["2023-01-05","2023-01-06"],["2023-01-07","2023-01-06"],['2022-11-15 10:30:00.999', '2022-01-31 12:00:00.999'],['2022-11-16 10:30:00.999', '2022-01-31 12:00:00.999'],[3333.3333, 4444.4444],[4444.4444, 5555.5555]) """
+    sql """ INSERT INTO ${tableName} VALUES(2,[4],NULL,[5],["hi2"],NULL,NULL,["2023-01-05","2023-01-06"],["2023-01-07","2023-01-06"],['2022-11-15 10:30:00.999', '2022-01-31 12:00:00.999'],['2022-11-16 10:30:00.999', '2022-01-31 12:00:00.999'],[333.3333, 444.4444],[444.4444, 555.5555]) """
     sql """ INSERT INTO ${tableName} VALUES(3,[],[],NULL,["hi3"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
     sql """ INSERT INTO ${tableName} VALUES(4,[1,2,3,4,5,4,3,2,1],[],[],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
     sql """ INSERT INTO ${tableName} VALUES(5,[],["a","b","c","d","c","b","a"],NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL) """
@@ -115,6 +115,7 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_enumerate_uniq(k7) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k8) from ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_enumerate_uniq(k10) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_enumerate_uniq(k12) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle1 "SELECT k1, k2, array_sum(k2), array_sum(array_shuffle(k2)), array_shuffle(k2, 0), shuffle(k2, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle2 "SELECT k1, k5, array_size(k5), array_size(array_shuffle(k5)), array_shuffle(k5, 0), shuffle(k5, 0) from ${tableName} ORDER BY k1"
     qt_select_array_shuffle3 "SELECT k1, k6, array_size(k6), array_size(array_shuffle(k6)), array_shuffle(k6, 0), shuffle(k6, 0) from ${tableName} ORDER BY k1"
@@ -223,6 +224,19 @@ suite("test_array_functions") {
     qt_select "SELECT k1, array_pushfront(k10, cast('2023-03-08 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_pushfront(k10, null) FROM ${tableName} ORDER BY k1"
     qt_select "SELECT k1, array_pushfront(k12, null) FROM ${tableName} ORDER BY k1"
+
+    qt_select "SELECT k1, array_pushback(k2, k1) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k2, 1) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k3, 'a') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k3, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k4, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k5, 'hi') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k5, 'hi222') FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k6, null) from ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k8, cast('2023-03-05' as datev2)) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k10, cast('2023-03-08 10:30:00.999' as datetimev2(3))) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k10, null) FROM ${tableName} ORDER BY k1"
+    qt_select "SELECT k1, array_pushback(k12, null) FROM ${tableName} ORDER BY k1"
 
     qt_select "select k2, bitmap_to_string(bitmap_from_array(k2)) from ${tableName} order by k1;"
     

@@ -232,20 +232,20 @@ private:
 
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Impl,
           bool result_is_nullable, bool arg_is_nullable, bool is_copy = false>
-IAggregateFunction* create_function_single_value(const String& name,
-                                                 const DataTypes& argument_types) {
+AggregateFunctionPtr create_function_single_value(const String& name,
+                                                  const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
-#define DISPATCH(TYPE, COLUMN_TYPE)                                       \
-    if (which.idx == TypeIndex::TYPE)                                     \
-        return new AggregateFunctionTemplate<Impl<ReaderFirstAndLastData< \
-                COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>(argument_types);
+#define DISPATCH(TYPE, COLUMN_TYPE)                                                    \
+    if (which.idx == TypeIndex::TYPE)                                                  \
+        return std::make_shared<AggregateFunctionTemplate<Impl<ReaderFirstAndLastData< \
+                COLUMN_TYPE, result_is_nullable, arg_is_nullable, is_copy>>>>(argument_types);
     TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
 
-    LOG(FATAL) << "with unknowed type, failed in  create_aggregate_function_" << name
-               << " and type is: " << argument_types[0]->get_name();
+    LOG(WARNING) << "with unknowed type, failed in  create_aggregate_function_" << name
+                 << " and type is: " << argument_types[0]->get_name();
     return nullptr;
 }
 

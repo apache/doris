@@ -50,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -239,7 +238,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 TStreamLoadRecordResult result = client.getStreamLoadRecord(backend.getLastStreamLoadTime());
                 Map<String, TStreamLoadRecord> streamLoadRecordBatch = result.getStreamLoadRecord();
@@ -248,16 +247,16 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
                     TStreamLoadRecord streamLoadItem = entry.getValue();
                     String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
-                            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+                            TimeUtils.DATETIME_MS_FORMAT);
                     String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
-                            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+                            TimeUtils.DATETIME_MS_FORMAT);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("receive stream load record info from backend: {}."
                                         + " label: {}, db: {}, tbl: {}, user: {}, user_ip: {},"
                                         + " status: {}, message: {}, error_url: {},"
                                         + " total_rows: {}, loaded_rows: {}, filtered_rows: {}, unselected_rows: {},"
                                         + " load_bytes: {}, start_time: {}, finish_time: {}.",
-                                backend.getIp(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
+                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
                                 streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
                                 streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
                                 streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
@@ -352,7 +351,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {
                 long lastStreamLoadTime = beIdToLastStreamLoad.get(backend.getId());
                 LOG.info("Replay stream load bdbje. backend: {}, last stream load time: {}",
-                        backend.getIp(), lastStreamLoadTime);
+                        backend.getHost(), lastStreamLoadTime);
                 backend.setLastStreamLoadTime(lastStreamLoadTime);
             }
         }

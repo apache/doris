@@ -114,7 +114,7 @@ public:
         // keep it after query, since query will try to read null_bitmap and put it to cache
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         if (null_bitmap) {
             *bitmap -= *null_bitmap;
         }

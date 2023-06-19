@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
-import org.apache.parquet.Strings;
+import com.google.common.base.Strings;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;

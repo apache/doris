@@ -22,8 +22,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.statistics.query.QueryStatsUtil;
 import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
@@ -41,7 +43,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
             .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
-            .add("CooldownMetaId").build();
+            .add("CooldownMetaId").add("QueryHits").build();
 
     private long tabletId;
     private List<Replica> replicas;
@@ -75,7 +77,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
 
         for (Replica replica : replicas) {
             Backend be = backendMap.get(replica.getBackendId());
-            String host = (be == null ? Backend.DUMMY_IP : be.getIp());
+            String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
             String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
             String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d", tabletId);
@@ -84,6 +86,10 @@ public class ReplicasProcNode implements ProcNodeInterface {
             String cooldownMetaId = "";
             if (replica.getCooldownMetaId() != null) {
                 cooldownMetaId = replica.getCooldownMetaId().toString();
+            }
+            long queryHits = 0L;
+            if (Config.enable_query_hit_stats) {
+                queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
             }
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
                                         String.valueOf(replica.getBackendId()),
@@ -102,7 +108,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         metaUrl,
                                         compactionUrl,
                                         String.valueOf(tablet.getCooldownConf().first),
-                                        cooldownMetaId));
+                                        cooldownMetaId,
+                                        String.valueOf(queryHits)));
         }
         return result;
     }

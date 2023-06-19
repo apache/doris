@@ -40,18 +40,6 @@ using OpentelemetryTracer = opentelemetry::nostd::shared_ptr<opentelemetry::trac
 using OpentelemetrySpan = opentelemetry::nostd::shared_ptr<opentelemetry::trace::Span>;
 using OpentelemetryScope = opentelemetry::trace::Scope;
 
-/// Used to initialize get_next_span and add Scope.
-#define INIT_AND_SCOPE_GET_NEXT_SPAN(tracer, get_next_span, name) \
-    do {                                                          \
-        if (UNLIKELY(!get_next_span)) {                           \
-            get_next_span = tracer->StartSpan(name);              \
-        }                                                         \
-    } while (false);                                              \
-    OpentelemetryScope scope {get_next_span};
-
-#define INIT_AND_SCOPE_SEND_SPAN(tracer, send_span, name) \
-    INIT_AND_SCOPE_GET_NEXT_SPAN(tracer, send_span, name)
-
 /// Start a span with the specified tracer, name, and variable name, and create a Scope for this
 /// span.
 ///
@@ -72,12 +60,6 @@ using OpentelemetryScope = opentelemetry::trace::Scope;
 #define START_AND_SCOPE_SPAN(tracer, span, name) \
     auto span = tracer->StartSpan(name);         \
     OpentelemetryScope scope {span};
-
-#define START_AND_SCOPE_SPAN_IF(enable, tracer, name) \
-    OpenTelemetryScopeWrapper(enable, tracer, name)
-
-#define INIT_AND_SCOPE_REENTRANT_SPAN_IF(enable, tracer, reentrant_span, name) \
-    OpenTelemetryScopeWrapper(enable, tracer, reentrant_span, name)
 
 namespace telemetry {
 

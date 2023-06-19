@@ -37,7 +37,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -70,75 +69,6 @@ public class OdbcTable extends Table {
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
-    }
-
-    // For different databases, special characters need to be escaped
-    private static String mysqlProperName(String name) {
-        // In JdbcExternalTable, the name contains databaseName, like: db.table
-        // So, we should split db and table, then switch to `db`.`table`.
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "`" + s + "`").collect(Collectors.joining("."));
-    }
-
-    private static String mssqlProperName(String name) {
-        // In JdbcExternalTable, the name contains databaseName, like: db.table
-        // So, we should split db and table, then switch to [db].[table].
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "[" + s + "]").collect(Collectors.joining("."));
-    }
-
-    private static String psqlProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String oracleProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s.toUpperCase() + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String clickhouseProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String saphanaProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String trinoProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    private static String oceanbaseOracleProperName(String name) {
-        List<String> list = Arrays.asList(name.split("\\."));
-        return list.stream().map(s -> "\"" + s + "\"").collect(Collectors.joining("."));
-    }
-
-    public static String databaseProperName(TOdbcTableType tableType, String name) {
-        switch (tableType) {
-            case MYSQL:
-            case OCEANBASE:
-                return mysqlProperName(name);
-            case SQLSERVER:
-                return mssqlProperName(name);
-            case POSTGRESQL:
-                return psqlProperName(name);
-            case ORACLE:
-                return oracleProperName(name);
-            case CLICKHOUSE:
-                return clickhouseProperName(name);
-            case SAP_HANA:
-                return saphanaProperName(name);
-            case TRINO:
-                return trinoProperName(name);
-            case OCEANBASE_ORACLE:
-                return oceanbaseOracleProperName(name);
-            default:
-                return name;
-        }
     }
 
     private String odbcCatalogResourceName;

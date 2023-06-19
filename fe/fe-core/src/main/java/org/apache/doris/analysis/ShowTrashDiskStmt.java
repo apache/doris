@@ -38,7 +38,7 @@ public class ShowTrashDiskStmt extends ShowStmt {
     public ShowTrashDiskStmt(String backendQuery) {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
-            String backendStr = String.valueOf(backend.getIp()) + ":" + String.valueOf(backend.getHeartbeatPort());
+            String backendStr = String.valueOf(backend.getHost()) + ":" + String.valueOf(backend.getHeartbeatPort());
             if (backendQuery.equals(backendStr)) {
                 this.backend = backend;
                 break;
