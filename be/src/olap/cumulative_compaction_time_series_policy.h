@@ -21,7 +21,7 @@
 
 namespace doris {
 
-inline std::string_view CUMULATIVE_TIME_SERIES_POLICY = "TIME_SERIES";
+inline std::string_view CUMULATIVE_TIME_SERIES_POLICY = "time_series";
 
 /// TimeSeries cumulative compaction policy implementation.
 /// The following three conditions will be considered when calculating compaction scores and selecting input rowsets in this policy:

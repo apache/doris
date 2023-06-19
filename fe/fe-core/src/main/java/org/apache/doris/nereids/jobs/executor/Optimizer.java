@@ -25,6 +25,7 @@ import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -51,25 +52,23 @@ public class Optimizer {
         // init memo
         cascadesContext.toMemo();
         // stats derive
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
+        cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
+                cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         serializeStatUsed(cascadesContext.getConnectContext());
-        // optimize
+        // DPHyp optimize
         StatementContext statementContext = cascadesContext.getStatementContext();
-        boolean isDpHyp = cascadesContext.getConnectContext().getSessionVariable().enableDPHypOptimizer
-                || statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
-                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        boolean isDpHyp = getSessionVariable().enableDPHypOptimizer || statementContext.getMaxNAryInnerJoin()
+                > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
-        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder() && isDpHyp) {
+        cascadesContext.getStatementContext().setOtherJoinReorder(false);
+        if (!getSessionVariable().isDisableJoinReorder() && isDpHyp) {
             dpHypOptimize();
         }
 
-        cascadesContext.pushJob(new OptimizeGroupJob(
-                cascadesContext.getMemo().getRoot(),
-                cascadesContext.getCurrentJobContext())
-        );
+        // Cascades optimize
+        cascadesContext.pushJob(
+                new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
@@ -79,6 +78,9 @@ public class Optimizer {
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        // after DPHyp just keep logical expression
+        cascadesContext.getMemo().removePhysicalExpression();
+        cascadesContext.getStatementContext().setOtherJoinReorder(true);
     }
 
     private void serializeStatUsed(ConnectContext connectContext) {
@@ -94,5 +96,9 @@ public class Optimizer {
         JSONArray histogramArray = MinidumpUtils.serializeHistogram(
                 cascadesContext.getConnectContext().getTotalHistogramMap());
         jsonObj.put("Histogram", histogramArray);
+    }
+
+    private SessionVariable getSessionVariable() {
+        return cascadesContext.getConnectContext().getSessionVariable();
     }
 }

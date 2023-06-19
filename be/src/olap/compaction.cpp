@@ -36,6 +36,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -126,6 +127,10 @@ int64_t Compaction::get_avg_segment_rows() {
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
     // in disk is config::vertical_compaction_max_segment_size
+    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+        return (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+               (_input_rowsets_size / (_input_row_num + 1) + 1);
+    }
     return config::vertical_compaction_max_segment_size /
            (_input_rowsets_size / (_input_row_num + 1) + 1);
 }

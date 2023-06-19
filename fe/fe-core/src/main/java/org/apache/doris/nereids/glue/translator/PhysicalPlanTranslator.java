@@ -1441,7 +1441,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             // translate runtime filter
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                List<RuntimeFilter> filters = runtimeFilterTranslator
+                Set<RuntimeFilter> filters = runtimeFilterTranslator
                         .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));

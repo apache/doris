@@ -203,8 +203,8 @@ Status DeltaWriter::init() {
     context.tablet_id = _tablet->table_id();
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
-    context.mow_context =
-            std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
+    context.mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
+                                                       _delete_bitmap);
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
     _schema.reset(new Schema(_tablet_schema));
@@ -347,7 +347,8 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
-    auto mow_context = std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
+    auto mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
+                                                    _delete_bitmap);
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
@@ -454,7 +455,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                                                                          _delete_bitmap));
         }
         RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                _cur_rowset, _rowset_ids, _delete_bitmap, _tablet->max_version().second, segments,
+                _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
                 _rowset_writer.get()));
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,

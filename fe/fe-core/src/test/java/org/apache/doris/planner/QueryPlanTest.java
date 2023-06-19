@@ -418,7 +418,7 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testFunctionViewGroupingSet() throws Exception {
-        String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup("
+        String queryStr = "select /*+ SET_VAR(enable_nereids_planner=false) */ query_id, client_ip, concat from test.function_view group by rollup("
                 + "query_id, client_ip, concat);";
         assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [8], [8, 9], [8, 9, 10]]");
     }
@@ -436,7 +436,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 1, "AGGREGATE"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
 
-        sql = "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
+        sql = "insert into test.bitmap_table select /*+ SET_VAR(enable_nereids_planner=false) */ id, id2 from test.bitmap_table_2;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n    `id`\n    `id2`"));
@@ -449,7 +449,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testBitmapQuery() throws Exception {
         assertSQLPlanOrErrorMsgContains(
-                "select * from test.bitmap_table;",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.bitmap_table;",
                 "OUTPUT EXPRS:\n    `default_cluster:test`.`bitmap_table`.`id`\n    `default_cluster:test`.`bitmap_table`.`id2`"
         );
 
@@ -498,7 +498,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testHLLTypeQuery() throws Exception {
         assertSQLPlanOrErrorMsgContains(
-                "select * from test.hll_table;",
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.hll_table;",
                 "OUTPUT EXPRS:\n    `default_cluster:test`.`hll_table`.`id`\n    `default_cluster:test`.`hll_table`.`id2`"
         );
 
@@ -645,7 +645,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
-        sql = "select count(distinct id2) from test.bitmap_table";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ count(distinct id2) from test.bitmap_table";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
     }
@@ -684,7 +684,7 @@ public class QueryPlanTest extends TestWithFeService {
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
         Assert.assertEquals(rightExpr.getType(), ScalarType.getDefaultDateType(Type.DATETIME));
 
-        String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
+        String castSql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
         Assert.assertTrue(explainString.contains("2011-11-09"));
         Assert.assertFalse(explainString.contains("2011-11-09 00:00:00"));
@@ -725,7 +725,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         */
         // test left join: left table join predicate, left table couldn't push down
-        String sql = "select *\n from join1\n"
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -745,7 +745,7 @@ public class QueryPlanTest extends TestWithFeService {
         */
 
         // test left join: right table join predicate, only push down right table
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -763,7 +763,7 @@ public class QueryPlanTest extends TestWithFeService {
         */
 
         // test inner join: left table join predicate, both push down left table and right table
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -781,14 +781,14 @@ public class QueryPlanTest extends TestWithFeService {
         */
 
         // test inner join: right table join predicate, both push down left table and right table
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
 
                 + "join join2 on join1.id = join2.id\n" + "and 1 < join2.id;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "join join2 on join1.id = join2.value\n"
                 + "and join2.value in ('abc');";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -796,7 +796,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("`join1`.`value` IN ('abc')"));
 
         // test anti join, right table join predicate, only push to right table
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -804,7 +804,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, right table join predicate, only push to right table
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left semi join join2 on join1.id = join2.id\n"
                 + "and join2.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -812,7 +812,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test anti join, left table join predicate, left table couldn't push down
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -820,7 +820,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
-        sql = "select *\n from join1\n"
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ *\n from join1\n"
                 + "left semi join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
@@ -897,7 +897,7 @@ public class QueryPlanTest extends TestWithFeService {
                 "constant exprs: \n         2"));
 
         // 1.5 nest `case when` and can not be converted to constants
-        String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3"
+        String sql15 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case when case when substr(k7,2,1) then true else false end then 2 when false then 3"
                 + " else 0 end as col from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql15),
                 "OUTPUT EXPRS:\n    CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2"
@@ -915,84 +915,84 @@ public class QueryPlanTest extends TestWithFeService {
                 "constant exprs: \n         'a'"));
 
         // 2.1.2 test not equal
-        String sql212 = "select case 'a' when 1 then 'a' when 'a' then 'b' else 'other' end as col212;";
+        String sql212 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case 'a' when 1 then 'a' when 'a' then 'b' else 'other' end as col212;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql212),
                 "constant exprs: \n         'b'"));
 
         // 2.2 test return null
-        String sql22 = "select case 'a' when 1 then 'a' when 'b' then 'b' end as col22;";
+        String sql22 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case 'a' when 1 then 'a' when 'b' then 'b' end as col22;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql22),
                 "constant exprs: \n         NULL"));
 
         // 2.2.2 test return else
-        String sql222 = "select case 1 when 2 then 'a' when 3 then 'b' else 'other' end as col222;";
+        String sql222 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case 1 when 2 then 'a' when 3 then 'b' else 'other' end as col222;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql222),
                 "constant exprs: \n         'other'"));
 
         // 2.3 test can not convert to constant,middle when expr is not constant
-        String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3"
+        String sql23 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3"
                 + " else 0 end as col23 from test.baseall";
         String a = getSQLPlanOrErrorMsg("explain " + sql23);
         Assert.assertTrue(StringUtils.containsIgnoreCase(a,
                 "OUTPUT EXPRS:\n    CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
-        String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
+        String sql231 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
                 + " as col231 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql231),
                 "OUTPUT EXPRS:\n    CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0'"
                         + " THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
-        String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
+        String sql232 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end"
                 + " as col232 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql232),
                 "OUTPUT EXPRS:\n    CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' "
                         + "WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
-        String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
+        String sql31 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql31),
                 "constant exprs: \n         CASE 100 WHEN 1 THEN 'a' WHEN 2 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
-        String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
+        String sql41 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql41),
                 "constant exprs: \n         'other'"));
 
         // 4.1.2 test null in case expr return null
-        String sql412 = "select case null when 1 then 'a' when 2 then 'b' end as col41";
+        String sql412 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case null when 1 then 'a' when 2 then 'b' end as col41";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql412),
                 "constant exprs: \n         NULL"));
 
         // 4.2.1 test null in when expr
-        String sql421 = "select case 'a' when null then 'a' else 'other' end as col421";
+        String sql421 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case 'a' when null then 'a' else 'other' end as col421";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql421),
                 "constant exprs: \n         'other'"));
 
         // 5.1 test same type in then expr and else expr
-        String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
+        String sql51 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql51),
                 "CASE WHEN 132 THEN `k7` ELSE 'all' END"));
 
         // 5.2 test same type in then expr and else expr
-        String sql52 = "select case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
+        String sql52 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql52),
                 "`k7`"));
 
         // 5.3 test different type in then expr and else expr, and return CastExpr<SlotRef>
-        String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
+        String sql53 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql53),
                 "`k1`"));
 
         // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
-        String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall"
+        String sql54 = "select /*+ SET_VAR(enable_nereids_planner=false) */ k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall"
                 + " group by k2, col54, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql54),
                 "OUTPUT EXPRS:\n    <slot 3> `k2`\n    <slot 4> `k1`\n    <slot 5> `k7`"));
 
         // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
-        String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from"
+        String sql55 = "select /*+ SET_VAR(enable_nereids_planner=false) */ case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from"
                 + " test.baseall group by col55, k7";
         Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql55),
                 "OUTPUT EXPRS:\n    <slot 2> CAST(`k1` AS INT)\n    <slot 3> `k7`"));
@@ -1031,15 +1031,15 @@ public class QueryPlanTest extends TestWithFeService {
 
     @Test
     public void testOrCompoundPredicateFold() throws Exception {
-        String queryStr = "explain select * from baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
 
-        queryStr = "explain select * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
 
-        queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from  baseall where (k1 > 1) or (k1 > 1)";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
     }
@@ -1053,16 +1053,16 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
-        queryStr = "explain select * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
         // t1.k1 = t2.k2 not same order with distribute column
-        queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
-        queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
     }
@@ -1072,7 +1072,7 @@ public class QueryPlanTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
 
         // single partition
-        String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains(ColocatePlanTest.COLOCATE_ENABLE));
 
@@ -1118,14 +1118,14 @@ public class QueryPlanTest extends TestWithFeService {
         }
 
         // single partition
-        String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1"
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1"
                 + " and t1.k1 = t2.k2";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
 
         // not bucket shuffle join do not support different type
-        queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint)"
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint)"
                 + " = t2.k1 and t1.k1 = t2.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
@@ -1165,7 +1165,7 @@ public class QueryPlanTest extends TestWithFeService {
         //Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
         // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
-        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 ="
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 ="
                 + " t2.k2 join test.colocate1 t3 on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and"
                 + " t4.k2 = t3.k2";
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1173,7 +1173,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
         // here only a bucket shuffle + broadcast jost join
-        queryStr = "explain SELECT * FROM test.bucket_shuffle1 T LEFT JOIN test.bucket_shuffle1 T1 ON T1.k2 = T.k1 and T.k2 = T1.k3 LEFT JOIN"
+        queryStr = "explain SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * FROM test.bucket_shuffle1 T LEFT JOIN test.bucket_shuffle1 T1 ON T1.k2 = T.k1 and T.k2 = T1.k3 LEFT JOIN"
                 + " test.bucket_shuffle2 T2 ON T2.k2 = T1.k1 and T2.k1 = T1.k2;";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
@@ -1347,7 +1347,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testPreferBroadcastJoin() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String queryStr = "explain select * from (select k2 from jointest)t2, jointest t1 where t1.k1 = t2.k2";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from (select k2 from jointest)t2, jointest t1 where t1.k1 = t2.k2";
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
 
@@ -1368,7 +1368,7 @@ public class QueryPlanTest extends TestWithFeService {
     public void testRuntimeFilterMode() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
-        String queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 = t2.k1";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from jointest t2, jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "LOCAL");
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filter"));
@@ -1388,7 +1388,7 @@ public class QueryPlanTest extends TestWithFeService {
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
 
-        queryStr = "explain select * from jointest as a where k1 = (select count(1) from jointest as b"
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from jointest as a where k1 = (select count(1) from jointest as b"
                 + " where a.k1 = b.k1);";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
@@ -1399,7 +1399,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testRuntimeFilterType() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 = t2.k1";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from jointest t2, jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 0);
@@ -1518,7 +1518,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains("RF003[in_or_bloom] -> `t2`.`k1`"));
 
         // support merge in filter, and forbidden implicit conversion to bloom filter
-        queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN.getValue());
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1527,7 +1527,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("RF000[bloom] -> `t2`.`k1`"));
         Assert.assertFalse(explainString.contains("RF000[bloom] <- `t1`.`k1`"));
 
-        queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN_OR_BLOOM.getValue());
         explainString = getSQLPlanOrErrorMsg(queryStr);
@@ -1549,9 +1549,9 @@ public class QueryPlanTest extends TestWithFeService {
         sqls.add("explain select * from baseall join bigtable as b limit 0");
 
         sqls.add("explain select * from baseall where 1 = 2");
-        sqls.add("explain select * from baseall where null = null");
+        sqls.add("explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from baseall where null = null");
         sqls.add("explain select count(*) from baseall where 1 = 2;");
-        sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
+        sqls.add("explain select /*+ SET_VAR(enable_nereids_planner=false) */ k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
         sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
         sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
 
@@ -1593,19 +1593,19 @@ public class QueryPlanTest extends TestWithFeService {
     public void testLeadAndLagFunction() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
-        String queryStr = "explain select time_col, lead(query_time, 1, NULL) over () as time2 from test.test1";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ time_col, lead(query_time, 1, NULL) over () as time2 from test.test1";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`query_time`, 1, NULL)"));
 
-        queryStr = "explain select time_col, lead(query_time, 1, 2) over () as time2 from test.test1";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ time_col, lead(query_time, 1, 2) over () as time2 from test.test1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`query_time`, 1, 2)"));
 
-        queryStr = "explain select time_col, lead(time_col, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ time_col, lead(time_col, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`time_col`, 1, '2020-01-01 00:00:00')"));
 
-        queryStr = "explain select time_col, lag(query_time, 1, 2) over () as time2 from test.test1";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ time_col, lag(query_time, 1, 2) over () as time2 from test.test1";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
     }
@@ -1614,32 +1614,32 @@ public class QueryPlanTest extends TestWithFeService {
     public void testIntDateTime() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         //valid date
-        String sql = "select day from tbl_int_date where day in ('2020-10-30')";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day in ('2020-10-30')";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` IN ('2020-10-30')"
                 : "PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
         //valid date
-        sql = "select day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion
                 ? "PREDICATES: `day` IN ('2020-10-30', '2020-10-29')"
                 : "PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
 
         //valid datetime
-        sql = "select day from tbl_int_date where date in ('2020-10-30 12:12:30')";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date in ('2020-10-30 12:12:30')";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 12:12:30')"));
         //valid datetime
-        sql = "select day from tbl_int_date where date in ('2020-10-30')";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date in ('2020-10-30')";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
 
         //int date
-        sql = "select day from tbl_int_date where day in (20201030)";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day in (20201030)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
         //int datetime
-        sql = "select day from tbl_int_date where date in (20201030)";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date in (20201030)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
     }
@@ -1648,40 +1648,33 @@ public class QueryPlanTest extends TestWithFeService {
     public void testOutJoinSmapReplace() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         //valid date
-        String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        String sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
 
-        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
 
-        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
 
-        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>"));
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
 
-        sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 7>\n" + "    <slot 9>"));
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
+        assertSQLPlanOrErrorMsgContains(sql, "<slot 7>\n" + "    <slot 9>");
 
-        sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 8>\n" + "    <slot 10>"));
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
+        assertSQLPlanOrErrorMsgContains(sql, "<slot 8>\n" + "    <slot 10>");
 
-        sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("<slot 8>\n" + "    <slot 10>"));
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
+        assertSQLPlanOrErrorMsgContains(sql, "<slot 8>\n" + "    <slot 10>");
     }
 
     @Test
     public void testFromUnixTimeRewrite() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         //default format
-        String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999 AND `query_time` > 1614650488"));
     }
@@ -1691,121 +1684,121 @@ public class QueryPlanTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
         //valid date
-        String sql = "select day from tbl_int_date where day = '2020-10-30'";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '2020-10-30'";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` = '2020-10-30'"
                 : "PREDICATES: `day` = '2020-10-30 00:00:00'"));
-        sql = "select day from tbl_int_date where day = from_unixtime(1196440219)";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = from_unixtime(1196440219)";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2007-12-01 00:30:19'"));
-        sql = "select day from tbl_int_date where day = str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2014-12-21 12:34:56'"));
         //valid date
-        sql = "select day from tbl_int_date where day = 20201030";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 20201030";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` = '2020-10-30'"
                 : "PREDICATES: `day` = '2020-10-30 00:00:00'"));
         //valid date
-        sql = "select day from tbl_int_date where day = '20201030'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '20201030'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` = '2020-10-30'"
                 : "PREDICATES: `day` = '2020-10-30 00:00:00'"));
         //valid date contains micro second
-        sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion
                 ? "VEMPTYSET"
                 : "PREDICATES: `day` = '2020-10-30 10:00:01'"));
         //invalid date
 
-        sql = "select day from tbl_int_date where day = '2020-10-32'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `day` = '2020-10-32'"));
 
         //invalid date
-        sql = "select day from tbl_int_date where day = '20201032'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '20201032'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '20201032' in expression: `day` = '20201032'"));
         //invalid date
-        sql = "select day from tbl_int_date where day = 20201032";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 20201032";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 20201032 in expression: `day` = 20201032"));
         //invalid date
-        sql = "select day from tbl_int_date where day = 'hello'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 'hello'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `day` = 'hello'"));
         //invalid date
-        sql = "select day from tbl_int_date where day = 2020-10-30";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 2020-10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `day` = 1980"));
         //invalid date
-        sql = "select day from tbl_int_date where day = 10-30";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `day` = -20"));
         //valid datetime
-        sql = "select day from tbl_int_date where date = '2020-10-30 12:12:30'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-30 12:12:30'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:12:30'"));
         //valid datetime, support parsing to minute
-        sql = "select day from tbl_int_date where date = '2020-10-30 12:12'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-30 12:12'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:12:00'"));
         //valid datetime, support parsing to hour
-        sql = "select day from tbl_int_date where date = '2020-10-30 12'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-30 12'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:00:00'"));
         //valid datetime
-        sql = "select day from tbl_int_date where date = 20201030";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 20201030";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
         //valid datetime
-        sql = "select day from tbl_int_date where date = '20201030'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '20201030'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
         //valid datetime
-        sql = "select day from tbl_int_date where date = '2020-10-30'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-30'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
         //valid datetime contains micro second
-        sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion
                 ? "VEMPTYSET" : "PREDICATES: `date` = '2020-10-30 10:00:01'"));
         //invalid datetime
-        sql = "select day from tbl_int_date where date = '2020-10-32'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `date` = '2020-10-32'"));
         //invalid datetime
-        sql = "select day from tbl_int_date where date = 'hello'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 'hello'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `date` = 'hello'"));
         //invalid datetime
-        sql = "select day from tbl_int_date where date = 2020-10-30";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 2020-10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `date` = 1980"));
         //invalid datetime
-        sql = "select day from tbl_int_date where date = 10-30";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `date` = -20"));
         //invalid datetime
-        sql = "select day from tbl_int_date where date = '2020-10-12 12:23:76'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-12 12:23:76'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-12 12:23:76' in expression: `date` = '2020-10-12 12:23:76'"));
 
-        sql = "select day from tbl_int_date where date = '1604031150'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '1604031150'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
 
-        sql = "select day from tbl_int_date where date = '1604031150000'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '1604031150000'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
 
-        String queryStr = "explain select count(*) from test.baseall where k11 > to_date(now())";
+        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from test.baseall where k11 > to_date(now())";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > to_date"));
 
-        queryStr = "explain select count(*) from test.baseall where k11 > '2021-6-1'";
+        queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from test.baseall where k11 > '2021-6-1'";
         explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
     }
@@ -1815,53 +1808,53 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
 
         // false or e ==> e
-        String sql1 = "select * from test.test1 where 2=-2 OR query_time=0;";
+        String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where 2=-2 OR query_time=0;";
         String explainString1 = getSQLPlanOrErrorMsg("EXPLAIN " + sql1);
         Assert.assertTrue(explainString1.contains("PREDICATES: `query_time` = 0"));
 
         //true or e ==> true
-        String sql2 = "select * from test.test1 where -5=-5 OR query_time=0;";
+        String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5=-5 OR query_time=0;";
         String explainString2 = getSQLPlanOrErrorMsg("EXPLAIN " + sql2);
         Assert.assertTrue(!explainString2.contains("OR"));
 
         //e or true ==> true
-        String sql3 = "select * from test.test1 where query_time=0 OR -5=-5;";
+        String sql3 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where query_time=0 OR -5=-5;";
         String explainString3 = getSQLPlanOrErrorMsg("EXPLAIN " + sql3);
         Assert.assertTrue(!explainString3.contains("OR"));
 
         //e or false ==> e
-        String sql4 = "select * from test.test1 where -5!=-5 OR query_time=0;";
+        String sql4 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5!=-5 OR query_time=0;";
         String explainString4 = getSQLPlanOrErrorMsg("EXPLAIN " + sql4);
         Assert.assertTrue(explainString4.contains("PREDICATES: `query_time` = 0"));
 
 
         // true and e ==> e
-        String sql5 = "select * from test.test1 where -5=-5 AND query_time=0;";
+        String sql5 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5=-5 AND query_time=0;";
         String explainString5 = getSQLPlanOrErrorMsg("EXPLAIN " + sql5);
         Assert.assertTrue(explainString5.contains("PREDICATES: `query_time` = 0"));
 
         // e and true ==> e
-        String sql6 = "select * from test.test1 where query_time=0 AND -5=-5;";
+        String sql6 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where query_time=0 AND -5=-5;";
         String explainString6 = getSQLPlanOrErrorMsg("EXPLAIN " + sql6);
         Assert.assertTrue(explainString6.contains("PREDICATES: `query_time` = 0"));
 
         // false and e ==> false
-        String sql7 = "select * from test.test1 where -5!=-5 AND query_time=0;";
+        String sql7 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where -5!=-5 AND query_time=0;";
         String explainString7 = getSQLPlanOrErrorMsg("EXPLAIN " + sql7);
         Assert.assertTrue(!explainString7.contains("FALSE"));
 
         // e and false ==> false
-        String sql8 = "select * from test.test1 where query_time=0 AND -5!=-5;";
+        String sql8 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where query_time=0 AND -5!=-5;";
         String explainString8 = getSQLPlanOrErrorMsg("EXPLAIN " + sql8);
         Assert.assertTrue(!explainString8.contains("FALSE"));
 
         // (false or expr1) and (false or expr2) ==> expr1 and expr2
-        String sql9 = "select * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
+        String sql9 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
         String explainString9 = getSQLPlanOrErrorMsg("EXPLAIN " + sql9);
         Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2 AND `stmt_id` = 2"));
 
         // false or (expr and true) ==> expr
-        String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
+        String sql10 = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
         String explainString10 = getSQLPlanOrErrorMsg("EXPLAIN " + sql10);
         Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
     }
@@ -1930,7 +1923,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "\"in_memory\" = \"false\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ")");
-        String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
@@ -2063,7 +2056,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "\"storage_medium\" = \"HDD\",\n"
                 + "\"storage_format\" = \"V2\"\n"
                 + ");\n");
-        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n" + "SELECT a.aid,\n" + "       b.bid\n" + "FROM\n"
+        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n" + "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid,\n" + "       b.bid\n" + "FROM\n"
                 + "  (SELECT 3 AS aid)a\n" + "RIGHT JOIN\n" + "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
@@ -2192,11 +2185,11 @@ public class QueryPlanTest extends TestWithFeService {
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
-        String queryBaseTableStr = "explain select id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
+        String queryBaseTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
         String explainString1 = getSQLPlanOrErrorMsg(queryBaseTableStr);
         Assert.assertTrue(explainString1.contains("PREAGGREGATION: ON"));
 
-        String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
+        String queryTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
         String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
         Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
     }
@@ -2219,7 +2212,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "    \"in_memory\"=\"false\"\n"
                 + ");");
 
-        String queryBaseTableStr = "explain select dt, hll_union(pv) from test.test_hll group by dt";
+        String queryBaseTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ dt, hll_union(pv) from test.test_hll group by dt";
         String explainString = getSQLPlanOrErrorMsg(queryBaseTableStr);
         Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
     }
@@ -2232,57 +2225,57 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testRewriteOrToIn() throws Exception {
         connectContext.setDatabase("default_cluster:test");
-        String sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
+        String sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));
 
-        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) AND `query_time` IN (3, 4)\n"));
 
-        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or scan_bytes = 2) and scan_bytes in (2, 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_bytes` = 2 AND `scan_bytes` IN (2, 3)\n"));
 
-        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2) and (scan_bytes = 2 or scan_bytes = 3)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) AND `scan_bytes` IN (2, 3)\n"));
 
-        sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time = 3 or query_time = 1";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time = 3 or query_time = 1";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3)\n"));
 
-        sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 2)";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 2)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3)\n"));
 
         connectContext.getSessionVariable().setRewriteOrToInPredicateThreshold(100);
-        sql = "SELECT * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` = 1 OR `query_time` = 2 OR `query_time` IN (3, 4)\n"));
         connectContext.getSessionVariable().setRewriteOrToInPredicateThreshold(2);
 
-        sql = "SELECT * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
+        sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2) and query_time in (3, 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) AND `query_time` IN (3, 4)\n"));
 
         //test we can handle `!=` and `not in`
-        sql = "select * from test1 where (query_time = 1 or query_time = 2 or query_time!= 3 or query_time not in (5, 6))";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or query_time!= 3 or query_time not in (5, 6))";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `query_time` != 3 OR `query_time` NOT IN (5, 6)\n"));
 
         //test we can handle merge 2 or more columns
-        sql = "select * from test1 where (query_time = 1 or query_time = 2 or scan_rows = 3 or scan_rows = 4)";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or scan_rows = 3 or scan_rows = 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2) OR `scan_rows` IN (3, 4)"));
 
         //merge in-pred or in-pred
-        sql = "select * from test1 where (query_time = 1 or query_time = 2 or query_time = 3 or query_time = 4)";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (query_time = 1 or query_time = 2 or query_time = 3 or query_time = 4)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));
 
         //rewrite recursively
-        sql = "select * from test1 "
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 "
                 + "where query_id=client_ip "
                 + "      and (stmt_id=1 or stmt_id=2 or stmt_id=3 "
                 + "           or (user='abc' and (state = 'a' or state='b' or state in ('c', 'd'))))"
@@ -2294,7 +2287,7 @@ public class QueryPlanTest extends TestWithFeService {
                         + "OR (`db` NOT IN ('x', 'y'))\n"));
 
         //ExtractCommonFactorsRule may generate more expr, test the rewriteOrToIn applied on generated exprs
-        sql = "select * from test1 where (stmt_id=1 and state='a') or (stmt_id=2 and state='b')";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where (stmt_id=1 and state='a') or (stmt_id=2 and state='b')";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains(
                 "PREDICATES: `state` IN ('a', 'b') AND `stmt_id` IN (1, 2) AND"

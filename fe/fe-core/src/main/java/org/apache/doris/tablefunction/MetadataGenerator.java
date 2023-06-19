@@ -20,6 +20,7 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -72,6 +73,9 @@ public class MetadataGenerator {
                 break;
             case BACKENDS:
                 result = backendsMetadataResult(params);
+                break;
+            case FRONTENDS:
+                result = frontendsMetadataResult(params);
                 break;
             case WORKLOAD_GROUPS:
                 result = workloadGroupsMetadataResult(params);
@@ -223,6 +227,29 @@ public class MetadataGenerator {
         // backends proc node get result too slow, add log to observer.
         LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
                 watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult frontendsMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetFrontendsMetadataParams()) {
+            return errorResult("frontends metadata param is not set.");
+        }
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+
+        List<TRow> dataBatch = Lists.newArrayList();
+        List<List<String>> infos = Lists.newArrayList();
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        for (List<String> info : infos) {
+            TRow trow = new TRow();
+            for (String item : info) {
+                trow.addToColumnValue(new TCell().setStringVal(item));
+            }
+            dataBatch.add(trow);
+        }
 
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

@@ -38,7 +38,7 @@ All this makes Apache Doris an ideal tool for scenarios including report analysi
 
 🎉 Version 2.0.0 Alpha1 version released now. It is an alpha release that is aimed to be used for evaluating the new features of Doris 2.0. It's recommended to deploy 2.0.0 alpha1 version in a new test cluster for testing but **it should not be deployed in production clusters**. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-2.0.0Alpha1) here. 
 
-🎉 Version 1.2.4 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.2.4.1) here. 
+🎉 Version 1.2.5 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.2.5) here. 
 
 🎉 Version 1.1.5 released now. It is a stability improvement and bugfix release based on version 1.1. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.1.5) here. 
 

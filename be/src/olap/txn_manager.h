@@ -48,6 +48,7 @@
 namespace doris {
 class DeltaWriter;
 class OlapMeta;
+struct TabletPublishStatistics;
 
 struct TabletTxnInfo {
     PUniqueId load_id;
@@ -106,7 +107,8 @@ public:
                       const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                       TTransactionId transaction_id, const Version& version);
+                       TTransactionId transaction_id, const Version& version,
+                       TabletPublishStatistics* stats);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -124,7 +126,7 @@ public:
     // not persist rowset meta because
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                        TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                       const Version& version);
+                       const Version& version, TabletPublishStatistics* stats);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -201,7 +203,7 @@ private:
 
     txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
 
-    inline std::mutex& _get_txn_lock(TTransactionId transactionId);
+    inline std::shared_mutex& _get_txn_lock(TTransactionId transactionId);
 
     std::shared_mutex& _get_txn_tablet_delta_writer_map_lock(TTransactionId transactionId);
 
@@ -231,7 +233,7 @@ private:
 
     std::shared_mutex* _txn_map_locks;
 
-    std::mutex* _txn_mutex;
+    std::shared_mutex* _txn_mutex;
 
     txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map;
     std::shared_mutex* _txn_tablet_delta_writer_map_locks;
@@ -251,7 +253,7 @@ inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(
     return _txn_partition_maps[transactionId & (_txn_map_shard_size - 1)];
 }
 
-inline std::mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
+inline std::shared_mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
     return _txn_mutex[transactionId & (_txn_shard_size - 1)];
 }
 

@@ -381,4 +381,8 @@ public class ColumnStatistic {
     public boolean rangeChanged() {
         return original != null && (minValue != original.minValue || maxValue != original.maxValue);
     }
+
+    public boolean isUnKnown() {
+        return isUnKnown;
+    }
 }

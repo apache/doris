@@ -31,6 +31,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
         switch (type) {
             case BACKENDS:
                 return BackendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case FRONTENDS:
+                return FrontendsTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case ICEBERG:
                 return IcebergTableValuedFunction.getColumnIndexFromColumnName(columnName);
             case WORKLOAD_GROUPS:

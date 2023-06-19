@@ -30,13 +30,18 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -165,12 +170,36 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
+        String invertedIndexParser = null;
+        String invertedIndexParserMode = null;
+        SlotRef left = (SlotRef) match.left().accept(this, context);
+        SlotDescriptor slotDesc = left.getDesc();
+        if (slotDesc != null && slotDesc.isScanSlot()) {
+            TupleDescriptor slotParent = slotDesc.getParent();
+            OlapTable olapTbl = (OlapTable) slotParent.getTable();
+            if (olapTbl == null) {
+                throw new AnalysisException("slotRef in matchExpression failed to get OlapTable");
+            }
+            List<Index> indexes = olapTbl.getIndexes();
+            for (Index index : indexes) {
+                if (index.getIndexType() == IndexDef.IndexType.INVERTED) {
+                    List<String> columns = index.getColumns();
+                    if (left.getColumnName().equals(columns.get(0))) {
+                        invertedIndexParser = index.getInvertedIndexParser();
+                        invertedIndexParserMode = index.getInvertedIndexParserMode();
+                        break;
+                    }
+                }
+            }
+        }
         MatchPredicate.Operator op = match.op();
         return new MatchPredicate(op,
-                match.child(0).accept(this, context),
-                match.child(1).accept(this, context),
+                match.left().accept(this, context),
+                match.right().accept(this, context),
                 match.getDataType().toCatalogDataType(),
-                NullableMode.DEPEND_ON_ARGUMENT);
+                NullableMode.DEPEND_ON_ARGUMENT,
+                invertedIndexParser,
+                invertedIndexParserMode);
     }
 
     @Override

@@ -942,6 +942,7 @@ bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {
 }
 
 bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
+    std::shared_lock l(lock);
     DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
     for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
         auto& [k, bm] = *it;
