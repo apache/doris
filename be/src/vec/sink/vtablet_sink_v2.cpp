@@ -395,8 +395,6 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     }
     _row_distribution_watch.stop();
 
-    std::vector<bthread_t> write_memtable_threads;
-
     // For each tablet, send its rows from block to delta writer
     for (const auto& entry : rows_for_tablet) {
         bthread_t th;
@@ -411,13 +409,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
         LOG(INFO) << "Creating WriteMemtableTask for Tablet(tablet id: " << closure->tablet_id
                   << ", index id: " << closure->index_id << "), flying task count: " << cnt;
         bthread_start_background(&th, nullptr, _write_memtable_task, closure);
-        write_memtable_threads.push_back(th);
-    }
-
-    for (auto& th : write_memtable_threads) {
-        if (th) {
-            bthread_join(th, nullptr);
-        }
+        _write_memtable_threads.push_back(th);
     }
 
     return Status::OK();
@@ -509,6 +501,11 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
                   << ", canceled all node channels due to error: " << status;
     }
 
+    for (auto& th : _write_memtable_threads) {
+        if (th) {
+            bthread_join(th, nullptr);
+        }
+    }
     // TODO: wait all stream done
 
     _close_status = status;
