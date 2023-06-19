@@ -25,12 +25,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
