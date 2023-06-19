@@ -357,7 +357,11 @@ public class TypeCoercionUtils {
             } else if (dataType.isDateTimeV2Type()) {
                 ret = new DateTimeV2Literal(value);
             } else if (dataType.isDateTimeType()) {
-                ret = new DateTimeLiteral(value);
+                if (Config.enable_date_conversion) {
+                    ret = new DateTimeV2Literal(value);
+                } else {
+                    ret = new DateTimeLiteral(value);
+                }
             } else if (dataType.isDateV2Type()) {
                 try {
                     ret = new DateV2Literal(value);
@@ -365,10 +369,18 @@ public class TypeCoercionUtils {
                     ret = new DateTimeV2Literal(value);
                 }
             } else if (dataType.isDateType()) {
-                try {
-                    ret = new DateLiteral(value);
-                } catch (AnalysisException e) {
-                    ret = new DateTimeLiteral(value);
+                if (Config.enable_date_conversion) {
+                    try {
+                        ret = new DateV2Literal(value);
+                    } catch (AnalysisException e) {
+                        ret = new DateTimeV2Literal(value);
+                    }
+                } else {
+                    try {
+                        ret = new DateLiteral(value);
+                    } catch (AnalysisException e) {
+                        ret = new DateTimeLiteral(value);
+                    }
                 }
             }
         } catch (Exception e) {
