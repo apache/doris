@@ -252,8 +252,8 @@ public class DynamicPartitionUtil {
         } catch (NumberFormatException e) {
             throw new DdlException("Invalid " + DynamicPartitionProperty.HOT_PARTITION_NUM + " value");
         } catch (DdlException e) {
-            throw new DdlException("Invalid " + DynamicPartitionProperty.HOT_PARTITION_NUM
-                    + " due to " + e.getMessage());
+            throw new DdlException(DynamicPartitionProperty.HOT_PARTITION_NUM + " require ssd storage, "
+                    + "but failed for " + e.getMessage());
         }
     }
 
