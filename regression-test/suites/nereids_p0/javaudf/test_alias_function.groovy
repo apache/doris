@@ -18,7 +18,7 @@
 suite("nereids_test_alias_function") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    sql 'use test_query_db'
+    sql 'use nereids_test_query_db'
 
     sql 'drop function if exists f1(datetimev2(3), int)'
     sql 'drop function if exists f2(datetimev2(3), int)'
