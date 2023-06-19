@@ -35,7 +35,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
-        exception "only support unique key table"
+        exception "Unknown properties"
     }
 
     // duplicate table with enable_unique_key_merge_on_write property
@@ -54,7 +54,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "false"
              );
         """
-        exception "only support unique key table"
+        exception "Unknown properties"
     }
 
     // agg table with enable_unique_key_merge_on_write property
@@ -73,7 +73,7 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "true"
              );
         """
-        exception "only support unique key table"
+        exception "Unknown properties"
     }
 
     // agg table with enable_unique_key_merge_on_write property
@@ -92,6 +92,6 @@ suite("test_create_table") {
                     "enable_unique_key_merge_on_write" = "false"
              );
         """
-        exception "only support unique key table"
+        exception "Unknown properties"
     }
 }
