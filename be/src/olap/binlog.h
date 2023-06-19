@@ -64,8 +64,12 @@ inline auto make_binlog_filename_key(const TabletUid& tablet_uid, std::string_vi
     return fmt::format("{}meta_{}_{:0>20}_", kBinlogPrefix, tablet_uid.to_string(), version);
 }
 
-inline auto make_binlog_meta_key_prefix(int64_t tablet_id) {
-    return fmt::format("{}meta_{}_", kBinlogPrefix, tablet_id);
+inline auto make_binlog_meta_key_prefix(const TabletUid& tablet_uid) {
+    return fmt::format("{}meta_{}_", kBinlogPrefix, tablet_uid.to_string());
+}
+
+inline auto make_binlog_meta_key_prefix(const TabletUid& tablet_uid, int64_t version) {
+    return fmt::format("{}meta_{}_{:020d}_", kBinlogPrefix, tablet_uid.to_string(), version);
 }
 
 inline bool starts_with_binlog_meta(std::string_view str) {

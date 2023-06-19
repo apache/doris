@@ -61,12 +61,17 @@ public class OptimizeGroupExpressionJob extends Job {
                 || context.getCascadesContext().getMemo().getGroupExpressionsSize() > context.getCascadesContext()
                 .getConnectContext().getSessionVariable().memoMaxGroupExpressionSize;
         boolean isDpHyp = context.getCascadesContext().getStatementContext().isDpHyp();
+        boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         if (isDisableJoinReorder) {
             return Collections.emptyList();
         } else if (isDpHyp) {
-            return getRuleSet().getDPHypReorderRules();
+            if (isOtherJoinReorder) {
+                return getRuleSet().getDPHypReorderRules();
+            } else {
+                return Collections.emptyList();
+            }
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= 5) {

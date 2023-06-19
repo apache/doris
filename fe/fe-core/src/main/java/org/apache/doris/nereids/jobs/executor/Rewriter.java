@@ -38,6 +38,7 @@ import org.apache.doris.nereids.rules.rewrite.BuildCTEAnchorAndCTEProducer;
 import org.apache.doris.nereids.rules.rewrite.CTEProducerRewrite;
 import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
+import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CollectFilterAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.CollectProjectAboveConsumer;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
@@ -212,26 +213,33 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new PushFilterInsideJoin())
             ),
 
-            custom(RuleType.CHECK_DATATYPES, CheckDataTypes::new),
+            custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),
 
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
-            // we need to execute this rule at the end of rewrite
-            // to avoid two consecutive same project appear when we do optimization.
             topic("Others optimization",
-                    bottomUp(ImmutableList.<RuleFactory>builder().addAll(ImmutableList.of(
-                            new EliminateNotNull(),
-                            new EliminateLimit(),
-                            new EliminateFilter(),
-                            new EliminateAggregate(),
-                            new MergeSetOperations(),
-                            new PushdownLimit(),
-                            new BuildAggForUnion()
-                            // after eliminate filter, the project maybe can push down again,
-                            // so we add push down rules
-                    )).addAll(RuleSet.PUSH_DOWN_FILTERS).build())
+                    bottomUp(ImmutableList.<RuleFactory>builder()
+                            .addAll(ImmutableList.of(
+                                    new EliminateNotNull(),
+                                    new EliminateLimit(),
+                                    new EliminateFilter(),
+                                    new EliminateAggregate(),
+                                    new PushdownLimit()
+                            ))
+                            // after eliminate some plan, we maybe can push down some plan again, so add push down rules
+                            .add(new PushdownLimit())
+                            .addAll(RuleSet.PUSH_DOWN_FILTERS)
+                            .build()
+                    )
             ),
+
+            topic("Intersection optimization",
+                    // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                    bottomUp(new MergeSetOperations()),
+                    bottomUp(new BuildAggForUnion())
+            ),
+
             topic("Window optimization",
                     topDown(
                             new PushdownLimit(),
@@ -262,6 +270,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                     bottomUp(RuleSet.PUSH_DOWN_FILTERS),
                     custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+            topic("Match expression check",
+                    topDown(
+                            new CheckMatchExpression()
+                    )
             ),
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",

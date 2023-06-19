@@ -43,43 +43,51 @@ void bm_log(const std::string& fmt, Args&&... args) {
 
 class BaseBenchmark {
 public:
-    BaseBenchmark(const std::string& name, int iterations,
+    BaseBenchmark(const std::string& name, int threads, int iterations,
                   const std::map<std::string, std::string>& conf_map)
-            : _name(name), _iterations(iterations), _conf_map(conf_map) {}
+            : _name(name), _threads(threads), _iterations(iterations), _conf_map(conf_map) {}
     virtual ~BaseBenchmark() = default;
 
     virtual Status init() { return Status::OK(); }
-    virtual Status run() { return Status::OK(); }
+    virtual Status run(benchmark::State& state) { return Status::OK(); }
 
     void register_bm() {
         auto bm = benchmark::RegisterBenchmark(_name.c_str(), [&](benchmark::State& state) {
             // first turn will use more time
             Status st;
-            st = this->init();
-            if (!st) {
-                std::cerr << "failed to init. bm: " << _name << ", err: " << st;
-                return;
-            }
-            st = this->run();
-            if (!st) {
-                std::cerr << "failed to run at first time. bm: " << _name << ", err: " << st;
-                return;
-            }
             for (auto _ : state) {
-                state.PauseTiming();
-                this->init();
-                state.ResumeTiming();
-                this->run();
+                st = this->run(state);
             }
         });
+        if (_threads != 0) {
+            bm->Threads(_threads);
+        }
         if (_iterations != 0) {
             bm->Iterations(_iterations);
         }
         bm->Unit(benchmark::kMillisecond);
+        bm->Repetitions(3);
+        bm->UseManualTime();
+        bm->ComputeStatistics("max", [](const std::vector<double>& v) -> double {
+            return *(std::max_element(std::begin(v), std::end(v)));
+        });
+        bm->ComputeStatistics("min", [](const std::vector<double>& v) -> double {
+            return *(std::min_element(std::begin(v), std::end(v)));
+        });
+        //        bm->ComputeStatistics("qps", [](const std::vector<double>& v) -> double {
+        //            return benchmark::StatisticsMedian(v);
+        //            int file_size = _conf_map["file_size"];
+        //            int thread_num;
+        //            "'$file_size_mb'" / ($2 * "'$thread_num'" / 1000), $2 * "'$thread_num'")}'`
+        //            return *(std::me_element(std::begin(v), std::end(v)));
+        //        });
+        //        bm->MinTime(2);
+        //        bm->MinWarmUpTime(1.0);
     }
 
 protected:
     std::string _name;
+    int _threads;
     int _iterations;
     std::map<std::string, std::string> _conf_map;
 };

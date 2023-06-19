@@ -882,7 +882,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"

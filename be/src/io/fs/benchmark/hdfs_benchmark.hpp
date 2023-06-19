@@ -16,241 +16,277 @@
 // under the License.
 
 #pragma once
-#include<chrono>
 
 #include "io/file_factory.h"
 #include "io/fs/benchmark/base_benchmark.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
-#include "io/fs/hdfs_file_writer.h"
 #include "io/hdfs_builder.h"
-#include "util/slice.h"
 #include "util/jni-util.h"
-
-#include "io/file_factory.h"
-
+#include "util/slice.h"
 
 namespace doris::io {
 
-/// @brief  用在生成文件的时候，防止文件名的冲突
-/// @return 当前系统的时间精确的纳秒级别
-static std::string _GetStringFromTime(){
-    auto tpMicro = std::chrono::time_point_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now());
-
-    return std::to_string((time_t)tpMicro.time_since_epoch().count());
-}
-
-/// @brief 读取conf中的file参数,读取默认大小为1G,可以通过size参数来设定需要读取的比特数。
-class HdfsReadBenchmark final : public BaseBenchmark {
+class HdfsOpenReadBenchmark : public BaseBenchmark {
 public:
-    HdfsReadBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsReadBenchmark", iterations, conf_map) , _byte_read(1ll*1024*1024*1024)
-            {}
-    virtual ~HdfsReadBenchmark() = default;
+    HdfsOpenReadBenchmark(int threads, int iterations,
+                          const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("HdfsReadBenchmark", threads, iterations, conf_map) {}
+    virtual ~HdfsOpenReadBenchmark() = default;
 
-    Status init() override {
-    
+    Status init() override { return Status::OK(); }
+
+    Status run(benchmark::State& state) override {
+        std::shared_ptr<io::FileSystem> fs;
+        io::FileReaderSPtr reader;
         bm_log("begin to init {}", _name);
-        std::string file_path = _conf_map["file"];
-         
-        if ( _conf_map.count("size") != 0  ) {
-            _byte_read = stoll( _conf_map["size"]);
-        }
-        if ( _byte_read <=  0){
-            return Status::InvalidArgument(
-                ": size . The size read in from the file should be a positive number!\n");
-        }
-
+        std::string file = _conf_map["file"];
+        size_t buffer_size =
+                _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-            
+        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        bm_log("file_path: {}", file_path);
         RETURN_IF_ERROR(
-                    FileFactory::create_hdfs_reader(hdfs_params, file_path, &_fs, &_reader, reader_opts));
-        
-        static long long int len = 1ll*1024*1024;
-        static std::string str(len,'.');         
-        _result.data = str.data();
-        _result.size = str.size();
-
+                FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader, reader_opts));
         bm_log("finish to init {}", _name);
-        return Status::OK();
-    }
-    Status run() override { 
 
-        
-        long long int  count =0;
-        long long int loc = 0;
-        while ( count < _byte_read ) {
-            size_t bytes = 0;
-            RETURN_IF_ERROR(_reader->read_at(loc, _result, &bytes)); 
-            
-            count += bytes;
-            if (bytes < _result.size ) loc = 0;
-            else loc += bytes;
+        bm_log("begin to run {}", _name);
+        Status status;
+        std::vector<char> buffer;
+        buffer.resize(buffer_size);
+        doris::Slice data = {buffer.data(), buffer.size()};
+        size_t offset = 0;
+        size_t bytes_read = 0;
+
+        auto start = std::chrono::high_resolution_clock::now();
+        size_t read_size = _conf_map.contains("read_size") ? std::stol(_conf_map["read_size"])
+                                                           : 1024L * 1024L * 1024L;
+        long remaining_size = read_size;
+
+        while (remaining_size > 0) {
+            bytes_read = 0;
+            size_t size = std::min(buffer_size, (size_t)remaining_size);
+            data.size = size;
+            status = reader->read_at(offset, data, &bytes_read);
+            if (status != Status::OK() || bytes_read < 0) {
+                bm_log("reader read_at error: {}", status.to_string());
+                break;
+            }
+            if (bytes_read == 0) { // EOF
+                break;
+            }
+            offset += bytes_read;
+            remaining_size -= bytes_read;
         }
+        bm_log("finish to run {}", _name);
 
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+
+        if (reader != nullptr) {
+            reader->close();
+        }
+        return status;
+    }
+};
+
+class HdfsOpenBenchmark : public BaseBenchmark {
+public:
+    HdfsOpenBenchmark(int threads, int iterations,
+                      const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("HdfsOpenBenchmark", threads, iterations, conf_map) {}
+    virtual ~HdfsOpenBenchmark() = default;
+
+    Status init() override { return Status::OK(); }
+
+    Status run(benchmark::State& state) override {
+        bm_log("begin to run {}", _name);
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string file = _conf_map["file"];
+        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
+        THdfsParams hdfs_params = parse_properties(_conf_map);
+        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        std::shared_ptr<io::HdfsFileSystem> fs;
+        io::FileReaderSPtr reader;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(fs->open_file(file_path, reader_opts, &reader));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
+
+        if (reader != nullptr) {
+            reader->close();
+        }
         return Status::OK();
     }
 
 private:
-    std::shared_ptr<io::FileSystem> _fs;
-    io::FileReaderSPtr _reader;
-    // char buffer[128];
-    doris::Slice _result;
-    // size_t _bytes_read = 0;
-    long long int _byte_read;
 };
 
-/// @brief 创建文件在conf的path目录下，文件数量默认是10（可以通过time参数来设定）
-class HdfsCreateBenchmark final : public BaseBenchmark {
+class HdfsCreateWriteBenchmark : public BaseBenchmark {
 public:
-    HdfsCreateBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-        :BaseBenchmark("HdfsCreateBenchmark", iterations, conf_map) ,_time(10){}
-    virtual ~HdfsCreateBenchmark() = default;
+    HdfsCreateWriteBenchmark(int threads, int iterations,
+                             const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("HdfsCreateWriteBenchmark", threads, iterations, conf_map) {}
+    virtual ~HdfsCreateWriteBenchmark() = default;
 
+    Status init() override { return Status::OK(); }
 
-    Status init() override {
-    
-        bm_log("begin to init {}", _name);
-
-    
-        std::string time  = _GetStringFromTime();
-        bm_log("The created file directory is benchmark_{}", time);
-        
-        _path = _conf_map["path"];//创建文件的目录
-        if (_path.back() != '/' ){
-            _path += "/";
-        } 
-        _path += "benchmark_"+time+"/";  
-        if (_conf_map.count("time") != 0)        
-            _time = std::stoll(_conf_map["time"]);
-        if (_time <= 0 ) {
-            return Status::InvalidArgument(
-                ": time . Need to create a positive number of files!\n");
-        }
-
+    Status run(benchmark::State& state) override {
+        bm_log("begin to run {}", _name);
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string file = _conf_map["file"];
+        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &_fs));
-        
-        bm_log("finish to init {}", _name);
-        return Status::OK();
+        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        std::shared_ptr<io::HdfsFileSystem> fs;
+        io::FileWriterPtr writer;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(fs->create_file(file_path, &writer));
+        Status status;
+        size_t write_size = _conf_map.contains("read_size") ? std::stol(_conf_map["read_size"])
+                                                            : 1024L * 1024L * 1024L;
+        size_t buffer_size =
+                _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
+        long remaining_size = write_size;
+        std::vector<char> buffer;
+        buffer.resize(buffer_size);
+        doris::Slice data = {buffer.data(), buffer.size()};
+        while (remaining_size > 0) {
+            data.size = buffer.size();
+            size_t size = std::min(buffer_size, (size_t)remaining_size);
+            status = writer->append(data);
+            if (status != Status::OK()) {
+                bm_log("writer append error: {}", status.to_string());
+                break;
+            }
+            remaining_size -= size;
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 
-    }
-    Status run() override {         
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
 
-        doris::Slice data(" ",1);
-        for(int i = 0 ;i< _time ; i++  ) {
-            std::string file_name = _path +  std::to_string(i);
-            std::unique_ptr<io::FileWriter> writer;
-            RETURN_IF_ERROR(_fs->create_file(file_name, &writer));
-            RETURN_IF_ERROR( writer->appendv(&data,1) );
-            //创建的时候需要写入内容，才能创建成功。
-        }       
-        return Status::OK();    
+        if (writer != nullptr) {
+            writer->close();
+        }
+        return status;
     }
-private: 
-    std::shared_ptr<io::HdfsFileSystem> _fs;
-    long long int  _time;//创建文件的个数   
-    std::string _path;//创建文件的目录
 };
 
-/// @brief 以conf中的file参数为前缀，写入文件大小为1G，
-class HdfsWriteBenchmark final : public BaseBenchmark {
+class HdfsRenameBenchmark : public BaseBenchmark {
 public:
-    HdfsWriteBenchmark( int iterations,const std::map<std::string,std::string>& conf_map )
-        : BaseBenchmark("HdfsWriteBenchmark", iterations, conf_map) ,_size(1ll*1024*1024*1024) //1G 
-        {
-	}
+    HdfsRenameBenchmark(int threads, int iterations,
+                        const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("HdfsRenameBenchmark", threads, iterations, conf_map) {}
+    virtual ~HdfsRenameBenchmark() = default;
 
-    virtual ~HdfsWriteBenchmark() = default;
+    Status init() override { return Status::OK(); }
 
-    Status init() override {
-        bm_log("begin to init {}", _name);
-
-        std::string file_path = _conf_map["file"] + "_" + _GetStringFromTime();
-
-        if (_conf_map.count("size") != 0)
-            _size =  stoll(_conf_map["size"]);
-
-        if(_size <= 0) {
-            return Status::InvalidArgument(
-                ": size . The size written to the file should be a positive number!\n");
-        }
-
+    Status run(benchmark::State& state) override {
+        bm_log("begin to run {}", _name);
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string file = _conf_map["file"];
+        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &_fs));
-    	
-        RETURN_IF_ERROR(_fs->create_file(file_path, &_writer));
-        //找不到支持向文件添加的函数！
-        
+        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        auto new_file_path = fmt::format("{}_{}_new", file, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        std::shared_ptr<io::HdfsFileSystem> fs;
+        io::FileWriterPtr writer;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 
-        static long long int len = 1024*1024;
-        static std::string str(len,'.');
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
 
-
-        _buffer.resize( (_size + len - 1)/len  , doris::Slice( str.c_str() , len ));
-        if (_size%len != 0 ) _buffer.back().size = _size%len; 
-        
-    
-        bm_log("finish to init {}", _name);        
-        return Status::OK();
-    }
-
-	Status run() override { 
-        RETURN_IF_ERROR( _writer -> appendv(_buffer.data(), _buffer.size()) );    
+        if (writer != nullptr) {
+            writer->close();
+        }
         return Status::OK();
     }
 
 private:
-
-   long long int  _size;  
-
-    std::shared_ptr<io::HdfsFileSystem> _fs;
-    std::unique_ptr<io::FileWriter> _writer;
-    
-    std::vector<doris::Slice> _buffer;
 };
 
-
-/// @brief 删除init中创建的临时文件 
-class HdfsDeleteBenchmark final : public BaseBenchmark {
+class HdfsDeleteBenchmark : public BaseBenchmark {
 public:
-    HdfsDeleteBenchmark( int iterations,const std::map<std::string,std::string>& conf_map )
-        : BaseBenchmark("HdfsDeleteBenchmark", iterations , conf_map) 
-        {
-	}
+    HdfsDeleteBenchmark(int threads, int iterations,
+                        const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("HdfsDeleteBenchmark", threads, iterations, conf_map) {}
     virtual ~HdfsDeleteBenchmark() = default;
 
-    Status init() override {
-        bm_log("begin to init {}", _name);
+    Status init() override { return Status::OK(); }
 
-        _file_name = _conf_map["file"] + "_" + _GetStringFromTime();
-
+    Status run(benchmark::State& state) override {
+        bm_log("begin to run {}", _name);
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string file = _conf_map["file"];
+        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &_fs));
-    	        
-        //创建临时文件用于删除
-        std::unique_ptr<io::FileWriter> writer;
-        RETURN_IF_ERROR(_fs->create_file(_file_name, &writer));
-        doris::Slice data(" ",1);
-        RETURN_IF_ERROR( writer->appendv(&data,1) );
+        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        std::shared_ptr<io::HdfsFileSystem> fs;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(fs->delete_file(file_path));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 
-        bm_log("finish to init {}", _name);        
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
         return Status::OK();
     }
 
-	Status run() override { 
-        RETURN_IF_ERROR( _fs->delete_file(_file_name));
-        return Status::OK();
-    }
 private:
-    std::shared_ptr<io::HdfsFileSystem> _fs;    
-    std::string _file_name;
-
 };
 
+class HdfsExistsBenchmark : public BaseBenchmark {
+public:
+    HdfsExistsBenchmark(int threads, int iterations,
+                        const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("HdfsExistsBenchmark", threads, iterations, conf_map) {}
+    virtual ~HdfsExistsBenchmark() = default;
+
+    Status init() override { return Status::OK(); }
+
+    Status run(benchmark::State& state) override {
+        bm_log("begin to run {}", _name);
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string file = _conf_map["file"];
+        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
+        THdfsParams hdfs_params = parse_properties(_conf_map);
+        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        std::shared_ptr<io::HdfsFileSystem> fs;
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        bool res = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &res));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
+        return Status::OK();
+    }
+};
 
 } // namespace doris::io
-
-

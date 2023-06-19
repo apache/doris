@@ -23,6 +23,7 @@
 
 DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs, local");
 DEFINE_string(operation, "read", "Supported Operations: read, write, open, size, list, connect");
+DEFINE_string(threads, "10", "Number of threads");
 DEFINE_string(iterations, "10", "Number of runs");
 DEFINE_string(conf, "", "config file");
 
@@ -31,13 +32,15 @@ std::string get_usage(const std::string& progname) {
     ss << progname << " is the Doris BE benchmark tool for testing file system.\n";
 
     ss << "Usage:\n";
-    ss << progname << " --fs_type=[fs_type] --operation=[op_type] --iterations=10\n";
+    ss << progname << " --fs_type=[fs_type] --operation=[op_type] --threads=10 --iterations=10\n";
     ss << "\nfs_type:\n";
     ss << "     hdfs\n";
     ss << "     s3\n";
     ss << "\nop_type:\n";
     ss << "     read\n";
     ss << "     write\n";
+    ss << "\nthreads:\n";
+    ss << "     num of threads\n";
     ss << "\niterations:\n";
     ss << "     num of run\n";
     ss << "\nExample:\n";
@@ -93,7 +96,7 @@ int main(int argc, char** argv) {
     }
 
     try {
-        doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation,
+        doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),
                                            std::stoi(FLAGS_iterations), conf_map);
         doris::Status st = multi_bm.init_env();
         if (!st) {

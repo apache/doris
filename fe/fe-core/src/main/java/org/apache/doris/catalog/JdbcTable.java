@@ -97,11 +97,15 @@ public class JdbcTable extends Table {
         super(id, name, type, schema);
     }
 
-    public String getInsertSql() {
+    public String getInsertSql(List<String> insertCols) {
         StringBuilder sb = new StringBuilder("INSERT INTO ");
+
         sb.append(databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), getExternalTableName()));
+        sb.append("(");
+        sb.append(String.join(",", insertCols));
+        sb.append(")");
         sb.append(" VALUES (");
-        for (int i = 0; i < getFullSchema().size(); ++i) {
+        for (int i = 0; i < insertCols.size(); ++i) {
             if (i != 0) {
                 sb.append(", ");
             }
