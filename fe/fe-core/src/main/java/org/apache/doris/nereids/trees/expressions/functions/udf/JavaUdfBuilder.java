@@ -21,8 +21,11 @@ import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Suppliers;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -67,6 +70,13 @@ public class JavaUdfBuilder extends UdfBuilder {
 
     @Override
     public BoundFunction build(String name, List<?> arguments) {
-        return udf.withChildren(arguments.stream().map(Expression.class::cast).collect(Collectors.toList()));
+        List<Expression> exprs = arguments.stream().map(Expression.class::cast).collect(Collectors.toList());
+        List<AbstractDataType> argTypes = udf.getSignatures().get(0).argumentsTypes;
+
+        List<Expression> processedExprs = Lists.newArrayList();
+        for (int i = 0; i < exprs.size(); ++i) {
+            processedExprs.add(TypeCoercionUtils.castIfNotSameType(exprs.get(i), ((DataType) argTypes.get(i))));
+        }
+        return udf.withChildren(processedExprs);
     }
 }
