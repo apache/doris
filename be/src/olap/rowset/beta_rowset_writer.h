@@ -123,6 +123,10 @@ public:
 
     Status wait_flying_segcompaction() override;
 
+    void add_streams(std::vector<brpc::StreamId>& streams) override {
+        _streams.insert(_streams.end(), streams.begin(), streams.end());
+    }
+
 private:
     Status _do_add_block(const vectorized::Block* block,
                          std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
@@ -219,6 +223,8 @@ protected:
     fmt::memory_buffer vlog_buffer;
 
     std::shared_ptr<MowContext> _mow_context;
+
+    std::vector<brpc::StreamId> _streams;
 };
 
 } // namespace doris

@@ -94,6 +94,14 @@ class TExpr;
 
 namespace stream_load {
 
+int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
+                                            size_t size) {
+    return 0;
+}
+
+void StreamSinkHandler::on_closed(brpc::StreamId id) {
+}
+
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
                                    const std::vector<TExpr>& texprs, Status* status)
         : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
@@ -211,9 +219,45 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
+    _stream_pool = std::make_shared<StreamPool>();
     _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
     _delta_writer_for_tablet_mutex = std::make_shared<bthread::Mutex>();
+    RETURN_IF_ERROR(_init_stream_pool(*_stream_pool));
 
+    return Status::OK();
+}
+
+Status VOlapTableSinkV2::_init_stream_pool(StreamPool& stream_pool) {
+    DCHECK_GT(config::stream_cnt_per_sink, 0);
+    stream_pool.reserve(config::stream_cnt_per_sink);
+    for (int i = 0; i < config::stream_cnt_per_sink; ++i) {
+        brpc::StreamOptions opt;
+        opt.max_buf_size = 20 << 20; // 20MB
+        opt.idle_timeout_ms = 30000;
+        opt.messages_in_batch = 128;
+        opt.handler = new StreamSinkHandler(this);
+        brpc::StreamId stream;
+        brpc::Controller cntl;
+        if (StreamCreate(&stream, cntl, &opt) != 0) {
+            LOG(ERROR) << "Failed to create stream";
+            return Status::RpcError("Failed to create stream");
+        }
+        LOG(INFO) << "Created stream " << stream;
+        // randomly choose a BE to be the primary BE
+        const auto& node_info = _nodes_info->nodes_info().begin()->second;
+        const auto& stub = _state->exec_env()->brpc_internal_client_cache()->get_client(
+                node_info.host, node_info.brpc_port);
+        POpenStreamSinkRequest request;
+        request.set_allocated_id(&_load_id);
+        request.set_backend_id(node_info.id);
+        POpenStreamSinkResponse response;
+        stub->open_stream_sink(&cntl, &request, &response, nullptr);
+        if (cntl.Failed()) {
+            LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
+            return Status::RpcError("Failed to connect stream");
+        }
+        stream_pool.push_back(stream);
+    }
     return Status::OK();
 }
 
@@ -405,7 +449,10 @@ void* VOlapTableSinkV2::_write_memtable_task(void* closure) {
                     break;
                 }
             }
+            const brpc::StreamId& stream = sink->_stream_pool->at(sink->_stream_pool_index);
+            sink->_stream_pool_index = (sink->_stream_pool_index + 1) % sink->_stream_pool->size();
             DeltaWriter::open(&wrequest, &delta_writer, sink->_profile, sink->_load_id);
+            delta_writer->add_stream(stream);
             sink->_delta_writer_for_tablet->insert({key, delta_writer});
         } else {
             LOG(INFO) << "Reusing DeltaWriter for Tablet(tablet id: " << ctx->tablet_id

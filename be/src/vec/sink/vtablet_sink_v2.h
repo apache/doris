@@ -97,6 +97,22 @@ struct WriteMemtableTaskClosure {
 // <tablet_id, index_id>
 using TabletID = std::pair<int64_t, int64_t>;
 using DeltaWriterForTablet = std::unordered_map<TabletID, DeltaWriter*>;
+using StreamPool = std::vector<brpc::StreamId>;
+
+class StreamSinkHandler : public brpc::StreamInputHandler {
+public:
+    StreamSinkHandler(VOlapTableSinkV2* sink) : _sink(sink) {}
+
+    int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
+                             size_t size) override;
+
+    void on_idle_timeout(brpc::StreamId id) override {}
+
+    void on_closed(brpc::StreamId id) override;
+
+private:
+    VOlapTableSinkV2* _sink;
+};
 
 struct TabletKey {
     int64_t partition_id;
@@ -140,6 +156,8 @@ public:
     RuntimeProfile* profile() override { return _profile; }
 
 private:
+
+    Status _init_stream_pool(StreamPool& stream_pool);
 
     void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
                                    const VOlapTablePartition* partition,
@@ -281,6 +299,8 @@ private:
 
     std::unordered_set<int64_t> _opened_partitions;
 
+    std::shared_ptr<StreamPool> _stream_pool;
+    size_t _stream_pool_index = 0;
     std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
     std::shared_ptr<bthread::Mutex> _delta_writer_for_tablet_mutex;
     std::atomic<int32_t> _flying_task_count {0};

@@ -713,6 +713,17 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
+    if (config::experimental_olap_table_sink_v2) {
+        // TODO: create stream sink writer
+        auto tablet_id = _rowset_meta->tablet_id();
+        auto s = segment_id;
+        auto p = path;
+        auto load_id = _rowset_meta->load_id();
+        auto rowset_id = _rowset_meta->rowset_id();
+        auto stream_id = *_streams.begin();
+        LOG(INFO) << tablet_id << load_id << s << p << rowset_id << stream_id;
+    }
+    // TODO: else
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;

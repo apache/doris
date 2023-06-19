@@ -71,6 +71,16 @@ message PTabletInfo {
     optional int64 received_rows = 4;
 }
 
+// open stream sink
+message POpenStreamSinkRequest {
+    optional PUniqueId id = 1;
+    optional int64 backend_id = 2 [default = -1];
+};
+
+message POpenStreamSinkResponse {
+    optional PStatus status = 1;
+};
+
 // open a tablet writer
 message PTabletWriterOpenRequest {
     required PUniqueId id = 1;
@@ -689,6 +699,7 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
+    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc open_partition(OpenPartitionRequest) returns (OpenPartitionResult);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);

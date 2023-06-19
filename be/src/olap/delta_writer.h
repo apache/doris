@@ -134,6 +134,8 @@ public:
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
+    void add_stream(brpc::StreamId stream) { _streams.push_back(stream); }
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);
@@ -220,6 +222,8 @@ private:
     MonotonicStopWatch _lock_watch;
 
     MemTableStat _memtable_stat;
+
+    std::vector<brpc::StreamId> _streams;
 };
 
 } // namespace doris

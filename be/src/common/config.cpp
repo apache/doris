@@ -736,6 +736,8 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
 // whether to use OlapTableSinkV2
 DEFINE_Bool(experimental_olap_table_sink_v2, "false");
+// number of brpc stream per OlapTableSinkV2
+DEFINE_Int32(stream_cnt_per_sink, "5");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
