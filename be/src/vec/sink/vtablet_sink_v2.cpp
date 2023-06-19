@@ -353,6 +353,9 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
                 _output_vexpr_ctxs, *input_block, block.get()));
     }
 
+    // remove ownership of columns from input_block
+    input_block->clear();
+
     auto num_rows = block->rows();
     int filtered_rows = 0;
     {
