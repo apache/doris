@@ -18,6 +18,7 @@
 package org.apache.doris.hudi;
 
 import org.apache.doris.common.classloader.ChildFirstClassLoader;
+import org.apache.doris.common.classloader.ModuleClassLoader;
 import org.apache.doris.common.jni.ScannerLoader;
 
 import org.apache.log4j.Logger;
@@ -32,7 +33,7 @@ import java.net.URL;
 public class HudiScannerLoader implements ScannerLoader {
     private static final Logger LOG = Logger.getLogger(ScannerLoader.class);
 
-    private static final ChildFirstClassLoader classLoader;
+    private static final ModuleClassLoader classLoader;
 
     static {
         String basePath = System.getenv("DORIS_HOME");
@@ -45,7 +46,7 @@ public class HudiScannerLoader implements ScannerLoader {
             e.printStackTrace();
             throw new RuntimeException("Hudi scanner loader error", e);
         }
-        classLoader = new ChildFirstClassLoader(hudiAssemblyJar, ClassLoader.getSystemClassLoader());
+        classLoader = new ModuleClassLoader(hudiAssemblyJar, ScannerLoader.class.getClassLoader());
     }
 
     @Override
