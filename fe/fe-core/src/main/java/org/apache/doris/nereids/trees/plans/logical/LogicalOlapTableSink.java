@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -56,8 +57,8 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
-        this.cols = copyIfNotNull(cols);
-        this.partitionIds = copyIfNotNull(partitionIds);
+        this.cols = Utils.copyIfNotNull(cols);
+        this.partitionIds = Utils.copyIfNotNull(partitionIds);
     }
 
     @Override
@@ -81,10 +82,6 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     public List<Long> getPartitionIds() {
         return partitionIds;
-    }
-
-    private <T> List<T> copyIfNotNull(List<T> list) {
-        return list == null ? null : ImmutableList.copyOf(list);
     }
 
     @Override

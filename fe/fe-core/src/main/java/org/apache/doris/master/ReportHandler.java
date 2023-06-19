@@ -854,6 +854,7 @@ public class ReportHandler extends Daemon {
             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
             boolean needDelete = false;
             TabletMeta tabletMeta = null;
+            LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
             if (!tabletFoundInMeta.contains(tabletId)) {
                 if (isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet meta is still in invertedIndex. try to add it.
@@ -862,8 +863,9 @@ public class ReportHandler extends Daemon {
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
+                        LOG.debug("add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                     } else {
-                        LOG.debug("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
+                        LOG.info("failed add to meta. tablet[{}], backend[{}]", tabletId, backendId);
                         needDelete = true;
                     }
                 } else {
@@ -878,7 +880,7 @@ public class ReportHandler extends Daemon {
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
                         backendTabletInfo.getSchemaHash(), isDropTableOrPartition);
                 batchTask.addTask(task);
-                LOG.debug("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
+                LOG.info("delete tablet[{}] from backend[{}] because not found in meta", tabletId, backendId);
                 ++deleteFromBackendCounter;
             }
         } // end for backendTabletIds
@@ -1139,7 +1141,9 @@ public class ReportHandler extends Daemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus status =
                         tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
-                return status != TabletStatus.HEALTHY;
+                if (status == TabletStatus.HEALTHY) {
+                    return false;
+                }
             }
 
             SystemInfoService infoService = Env.getCurrentSystemInfo();

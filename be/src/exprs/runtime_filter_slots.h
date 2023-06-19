@@ -51,11 +51,13 @@ public:
         std::map<int, bool> has_in_filter;
 
         auto ignore_local_filter = [state](int filter_id) {
-            IRuntimeFilter* consumer_filter = nullptr;
-            state->runtime_filter_mgr()->get_consume_filter(filter_id, &consumer_filter);
-            DCHECK(consumer_filter != nullptr);
-            consumer_filter->set_ignored();
-            consumer_filter->signal();
+            std::vector<IRuntimeFilter*> filters;
+            state->runtime_filter_mgr()->get_consume_filters(filter_id, filters);
+            DCHECK(!filters.empty());
+            for (auto filter : filters) {
+                filter->set_ignored();
+                filter->signal();
+            }
         };
 
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
@@ -137,16 +139,12 @@ public:
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
-#ifdef VLOG_DEBUG_IS_ON
                 std::string msg = fmt::format(
                         "fragment instance {} ignore runtime filter(in filter id {}) because: "
                         "in_num({}) >= max_in_num({})",
                         print_id(state->fragment_instance_id()), filter_desc.filter_id,
                         hash_table_size, max_in_num);
                 RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, msg));
-#else
-                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, "ignored"));
-#endif
                 continue;
             }
 
@@ -220,11 +218,7 @@ public:
     Status publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                auto state = filter->publish();
-                if (!state) {
-                    // TODO: solve publish failed when scan not schedured
-                    LOG(WARNING) << "filter publish failed, reason=" << state.to_string();
-                }
+                RETURN_IF_ERROR(filter->publish());
             }
         }
         return Status::OK();

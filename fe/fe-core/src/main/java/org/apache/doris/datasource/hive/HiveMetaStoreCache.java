@@ -108,6 +108,7 @@ public class HiveMetaStoreCache {
     private static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
 
     private HMSExternalCatalog catalog;
+    private JobConf jobConf;
 
     private Executor executor;
 
@@ -153,6 +154,8 @@ public class HiveMetaStoreCache {
      * generate a filecache and set to fileCacheRef
      */
     public void setNewFileCache() {
+        // init or refresh job conf
+        setJobConf();
         // if the file.meta.cache.ttl-second is equal or greater than 0, the cache expired will be set to that value
         int fileMetaCacheTtlSecond = NumberUtils.toInt(
                 (catalog.getProperties().get(HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND)),
@@ -325,16 +328,6 @@ public class HiveMetaStoreCache {
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             String finalLocation = S3Util.convertToS3IfNecessary(key.location);
-            JobConf jobConf = getJobConf();
-            // For Tez engine, it may generate subdirectories for "union" query.
-            // So there may be files and directories in the table directory at the same time. eg:
-            //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
-            //      /user/hive/warehouse/region_tmp_union_all2/1
-            //      /user/hive/warehouse/region_tmp_union_all2/2
-            // So we need to set this config to support visit dir recursively.
-            // Otherwise, getSplits() may throw exception: "Not a file xxx"
-            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
-            jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
                 FileCacheValue result;
@@ -373,12 +366,21 @@ public class HiveMetaStoreCache {
         }
     }
 
-    private JobConf getJobConf() {
+    private synchronized void setJobConf() {
         Configuration configuration = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
             configuration.set(entry.getKey(), entry.getValue());
         }
-        return new JobConf(configuration);
+        jobConf = new JobConf(configuration);
+        // For Tez engine, it may generate subdirectories for "union" query.
+        // So there may be files and directories in the table directory at the same time. eg:
+        //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
+        //      /user/hive/warehouse/region_tmp_union_all2/1
+        //      /user/hive/warehouse/region_tmp_union_all2/2
+        // So we need to set this config to support visit dir recursively.
+        // Otherwise, getSplits() may throw exception: "Not a file xxx"
+        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
     }
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {
@@ -671,7 +673,6 @@ public class HiveMetaStoreCache {
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
             boolean isFullAcid) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        JobConf jobConf = getJobConf();
         String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
         try {
             for (HivePartition partition : partitions) {

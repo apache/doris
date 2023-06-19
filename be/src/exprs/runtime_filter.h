@@ -207,6 +207,8 @@ public:
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
 
+    void copy_from_other(IRuntimeFilter* other);
+
     // insert data to build filter
     // only used for producer
     void insert(const void* data);

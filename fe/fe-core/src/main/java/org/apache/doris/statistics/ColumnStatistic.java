@@ -127,17 +127,17 @@ public class ColumnStatistic {
     public static ColumnStatistic fromResultRow(ResultRow resultRow) {
         try {
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            double count = Double.parseDouble(resultRow.getColumnValue("count"));
+            double count = Double.parseDouble(resultRow.getColumnValueWithDefault("count", "0"));
             columnStatisticBuilder.setCount(count);
-            double ndv = Double.parseDouble(resultRow.getColumnValue("ndv"));
+            double ndv = Double.parseDouble(resultRow.getColumnValueWithDefault("ndv", "0"));
             if (0.99 * count < ndv && ndv < 1.01 * count) {
                 ndv = count;
             }
             columnStatisticBuilder.setNdv(ndv);
-            String nullCount = resultRow.getColumnValue("null_count");
-            columnStatisticBuilder.setNumNulls(nullCount == null ? 0 : Double.parseDouble(nullCount));
+            String nullCount = resultRow.getColumnValueWithDefault("null_count", "0");
+            columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
             columnStatisticBuilder.setDataSize(Double
-                    .parseDouble(resultRow.getColumnValue("data_size_in_bytes")));
+                    .parseDouble(resultRow.getColumnValueWithDefault("data_size_in_bytes", "0")));
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
             long catalogId = Long.parseLong(resultRow.getColumnValue("catalog_id"));
@@ -380,5 +380,9 @@ public class ColumnStatistic {
     // TODO expanded this function to support more cases, help to compute the change of ndv density
     public boolean rangeChanged() {
         return original != null && (minValue != original.minValue || maxValue != original.maxValue);
+    }
+
+    public boolean isUnKnown() {
+        return isUnKnown;
     }
 }

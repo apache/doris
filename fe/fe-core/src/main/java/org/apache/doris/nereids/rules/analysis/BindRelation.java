@@ -24,7 +24,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -188,8 +187,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case SCHEMA:
                 return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
             case JDBC_EXTERNAL_TABLE:
-                return new LogicalJdbcScan(RelationUtil.newRelationId(),
-                    (JdbcExternalTable) table, ImmutableList.of(dbName));
+            case JDBC:
+                return new LogicalJdbcScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(RelationUtil.newRelationId(),
                     (EsExternalTable) table, ImmutableList.of(dbName));

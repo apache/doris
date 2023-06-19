@@ -61,6 +61,7 @@ public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+    private static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
@@ -70,6 +71,9 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+
+        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
     }
 
     private static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
@@ -191,7 +195,15 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
+                && isSupportedTransactionalFileFormat();
+    }
+
+    private boolean isSupportedTransactionalFileFormat() {
+        // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
+        // So we need to check the input format for transactional table.
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
     public boolean isFullAcidTable() {

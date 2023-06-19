@@ -110,6 +110,8 @@ import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetMasterTokenRequest;
+import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
@@ -938,6 +940,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token)) {
             throw new AuthenticationException("Un matched cluster token.");
         }
+    }
+
+    private void checkPassword(String cluster, String user, String passwd, String clientIp)
+            throws AuthenticationException {
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        final String fullUserName = ClusterNamespace.getFullName(cluster, user);
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
+        Preconditions.checkState(currentUser.size() == 1);
     }
 
     @Override
@@ -2296,7 +2309,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env env = Env.getCurrentEnv();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = env.getInternalCatalog().getDbNullable(fullDbName);
-        long dbId = db.getId();
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -2318,6 +2330,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // step 6: get binlog
+        long dbId = db.getId();
         TGetBinlogResult result = new TGetBinlogResult();
         result.setStatus(new TStatus(TStatusCode.OK));
         long prevCommitSeq = request.getPrevCommitSeq();
@@ -2507,6 +2520,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             LOG.warn("failed to get snapshot info: {}", e.getMessage());
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+
+        return result;
+    }
+
+    public TGetMasterTokenResult getMasterToken(TGetMasterTokenRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get master token request: {}", request);
+
+        TGetMasterTokenResult result = new TGetMasterTokenResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            checkPassword(request.getCluster(), request.getUser(), request.getPassword(), clientAddr);
+            result.setToken(Env.getCurrentEnv().getToken());
+        } catch (AuthenticationException e) {
+            LOG.warn("failed to get master token: {}", e.getMessage());
+            status.setStatusCode(TStatusCode.NOT_AUTHORIZED);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);

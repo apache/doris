@@ -673,13 +673,17 @@ Status VFileScanner::_get_next_reader() {
                         TransactionalHiveReader::create_unique(std::move(orc_reader), _profile,
                                                                _state, _params, range,
                                                                _io_ctx.get());
-                init_status = tran_orc_reader->init_reader(_file_col_names, _colname_to_value_range,
-                                                           _push_down_conjuncts);
+                init_status = tran_orc_reader->init_reader(
+                        _file_col_names, _colname_to_value_range, _push_down_conjuncts,
+                        _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range));
                 _cur_reader = std::move(tran_orc_reader);
             } else {
-                init_status = orc_reader->init_reader(&_file_col_names, _colname_to_value_range,
-                                                      _push_down_conjuncts, false);
+                init_status = orc_reader->init_reader(
+                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
+                        _real_tuple_desc, _default_val_row_desc.get(),
+                        &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 _cur_reader = std::move(orc_reader);
             }
             break;

@@ -24,6 +24,7 @@ suite("sql_drop_partition_from_index") {
     def testMv = "test_mv"
 
     try {
+    sql """DROP DATABASE IF EXISTS ${testDb}"""
     sql """CREATE DATABASE IF NOT EXISTS ${testDb}"""
     sql """USE ${testDb}"""
     sql """

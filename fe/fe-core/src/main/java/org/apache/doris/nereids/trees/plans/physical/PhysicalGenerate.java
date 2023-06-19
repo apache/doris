@@ -55,7 +55,7 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
      */
     public PhysicalGenerate(List<Function> generators, List<Slot> generatorOutput,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_FILTER, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_GENERATE, groupExpression, logicalProperties, child);
         this.generators = ImmutableList.copyOf(Objects.requireNonNull(generators, "predicates can not be null"));
         this.generatorOutput = ImmutableList.copyOf(Objects.requireNonNull(generatorOutput,
                 "generatorOutput can not be null"));

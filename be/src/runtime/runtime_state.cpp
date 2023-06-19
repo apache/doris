@@ -64,7 +64,6 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _load_job_id(-1),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file_path(""),
           _error_log_file(nullptr) {
     Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -90,7 +89,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file_path(""),
           _error_log_file(nullptr) {
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
