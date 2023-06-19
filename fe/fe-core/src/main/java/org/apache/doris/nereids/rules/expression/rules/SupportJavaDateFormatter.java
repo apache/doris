@@ -20,10 +20,12 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromUnixtime;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.collect.Lists;
 
@@ -75,11 +77,11 @@ public class SupportJavaDateFormatter extends AbstractExpressionRewriteRule {
             Literal literal = (Literal) formatterExpr;
             String originFormatter = literal.getStringValue();
             if (originFormatter.equals("yyyyMMdd")) {
-                return new StringLiteral("%Y%m%d");
+                return new VarcharLiteral("%Y%m%d");
             } else if (originFormatter.equals("yyyy-MM-dd")) {
-                return new StringLiteral("%Y-%m-%d");
+                return new VarcharLiteral("%Y-%m-%d");
             } else if (originFormatter.equals("yyyy-MM-dd HH:mm:ss")) {
-                return new StringLiteral("%Y-%m-%d %H:%i:%s");
+                return new VarcharLiteral("%Y-%m-%d %H:%i:%s");
             }
         }
         return formatterExpr;
