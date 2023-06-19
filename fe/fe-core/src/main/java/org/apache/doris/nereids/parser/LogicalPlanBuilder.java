@@ -325,7 +325,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }
-        return new InsertIntoTableCommand(sink, labelName);
+        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
     }
 
     @Override
