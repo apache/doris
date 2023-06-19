@@ -14,7 +14,10 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
-
-mysql_host=192.168.0.171
-mysql_password=123456
+####################################################################
+# The tables is used to define doris external tables
+####################################################################
+t_demo.e_t_cickp_charge_connector
+t_demo.e_t_cickp_charge_equipment
+p_demo.e_p_inspection_task
+p_demo.e_p_inspection_result_record
