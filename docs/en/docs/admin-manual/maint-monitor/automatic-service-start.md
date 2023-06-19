@@ -1,11 +1,12 @@
 ---
 {
-    "title": "服务自动拉起",
-    "language": "zh-CN"
+    "title": "Automatic service start",
+    "language": "en"
 }
+
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,19 +25,19 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 服务自动拉起
+# Automatic service start
 
-本文档主要介绍如何配置Doris集群的自动拉起，保证生产环境中出现特殊情况导致服务宕机后未及时拉起服务从而影响到业务的正常运行。
+This document describes how to configure the automatic pull-up of the Doris cluster to ensure that services are not pulled up in time after service breaks down due to special circumstances in the production environment.
 
-Doris集群必须完全搭建完成后再配置FE和BE的自动拉起服务。
+The automatic pull-up service of FE and BE must be configured after the Doris cluster is completely set up.
 
-## Systemd配置Doris服务
+## Systemd Configures the Doris service
 
-systemd具体使用以及参数解析可以参考[这里](https://blog.51cto.com/arm2012/1963238) 
+For details about systemd usage and parameter parsing, see [here](https://blog.51cto.com/arm2012/1963238) 
 
-### sudo 权限控制
+### sudo permission control
 
-在使用 systemd 控制 doris 服务时，需要有 sudo 权限。为了保证最小粒度的 sudo 权限分配，可以将 doris-fe 与 doris-be 服务的 systemd 控制权限分配给指定的非 root 用户。在 visudo 来配置 doris-fe 与 doris-be 的 systemctl 管理权限。
+sudo permissions are required to control the doris service using systemd. To ensure the minimum granularity of sudo permission assignment, you can assign the systemd control permission of doris-fe and doris-be services to specified non-root users. Configure the systemctl management permission for doris-fe and doris-be in visudo.
 
 ```
 Cmnd_Alias DORISCTL=/usr/bin/systemctl start doris-fe,/usr/bin/systemctl stop doris-fe,/usr/bin/systemctl start doris-be,/usr/bin/systemctl stop doris-be
@@ -46,11 +47,11 @@ root    ALL=(ALL)       ALL
 doris   ALL=(ALL)       NOPASSWD:DORISCTL
 ```
 
-### 配置步骤
+### Configuration procedure
 
-1. 下载doris-fe.service文件: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
+1. Download the doris-fe.service file: [doris-fe.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-fe.service)
 
-2. doris-fe.service具体内容如下:
+2. The details of doris-fe.service are as follows:
 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
@@ -93,13 +94,13 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
     WantedBy=multi-user.target
     ```
 
-#### 注意事项
+#### Matters needing attention
 
-- ExecStart、ExecStop根据实际部署的fe的路径进行配置
+- ExecStart and ExecStop are configured based on actual fe paths
 
-3. 下载doris-be.service文件: [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
+3. Download the doris-be.service file : [doris-be.service](https://github.com/apache/doris/blob/master/tools/systemd/doris-be.service)
 
-4. doris-be.service具体内容如下: 
+4. The details of doris-be.service are as follows: 
     ```
     # Licensed to the Apache Software Foundation (ASF) under one
     # or more contributor license agreements.  See the NOTICE file
@@ -141,71 +142,71 @@ doris   ALL=(ALL)       NOPASSWD:DORISCTL
     WantedBy=multi-user.target
     ```
 
-#### 注意事项
+#### Matters needing attention
 
-- ExecStart、ExecStop根据实际部署的be的路径进行配置
+- ExecStart and ExecStop are configured based on actual be paths
 
-5. 服务配置
+5. Service configuration
 
-   将doris-fe.service、doris-be.service两个文件放到 /usr/lib/systemd/system 目录下
+   Place doris-fe.service and doris-be.service in the /usr/lib/systemd/system directory
 
-6. 设置自启动
+6. Set self-start
 
-    添加或修改配置文件后，需要重新加载
+    After you add or modify the configuration file, you need to reload it
 
     ```
     systemctl daemon-reload
     ```
 
-    设置自启动，实质就是在 /etc/systemd/system/multi-user.target.wants/ 添加服务文件的链接
+    Set the start, the essence is in the/etc/systemd/system/multi - user. Target. Wants/add service file link
 
     ```
     systemctl enable doris-fe
     systemctl enable doris-be
     ```
 
-7. 服务启动
+7. Service initiation
 
     ```
     systemctl start doris-fe
     systemctl start doris-be
     ```
 
-## Supervisor配置Doris服务
+## Supervisor configures the Doris service
 
-Supervisor 具体使用以及参数解析可以参考[这里](http://supervisord.org/)
+Supervisor Specific use and parameter analysis can be referred to [here](http://supervisord.org/)
 
-Supervisor 配置自动拉起可以使用 yum 命令直接安装，也可以通过pip手工安装，pip手工安装流程比较复杂，只展示yum方式部署，手工部署请参考[这里](http://supervisord.org/installing.html)进行安装部署。
+Supervisor configuration automatically pulls up the supervisor configuration. You can install the supervisor directly using the yum command or manually using pip. The pip manual installation process is complicated, and only the yum deployment mode is displayed.Manual deployment refer to [here] (http://supervisord.org/installing.html) for installation deployment.
 
-### 配置步骤
+### Configuration procedure
 
-1. yum安装supervisor
+1. yum Install supervisor
     
     ```
     yum install epel-release
     yum install -y supervisor
     ```
 
-2. 启动服务并查看状态
+2. Start the service and view the status
 
     ```
-    systemctl enable supervisord # 开机自启动
-    systemctl start supervisord # 启动supervisord服务
-    systemctl status supervisord # 查看supervisord服务状态
-    ps -ef|grep supervisord # 查看是否存在supervisord进程
+    systemctl enable supervisord # bootstrap
+    systemctl start supervisord # Start the supervisord service
+    systemctl status supervisord # Check the supervisord service status
+    ps -ef|grep supervisord # Check whether the supervisord process exists
     ```
 
-3. 配置BE进程管理
+3. Configure BE process management
 
     ```
-    修改start_be.sh脚本，去掉最后的 & 符号
+    Modify the start_be.sh script remove the last symbol &
 
     vim /path/doris/be/bin/start_be.sh
-    将 nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
-    修改为 nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null
+    Take this code : nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
+    Be changed to : nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null
     ```
 
-    创建 BE 的 supervisor进程管理配置文件
+    Create a supervisor process management configuration file for the BE
 
     ```
     vim /etc/supervisord.d/doris-be.ini
@@ -228,23 +229,23 @@ Supervisor 配置自动拉起可以使用 yum 命令直接安装，也可以通�
     #stdout_logfile=/var/log/supervisor-palo_be.log
     ```
 
-4. 配置FE进程管理
+4. Configure FE process management
 
     ```
-    修改start_fe.sh脚本，去掉最后的 & 符号
+    Modify the start_fe.sh script remove the last symbol &
 
     vim /path/doris/fe/bin/start_fe.sh 
-    将 nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
-    修改为 nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null
+    Take this code : nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
+    Be changed to : nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null
     ```
 
-    创建 FE 的 supervisor进程管理配置文件
+    Create a supervisor process management configuration file for FE
 
     ```
     vim /etc/supervisord.d/doris-fe.ini
 
     [program:PaloFe]
-    environment = JAVA_HOME="/path/jdk8"
+    environment = JAVA_HOME="/usr/local/java"
     process_name=PaloFe
     directory=/path/doris/fe
     command=sh /path/doris/fe/bin/start_fe.sh
@@ -262,17 +263,17 @@ Supervisor 配置自动拉起可以使用 yum 命令直接安装，也可以通�
     #stdout_logfile=/var/log/supervisor-PaloFe.log
     ```
 
-5. 配置Broker进程管理
+5. Configure Broker process management
 
     ```
-    修改 start_broker.sh 脚本，去掉最后的 & 符号
+    Modify the start_broker.sh script remove the last symbol &
 
     vim /path/apache_hdfs_broker/bin/start_broker.sh
-    将 nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
-    修改为 nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null
+    Take this code : nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
+    Be changed to : nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null
     ```
 
-    创建 Broker 的 supervisor进程管理配置文件
+    Create the supervisor process management profile for the Broker
 
     ```
     vim /etc/supervisord.d/doris-broker.ini
@@ -296,24 +297,33 @@ Supervisor 配置自动拉起可以使用 yum 命令直接安装，也可以通�
     #stdout_logfile=/var/log/supervisor-BrokerBootstrap.log
     ```
 
-6. 首先确定Doris服务是停止状态，然后使用supervisor将Doris自动拉起，然后确定进程是否正常启动
+6. First determine whether the Doris service is stopped, then use supervisor to automatically pull up Doris, and then determine whether the process starts normally
     
     ```
-    supervisorctl reload # 重新加载Supervisor中的所有配置文件
-    supervisorctl status # 查看supervisor状态，验证Doris服务进程是否正常启动
+    supervisorctl reload # Reload all the Supervisor configuration files
+    supervisorctl status # Check the supervisor status and verify that the Doris service process starts normally
 
     其他命令 : 
-    supervisorctl start all # supervisorctl start 可以开启进程
-    supervisorctl stop doris-be # 通过supervisorctl stop，停止进程
+    supervisorctl start all # supervisorctl start It is capable of opening processes
+    supervisorctl stop doris-be # The process is supervisorctl stop
     ```
 
-#### 注意事项:
+#### Matters needing attention:
 
-- 如果使用 yum 安装的 supervisor 启动报错 :  pkg_resources.DistributionNotFound: The 'supervisor==3.4.0' distribution was not found
+- If the supervisor installed using yum starts, an error occurs:  pkg_resources.DistributionNotFound: The 'supervisor==3.4.0' distribution was not found
 
 ```
-这个是 python 版本不兼容问题，通过yum命令直接安装的 supervisor 只支持 python2 版本，所以需要将 /usr/bin/supervisord 和 /usr/bin/supervisorctl 中文件内容开头 #!/usr/bin/python 改为 #!/usr/bin/python2 ，前提是要装 python2 版本
+supervisor installed directly using the yum command only supports python2,Therefore, the file contents in /usr/bin/supervisorctl and /usr/bin/supervisorctl should be changed at the beginning Change #! /usr/bin/python to #! /usr/bin/python2, python2 must be installed
 ```
+
+
+
+
+
+
+
+
+
 
 
 
