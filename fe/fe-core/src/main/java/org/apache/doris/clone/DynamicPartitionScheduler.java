@@ -339,9 +339,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     /**
-     * If dynamic_partition.storage_medium is set to SSD,
-     * ignore hot_partition_num property and set to (SSD, 9999-12-31 23:59:59)
-     * Else, if hot partition num is set, set storage medium to SSD due to time.
+     * If dynamic_partition.storage_medium is not set to SSD, set storage medium to SSD due to time.
      *
      * @param partitionProperties
      * @param property
@@ -351,17 +349,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
      */
     private void setStorageMediumProperty(HashMap<String, String> partitionProperties,
             DynamicPartitionProperty property, ZonedDateTime now, int hotPartitionNum, int offset) {
-        if ((hotPartitionNum <= 0 || offset + hotPartitionNum <= 0) && !property.getStorageMedium()
+        if (hotPartitionNum <= 0 || offset + hotPartitionNum <= 0 || property.getStorageMedium()
                 .equalsIgnoreCase("ssd")) {
             return;
         }
-        String cooldownTime;
-        if (property.getStorageMedium().equalsIgnoreCase("ssd")) {
-            cooldownTime = TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS);
-        } else {
-            cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
+        String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
                     property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
-        }
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
     }
