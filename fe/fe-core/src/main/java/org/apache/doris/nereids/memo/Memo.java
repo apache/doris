@@ -53,6 +53,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.stream.Collectors;
@@ -401,6 +402,31 @@ public class Memo {
         }
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
+
+        GroupExpression existedGroupExpression = groupExpressions.get(newGroupExpression);
+        // If group expression is already in memo and target group is not null, we merge two groups.
+        if (existedGroupExpression != null) {
+            if (Objects.equals(targetGroup, existedGroupExpression.getOwnerGroup())) {
+                mergeGroup(existedGroupExpression.getOwnerGroup(), targetGroup);
+            }
+            // When we create a GroupExpression, we will add it into ParentExpression of childGroup.
+            // But if it already exists, we should remove it from ParentExpression of childGroup.
+            newGroupExpression.children().forEach(childGroup -> childGroup.removeParentExpression(newGroupExpression));
+            return CopyInResult.of(true, existedGroupExpression);
+        }
+
+        // TODO: a trick to reduce mergeGroup.
+        // If we can't find existedGroup and plan is Join, we would try to new a commuted child GroupExpression.
+        // If we can find it, it indicates Memo already existed a target Group, we insert into it.
+        // if (targetGroup == null && plan instanceof Join) {
+        //     List<Group> commutedChildren = ImmutableList.of(childrenGroups.get(1), childrenGroups.get(0));
+        //     GroupExpression symmetricalGroupExpressions = new GroupExpression(plan, commutedChildren);
+        //     existedGroupExpression = groupExpressions.get(symmetricalGroupExpressions);
+        //     if (existedGroupExpression != null) {
+        //         targetGroup = existedGroupExpression.getOwnerGroup();
+        //     }
+        // }
+
         return insertGroupExpression(newGroupExpression, targetGroup, plan.getLogicalProperties());
         // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
@@ -436,27 +462,14 @@ public class Memo {
 
     /**
      * Insert groupExpression to target group.
-     * If group expression is already in memo and target group is not null, we merge two groups.
      * If target is null, generate new group.
      * If target is not null, add group expression to target group
      *
-     * @param groupExpression groupExpression to insert
-     * @param target target group to insert groupExpression
      * @return a pair, in which the first element is true if a newly generated groupExpression added into memo,
      *         and the second element is a reference of node in Memo
      */
     private CopyInResult insertGroupExpression(
             GroupExpression groupExpression, Group target, LogicalProperties logicalProperties) {
-        GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
-        if (existedGroupExpression != null) {
-            if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
-            }
-            // When we create a GroupExpression, we will add it into ParentExpression of childGroup.
-            // But if it already exists, we should remove it from ParentExpression of childGroup.
-            groupExpression.children().forEach(childGroup -> childGroup.removeParentExpression(groupExpression));
-            return CopyInResult.of(false, existedGroupExpression);
-        }
         if (target != null) {
             target.addGroupExpression(groupExpression);
         } else {
@@ -469,10 +482,9 @@ public class Memo {
 
     /**
      * Merge two groups.
-     * 1. find all group expression which has source as child
-     * 2. replace its child with destination
-     * 3. remove redundant group expression after replace child
-     * 4. move all group expression in source to destination
+     * 1. get all parent group expression of source Group
+     * 2. replace their child with destination. More detail is in following comment.
+     * 3. move all group expression & other content in source to destination
      *
      * @param source source group
      * @param destination destination group

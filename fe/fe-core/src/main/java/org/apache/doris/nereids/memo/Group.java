@@ -344,27 +344,9 @@ public class Group {
         }
         physicalExpressions.clear();
 
-        // Above we already replaceBestPlanGroupExpr, but we still need to moveLowestCostPlansOwnership.
-        // Because PhysicalEnforcer don't exist in physicalExpressions, so above `replaceBestPlanGroupExpr` can't
-        // move PhysicalEnforcer in lowestCostPlans. Following code can move PhysicalEnforcer in lowestCostPlans.
-        lowestCostPlans.forEach((physicalProperties, costAndGroupExpr) -> {
-            GroupExpression bestGroupExpression = costAndGroupExpr.second;
-            if (bestGroupExpression.getOwnerGroup() == this || bestGroupExpression.getOwnerGroup() == null) {
-                // move PhysicalEnforcer into target
-                Preconditions.checkState(bestGroupExpression.getPlan() instanceof PhysicalDistribute);
-                bestGroupExpression.setOwnerGroup(target);
-            }
-            // move lowestCostPlans Ownership
-            if (!target.lowestCostPlans.containsKey(physicalProperties)) {
-                target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
-            } else {
-                if (costAndGroupExpr.first.getValue()
-                        < target.lowestCostPlans.get(physicalProperties).first.getValue()) {
-                    target.lowestCostPlans.put(physicalProperties, costAndGroupExpr);
-                }
-            }
-        });
+        // recompute cost, so clean all lowestCostPlans.
         lowestCostPlans.clear();
+        target.lowestCostPlans.clear();
 
         // If statistics is null, use other statistics
         if (target.statistics == null) {
