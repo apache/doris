@@ -189,6 +189,13 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     // and ensures to update the latest LoadChannel profile according to the timestamp.
     _self_profile->set_timestamp(_last_updated_time);
 
+    {
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        for (auto& it : _tablets_channels) {
+            it.second->refresh_profile();
+        }
+    }
+
     TRuntimeProfileTree tprofile;
     _profile->to_thrift(&tprofile);
     ThriftSerializer ser(false, 4096);
