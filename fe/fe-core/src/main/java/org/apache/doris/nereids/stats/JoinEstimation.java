@@ -90,6 +90,7 @@ public class JoinEstimation {
          * In order to avoid error propagation, for unTrustEquations, we only use the biggest selectivity.
          */
         List<Double> unTrustEqualRatio = Lists.newArrayList();
+        List<EqualTo> unTrustableCondition = Lists.newArrayList();
         boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
         List<EqualTo> trustableConditions = join.getHashJoinConjuncts().stream()
                 .map(expression -> (EqualTo) expression)
@@ -115,6 +116,7 @@ public class JoinEstimation {
                                 unTrustEqualRatio.add((leftStatsRowCount / lNdv)
                                         * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / rNdv);
                             }
+                            unTrustableCondition.add(equal);
                         }
                         return trustable;
                     }
@@ -129,7 +131,7 @@ public class JoinEstimation {
 
         double outputRowCount = 1;
         if (!trustableConditions.isEmpty()) {
-            List<Pair<Expression, Double>> sortedJoinConditions = join.getHashJoinConjuncts().stream()
+            List<Pair<? extends Expression, Double>> sortedJoinConditions = trustableConditions.stream()
                     .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
                     .sorted((a, b) -> {
                         double sub = a.second - b.second;
@@ -147,14 +149,17 @@ public class JoinEstimation {
                 sel *= Math.pow(sortedJoinConditions.get(i).second, 1 / Math.pow(2, i));
             }
             outputRowCount = Math.max(1, crossJoinStats.getRowCount() * sel);
+            outputRowCount = outputRowCount * Math.pow(0.9, unTrustableCondition.size());
+            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         } else {
             outputRowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
             Optional<Double> ratio = unTrustEqualRatio.stream().max(Double::compareTo);
             if (ratio.isPresent()) {
                 outputRowCount = Math.max(1, outputRowCount * ratio.get());
             }
+            innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
         }
-        innerJoinStats = crossJoinStats.updateRowCountOnly(outputRowCount);
+
         if (!join.getOtherJoinConjuncts().isEmpty()) {
             FilterEstimation filterEstimation = new FilterEstimation();
             innerJoinStats = filterEstimation.estimate(
