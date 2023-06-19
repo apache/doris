@@ -307,7 +307,7 @@ DEFINE_Bool(disable_storage_row_cache, "true");
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
 // data page size for primary key index
-DEFINE_Int32(primary_key_data_page_size, "65536");
+DEFINE_Int32(primary_key_data_page_size, "32768");
 
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
