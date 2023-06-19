@@ -265,7 +265,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
 
 ${LIMIT:+${LIMIT}} ${DORIS_HOME}/lib/fs_benchmark_tool "$@" 2>&1 | tee "${LOG_DIR}/fs_benchmark_test.log"
-file_size=`cat  ${LOG_DIR}/fs_benchmark_test.log | grep "size:" |  awk 'NR==1{print $NF}'`
+file_size=`cat  ${LOG_DIR}/fs_benchmark_test.log | grep "size" |  awk 'NR==1{print $NF}'`
 thread_num=`cat  ${LOG_DIR}/fs_benchmark_test.log | grep "threads = " |  awk 'NR==1{print $NF}'`
 if [[ ! "$file_size" =~ ^[0-9]+$ ]];then
 	file_size=1;
