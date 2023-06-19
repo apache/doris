@@ -18,6 +18,7 @@
 package org.apache.doris.hudi;
 
 
+import org.apache.doris.common.classloader.ChildFirstClassLoader;
 import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
@@ -39,9 +40,7 @@ import org.apache.hudi.hadoop.realtime.HoodieRealtimeFileSplit;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.security.CodeSource;
 import java.security.PrivilegedExceptionAction;
-import java.security.ProtectionDomain;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -163,9 +162,7 @@ public class HudiJniScanner extends JniScanner {
         Thread.currentThread().setContextClassLoader(classLoader);
 
         org.apache.parquet.format.FileMetaData metaData = new org.apache.parquet.format.FileMetaData();
-        ProtectionDomain protectionDomain = metaData.getClass().getProtectionDomain();
-        CodeSource codeSource = protectionDomain.getCodeSource();
-        LOG.info("Load FileMetaData from: " + codeSource.getLocation().getPath());
+        LOG.warn("Load FileMetaData from: " + ChildFirstClassLoader.getClassLoadPath(metaData.getClass()).getPath());
 
         // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
         // so use another process to kill this stuck process.
