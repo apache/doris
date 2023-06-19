@@ -107,6 +107,7 @@
 #include "olap/utils.h"
 #include "segment_loader.h"
 #include "service/point_query_executor.h"
+#include "util/bvar_helper.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -138,6 +139,15 @@ using std::pair;
 using std::string;
 using std::vector;
 using io::FileSystemSPtr;
+
+static bvar::LatencyRecorder g_tablet_lookup_rowkey_latency("doris_pk", "tablet_lookup_rowkey");
+static bvar::LatencyRecorder g_tablet_commit_phase_update_delete_bitmap_latency(
+        "doris_pk", "commit_phase_update_delete_bitmap");
+static bvar::LatencyRecorder g_tablet_update_delete_bitmap_latency("doris_pk",
+                                                                   "update_delete_bitmap");
+static bvar::Adder<uint64_t> g_tablet_pk_not_found("doris_pk", "lookup_not_found");
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_tablet_pk_not_found_per_second(
+        "doris_pk", "lookup_not_found_per_second", &g_tablet_pk_not_found, 60);
 
 const std::chrono::seconds TRACE_TABLET_LOCK_THRESHOLD = 10s;
 
@@ -2695,6 +2705,7 @@ Status Tablet::lookup_row_key(
         uint32_t version,
         std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId>& segment_caches,
         RowsetSharedPtr* rowset) {
+    SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     if (_schema->has_sequence_col() && with_seq_col) {
         seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
@@ -2755,6 +2766,7 @@ Status Tablet::lookup_row_key(
             return s;
         }
     }
+    g_tablet_pk_not_found << 1;
     return Status::NotFound("can't find key in all rowsets");
 }
 
@@ -3170,6 +3182,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
         const RowsetSharedPtr& rowset, RowsetIdUnorderedSet& pre_rowset_ids,
         DeleteBitmapPtr delete_bitmap, const std::vector<segment_v2::SegmentSharedPtr>& segments,
         int64_t txn_id, RowsetWriter* rowset_writer) {
+    SCOPED_BVAR_LATENCY(g_tablet_commit_phase_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;
@@ -3211,6 +3224,7 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
                                     const RowsetIdUnorderedSet& pre_rowset_ids,
                                     DeleteBitmapPtr delete_bitmap, int64_t txn_id,
                                     RowsetWriter* rowset_writer) {
+    SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;

@@ -52,6 +52,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "util/bvar_helper.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
@@ -71,6 +72,8 @@ namespace segment_v2 {
 class InvertedIndexIterator;
 
 using io::FileCacheManager;
+
+static bvar::LatencyRecorder g_segment_lookup_rowkey_latency("doris_pk", "segment_lookup_rowkey");
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
@@ -355,6 +358,7 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
 }
 
 Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location) {
+    SCOPED_BVAR_LATENCY(g_segment_lookup_rowkey_latency);
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = _tablet_schema->has_sequence_col();
     size_t seq_col_length = 0;
