@@ -252,9 +252,9 @@ public class DynamicPartitionUtil {
         } catch (NumberFormatException e) {
             throw new DdlException("Invalid " + DynamicPartitionProperty.HOT_PARTITION_NUM + " value");
         } catch (DdlException e) {
-            throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
-                   + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store in ssd. "
-                   + " Please check the replication num,replication tag and storage medium.");
+            throw new DdlException("Failed to find enough backend, please check the replication num,replication "
+                   + "tag and storage medium. It use ssd storage for hot partitions when setting"
+                   + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0");
         }
     }
 
