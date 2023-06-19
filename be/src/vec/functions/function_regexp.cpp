@@ -64,7 +64,6 @@ struct RegexpMatchStrPos {
 };
 
 struct RegexpReplaceState {
-    /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
     std::unique_ptr<re2::RE2> regex;
 
     template <typename Deleter, Deleter deleter>
@@ -105,13 +104,17 @@ struct RegexpReplaceImplOpt {
         const auto* str_col = check_and_get_column<ColumnString>(argument_columns[0].get());
         const auto* pattern_col = check_and_get_column<ColumnString>(argument_columns[1].get());
         const auto* replace_col = check_and_get_column<ColumnString>(argument_columns[2].get());
+        RegexpMatchStrPos regexp_match_str_pos;
+        regexp_match_str_pos.vector_pos.reserve(8);
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 StringOP::push_null_string(i, result_data, result_offset, null_map);
                 continue;
             }
+            regexp_match_str_pos.vector_pos.clear();
+            regexp_match_str_pos.last_to = 0;
             _execute_inner_loop<false>(context, str_col, pattern_col, replace_col, result_data,
-                                       result_offset, null_map, i, nullptr);
+                                       result_offset, null_map, i, &regexp_match_str_pos);
         }
     }
     static Status execute_impl_const_args(FunctionContext* context, ColumnPtr argument_columns[],
