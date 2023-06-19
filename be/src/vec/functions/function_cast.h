@@ -1347,10 +1347,11 @@ struct ConvertThroughParsing {
                         if constexpr (is_load_ && is_strict_insert_) {
                             if (string_size != 0 && (*vec_null_map_to)[i]) {
                                 return Status::InternalError(
-                                        "Invalid value in strict mode for function {}, source "
+                                        "Invalid value {} in strict mode for function {}, source "
                                         "column {}, from "
                                         "type "
                                         "{} to type {}",
+                                        std::string((char*)&(*chars)[current_offset], string_size),
                                         Name::name, col_from->get_name(), FromDataType().get_name(),
                                         ToDataType().get_name());
                             }
