@@ -80,7 +80,7 @@ public class ColocatePlanTest extends TestWithFeService {
     @Test
     public void sqlDistributedSmallerThanData1() throws Exception {
         String plan1 = getSQLPlanOrErrorMsg(
-                "explain select * from (select k1 from db1.test_colocate group by k1) a , db1.test_colocate b "
+                "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from (select k1 from db1.test_colocate group by k1) a , db1.test_colocate b "
                         + "where a.k1=b.k1");
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA));
@@ -89,7 +89,7 @@ public class ColocatePlanTest extends TestWithFeService {
     // without : join column < distributed columns;
     @Test
     public void sqlDistributedSmallerThanData2() throws Exception {
-        String sql = "explain select * from (select k1 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
+        String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from (select k1 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
                 + "where a.k1=b.k1";
         String plan1 = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(plan1.contains(DistributedPlanColocateRule.INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY));
@@ -170,7 +170,7 @@ public class ColocatePlanTest extends TestWithFeService {
     @Test
     public void checkColocatePlanFragment() throws Exception {
         String sql
-                = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
+                = "select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
         StmtExecutor executor = getSqlStmtExecutor(sql);
         Planner planner = executor.planner();
         Coordinator coordinator = Deencapsulation.getField(executor, "coord");
