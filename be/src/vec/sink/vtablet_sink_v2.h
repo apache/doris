@@ -282,7 +282,7 @@ private:
     std::unordered_set<int64_t> _opened_partitions;
 
     std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
-    std::shared_ptr<std::mutex> _delta_writer_for_tablet_mutex;
+    std::shared_ptr<bthread::Mutex> _delta_writer_for_tablet_mutex;
     std::atomic<int32_t> _flying_task_count {0};
 };
 

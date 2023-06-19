@@ -212,7 +212,7 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
-    _delta_writer_for_tablet_mutex = std::make_shared<std::mutex>();
+    _delta_writer_for_tablet_mutex = std::make_shared<bthread::Mutex>();
 
     return Status::OK();
 }
@@ -382,7 +382,7 @@ void* VOlapTableSinkV2::_write_memtable_task(void* closure) {
     VOlapTableSinkV2* sink = ctx->sink;
     DeltaWriter* delta_writer = nullptr;
     {
-        std::lock_guard<std::mutex> l(*sink->_delta_writer_for_tablet_mutex);
+        std::lock_guard<bthread::Mutex> l(*sink->_delta_writer_for_tablet_mutex);
         auto key = std::make_pair(ctx->tablet_id, ctx->index_id);
         auto it = sink->_delta_writer_for_tablet->find(key);
         if (it == sink->_delta_writer_for_tablet->end()) {
