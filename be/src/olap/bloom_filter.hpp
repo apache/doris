@@ -69,7 +69,16 @@ public:
     }
 
     // Set the bit specified by param, note that uint64_t type contains 2^6 bits
-    void set(uint32_t index) { _data[index >> 6] |= 1L << (index % 64); }
+    void set(uint32_t index) {
+        int idx = (int) (index >> 6);
+        int64_t mask = 1L << (index % 64);
+        int64_t old_v = _data[idx];
+        int64_t new_v = old_v | mask;
+        if (old_v != new_v) {
+            ++_num_bit_1;
+            _data[idx] = new_v;
+        }
+    }
 
     // Return true if the bit specified by param is set
     bool get(uint32_t index) const { return (_data[index >> 6] & (1L << (index % 64))) != 0; }
@@ -113,9 +122,12 @@ public:
         _data_len = 0;
     }
 
+    int64_t num_bit_1() const { return _num_bit_1; }
+
 private:
     uint64_t* _data;
     uint32_t _data_len;
+    int64_t _num_bit_1 = 0; 
 };
 
 class BloomFilter {
@@ -246,6 +258,13 @@ public:
         }
 
         return stream.str();
+    }
+
+    int64_t approximate_count() {
+        int64_t bit_size = _bit_set.data_len() * sizeof(uint64_t);
+        int64_t bit_count = _bit_set.num_bit_1();
+        double frac_of_bit_set = (double) bit_count / bit_size;
+        return -(int64_t)(log(1 - frac_of_bit_set) * bit_size / _hash_function_num);
     }
 
 private:
