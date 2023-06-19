@@ -69,6 +69,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+class DeltaWriter;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -194,6 +195,34 @@ class VOlapTableSinkV2;
 
 // pair<row_id,tablet_id>
 using Payload = std::pair<std::unique_ptr<vectorized::IColumn::Selector>, std::vector<int64_t>>;
+
+struct WriteMemtableTaskClosure {
+    VOlapTableSinkV2* sink;
+    std::shared_ptr<vectorized::Block> block;
+    int64_t partition_id;
+    int64_t index_id;
+    int64_t tablet_id;
+    std::vector<int32_t> row_idxes;
+};
+
+// <tablet_id, index_id>
+using TabletID = std::pair<int64_t, int64_t>;
+using DeltaWriterForTablet = std::unordered_map<TabletID, DeltaWriter*>;
+
+struct TabletKey {
+    int64_t partition_id;
+    int64_t index_id;
+    int64_t tablet_id;
+    bool operator==(const TabletKey&) const = default;
+};
+
+struct TabletKeyHash {
+    std::size_t operator()(const TabletKey& k) const {
+        return (k.partition_id << 2) ^ (k.index_id << 1) ^ (k.tablet_id);
+    }
+};
+// map<TabletKey, row_idxes>
+using RowsForTablet = std::unordered_map<TabletKey, std::vector<int32_t>, TabletKeyHash>;
 
 class VNodeChannelV2Stat {
 public:
@@ -491,6 +520,11 @@ private:
                                             const VOlapTablePartition* partition,
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
 
+    void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
+                                   const VOlapTablePartition* partition,
+                                   uint32_t tablet_index, int row_idx, size_t row_cnt);
+    static void* _write_memtable_task(void* write_ctx);
+
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
@@ -633,6 +667,11 @@ private:
     RuntimeState* _state = nullptr;
 
     std::unordered_set<int64_t> _opened_partitions;
+
+    std::shared_ptr<DeltaWriterForTablet> _delta_writer_for_tablet;
+    std::shared_ptr<std::mutex> _delta_writer_for_tablet_mutex;
+    std::vector<bthread_t> _write_memtable_threads;
+    std::atomic<int32_t> _flying_task_count {0};
 };
 
 } // namespace stream_load

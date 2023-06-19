@@ -46,6 +46,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "olap/delta_writer.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -1150,6 +1151,9 @@ Status VOlapTableSinkV2::open(RuntimeState* state) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
 
+    _delta_writer_for_tablet = std::make_shared<DeltaWriterForTablet>();
+    _delta_writer_for_tablet_mutex = std::make_shared<std::mutex>();
+
     return Status::OK();
 }
 
@@ -1277,6 +1281,21 @@ void VOlapTableSinkV2::_generate_row_distribution_payload(
     }
 }
 
+void VOlapTableSinkV2::_generate_rows_for_tablet(
+        RowsForTablet& rows_for_tablet, const VOlapTablePartition* partition,
+        uint32_t tablet_index, int row_idx, size_t row_cnt) {
+    // Generate channel payload for sinking data to each tablet
+    for (const auto& index : partition->indexes) {
+        auto tablet_id = index.tablets[tablet_index];
+        auto key = TabletKey{partition->id, index.index_id, tablet_id};
+        if (rows_for_tablet.count(key) == 0) {
+            rows_for_tablet.insert({key, std::vector<int32_t>()});
+        }
+        rows_for_tablet[key].push_back(row_idx);
+        _number_output_rows += row_cnt;
+    }
+}
+
 Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -1295,34 +1314,35 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
-    vectorized::Block block(input_block->get_columns_with_type_and_name());
+    auto block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_vexpr_ctxs, *input_block, &block));
+                _output_vexpr_ctxs, *input_block, block.get()));
     }
 
-    auto num_rows = block.rows();
+    auto num_rows = block->rows();
     int filtered_rows = 0;
     {
         SCOPED_RAW_TIMER(&_validate_data_ns);
-        _filter_bitmap.Reset(block.rows());
+        _filter_bitmap.Reset(block->rows());
         bool stop_processing = false;
         RETURN_IF_ERROR(
-                _validate_data(state, &block, &_filter_bitmap, &filtered_rows, &stop_processing));
+                _validate_data(state, block.get(), &_filter_bitmap, &filtered_rows, &stop_processing));
         _number_filtered_rows += filtered_rows;
         if (stop_processing) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
             // because of "data unqualified"
             return Status::EndOfFile("Encountered unqualified data, stop processing");
         }
-        _convert_to_dest_desc_block(&block);
+        _convert_to_dest_desc_block(block.get());
     }
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
     bool stop_processing = false;
     std::vector<std::unordered_map<VNodeChannelV2*, Payload>> channel_to_payload;
+    RowsForTablet rows_for_tablet;
     channel_to_payload.resize(_channels.size());
     if (findTabletMode == FIND_TABLET_EVERY_BATCH) {
         // Recaculate is needed
@@ -1336,65 +1356,82 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
         const VOlapTablePartition* partition = nullptr;
         bool is_continue = false;
         uint32_t tablet_index = 0;
-        RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+        RETURN_IF_ERROR(find_tablet(state, block.get(), i, &partition, tablet_index, stop_processing,
                                     is_continue));
         if (is_continue) {
             continue;
         }
-        // each row
-        _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
-        // open partition
-        if (config::enable_lazy_open_partition) {
-            // aysnc open operation,don't block send operation
-            _open_partition(partition);
-        }
+        _generate_rows_for_tablet(rows_for_tablet, partition, tablet_index, i, 1);
     }
     _row_distribution_watch.stop();
-    // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
-    // block into node channel.
-    bool load_block_to_single_tablet =
-            !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
-    if (load_block_to_single_tablet) {
-        SCOPED_RAW_TIMER(&_filter_ns);
-        // clear and release the references of columns
-        input_block->clear();
-        // Filter block
-        if (filtered_rows > 0) {
-            auto filter = vectorized::ColumnUInt8::create(block.rows(), 0);
-            vectorized::UInt8* filter_data =
-                    static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data().data();
-            vectorized::IColumn::Filter& filter_col =
-                    static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data();
-            for (size_t i = 0; i < filter_col.size(); ++i) {
-                filter_data[i] = !_filter_bitmap.Get(i);
-            }
-            RETURN_IF_CATCH_EXCEPTION(
-                    vectorized::Block::filter_block_internal(&block, filter_col, block.columns()));
-        }
-    }
-    // Add block to node channel
-    for (size_t i = 0; i < _channels.size(); i++) {
-        for (const auto& entry : channel_to_payload[i]) {
-            // if this node channel is already failed, this add_row will be skipped
-            auto st = entry.first->add_block(
-                    &block, &entry.second,
-                    // if it is load single tablet, then append this whole block
-                    load_block_to_single_tablet);
-            if (!st.ok()) {
-                _channels[i]->mark_as_failed(entry.first->node_id(), entry.first->host(),
-                                             st.to_string());
-            }
-        }
+
+    // For each tablet, send its rows from block to delta writer
+    for (const auto& entry : rows_for_tablet) {
+        bthread_t th;
+        auto closure = new WriteMemtableTaskClosure{};
+        closure->sink = this;
+        closure->block = block;
+        closure->partition_id = entry.first.partition_id;
+        closure->index_id = entry.first.index_id;
+        closure->tablet_id = entry.first.tablet_id;
+        closure->row_idxes = entry.second;
+        auto cnt = _flying_task_count.fetch_add(1) + 1;
+        LOG(INFO) << "Creating WriteMemtableTask for Tablet(tablet id: " << closure->tablet_id
+                  << ", index id: " << closure->index_id << "), flying task count: " << cnt;
+        bthread_start_background(&th, nullptr, _write_memtable_task, closure);
+        _write_memtable_threads.push_back(th);
     }
 
-    // check intolerable failure
-    for (const auto& index_channel : _channels) {
-        RETURN_IF_ERROR(index_channel->check_intolerable_failure());
-    }
     return Status::OK();
 }
 
+void* VOlapTableSinkV2::_write_memtable_task(void* closure) {
+    auto ctx = static_cast<WriteMemtableTaskClosure*>(closure);
+    VOlapTableSinkV2* sink = ctx->sink;
+    DeltaWriter* delta_writer = nullptr;
+    {
+        std::lock_guard<std::mutex> l(*sink->_delta_writer_for_tablet_mutex);
+        auto key = std::make_pair(ctx->tablet_id, ctx->index_id);
+        auto it = sink->_delta_writer_for_tablet->find(key);
+        if (it == sink->_delta_writer_for_tablet->end()) {
+            LOG(INFO) << "Creating DeltaWriter for Tablet(tablet id: " << ctx->tablet_id
+                      << ", index id: " << ctx->index_id << ")";
+            WriteRequest wrequest;
+            wrequest.partition_id = ctx->partition_id;
+            wrequest.index_id = ctx->index_id;
+            wrequest.tablet_id = ctx->tablet_id;
+            wrequest.write_type = WriteType::LOAD;
+            wrequest.txn_id = sink->_txn_id;
+            wrequest.load_id = sink->_load_id;
+            wrequest.tuple_desc = sink->_output_tuple_desc;
+            wrequest.is_high_priority = sink->_is_high_priority;
+            wrequest.table_schema_param = sink->_schema.get();
+            for (auto& index : sink->_schema->indexes()) {
+                if (index->index_id == ctx->index_id) {
+                    wrequest.slots = &index->slots;
+                    wrequest.schema_hash = index->schema_hash;
+                    break;
+                }
+            }
+            DeltaWriter::open(&wrequest, &delta_writer, sink->_profile, sink->_load_id);
+            sink->_delta_writer_for_tablet->insert({key, delta_writer});
+        } else {
+            LOG(INFO) << "Reusing DeltaWriter for Tablet(tablet id: " << ctx->tablet_id
+                      << ", index id: " << ctx->index_id << ")";
+            delta_writer = it->second;
+        }
+    }
+    auto st = delta_writer->write(ctx->block.get(), ctx->row_idxes, false);
+    auto cnt = sink->_flying_task_count.fetch_sub(1) - 1;
+    LOG(INFO) << "Finished writing Tablet(tablet id: " << ctx->tablet_id
+              << ", index id: " << ctx->index_id << "), flying task count: " << cnt;
+    delete ctx;
+    DCHECK_EQ(st, Status::OK()) << "DeltaWriter::write failed";
+    return nullptr;
+}
+
 Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
+    LOG(INFO) << "Closing VOlapTableSinkV2, flying task count: " << _flying_task_count;
     if (_closed) {
         return _close_status;
     }
@@ -1532,6 +1569,13 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         // shutdown it.
         _send_batch_thread_pool_token->wait();
     }
+
+    for (auto& th : _write_memtable_threads) {
+        if (th) {
+            bthread_join(th, nullptr);
+        }
+    }
+    // TODO: wait all stream done
 
     _close_status = status;
     DataSink::close(state, exec_status);
