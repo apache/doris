@@ -252,6 +252,7 @@ Status VOlapTableSinkV2::_init_stream_pool(StreamPool& stream_pool) {
         request.set_backend_id(node_info.id);
         POpenStreamSinkResponse response;
         stub->open_stream_sink(&cntl, &request, &response, nullptr);
+        request.release_id();
         if (cntl.Failed()) {
             LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
             // TODO: uncomment return
