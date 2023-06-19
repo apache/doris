@@ -40,7 +40,7 @@ suite ("test_agg_state_max_by") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table(k4,k2) values('d',4);"
 
-    createMV( "create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;")
+    createMV("create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
