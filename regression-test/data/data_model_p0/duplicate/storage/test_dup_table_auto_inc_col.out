@@ -4,14 +4,14 @@ id	BIGINT	No	true	\N	AUTO_INCREMENT
 value	INT	No	false	\N	NONE
 
 -- !sql --
-test_dup_tab_auto_inc_col1	CREATE TABLE `test_dup_tab_auto_inc_col1` (\n  `id` bigint(20) NOT NULL AUTO_INCREMENT,\n  `value` int(11) NOT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`id`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`id`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"binlog.enable" = "false",\n"binlog.ttl_seconds" = "9223372036854775807",\n"binlog.max_bytes" = "9223372036854775807",\n"binlog.max_history_nums" = "9223372036854775807",\n"enable_single_replica_compaction" = "false"\n);
+test_dup_tab_auto_inc_col1	CREATE TABLE `test_dup_tab_auto_inc_col1` (\n  `id` bigint(20) NOT NULL AUTO_INCREMENT,\n  `value` int(11) NOT NULL\n) ENGINE=OLAP\nDUPLICATE KEY(`id`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`id`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false"\n);
 
 -- !desc --
 id	INT	No	true	\N	
 value	BIGINT	No	false	\N	NONE,AUTO_INCREMENT
 
 -- !sql --
-test_dup_tab_auto_inc_col2	CREATE TABLE `test_dup_tab_auto_inc_col2` (\n  `id` int(11) NOT NULL,\n  `value` bigint(20) NOT NULL AUTO_INCREMENT\n) ENGINE=OLAP\nDUPLICATE KEY(`id`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`id`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"binlog.enable" = "false",\n"binlog.ttl_seconds" = "9223372036854775807",\n"binlog.max_bytes" = "9223372036854775807",\n"binlog.max_history_nums" = "9223372036854775807",\n"enable_single_replica_compaction" = "false"\n);
+test_dup_tab_auto_inc_col2	CREATE TABLE `test_dup_tab_auto_inc_col2` (\n  `id` int(11) NOT NULL,\n  `value` bigint(20) NOT NULL AUTO_INCREMENT\n) ENGINE=OLAP\nDUPLICATE KEY(`id`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`id`) BUCKETS 1\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false"\n);
 
 -- !sql --
 1
