@@ -52,7 +52,6 @@ static bvar::Adder<uint64_t> g_index_reader_pk_pages("doris_pk", "index_reader_p
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pk_bytes_per_second(
         "doris_pk", "index_reader_pk_pages_per_second", &g_index_reader_pk_pages, 60);
 
-
 using strings::Substitute;
 
 Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
