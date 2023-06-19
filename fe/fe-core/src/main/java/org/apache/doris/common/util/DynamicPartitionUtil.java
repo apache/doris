@@ -243,10 +243,11 @@ public class DynamicPartitionUtil {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HOT_PARTITION_NUM);
         }
         try {
-            if (Integer.parseInt(val) < 0) {
+            int hotPartitionNum = Integer.parseInt(val);
+            if (hotPartitionNum < 0) {
                 throw new DdlException(DynamicPartitionProperty.HOT_PARTITION_NUM + " must larger than 0.");
             }
-            if (replicaAlloc != null) {
+            if (hotPartitionNum > 0 && replicaAlloc != null) {
                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD);
             }
         } catch (NumberFormatException e) {
