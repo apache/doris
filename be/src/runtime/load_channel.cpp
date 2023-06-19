@@ -56,7 +56,6 @@ void LoadChannel::_init_profile() {
             _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
-    _profile->add_child(_self_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
