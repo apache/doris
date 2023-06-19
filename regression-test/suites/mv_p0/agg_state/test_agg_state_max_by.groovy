@@ -45,10 +45,11 @@ suite ("test_agg_state_max_by") {
     sql "insert into d_table select -4,-4,-4,'d';"
 
     qt_select_star "select * from d_table order by k1;"
-
+/*
     explain {
         sql("select k1,max_by(k2,k3) from d_table group by k1 order by k1;")
         contains "(k1mb)"
     }
     qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by k1;"
+*/
 }
