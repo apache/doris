@@ -218,11 +218,12 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-
-        try {
-            updateTableStats(jobInfo);
-        } catch (Throwable e) {
-            throw new DdlException("Failed to update Table statistics");
+        if (!isSync) {
+            try {
+                updateTableStats(jobInfo);
+            } catch (Throwable e) {
+                throw new DdlException("Failed to update Table statistics");
+            }
         }
 
         if (isSync) {
