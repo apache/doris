@@ -326,7 +326,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTableSink sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
                 olapTuple,
-                olapTableSink.getPartitionIds(),
+                olapTableSink.getPartitionIds().orElse(null),
                 olapTableSink.isSingleReplicaLoad()
         );
 

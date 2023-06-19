@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,26 +39,26 @@ import java.util.Optional;
  */
 public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Unbound {
     private final List<String> nameParts;
-    private final List<String> colNames;
-    private final List<String> hints;
-    private final List<String> partitions;
+    private final Optional<List<String>> colNames;
+    private final Optional<List<String>> hints;
+    private final Optional<List<String>> partitions;
 
-    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, CHILD_TYPE child) {
+    public UnboundOlapTableSink(List<String> nameParts, Optional<List<String>> colNames, Optional<List<String>> hints,
+            Optional<List<String>> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, Optional.empty(), Optional.empty(), child);
     }
 
-    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, Optional<GroupExpression> groupExpression,
+    public UnboundOlapTableSink(List<String> nameParts, Optional<List<String>> colNames, Optional<List<String>> hints,
+            Optional<List<String>> partitions, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts cannot be null"));
-        this.colNames = Utils.copyIfNotNull(colNames);
-        this.hints = Utils.copyIfNotNull(hints);
-        this.partitions = Utils.copyIfNotNull(partitions);
+        this.colNames = colNames;
+        this.hints = hints;
+        this.partitions = partitions;
     }
 
-    public List<String> getColNames() {
+    public Optional<List<String>> getColNames() {
         return colNames;
     }
 
@@ -67,7 +66,7 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return nameParts;
     }
 
-    public List<String> getPartitions() {
+    public Optional<List<String>> getPartitions() {
         return partitions;
     }
 

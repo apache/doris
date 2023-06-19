@@ -47,6 +47,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import javax.annotation.Nullable;
 
 /**
@@ -119,7 +120,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
 
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
+        return new UnboundOlapTableSink<>(nameParts, Optional.empty(), Optional.empty(),
+                Optional.empty(), logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {

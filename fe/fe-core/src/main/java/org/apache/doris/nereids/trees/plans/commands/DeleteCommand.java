@@ -43,6 +43,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * delete from unique key table.
@@ -112,7 +113,8 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, cols, null, partitions, logicalQuery);
+        return new UnboundOlapTableSink<>(nameParts, Optional.of(cols), Optional.empty(),
+                Optional.ofNullable(partitions), logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {
