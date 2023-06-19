@@ -98,6 +98,7 @@ void Daemon::tcmalloc_gc_thread() {
     size_t expected_aggressive_decommit = 0;
     int64_t last_memory_pressure = 0;
 
+    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 0);
     MallocExtension::instance()->GetNumericProperty("tcmalloc.aggressive_memory_decommit",
                                                     &init_aggressive_decommit);
     current_aggressive_decommit = init_aggressive_decommit;
