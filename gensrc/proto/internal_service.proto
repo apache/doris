@@ -71,24 +71,6 @@ message PTabletInfo {
     optional int64 received_rows = 4;
 }
 
-// open stream sink
-message POpenStreamSinkRequest {
-    optional PUniqueId id = 1;
-    optional int64 backend_id = 2 [default = -1];
-};
-
-message POpenStreamSinkResponse {
-    optional PStatus status = 1;
-};
-
-message PWriteStreamSinkResponse {
-    optional bool success = 1;
-    optional string error_msg = 2;
-    optional int64 index_id = 3;
-    optional int64 tablet_id = 4;
-    optional int64 backend_id = 5;
-};
-
 // open a tablet writer
 message PTabletWriterOpenRequest {
     required PUniqueId id = 1;
@@ -696,6 +678,24 @@ message PGetTabletVersionsResponse {
     repeated PVersion versions = 2;
 };
 
+// open stream sink
+message POpenStreamSinkRequest {
+    optional PUniqueId id = 1;
+    optional int64 backend_id = 2 [default = -1];
+};
+
+message POpenStreamSinkResponse {
+    optional PStatus status = 1;
+};
+
+message PWriteStreamSinkResponse {
+    optional bool success = 1;
+    optional string error_msg = 2;
+    optional int64 index_id = 3;
+    optional int64 tablet_id = 4;
+    optional int64 backend_id = 5;
+};
+
 message PStreamHeader {
     enum Opcode {
         OPEN_FILE = 0;
@@ -711,14 +711,6 @@ message PStreamHeader {
     optional int64 rowset_id = 7;
 }
 
-message POpenStreamSinkRequest {
-    optional PUniqueId id = 1;
-}
-
-message POpenStreamSinkResponse {
-    optional PStatus status = 1;
-}
-
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -729,7 +721,6 @@ service PBackendService {
     rpc exec_plan_fragment_start(PExecPlanFragmentStartRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
-    rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc open_stream_sink(POpenStreamSinkRequest) returns (POpenStreamSinkResponse);
     rpc open_partition(OpenPartitionRequest) returns (OpenPartitionResult);
