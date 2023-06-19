@@ -26,7 +26,6 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;

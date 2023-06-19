@@ -607,7 +607,7 @@ public class DynamicPartitionUtil {
         }
 
         // check replication_allocation first, then replciation_num
-        ReplicaAllocation replicaAlloc = null;
+        ReplicaAllocation replicaAlloc;
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
             checkReplicaAllocation(replicaAlloc, db);
