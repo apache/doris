@@ -38,8 +38,9 @@ public class HudiScannerLoader implements ScannerLoader {
         String basePath = System.getenv("DORIS_HOME");
         URL[] hudiAssemblyJar;
         try {
-            File hudiAssemblyFile = new File(basePath + "/lib/hudi-scanner-jar-with-dependencies.jar");
-            hudiAssemblyJar = new URL[]{hudiAssemblyFile.toURI().toURL()};
+            File hudiAssemblyFile =
+                    new File(basePath + "/lib/java_extensions/hudi-scanner-jar-with-dependencies.jar");
+            hudiAssemblyJar = new URL[] {hudiAssemblyFile.toURI().toURL()};
         } catch (MalformedURLException e) {
             e.printStackTrace();
             throw new RuntimeException("Hudi scanner loader error", e);

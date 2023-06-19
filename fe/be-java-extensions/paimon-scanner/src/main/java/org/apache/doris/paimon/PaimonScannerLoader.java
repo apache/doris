@@ -35,8 +35,9 @@ public class PaimonScannerLoader implements ScannerLoader {
         String basePath = System.getenv("DORIS_HOME");
         URL[] paimonAssemblyJar;
         try {
-            File paimonAssemblyFile = new File(basePath + "/lib/paimon-scanner-jar-with-dependencies.jar");
-            paimonAssemblyJar = new URL[]{paimonAssemblyFile.toURI().toURL()};
+            File paimonAssemblyFile =
+                    new File(basePath + "/lib/java_extensions/paimon-scanner-jar-with-dependencies.jar");
+            paimonAssemblyJar = new URL[] {paimonAssemblyFile.toURI().toURL()};
         } catch (MalformedURLException e) {
             e.printStackTrace();
             throw new RuntimeException("Paimon scanner loader error", e);

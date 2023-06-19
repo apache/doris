@@ -22,8 +22,9 @@ import org.apache.log4j.Logger;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.security.CodeSource;
+import java.security.ProtectionDomain;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 
@@ -38,11 +39,17 @@ public class ChildFirstClassLoader extends URLClassLoader {
 
     private static final Logger LOG = Logger.getLogger(ChildFirstClassLoader.class);
 
-    private ParentClassLoader parent;
+    public static URL getClassLoadPath(Class<?> loadClass) {
+        ProtectionDomain protectionDomain = loadClass.getProtectionDomain();
+        CodeSource codeSource = protectionDomain.getCodeSource();
+        if (codeSource != null) {
+            return codeSource.getLocation();
+        } else {
+            return null;
+        }
+    }
 
-    private final String[] alwaysParentFirstPatterns = new String[]{
-        "org.apache.doris.common.jni.utils.JNINativeMethod"
-    };
+    private final ParentClassLoader parent;
 
     public ChildFirstClassLoader(URL[] urls, ClassLoader parent) {
         super(urls, null);
@@ -51,9 +58,6 @@ public class ChildFirstClassLoader extends URLClassLoader {
 
     @Override
     public Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        if (Arrays.stream(alwaysParentFirstPatterns).anyMatch(c -> c.startsWith(name))) {
-            return parent.loadClass(name, resolve);
-        }
         try {
             return super.loadClass(name, resolve);
         } catch (ClassNotFoundException cnf) {

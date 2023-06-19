@@ -35,8 +35,9 @@ public class MaxComputeScannerLoader implements ScannerLoader {
         String basePath = System.getenv("DORIS_HOME");
         URL[] maxComputeAssemblyJar;
         try {
-            File maxComputeAssemblyFile = new File(basePath + "/lib/max-compute-jar-with-dependencies.jar");
-            maxComputeAssemblyJar = new URL[]{maxComputeAssemblyFile.toURI().toURL()};
+            File maxComputeAssemblyFile =
+                    new File(basePath + "/lib/java_extensions/max-compute-jar-with-dependencies.jar");
+            maxComputeAssemblyJar = new URL[] {maxComputeAssemblyFile.toURI().toURL()};
         } catch (MalformedURLException e) {
             e.printStackTrace();
             throw new RuntimeException("MaxCompute scanner loader error", e);
