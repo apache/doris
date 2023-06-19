@@ -91,11 +91,11 @@ public class TableNameComparedLowercaseTest {
 
     @Test
     public void testQueryTableNameCaseInsensitive() throws Exception {
-        String sql1 = "select Table1.siteid, Table2.k2 from Table1 join Table2 on Table1.siteid = Table2.k1"
+        String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ Table1.siteid, Table2.k2 from Table1 join Table2 on Table1.siteid = Table2.k1"
                 + " where Table2.k5 > 1000 order by Table1.siteid";
         dorisAssert.query(sql1).explainQuery();
 
-        String sql2 = "select Table1.siteid, Table2.k2 from table1 join table2 on TAble1.siteid = TAble2.k1"
+        String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ Table1.siteid, Table2.k2 from table1 join table2 on TAble1.siteid = TAble2.k1"
                 + " where TABle2.k5 > 1000 order by TABLe1.siteid";
         try {
             dorisAssert.query(sql2).explainQuery();
