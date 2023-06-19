@@ -94,9 +94,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     }
 
     private static Map<String, String> getValidParams(Map<String, String> params) throws AnalysisException {
-        if (!params.containsKey(S3_URI)) {
-            throw new AnalysisException("Missing required property: " + S3_URI);
-        }
         Map<String, String> validParams = new HashMap<>();
         for (Map.Entry<String, String> entry : params.entrySet()) {
             String key = entry.getKey();
@@ -108,6 +105,9 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                 lowerKey = S3Properties.S3_PREFIX + lowerKey;
             }
             validParams.put(lowerKey, entry.getValue());
+        }
+        if (!validParams.containsKey(S3_URI)) {
+            throw new AnalysisException("Missing required property: " + S3_URI);
         }
         return S3Properties.requiredS3TVFProperties(validParams);
     }
