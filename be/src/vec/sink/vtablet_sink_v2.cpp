@@ -254,7 +254,8 @@ Status VOlapTableSinkV2::_init_stream_pool(StreamPool& stream_pool) {
         stub->open_stream_sink(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
             LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
-            return Status::RpcError("Failed to connect stream");
+            // TODO: uncomment return
+            // return Status::RpcError("Failed to connect stream");
         }
         stream_pool.push_back(stream);
     }
