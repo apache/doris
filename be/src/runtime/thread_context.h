@@ -70,8 +70,15 @@
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Usually used after SCOPED_ATTACH_TASK, in order to count the memory of the specified code segment into another
 // MemTrackerLimiter instead of the MemTrackerLimiter added by the attach task.
+// Note that, not use it in rpc done.run(), because bthread_setspecific may have errors when UBSAN compiles.
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) \
     auto VARNAME_LINENUM(switch_mem_tracker) = SwitchThreadMemTrackerLimiter(mem_tracker_limiter)
+
+// Usually used to exclude a part of memory in query or load mem tracker and track it to Orphan Mem Tracker.
+// Note that, not check whether it is currently a Bthread and switch Bthread Local, because this is usually meaningless,
+// if used in Bthread, and pthread switching is expected, use SwitchThreadMemTrackerLimiter.
+#define SCOPED_TRACK_MEMORY_TO_UNKNOWN() \
+    auto VARNAME_LINENUM(track_memory_to_unknown) = TrackMemoryToUnknown()
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
 #define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) (void)0
@@ -304,6 +311,22 @@ public:
     ~SwitchThreadMemTrackerLimiter() {
         thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
         SwitchBthreadLocal::switch_back_pthread_local();
+    }
+
+private:
+    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+};
+
+class TrackMemoryToUnknown {
+public:
+    explicit TrackMemoryToUnknown() {
+        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
+                ExecEnv::GetInstance()->orphan_mem_tracker(), TUniqueId());
+    }
+
+    ~TrackMemoryToUnknown() {
+        thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
     }
 
 private:

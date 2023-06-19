@@ -151,7 +151,6 @@ public:
     NewHttpClosure(T* request, google::protobuf::Closure* done) : _request(request), _done(done) {}
 
     void Run() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
         if (_request != nullptr) {
             delete _request;
             _request = nullptr;
