@@ -74,15 +74,7 @@ public:
         bm->ComputeStatistics("min", [](const std::vector<double>& v) -> double {
             return *(std::min_element(std::begin(v), std::end(v)));
         });
-        //        bm->ComputeStatistics("qps", [](const std::vector<double>& v) -> double {
-        //            return benchmark::StatisticsMedian(v);
-        //            int file_size = _conf_map["file_size"];
-        //            int thread_num;
-        //            "'$file_size_mb'" / ($2 * "'$thread_num'" / 1000), $2 * "'$thread_num'")}'`
-        //            return *(std::me_element(std::begin(v), std::end(v)));
-        //        });
-        //        bm->MinTime(2);
-        //        bm->MinWarmUpTime(1.0);
+        bm_log("threads = {} ",_threads );
     }
 
 protected:

@@ -29,6 +29,18 @@
 
 namespace doris::io {
 
+static size_t _GetSizeTFromString(const std::map<std::string, std::string>& confMap,
+                                            const std::string& strName, size_t defaultValue){
+                                
+    if (confMap.contains(strName) == false) {
+        return defaultValue;
+    }
+    long value = std::stol(confMap.at(strName));
+
+    if (value <= 0) return defaultValue;
+    else return value;
+}
+
 class HdfsOpenReadBenchmark : public BaseBenchmark {
 public:
     HdfsOpenReadBenchmark(int threads, int iterations,
@@ -42,13 +54,17 @@ public:
         std::shared_ptr<io::FileSystem> fs;
         io::FileReaderSPtr reader;
         bm_log("begin to init {}", _name);
+
+        if (_conf_map.contains("file") == false) {
+            return Status::InvalidArgument("Miss argument file!");
+        }
         std::string file = _conf_map["file"];
-        size_t buffer_size =
-                _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
+        size_t buffer_size = _GetSizeTFromString( _conf_map,"buffer_size",1000000L);
+        size_t read_size = _GetSizeTFromString( _conf_map,"read_size",1024L * 1024L * 1024L);
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}_{}", file, state.thread_index());
-        bm_log("file_path: {}", file_path);
+        auto file_path = fmt::format("{}_{}", file, state.thread_index);
+        bm_log("file_path: {} , read_size : {}", file_path,read_size);
         RETURN_IF_ERROR(
                 FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader, reader_opts));
         bm_log("finish to init {}", _name);
@@ -62,8 +78,6 @@ public:
         size_t bytes_read = 0;
 
         auto start = std::chrono::high_resolution_clock::now();
-        size_t read_size = _conf_map.contains("read_size") ? std::stol(_conf_map["read_size"])
-                                                           : 1024L * 1024L * 1024L;
         long remaining_size = read_size;
 
         while (remaining_size > 0) {
@@ -109,10 +123,14 @@ public:
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
         auto start = std::chrono::high_resolution_clock::now();
+        
+        if(_conf_map.contains("file") == false) {
+            return Status::InvalidArgument("Miss argument file!");
+        }
         std::string file = _conf_map["file"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        auto file_path = fmt::format("{}_{}", file, state.thread_index);
         bm_log("file_path: {}", file_path);
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileReaderSPtr reader;
@@ -147,19 +165,23 @@ public:
         bm_log("begin to run {}", _name);
         auto start = std::chrono::high_resolution_clock::now();
         std::string file = _conf_map["file"];
+        
+        if(_conf_map.contains("file") == false) {
+            return Status::InvalidArgument("Miss argument file!");
+        }
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
+        size_t write_size = _GetSizeTFromString( _conf_map,"write_size",1024L * 1024L * 1024L);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}_{}", file, state.thread_index());
-        bm_log("file_path: {}", file_path);
+        auto file_path = fmt::format("{}_{}", file, state.thread_index);
+        bm_log("file_path: {} , write_size: {}", file_path,write_size);
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
         RETURN_IF_ERROR(fs->create_file(file_path, &writer));
         Status status;
-        size_t write_size = _conf_map.contains("read_size") ? std::stol(_conf_map["read_size"])
-                                                            : 1024L * 1024L * 1024L;
-        size_t buffer_size =
-                _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
+        
+        size_t buffer_size = _GetSizeTFromString( _conf_map,"buffer_size",1000000L);
+        
         long remaining_size = write_size;
         std::vector<char> buffer;
         buffer.resize(buffer_size);
@@ -200,11 +222,15 @@ public:
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
         auto start = std::chrono::high_resolution_clock::now();
+
+        if(_conf_map.contains("file") == false) {
+            return Status::InvalidArgument("Miss argument file!");
+        }
         std::string file = _conf_map["file"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}_{}", file, state.thread_index());
-        auto new_file_path = fmt::format("{}_{}_new", file, state.thread_index());
+        auto file_path = fmt::format("{}_{}", file, state.thread_index);
+        auto new_file_path = fmt::format("{}_{}_new", file, state.thread_index);
         bm_log("file_path: {}", file_path);
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
@@ -238,10 +264,14 @@ public:
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
         auto start = std::chrono::high_resolution_clock::now();
+        
+        if(_conf_map.contains("file") == false) {
+            return Status::InvalidArgument("Miss argument file!");
+        }
         std::string file = _conf_map["file"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        auto file_path = fmt::format("{}_{}", file, state.thread_index);
         bm_log("file_path: {}", file_path);
         std::shared_ptr<io::HdfsFileSystem> fs;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
@@ -270,10 +300,14 @@ public:
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
         auto start = std::chrono::high_resolution_clock::now();
+        
+        if(_conf_map.contains("file") == false) {
+            return Status::InvalidArgument("Miss argument file!");
+        }
         std::string file = _conf_map["file"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}_{}", file, state.thread_index());
+        auto file_path = fmt::format("{}_{}", file, state.thread_index);
         bm_log("file_path: {}", file_path);
         std::shared_ptr<io::HdfsFileSystem> fs;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));

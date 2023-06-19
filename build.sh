@@ -566,6 +566,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/fe/bin" "${DORIS_OUTPUT}/fe/conf" \
         "${DORIS_OUTPUT}/fe/webroot" "${DORIS_OUTPUT}/fe/lib"
 
+    cp "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_HOME}/output/be/bin"
     cp -r -p "${DORIS_HOME}/bin"/*_fe.sh "${DORIS_OUTPUT}/fe/bin"/
     cp -r -p "${DORIS_HOME}/conf/fe.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/

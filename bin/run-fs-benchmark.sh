@@ -161,7 +161,7 @@ if [[ -f "${pidfile}" ]]; then
     fi
 fi
 
-chmod 755 "${DORIS_HOME}/lib/doris_be"
+#chmod 755 "${DORIS_HOME}/lib/doris_be"
 echo "start time: $(date)" >>"${LOG_DIR}/be.out"
 
 if [[ ! -f '/bin/limit3' ]]; then
@@ -264,10 +264,13 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
 
-thread_num=10
-file_size_mb=1024
 ${LIMIT:+${LIMIT}} ${DORIS_HOME}/lib/fs_benchmark_tool "$@" 2>&1 | tee "${LOG_DIR}/fs_benchmark_test.log"
-eval `cat ${LOG_DIR}/fs_benchmark_test.log | grep _median  | awk '{printf("qps=%sMB/s, latency=%sms", "'$file_size_mb'" / ($2 * "'$thread_num'" / 1000), $2 * "'$thread_num'")}'`
+file_size=`cat  ${LOG_DIR}/fs_benchmark_test.log | grep "size:" |  awk 'NR==1{print $NF}'`
+thread_num=`cat  ${LOG_DIR}/fs_benchmark_test.log | grep "threads = " |  awk 'NR==1{print $NF}'`
+if [[ ! "$file_size" =~ ^[0-9]+$ ]];then
+	file_size=1;
+fi
+eval `cat ${LOG_DIR}/fs_benchmark_test.log | grep _median  | awk '{printf("qps=%sMB/s,\nlatency=%sms", "'$file_size'"/ 1024 / 1024 / ($2 * "'$thread_num'" / 1000), $2 * "'$thread_num'")}'`
 
 echo "------------------------------"
 echo "   Benchmark Result  "
@@ -275,3 +278,4 @@ echo "------------------------------"
 echo "thread_num: $thread_num."
 echo "qps: $qps."
 echo "latency: $latency."
+
