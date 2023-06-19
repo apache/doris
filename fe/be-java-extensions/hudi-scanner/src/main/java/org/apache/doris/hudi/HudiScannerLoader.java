@@ -20,6 +20,8 @@ package org.apache.doris.hudi;
 import org.apache.doris.common.classloader.ChildFirstClassLoader;
 import org.apache.doris.common.jni.ScannerLoader;
 
+import org.apache.log4j.Logger;
+
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -28,6 +30,7 @@ import java.net.URL;
  * The hudi scan loader
  */
 public class HudiScannerLoader implements ScannerLoader {
+    private static final Logger LOG = Logger.getLogger(ScannerLoader.class);
 
     private static final ChildFirstClassLoader classLoader;
 
@@ -47,6 +50,7 @@ public class HudiScannerLoader implements ScannerLoader {
     @Override
     public Class getScannerClass() throws ClassNotFoundException {
         try {
+            LOG.info("Get hudi scanner from scanner loader, and use ChildFirstClassLoader");
             return classLoader.loadClass("org.apache.doris.hudi.HudiJniScanner");
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
