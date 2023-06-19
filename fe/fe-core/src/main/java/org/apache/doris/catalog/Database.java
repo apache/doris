@@ -724,11 +724,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public synchronized void replayAddFunction(Function function) {
         try {
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
-            try {
-                FunctionUtil.translateToNereids(this.getFullName(), function);
-            } catch (Exception e) {
-                LOG.info("cannot replay add function to Nereids:", e);
-            }
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -744,11 +740,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
-            try {
-                FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
-            } catch (Exception e) {
-                LOG.info("cannot replay drop function to Nereids:", e);
-            }
+            FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

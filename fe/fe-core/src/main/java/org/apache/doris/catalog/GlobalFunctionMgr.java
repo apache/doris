@@ -75,11 +75,7 @@ public class GlobalFunctionMgr extends MetaObject {
         try {
             function.setGlobal(true);
             FunctionUtil.addFunctionImpl(function, false, true, name2Function);
-            try {
-                FunctionUtil.translateToNereids(null, function);
-            } catch (Exception e) {
-                LOG.info("cannot replay add function to Nereids:", e);
-            }
+            FunctionUtil.translateToNereids(null, function);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -95,11 +91,7 @@ public class GlobalFunctionMgr extends MetaObject {
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
             FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
-            try {
-                FunctionUtil.dropFromNereids(null, functionSearchDesc);
-            } catch (Exception e) {
-                LOG.info("cannot replay drop function to Nereids:", e);
-            }
+            FunctionUtil.dropFromNereids(null, functionSearchDesc);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

@@ -25,10 +25,12 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -225,21 +227,29 @@ public class FunctionUtil {
     }
 
     public static boolean translateToNereids(String dbName, Function function) {
-        if (function instanceof AliasFunction) {
-            AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
-        } else if (function instanceof ScalarFunction) {
-            JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-        } else if (function instanceof AggregateFunction) {
-            JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+        try {
+            if (function instanceof AliasFunction) {
+                AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
+            } else if (function instanceof ScalarFunction) {
+                JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
+            } else if (function instanceof AggregateFunction) {
+                JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
+            }
+        } catch (Exception e) {
+            LOG.warn("Nereids create function {}:{} failed", dbName, function.getFunctionName().getFunction());
         }
         return true;
     }
 
     public static boolean dropFromNereids(String dbName, FunctionSearchDesc function) {
-        String fnName = function.getName().getFunction();
-        List<DataType> argTypes = Arrays.stream(function.getArgTypes()).map(DataType::fromCatalogType)
-                .collect(Collectors.toList());
-        Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
+        try {
+            String fnName = function.getName().getFunction();
+            List<DataType> argTypes = Arrays.stream(function.getArgTypes()).map(DataType::fromCatalogType)
+                    .collect(Collectors.toList());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
+        } catch (Exception e) {
+            LOG.warn("Nereids drop function {}:{} failed", dbName, function.getName());
+        }
         return true;
     }
 }
