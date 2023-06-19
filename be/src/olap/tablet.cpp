@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <atomic>
 #include <boost/container/detail/std_fwd.hpp>
+#include <ranges>
 #include <roaring/roaring.hh>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -2837,94 +2838,114 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     seg->load_pk_index_and_bf(); // We need index blocks to iterate
     auto pk_idx = seg->get_primary_key_index();
     int total = pk_idx->num_rows();
-    uint32_t row_id = 0;
-    int32_t remaining = total;
-    bool exact_match = false;
-    std::string last_key;
-    int batch_size = 1024;
+    roaring::Roaring row_bitmap;
     // The data for each segment may be lookup multiple times. Creating a SegmentCacheHandle
     // will update the lru cache, and there will be obvious lock competition in multithreading
     // scenarios, so using a segment_caches to cache SegmentCacheHandle.
-    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
-    while (remaining > 0) {
-        std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
-        RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
+    for (auto& rs : std::views::reverse(specified_rowsets)) {
+        SegmentCacheHandle segment_cache_handle;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
+                std::static_pointer_cast<BetaRowset>(rs), &segment_cache_handle, true));
+        auto& segments = segment_cache_handle.get_segments();
+        for (auto& seg : std::views::reverse(segments)) {
+            uint32_t row_id = 0;
+            int32_t remaining = total;
+            bool exact_match = false;
+            std::string last_key;
+            int batch_size = 1024;
+            while (remaining > 0) {
+                std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+                RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
 
-        size_t num_to_read = std::min(batch_size, remaining);
-        auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
-                pk_idx->type_info()->type(), 1, 0);
-        auto index_column = index_type->create_column();
-        Slice last_key_slice(last_key);
-        RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
-        auto current_ordinal = iter->get_current_ordinal();
-        DCHECK(total == remaining + current_ordinal)
-                << "total: " << total << ", remaining: " << remaining
-                << ", current_ordinal: " << current_ordinal;
+                size_t num_to_read = std::min(batch_size, remaining);
+                auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+                        pk_idx->type_info()->type(), 1, 0);
+                auto index_column = index_type->create_column();
+                Slice last_key_slice(last_key);
+                RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
+                auto current_ordinal = iter->get_current_ordinal();
+                DCHECK(total == remaining + current_ordinal)
+                        << "total: " << total << ", remaining: " << remaining
+                        << ", current_ordinal: " << current_ordinal;
 
-        size_t num_read = num_to_read;
-        RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
-        DCHECK(num_to_read == num_read)
-                << "num_to_read: " << num_to_read << ", num_read: " << num_read;
-        last_key = index_column->get_data_at(num_read - 1).to_string();
+                size_t num_read = num_to_read;
+                RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
+                DCHECK(num_to_read == num_read)
+                        << "num_to_read: " << num_to_read << ", num_read: " << num_read;
+                last_key = index_column->get_data_at(num_read - 1).to_string();
 
-        // exclude last_key, last_key will be read in next batch.
-        if (num_read == batch_size && num_read != remaining) {
-            num_read -= 1;
+                // exclude last_key, last_key will be read in next batch.
+                if (num_read == batch_size && num_read != remaining) {
+                    num_read -= 1;
+                }
+                for (size_t i = 0; i < num_read; i++, row_id++) {
+                    if (row_bitmap.contains(row_id)) {
+                        continue;
+                    }
+                    Slice key = Slice(index_column->get_data_at(i).data,
+                                      index_column->get_data_at(i).size);
+                    RowLocation loc;
+                    // same row in segments should be filtered
+                    if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {
+                        continue;
+                    }
+
+                    RowsetSharedPtr rowset_find;
+                    size_t seq_col_length = 0;
+                    if (_schema->has_sequence_col()) {
+                        seq_col_length = _schema->column(_schema->sequence_col_idx()).length() + 1;
+                    }
+                    Slice key_without_seq = Slice(key.get_data(), key.get_size() - seq_col_length);
+                    if (key_without_seq.compare(seg->max_key()) > 0 ||
+                        key_without_seq.compare(seg->min_key()) < 0) {
+                        continue;
+                    }
+                    Status st = seg->lookup_row_key(key_without_seq, true, &loc);
+                    bool expected_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
+                    DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+                    if (!expected_st) {
+                        return st;
+                    }
+                    if (st.is<NOT_FOUND>()) {
+                        continue;
+                    }
+
+                    // sequence id smaller than the previous one, so delete current row
+                    if (st.is<ALREADY_EXIST>()) {
+                        delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
+                        continue;
+                    } else if (is_partial_update && rowset_writer != nullptr) {
+                        // In publish version, record rows to be deleted for concurrent update
+                        // For example, if version 5 and 6 update a row, but version 6 only see
+                        // version 4 when write, and when publish version, version 5's value will
+                        // be marked as deleted and it's update is losed.
+                        // So here we should read version 5's columns and build a new row, which is
+                        // consists of version 6's update columns and version 5's origin columns
+                        // here we build 2 read plan for ori values and update values
+                        prepare_to_read(loc, pos, &read_plan_ori);
+                        prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos,
+                                        &read_plan_update);
+                        rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
+                        ++pos;
+                        // delete bitmap will be calculate when memtable flush and
+                        // publish. The two stages may see different versions.
+                        // When there is sequence column, the currently imported data
+                        // of rowset may be marked for deletion at memtablet flush or
+                        // publish because the seq column is smaller than the previous
+                        // rowset.
+                        // just set 0 as a unified temporary version number, and update to
+                        // the real version number later.
+                        delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
+                        delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
+                        continue;
+                    }
+                    // when st = ok
+                    row_bitmap.add(row_id);
+                    delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
+                }
+                remaining -= num_read;
+            }
         }
-        for (size_t i = 0; i < num_read; i++) {
-            Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
-            RowLocation loc;
-            // same row in segments should be filtered
-            if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {
-                continue;
-            }
-
-            RowsetSharedPtr rowset_find;
-            auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
-                                     segment_caches, &rowset_find);
-            bool expected_st = st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>();
-            DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
-            if (!expected_st) {
-                return st;
-            }
-            if (st.is<NOT_FOUND>()) {
-                ++row_id;
-                continue;
-            }
-
-            // sequence id smaller than the previous one, so delete current row
-            if (st.is<ALREADY_EXIST>()) {
-                delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
-                continue;
-            } else if (is_partial_update && rowset_writer != nullptr) {
-                // In publish version, record rows to be deleted for concurrent update
-                // For example, if version 5 and 6 update a row, but version 6 only see
-                // version 4 when write, and when publish version, version 5's value will
-                // be marked as deleted and it's update is losed.
-                // So here we should read version 5's columns and build a new row, which is
-                // consists of version 6's update columns and version 5's origin columns
-                // here we build 2 read plan for ori values and update values
-                prepare_to_read(loc, pos, &read_plan_ori);
-                prepare_to_read(RowLocation {rowset_id, seg->id(), row_id}, pos, &read_plan_update);
-                rsid_to_rowset[rowset_find->rowset_id()] = rowset_find;
-                ++pos;
-                // delete bitmap will be calculate when memtable flush and
-                // publish. The two stages may see different versions.
-                // When there is sequence column, the currently imported data
-                // of rowset may be marked for deletion at memtablet flush or
-                // publish because the seq column is smaller than the previous
-                // rowset.
-                // just set 0 as a unified temporary version number, and update to
-                // the real version number later.
-                delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
-                delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
-                continue;
-            }
-            // when st = ok
-            delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
-            ++row_id;
-        }
-        remaining -= num_read;
     }
     if (pos > 0) {
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
