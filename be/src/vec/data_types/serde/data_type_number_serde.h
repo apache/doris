@@ -68,59 +68,17 @@ public:
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
-                                      end, col_const);
-    }
 
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
-                                      end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
 private:
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
-
-template <typename T>
-template <bool is_binary_format>
-Status DataTypeNumberSerDe<T>::_write_column_to_mysql(
-        const IColumn& column, bool return_object_data_as_binary,
-        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
-        bool col_const) const {
-    int buf_ret = 0;
-    auto& data = assert_cast<const ColumnType&>(column).get_data();
-    for (auto i = start; i < end; ++i) {
-        if (0 != buf_ret) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        const auto col_index = index_check_const(i, col_const);
-        if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
-            buf_ret = result[row_idx].push_tinyint(data[col_index]);
-        } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
-            buf_ret = result[row_idx].push_smallint(data[col_index]);
-        } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {
-            buf_ret = result[row_idx].push_int(data[col_index]);
-        } else if constexpr (std::is_same_v<T, Int64> || std::is_same_v<T, UInt64>) {
-            buf_ret = result[row_idx].push_bigint(data[col_index]);
-        } else if constexpr (std::is_same_v<T, Int128>) {
-            buf_ret = result[row_idx].push_largeint(data[col_index]);
-        } else if constexpr (std::is_same_v<T, float>) {
-            buf_ret = result[row_idx].push_float(data[col_index]);
-        } else if constexpr (std::is_same_v<T, double>) {
-            buf_ret = result[row_idx].push_double(data[col_index]);
-        }
-        ++row_idx;
-    }
-    return Status::OK();
-}
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
