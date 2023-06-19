@@ -19,7 +19,10 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsMathUtil;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
@@ -106,7 +109,7 @@ public class Statistics {
      * Update by count.
      */
     public Statistics updateRowCountOnly(double rowCount) {
-        Statistics statistics = new Statistics(rowCount, expressionToColumnStats);
+        Statistics statistics = new Statistics(rowCount, new HashMap<>());
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
@@ -141,6 +144,9 @@ public class Statistics {
 
     public Statistics addColumnStats(Expression expression, ColumnStatistic columnStatistic) {
         expressionToColumnStats.put(expression, columnStatistic);
+        if (expression instanceof Alias) {
+            expressionToColumnStats.put(((Alias) expression).toSlot(), columnStatistic);
+        }
         return this;
     }
 
@@ -149,21 +155,28 @@ public class Statistics {
         return this;
     }
 
-    private double computeTupleSize() {
+    private double computeTupleSize(Plan plan) {
         if (tupleSize <= 0) {
-            tupleSize = expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum);
+            tupleSize = 0;
+            for (Slot slot : plan.getOutput()) {
+                ColumnStatistic colStats = expressionToColumnStats.get(slot);
+                if (colStats != null) {
+                    tupleSize += colStats.avgSizeByte;
+                } else {
+                    tupleSize += 8;
+                }
+            }
             tupleSize = Math.max(1, tupleSize);
         }
         return tupleSize;
     }
 
-    public double computeSize() {
-        return computeTupleSize() * rowCount;
+    public double computeSize(Plan plan) {
+        return computeTupleSize(plan) * rowCount;
     }
 
-    public double dataSizeFactor() {
-        return computeTupleSize() / K_BYTES;
+    public double dataSizeFactor(Plan plan) {
+        return Math.max(1, computeTupleSize(plan)) / K_BYTES;
     }
 
     @Override

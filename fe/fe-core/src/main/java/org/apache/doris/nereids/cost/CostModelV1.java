@@ -179,12 +179,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor() / beNumber);
+                    intputRowCount * childStatistics.dataSizeFactor(distribute) / beNumber);
         }
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            double dataSize = childStatistics.computeSize();
+            double dataSize = childStatistics.computeSize(distribute);
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
             //if build side is big, avoid use broadcast join
             double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
@@ -199,7 +199,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor());
+                    intputRowCount * childStatistics.dataSizeFactor(distribute));
 
         }
 
@@ -208,7 +208,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    intputRowCount * childStatistics.dataSizeFactor() / beNumber);
+                    intputRowCount * childStatistics.dataSizeFactor(distribute) / beNumber);
         }
 
         // any
@@ -228,12 +228,13 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         return CostV1.of(inputStatistics.getRowCount(), statistics.getRowCount(), 0);
     }
 
-    private double broadCastJoinBalancePenalty(Statistics probeStats, Statistics buildStats) {
-        // if build side is small enough (<1M), broadcast is also good, no penalty
-        if (buildStats.computeSize() < 1024 * 1024) {
+    private double broadCastJoinBalancePenalty(Plan buildNode, Statistics probeStats, Statistics buildStats) {
+        //if build side is small enough (<1M), broadcast is also good, no penalty
+        if (buildStats.computeSize(buildNode) < 1024 * 1024) {
             return 1;
         }
-        double broadcastJoinPenalty = (BROADCAST_JOIN_SKEW_RATIO * buildStats.getRowCount()) / probeStats.getRowCount();
+        double broadcastJoinPenalty = (BROADCAST_JOIN_SKEW_RATIO * buildStats.getRowCount())
+                / probeStats.getRowCount();
         broadcastJoinPenalty = Math.max(1, broadcastJoinPenalty);
         broadcastJoinPenalty = Math.min(BROADCAST_JOIN_SKEW_PENALTY_LIMIT, broadcastJoinPenalty);
         return broadcastJoinPenalty;
@@ -251,29 +252,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        /*
-        pattern1: L join1 (Agg1() join2 Agg2())
-        result number of join2 may much less than Agg1.
-        but Agg1 and Agg2 are slow. so we need to punish this pattern1.
-
-        pattern2: (L join1 Agg1) join2 agg2
-        in pattern2, join1 and join2 takes more time, but Agg1 and agg2 can be processed in parallel.
-        */
-        double penalty = HEAVY_OPERATOR_PUNISH_FACTOR
-                * Math.min(probeStats.getPenalty(), buildStats.getPenalty());
-        if (buildStats.getWidth() >= 2) {
-            //penalty for right deep tree
-            penalty += rightRowCount;
-        }
-        if (physicalHashJoin.getJoinType().isCrossJoin()) {
-            return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
-                    0,
-                    leftRowCount + rightRowCount,
-                    penalty);
-        }
 
         if (context.isBroadcastJoin()) {
-            double broadcastJoinPenalty = broadCastJoinBalancePenalty(probeStats, buildStats);
+            double broadcastJoinPenalty = broadCastJoinBalancePenalty(
+                    physicalHashJoin.child(1),
+                    probeStats, buildStats);
             return CostV1.of(leftRowCount * broadcastJoinPenalty + rightRowCount + outputRowCount,
                     rightRowCount,
                     0,

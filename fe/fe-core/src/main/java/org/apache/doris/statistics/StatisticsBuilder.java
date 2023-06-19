@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.HashMap;
@@ -50,6 +51,9 @@ public class StatisticsBuilder {
     }
 
     public StatisticsBuilder putColumnStatistics(Expression expression, ColumnStatistic columnStatistic) {
+        if (expression instanceof Alias) {
+            expressionToColumnStats.put(((Alias) expression).toSlot(), columnStatistic);
+        }
         expressionToColumnStats.put(expression, columnStatistic);
         return this;
     }
