@@ -520,6 +520,17 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             }
         }
 
+        // close all delta writers
+        if (_delta_writer_for_tablet.use_count() == 1) {
+            for (const auto& entry : *_delta_writer_for_tablet) {
+                entry.second->close();
+            }
+            for (const auto& entry : *_delta_writer_for_tablet) {
+                entry.second->close_wait(PSlaveTabletNodes {}, false);
+            }
+        }
+        _delta_writer_for_tablet.reset();
+
         // close streams
         if (_stream_pool.use_count() == 1) {
             for (const auto& stream_id : *_stream_pool) {
@@ -528,7 +539,7 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         }
         _stream_pool.reset();
 
-        // wait all stream replies
+        // TODO: wait all stream replies
         {
             std::unique_lock lock(all_stream_done_mutex);
             all_stream_done_cv.wait(lock);

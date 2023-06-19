@@ -877,6 +877,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 }
 
 void BetaRowsetWriter::notify_last() {
+    // TODO: remove return
+    return;
     if (config::experimental_olap_table_sink_v2) {
         io::FileWriterPtr file_writer;
         // TODO: create stream sink writer
