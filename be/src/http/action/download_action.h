@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "http/http_handler.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -35,7 +36,8 @@ class HttpRequest;
 // We use parameter named 'file' to specify the static resource path, it is an absolute path.
 class DownloadAction : public HttpHandler {
 public:
-    DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs);
+    DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs,
+                   int32_t num_workers = 0);
 
     // for load error
     DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir);
@@ -56,12 +58,15 @@ private:
 
     void handle_normal(HttpRequest* req, const std::string& file_param);
     void handle_error_log(HttpRequest* req, const std::string& file_param);
+    void _handle(HttpRequest* req);
 
     ExecEnv* _exec_env;
     DOWNLOAD_TYPE _download_type;
 
     std::vector<std::string> _allow_paths;
     std::string _error_log_root_dir;
+    int32_t _num_workers;
+    std::unique_ptr<ThreadPool> _download_workers;
 }; // end class DownloadAction
 
 } // end namespace doris

@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_common.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -345,7 +346,10 @@ int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
 
 std::shared_ptr<CumulativeCompactionPolicy>
 CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy() {
-    return std::unique_ptr<CumulativeCompactionPolicy>(new SizeBasedCumulativeCompactionPolicy());
+    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+        return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
+    }
+    return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }
 
 } // namespace doris

@@ -67,7 +67,7 @@ public class TabletReplicaTooSlowTest {
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-    private Table<String, Tag, ClusterLoadStatistic> statisticMap;
+    private Table<String, Tag, LoadStatisticForTag> statisticMap;
 
     @BeforeClass
     public static void beforeClass() throws Exception {
@@ -92,7 +92,7 @@ public class TabletReplicaTooSlowTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+        backends = Env.getCurrentSystemInfo().getAllBackends();
         for (Backend be : backends) {
             Map<String, TDisk> backendDisks = Maps.newHashMap();
             TDisk tDisk1 = new TDisk();

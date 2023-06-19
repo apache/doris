@@ -29,6 +29,7 @@
 #include "io/fs/file_reader_options.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/multi_table_pipe.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
@@ -45,14 +46,26 @@ namespace io {
 class FileWriter;
 } // namespace io
 
-io::FileCachePolicy FileFactory::get_cache_policy(RuntimeState* state) {
-    if (state != nullptr) {
-        if (config::enable_file_cache && state->query_options().enable_file_cache) {
-            return io::FileCachePolicy::FILE_BLOCK_CACHE;
-        }
+static io::FileBlockCachePathPolicy BLOCK_CACHE_POLICY;
+static std::string RANDOM_CACHE_BASE_PATH = "random";
+
+io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state) {
+    io::FileCachePolicy cache_policy = io::FileCachePolicy::NO_CACHE;
+    if (config::enable_file_cache && state != nullptr &&
+        state->query_options().__isset.enable_file_cache &&
+        state->query_options().enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    return io::FileCachePolicy::NO_CACHE;
+    io::FileReaderOptions reader_options(cache_policy, BLOCK_CACHE_POLICY);
+    if (state != nullptr && state->query_options().__isset.file_cache_base_path &&
+        state->query_options().file_cache_base_path != RANDOM_CACHE_BASE_PATH) {
+        reader_options.specify_cache_path(state->query_options().file_cache_base_path);
+    }
+    return reader_options;
 }
+
+io::FileReaderOptions FileFactory::NO_CACHE_READER_OPTIONS =
+        FileFactory::get_reader_options(nullptr);
 
 Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
                                        const std::vector<TNetworkAddress>& broker_addresses,
@@ -100,10 +113,8 @@ Status FileFactory::create_file_reader(RuntimeProfile* profile,
                                        const FileDescription& file_description,
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader,
-                                       io::FileCachePolicy cache_policy) {
+                                       io::FileReaderOptions reader_options) {
     TFileType::type type = system_properties.system_type;
-    io::FileBlockCachePathPolicy file_block_cache;
-    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
     reader_options.file_size = file_description.file_size;
     switch (type) {
     case TFileType::FILE_LOCAL: {
@@ -134,12 +145,24 @@ Status FileFactory::create_file_reader(RuntimeProfile* profile,
 }
 
 // file scan node/stream load pipe
-Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader) {
+Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
+                                       const TUniqueId& fragment_instance_id) {
     auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
+
     *file_reader = stream_load_ctx->pipe;
+
+    if (file_reader->get() != nullptr) {
+        auto multi_table_pipe = std::dynamic_pointer_cast<io::MultiTablePipe>(*file_reader);
+        if (multi_table_pipe != nullptr) {
+            *file_reader = multi_table_pipe->getPipe(fragment_instance_id);
+            LOG(INFO) << "create pipe reader for fragment instance: " << fragment_instance_id
+                      << " pipe: " << (*file_reader).get();
+        }
+    }
+
     return Status::OK();
 }
 

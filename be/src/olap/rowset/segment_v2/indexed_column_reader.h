@@ -65,6 +65,7 @@ public:
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
     uint64_t get_memory_size() const { return _mem_size; }
+    void set_is_pk_index(bool is_pk) { _is_pk_index = is_pk; }
 
 private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
@@ -91,6 +92,7 @@ private:
     const EncodingInfo* _encoding_info = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
     uint64_t _mem_size = 0;
+    bool _is_pk_index = false;
 };
 
 class IndexedColumnIterator {

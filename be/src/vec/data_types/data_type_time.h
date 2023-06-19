@@ -34,8 +34,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_number_serde.h"
 #include "vec/data_types/serde/data_type_serde.h"
+#include "vec/data_types/serde/data_type_time_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -62,20 +62,12 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    bool can_be_used_as_version() const override { return true; }
     bool is_summable() const override { return true; }
     bool can_be_used_in_bit_operations() const override { return true; }
     bool can_be_used_in_boolean_context() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
-    bool can_be_promoted() const override { return true; }
-    DataTypePtr promote_numeric_type() const override {
-        using PromotedType = DataTypeNumber<NearestFieldType<Float64>>;
-        return std::make_shared<PromotedType>();
-    }
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeNumberSerDe<Float64>>();
-    };
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeTimeSerDe>(); };
     TypeIndex get_type_id() const override { return TypeIndex::Time; }
 };
 

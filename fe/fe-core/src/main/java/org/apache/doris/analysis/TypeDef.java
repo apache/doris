@@ -28,6 +28,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -43,9 +44,15 @@ import java.util.Set;
 public class TypeDef implements ParseNode {
     private boolean isAnalyzed;
     private final Type parsedType;
+    private boolean isNullable = false;
 
     public TypeDef(Type parsedType) {
         this.parsedType = parsedType;
+    }
+
+    public TypeDef(Type parsedType, boolean isNullable) {
+        this.parsedType = parsedType;
+        this.isNullable = isNullable;
     }
 
     public static TypeDef create(PrimitiveType type) {
@@ -117,17 +124,29 @@ public class TypeDef implements ParseNode {
         }
 
         if (type.isComplexType()) {
+            // now we not support array / map / struct nesting complex type
             if (type.isArrayType()) {
                 Type itemType = ((ArrayType) type).getItemType();
                 if (itemType instanceof ScalarType) {
                     analyzeNestedType(type, (ScalarType) itemType);
+                } else if (Config.disable_nested_complex_type && !(itemType instanceof ArrayType)) {
+                    // now we can array nesting array
+                    throw new AnalysisException("Unsupported data type: ARRAY<" + itemType.toSql() + ">");
                 }
             }
             if (type.isMapType()) {
-                ScalarType keyType = (ScalarType) ((MapType) type).getKeyType();
-                ScalarType valueType = (ScalarType) ((MapType) type).getKeyType();
-                analyzeNestedType(type, keyType);
-                analyzeNestedType(type, valueType);
+                MapType mt = (MapType) type;
+                if (Config.disable_nested_complex_type && (!(mt.getKeyType() instanceof ScalarType)
+                        || !(mt.getValueType() instanceof ScalarType))) {
+                    throw new AnalysisException("Unsupported data type: MAP<" + mt.getKeyType().toSql() + ","
+                        + mt.getValueType().toSql() + ">");
+                }
+                if (mt.getKeyType() instanceof ScalarType) {
+                    analyzeNestedType(type, (ScalarType) mt.getKeyType());
+                }
+                if (mt.getValueType() instanceof ScalarType) {
+                    analyzeNestedType(type, (ScalarType) mt.getValueType());
+                }
             }
             if (type.isStructType()) {
                 ArrayList<StructField> fields = ((StructType) type).getFields();
@@ -140,6 +159,8 @@ public class TypeDef implements ParseNode {
                             throw new AnalysisException("Duplicate field name "
                                     + field.getName() + " in struct " + type.toSql());
                         }
+                    } else if (Config.disable_nested_complex_type) {
+                        throw new AnalysisException("Unsupported field type: " + fieldType.toSql() + " for STRUCT");
                     }
                 }
             }
@@ -295,6 +316,10 @@ public class TypeDef implements ParseNode {
 
     public Type getType() {
         return parsedType;
+    }
+
+    public boolean getNullable() {
+        return isNullable;
     }
 
     @Override

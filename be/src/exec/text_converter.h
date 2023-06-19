@@ -35,11 +35,19 @@ public:
                              vectorized::MutableColumnPtr* column_ptr, const char* data,
                              size_t len);
 
-    bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
-                      const char* data, size_t len, bool copy_string, bool need_escape);
+    inline bool write_column(const SlotDescriptor* slot_desc,
+                             vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
+                             bool copy_string, bool need_escape) {
+        vectorized::IColumn* nullable_col_ptr = column_ptr->get();
+        return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape);
+    }
 
-    bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
-                          const char* data, size_t len, bool copy_string, bool need_escape);
+    inline bool write_vec_column(const SlotDescriptor* slot_desc,
+                                 vectorized::IColumn* nullable_col_ptr, const char* data,
+                                 size_t len, bool copy_string, bool need_escape) {
+        return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape,
+                                1);
+    }
 
     /// Write consecutive rows of the same data.
     bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,

@@ -42,6 +42,10 @@ def getRandomNumber(int num){
 }
 
 suite('test_profile') {
+
+    // nereids not return same profile with legacy planner, fallback to legacy planner.
+    sql """set enable_nereids_planner=false"""
+
     def table = 'test_profile_table'
     def id_data = [1,2,3,4,5,6,7]
     def value_data = [1,2,3,4,5,6,7]
@@ -82,10 +86,8 @@ suite('test_profile') {
         def insert_order = len - i - 1
         def stmt_query_info = obj.data.rows[i]
         
-        assertNotNull(stmt_query_info["Query ID"])
-        assertNotEquals(stmt_query_info["Query ID"], "N/A")
-        assertNotNull(stmt_query_info["Detail"])
-        assertNotEquals(stmt_query_info["Detail"], "N/A")
+        assertNotNull(stmt_query_info["Profile ID"])
+        assertNotEquals(stmt_query_info["Profile ID"], "N/A")
         
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
             """ INSERT INTO ${table} values (${id_data[insert_order]}, "${value_data[insert_order]}") """.toString())
@@ -116,7 +118,7 @@ suite('test_profile') {
     for(int i = 0 ; i < QUERY_NUM ; i++){
         def insert_order = QUERY_NUM - i - 1
         def current_obj = show_query_profile_obj[i]
-        def stmt_query_info = current_obj[4]
+        def stmt_query_info = current_obj[8]
         assertNotEquals(current_obj[1].toString(), "N/A".toString())
         assertEquals(stmt_query_info.toString(),  """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }
@@ -134,10 +136,8 @@ suite('test_profile') {
         def insert_order = QUERY_NUM - i - 1
         def stmt_query_info = obj.data.rows[i]
         
-        assertNotNull(stmt_query_info["Query ID"])
-        assertNotEquals(stmt_query_info["Query ID"].toString(), "N/A".toString())
-        assertNotNull(stmt_query_info["Detail"])
-        assertNotEquals(stmt_query_info["Detail"], "N/A")
+        assertNotNull(stmt_query_info["Profile ID"])
+        assertNotEquals(stmt_query_info["Profile ID"].toString(), "N/A".toString())
         
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
            """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())

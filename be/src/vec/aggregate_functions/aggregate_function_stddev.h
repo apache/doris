@@ -108,7 +108,7 @@ struct BaseData {
     }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = static_cast<const ColumnVector<T>&>(*column);
+        const auto& sources = assert_cast<const ColumnVector<T>&>(*column);
         double source_data = sources.get_data()[row_num];
 
         double delta = source_data - mean;
@@ -188,7 +188,7 @@ struct BaseDatadecimal {
     }
 
     void add(const IColumn* column, size_t row_num) {
-        const auto& sources = static_cast<const ColumnDecimal<T>&>(*column);
+        const auto& sources = assert_cast<const ColumnDecimal<T>&>(*column);
         Field field = sources[row_num];
         auto decimal_field = field.template get<DecimalField<T>>();
         int128_t value;
@@ -265,7 +265,7 @@ struct SampData : Data {
         if (this->count == 1 || this->count == 0) {
             nullable_column.insert_default();
         } else {
-            auto& col = static_cast<ColVecResult&>(nullable_column.get_nested_column());
+            auto& col = assert_cast<ColVecResult&>(nullable_column.get_nested_column());
             if constexpr (IsDecimalNumber<T>) {
                 col.get_data().push_back(this->get_samp_result().value());
             } else {

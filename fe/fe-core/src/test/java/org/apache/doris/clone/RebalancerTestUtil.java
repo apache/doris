@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
@@ -62,7 +61,6 @@ public class RebalancerTestUtil {
         }
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
-        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         return be;
     }
 

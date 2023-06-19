@@ -33,6 +33,8 @@ under the License.
 > 注 1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
 >
 > 注 2：本文档涉及的操作都在 Ubuntu Server 20.04 环境进行，CentOS 7 也可测试。
+> 
+> 注 3: Doris 从 1.2.2 版本开始，为了减少内存占用，默认关闭了 Page Cache，会对性能有一定影响，所以在进行性能测试时请在 be.conf 添加 disable_storage_page_cache=false 来打开 Page Cache。
 
 在 SSB 标准测试数据集上的 13 个查询上，我们基于 Apache Doris 1.2.0-rc01， Apache Doris 1.1.3 及 Apache Doris 0.15.0 RC04 版本进行了对别测试。
 
@@ -271,7 +273,7 @@ sh bin/load-ssb-data.sh -c 10
 
 > 注：
 >
-> 1. 为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
+> 1. 为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=10` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为6。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
 >
 > 2. flat 表数据采用 'INSERT INTO ... SELECT ... ' 的方式导入。
 

@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -303,5 +304,18 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
                 markJoinSlotReference, left(), right());
+    }
+
+    @Override
+    public JSONObject toJson() {
+        JSONObject logicalJoin = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("JoinType", joinType.toString());
+        properties.put("HashJoinConjuncts", hashJoinConjuncts.toString());
+        properties.put("OtherJoinConjuncts", otherJoinConjuncts.toString());
+        properties.put("JoinHint", hint.toString());
+        properties.put("MarkJoinSlotReference", markJoinSlotReference.toString());
+        logicalJoin.put("Properties", properties);
+        return logicalJoin;
     }
 }

@@ -40,7 +40,7 @@ under the License.
 ## 优势
 
 - 对于那些经常重复的使用相同的子查询结果的查询性能大幅提升。
-- Doris自动维护物化视图的数据，无论是新的导入，还是删除操作都能保证base 表和物化视图表的数据一致性。无需任何额外的人工维护成本。
+- Doris 自动维护物化视图的数据，无论是新的导入，还是删除操作都能保证 Base 表和物化视图表的数据一致性，无需任何额外的人工维护成本。
 - 查询时，会自动匹配到最优物化视图，并直接从物化视图中读取数据。
 
 *自动维护物化视图的数据会造成一些维护开销，会在后面的物化视图的局限性中展开说明。*
@@ -55,7 +55,7 @@ under the License.
 
 ## 使用物化视图
 
-Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查看，删除。DDL 的语法和 PostgreSQL, Oracle都是一致的。
+Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查看，删除。DDL 的语法和 PostgreSQL, Oracle 都是一致的。
 
 ### 创建物化视图
 
@@ -94,13 +94,13 @@ Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查
 
 ### 更新策略
 
-为保证物化视图表和 Base 表的数据一致性, Doris 会将导入，删除等对 base 表的操作都同步到物化视图表中。并且通过增量更新的方式来提升更新效率。通过事务方式来保证原子性。
+为保证物化视图表和 Base 表的数据一致性, Doris 会将导入，删除等对 Base 表的操作都同步到物化视图表中。并且通过增量更新的方式来提升更新效率。通过事务方式来保证原子性。
 
-比如如果用户通过 INSERT 命令插入数据到 base 表中，则这条数据会同步插入到物化视图中。当 base 表和物化视图表均写入成功后，INSERT 命令才会成功返回。
+比如如果用户通过 INSERT 命令插入数据到 Base 表中，则这条数据会同步插入到物化视图中。当 Base 表和物化视图表均写入成功后，INSERT 命令才会成功返回。
 
 ### 查询自动匹配
 
-物化视图创建成功后，用户的查询不需要发生任何改变，也就是还是查询的 base 表。Doris 会根据当前查询的语句去自动选择一个最优的物化视图，从物化视图中读取数据并计算。
+物化视图创建成功后，用户的查询不需要发生任何改变，也就是还是查询的 Base 表。Doris 会根据当前查询的语句去自动选择一个最优的物化视图，从物化视图中读取数据并计算。
 
 用户可以通过 EXPLAIN 命令来检查当前查询是否使用了物化视图。
 
@@ -176,7 +176,7 @@ MySQL [test]> desc mv_test all;
 **首先是第一步：创建物化视图**
 
 
-假设用户有一张销售记录明细表，存储了每个交易的交易id，销售员，售卖门店，销售时间，以及金额。建表语句和插入数据语句为：
+假设用户有一张销售记录明细表，存储了每个交易的交易 id，销售员，售卖门店，销售时间，以及金额。建表语句和插入数据语句为：
 
 ```sql
 create table sales_records(record_id int, seller_id int, store_id int, sale_date date, sale_amt bigint) distributed by hash(record_id) properties("replication_num" = "1");
@@ -339,7 +339,7 @@ MySQL [test]> desc advertiser_view_record;
 
    在 Doris 中，`count(distinct)` 聚合的结果和 `bitmap_union_count`聚合的结果是完全一致的。而`bitmap_union_count` 等于 `bitmap_union` 的结果求 count， 所以如果查询中**涉及到 `count(distinct)` 则通过创建带 `bitmap_union` 聚合的物化视图方可加快查询**。
 
-   针对这个 case，则可以创建一个根据广告和渠道分组，对 `user_id` 进行精确去重的物化视图。
+   针对这个 Case，则可以创建一个根据广告和渠道分组，对 `user_id` 进行精确去重的物化视图。
 
    ```sql
    MySQL [test]> create materialized view advertiser_uv as select advertiser, channel, bitmap_union(to_bitmap(user_id)) from advertiser_view_record group by advertiser, channel;
@@ -368,7 +368,7 @@ MySQL [test]> desc advertiser_view_record;
 
 2. 查询自动匹配
 
-   当物化视图表创建完成后，查询广告 UV 时，Doris就会自动从刚才创建好的物化视图 `advertiser_uv` 中查询数据。比如原始的查询语句如下：
+   当物化视图表创建完成后，查询广告 UV 时，Doris 就会自动从刚才创建好的物化视图 `advertiser_uv` 中查询数据。比如原始的查询语句如下：
 
    ```sql
    SELECT advertiser, channel, count(distinct user_id) FROM advertiser_view_record GROUP BY advertiser, channel;
@@ -436,9 +436,9 @@ MySQL [test]> desc advertiser_view_record;
    +--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
    ```
 
-   在 EXPLAIN 的结果中，首先可以看到`VOlapScanNode`命中了`advertiser_uv`。也就是说，查询会直接扫描物化视图的数据。说明匹配成功。
+   在 EXPLAIN 的结果中，首先可以看到 `VOlapScanNode` 命中了 `advertiser_uv`。也就是说，查询会直接扫描物化视图的数据。说明匹配成功。
 
-   其次对于 `user_id` 字段求 `count(distinct)` 被改写为求 `bitmap_union_count(to_bitmap)`。也就是通过 bitmap 的方式来达到精确去重的效果。
+   其次对于 `user_id` 字段求 `count(distinct)` 被改写为求 `bitmap_union_count(to_bitmap)`。也就是通过 Bitmap 的方式来达到精确去重的效果。
 
 ## 最佳实践3
 
@@ -489,7 +489,7 @@ MySQL [test]> desc advertiser_view_record;
 
 在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持。
 
-1. 创建一个base表并插入一些数据。
+1. 创建一个 Base 表并插入一些数据。
 ```sql
 create table d_table (
    k1 int null,
@@ -522,18 +522,18 @@ select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // 命中k
 
 ## 局限性
 
-1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b)不支持。(2.0后支持)
+1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b) 不支持。(2.0 后支持)
 2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
-3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
+3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 Base 表数据是同步更新的，如果一张表的物化视图表超过 10 张，则有可能导致导入速度很慢。这就像单次导入需要同时导入 10 张表数据是一样的。
 4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。(2.0后支持)
 5. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
 
 ## 异常错误
 
-1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
+1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者 Schema Change 内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：to_bitmap 的参数仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败。String 类型的字段可使用 bitmap_hash 或 bitmap_hash64 计算 Hash 值，并返回 Hash 值的 bitmap。
 
 
 
 ## 更多帮助
 
-关于物化视图使用的更多详细语法及最佳实践，请参阅 [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 和 [DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE MATERIALIZED VIEW` 和`HELP DROP MATERIALIZED VIEW`  获取更多帮助信息。
+关于物化视图使用的更多详细语法及最佳实践，请参阅 [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 和 [DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md) 命令手册，你也可以在 MySQL 客户端命令行下输入 `HELP CREATE MATERIALIZED VIEW` 和`HELP DROP MATERIALIZED VIEW`  获取更多帮助信息。

@@ -31,19 +31,38 @@
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/task/engine_task.h"
+#include "util/time.h"
 
 namespace doris {
 
 class EnginePublishVersionTask;
 class TPublishVersionRequest;
 
+struct TabletPublishStatistics {
+    int64_t submit_time_us = 0;
+    int64_t schedule_time_us = 0;
+    int64_t lock_wait_time_us = 0;
+    int64_t save_meta_time_us = 0;
+    int64_t calc_delete_bitmap_time_us = 0;
+    int64_t partial_update_write_segment_us = 0;
+    int64_t add_inc_rowset_us = 0;
+
+    std::string to_string() {
+        return fmt::format(
+                "[Publish Statistics: schedule time(us): {}, lock wait time(us): {}, save meta "
+                "time(us): {}, calc delete bitmap time(us): {}, partial update write segment "
+                "time(us): {}, add inc rowset time(us): {}]",
+                schedule_time_us, lock_wait_time_us, save_meta_time_us, calc_delete_bitmap_time_us,
+                partial_update_write_segment_us, add_inc_rowset_us);
+    }
+};
+
 class TabletPublishTxnTask {
 public:
     TabletPublishTxnTask(EnginePublishVersionTask* engine_task, TabletSharedPtr tablet,
                          RowsetSharedPtr rowset, int64_t partition_id, int64_t transaction_id,
-                         Version version, const TabletInfo& tablet_info,
-                         std::atomic<int64_t>* total_task_num);
-    ~TabletPublishTxnTask() {}
+                         Version version, const TabletInfo& tablet_info);
+    ~TabletPublishTxnTask() = default;
 
     void handle();
 
@@ -56,13 +75,12 @@ private:
     int64_t _transaction_id;
     Version _version;
     TabletInfo _tablet_info;
-
-    std::atomic<int64_t>* _total_task_num;
+    TabletPublishStatistics _stats;
 };
 
 class EnginePublishVersionTask : public EngineTask {
 public:
-    EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
+    EnginePublishVersionTask(const TPublishVersionRequest& publish_version_req,
                              vector<TTabletId>* error_tablet_ids,
                              std::vector<TTabletId>* succ_tablet_ids = nullptr);
     ~EnginePublishVersionTask() {}
@@ -75,14 +93,17 @@ public:
     void notify();
     void wait();
 
+    int64_t finish_task();
+
 private:
+    std::atomic<int64_t> _total_task_num;
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
     vector<TTabletId>* _error_tablet_ids;
     vector<TTabletId>* _succ_tablet_ids;
 
-    std::mutex _tablet_finish_sleep_mutex;
-    std::condition_variable _tablet_finish_sleep_cond;
+    std::mutex _tablet_finish_mutex;
+    std::condition_variable _tablet_finish_cond;
 };
 
 } // namespace doris

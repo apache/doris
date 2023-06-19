@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -227,14 +228,22 @@ public class OlapTableSink extends DataSink {
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
-            for (Index index : table.getIndexes()) {
+            List<Index> indexes = indexMeta.getIndexes();
+            if (indexes.size() == 0 && pair.getKey() == table.getBaseIndexId()) {
+                // for compatible with old version befor 2.0-beta
+                // if indexMeta.getIndexes() is empty, use table.getIndexes()
+                indexes = table.getIndexes();
+            }
+            for (Index index : indexes) {
                 TOlapTableIndex tIndex = index.toThrift();
                 indexDesc.add(tIndex);
             }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             if (indexMeta.getWhereClause() != null) {
-                indexSchema.setWhereClause(indexMeta.getWhereClause().treeToThrift());
+                Expr expr = indexMeta.getWhereClause().clone();
+                expr.replaceSlot(tupleDescriptor);
+                indexSchema.setWhereClause(expr.treeToThrift());
             }
             indexSchema.setColumnsDesc(columnsDesc);
             indexSchema.setIndexesDesc(indexDesc);
@@ -421,9 +430,9 @@ public class OlapTableSink extends DataSink {
     private TPaloNodesInfo createPaloNodesInfo() {
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getBackendIds(false)) {
+        for (Long id : systemInfoService.getAllBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         return nodesInfo;
     }

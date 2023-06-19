@@ -19,6 +19,7 @@ package org.apache.doris.master;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.IOUtils;
+import org.apache.doris.common.util.HttpURLUtil;
 
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -27,7 +28,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
 
 public class MetaHelper {
     private static final String PART_SUFFIX = ".part";
@@ -63,11 +63,10 @@ public class MetaHelper {
     // download file from remote node
     public static void getRemoteFile(String urlStr, int timeout, OutputStream out)
             throws IOException {
-        URL url = new URL(urlStr);
         HttpURLConnection conn = null;
 
         try {
-            conn = (HttpURLConnection) url.openConnection();
+            conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
             conn.setConnectTimeout(timeout);
             conn.setReadTimeout(timeout);
 

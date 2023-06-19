@@ -40,12 +40,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.planner.external.FileGroupInfo;
 import org.apache.doris.planner.external.FileScanNode;
-import org.apache.doris.planner.external.FileScanProviderIf;
 import org.apache.doris.planner.external.LoadScanProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
@@ -82,7 +83,7 @@ public class FileLoadScanNode extends FileScanNode {
     // Each DataDescription in a load stmt conreponding to a FileGroupInfo in this list.
     private final List<FileGroupInfo> fileGroupInfos = Lists.newArrayList();
     // For load, the num of providers equals to the num of file group infos.
-    private final List<FileScanProviderIf> scanProviders = Lists.newArrayList();
+    private final List<LoadScanProvider> scanProviders = Lists.newArrayList();
     // For load, the num of ParamCreateContext equals to the num of file group infos.
     private final List<ParamCreateContext> contexts = Lists.newArrayList();
 
@@ -121,20 +122,18 @@ public class FileLoadScanNode extends FileScanNode {
         for (FileGroupInfo fileGroupInfo : fileGroupInfos) {
             this.scanProviders.add(new LoadScanProvider(fileGroupInfo, desc));
         }
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
         initParamCreateContexts(analyzer);
     }
 
     // For each scan provider, create a corresponding ParamCreateContext
     private void initParamCreateContexts(Analyzer analyzer) throws UserException {
-        for (FileScanProviderIf scanProvider : scanProviders) {
+        for (LoadScanProvider scanProvider : scanProviders) {
             ParamCreateContext context = scanProvider.createContext(analyzer);
             // set where and preceding filter.
             // FIXME(cmy): we should support set different expr for different file group.
             initAndSetPrecedingFilter(context.fileGroup.getPrecedingFilterExpr(), context.srcTupleDescriptor, analyzer);
             initAndSetWhereExpr(context.fileGroup.getWhereExpr(), context.destTupleDescriptor, analyzer);
-            setDefaultValueExprs(scanProvider, context.srcSlotDescByName, context.params, true);
+            setDefaultValueExprs(scanProvider.getTargetTable(), context.srcSlotDescByName, context.params, true);
             this.contexts.add(context);
         }
     }
@@ -194,18 +193,39 @@ public class FileLoadScanNode extends FileScanNode {
     public void finalize(Analyzer analyzer) throws UserException {
         Preconditions.checkState(contexts.size() == scanProviders.size(),
                 contexts.size() + " vs. " + scanProviders.size());
+        // ATTN: for load scan node, do not use backend policy in ExternalScanNode.
+        // Because backend policy in ExternalScanNode may only contain compute backend.
+        // But for load job, we should select backends from all backends, both compute and mix.
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder()
+                .needQueryAvailable()
+                .needLoadAvailable()
+                .build();
+        FederationBackendPolicy localBackendPolicy = new FederationBackendPolicy();
+        localBackendPolicy.init(policy);
         for (int i = 0; i < contexts.size(); ++i) {
             FileLoadScanNode.ParamCreateContext context = contexts.get(i);
-            FileScanProviderIf scanProvider = scanProviders.get(i);
+            LoadScanProvider scanProvider = scanProviders.get(i);
             finalizeParamsForLoad(context, analyzer);
-            createScanRangeLocations(context, scanProvider);
+            createScanRangeLocations(context, scanProvider, localBackendPolicy);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
         }
     }
 
+    // TODO: This api is for load job only. Will remove it later.
+    private void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
+            LoadScanProvider scanProvider, FederationBackendPolicy backendPolicy)
+            throws UserException {
+        scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    }
+
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        // do nothing, we have already created scan range locations in finalize
+    }
+
     protected void finalizeParamsForLoad(ParamCreateContext context,
-                                         Analyzer analyzer) throws UserException {
+            Analyzer analyzer) throws UserException {
         Map<String, SlotDescriptor> slotDescByName = context.srcSlotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
         TupleDescriptor srcTupleDesc = context.srcTupleDescriptor;
@@ -303,10 +323,8 @@ public class FileLoadScanNode extends FileScanNode {
         // Need re compute memory layout after set some slot descriptor to nullable
         srcTupleDesc.computeStatAndMemLayout();
 
-        if (!preFilterConjuncts.isEmpty()) {
-            Expr vPreFilterExpr = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
-            initCompoundPredicate(vPreFilterExpr);
-            params.setPreFilterExprs(vPreFilterExpr.treeToThrift());
+        for (Expr conjunct : preFilterConjuncts) {
+            params.addToPreFilterExprsList(conjunct.treeToThrift());
         }
     }
 

@@ -60,7 +60,7 @@ public class TabletStatMgr extends MasterDaemon {
                 TNetworkAddress address = null;
                 boolean ok = false;
                 try {
-                    address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+                    address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                     client = ClientPool.backendPool.borrowObject(address);
                     TTabletStatResult result = client.getTabletStat();
                     LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(),

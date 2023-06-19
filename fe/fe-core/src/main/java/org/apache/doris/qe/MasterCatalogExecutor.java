@@ -45,7 +45,7 @@ public class MasterCatalogExecutor {
         if (!Env.getCurrentEnv().isReady()) {
             throw new Exception("Current catalog is not ready, please wait for a while.");
         }
-        String masterHost = Env.getCurrentEnv().getMasterIp();
+        String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
 

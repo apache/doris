@@ -149,7 +149,7 @@ public class AlterLightSchChangeHelper {
         try {
             for (Long beId : beIdToRequest.keySet()) {
                 final Backend backend = Env.getCurrentSystemInfo().getIdToBackend().get(beId);
-                final TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBrpcPort());
+                final TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
                 final Future<PFetchColIdsResponse> responseFuture = BackendServiceProxy.getInstance()
                         .getColumnIdsByTabletIds(address, beIdToRequest.get(beId));
                 futureList.add(responseFuture);

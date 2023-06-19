@@ -15,17 +15,15 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
--- Modified
-
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true, runtime_filter_mode=OFF) */
+select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
     100.00 * sum(case
         when p_type like 'PROMO%'
             then l_extendedprice * (1 - l_discount)
         else 0
     end) / sum(l_extendedprice * (1 - l_discount)) as promo_revenue
 from
-    part,
-    lineitem
+    lineitem,
+    part
 where
     l_partkey = p_partkey
     and l_shipdate >= date '1995-09-01'

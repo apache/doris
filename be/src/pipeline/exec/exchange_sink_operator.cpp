@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
-#include "runtime/runtime_state.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris {
@@ -34,20 +33,29 @@ class DataSink;
 namespace doris::pipeline {
 
 ExchangeSinkOperatorBuilder::ExchangeSinkOperatorBuilder(int32_t id, DataSink* sink,
-                                                         PipelineFragmentContext* context)
-        : DataSinkOperatorBuilder(id, "ExchangeSinkOperator", sink), _context(context) {}
+                                                         PipelineFragmentContext* context,
+                                                         int mult_cast_id)
+        : DataSinkOperatorBuilder(id, "ExchangeSinkOperator", sink),
+          _context(context),
+          _mult_cast_id(mult_cast_id) {}
 
 OperatorPtr ExchangeSinkOperatorBuilder::build_operator() {
-    return std::make_shared<ExchangeSinkOperator>(this, _sink, _context);
+    return std::make_shared<ExchangeSinkOperator>(this, _sink, _context, _mult_cast_id);
 }
 
 ExchangeSinkOperator::ExchangeSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink,
-                                           PipelineFragmentContext* context)
-        : DataSinkOperator(operator_builder, sink), _context(context) {}
+                                           PipelineFragmentContext* context, int mult_cast_id)
+        : DataSinkOperator(operator_builder, sink),
+          _context(context),
+          _mult_cast_id(mult_cast_id) {}
 
 Status ExchangeSinkOperator::init(const TDataSink& tsink) {
-    RETURN_IF_ERROR(_sink->init(tsink));
-    _dest_node_id = tsink.stream_sink.dest_node_id;
+    // -1 means not the mult cast stream sender
+    if (_mult_cast_id == -1) {
+        _dest_node_id = tsink.stream_sink.dest_node_id;
+    } else {
+        _dest_node_id = tsink.multi_cast_stream_sink.sinks[_mult_cast_id].dest_node_id;
+    }
     return Status::OK();
 }
 
@@ -74,6 +82,7 @@ bool ExchangeSinkOperator::is_pending_finish() const {
 
 Status ExchangeSinkOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperator::close(state));
+    _sink_buffer->update_profile(_sink->profile());
     _sink_buffer->close();
     return Status::OK();
 }

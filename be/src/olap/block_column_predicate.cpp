@@ -79,6 +79,9 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
     if (num_of_column_predicate() == 1) {
         return _block_column_predicate_vec[0]->evaluate(block, sel, selected_size);
     } else {
+        if (!selected_size) {
+            return 0;
+        }
         bool ret_flags[selected_size];
         memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {

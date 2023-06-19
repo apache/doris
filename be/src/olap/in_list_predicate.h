@@ -245,7 +245,7 @@ public:
         // keep it after query, since query will try to read null_bitmap and put it to cache
         InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
         RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        roaring::Roaring* null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
         if (null_bitmap) {
             *result -= *null_bitmap;
         }
@@ -260,6 +260,8 @@ public:
 
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override {
+        int64_t new_size = 0;
+
         if (column.is_nullable()) {
             auto* nullable_col =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
@@ -269,19 +271,22 @@ public:
             auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
-                return _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
+                new_size = _base_evaluate<true, true>(&nested_col, &null_map, sel, size);
             } else {
-                return _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
+                new_size = _base_evaluate<true, false>(&nested_col, &null_map, sel, size);
             }
         } else {
             if (_opposite) {
-                return _base_evaluate<false, true>(&column, nullptr, sel, size);
+                new_size = _base_evaluate<false, true>(&column, nullptr, sel, size);
             } else {
-                return _base_evaluate<false, false>(&column, nullptr, sel, size);
+                new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
+        _evaluated_rows += size;
+        _passed_rows += new_size;
+        return new_size;
     }
-
+    int get_filter_id() const override { return _values->get_filter_id(); }
     template <bool is_and>
     void _evaluate_bit(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                        bool* flags) const {

@@ -32,6 +32,7 @@
 #include "runtime/thread_context.h"
 #include "task_queue.h"
 #include "util/defer_op.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 class RuntimeState;
@@ -41,6 +42,14 @@ class TaskGroup;
 } // namespace doris
 
 namespace doris::pipeline {
+
+void PipelineTask::_fresh_profile_counter() {
+    COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
+    COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
+    COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
+    COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
+    COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
+}
 
 void PipelineTask::_init_profile() {
     std::stringstream ss;
@@ -56,6 +65,7 @@ void PipelineTask::_init_profile() {
     _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
     _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
+    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
     _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
@@ -205,12 +215,17 @@ Status PipelineTask::execute(bool* eos) {
         // Pull block from operator chain
         {
             SCOPED_TIMER(_get_block_timer);
+            _get_block_counter->update(1);
             RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
             SCOPED_TIMER(_sink_timer);
-            RETURN_IF_ERROR(_sink->sink(_state, block, _data_state));
+            auto status = _sink->sink(_state, block, _data_state);
+            if (!status.is<ErrorCode::END_OF_FILE>()) {
+                RETURN_IF_ERROR(status);
+            }
+            *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 break;
             }
@@ -255,12 +270,8 @@ Status PipelineTask::close() {
         }
     }
     if (_opened) {
-        COUNTER_UPDATE(_wait_source_timer, _wait_source_watcher.elapsed_time());
-        COUNTER_UPDATE(_schedule_counts, _schedule_time);
-        COUNTER_UPDATE(_wait_sink_timer, _wait_sink_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_worker_timer, _wait_worker_watcher.elapsed_time());
-        COUNTER_UPDATE(_wait_schedule_timer, _wait_schedule_watcher.elapsed_time());
-        COUNTER_UPDATE(_close_timer, close_ns);
+        _fresh_profile_counter();
+        COUNTER_SET(_close_timer, close_ns);
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
@@ -272,6 +283,8 @@ QueryContext* PipelineTask::query_context() {
 
 // The FSM see PipelineTaskState's comment
 void PipelineTask::set_state(PipelineTaskState state) {
+    DCHECK(_cur_state != PipelineTaskState::FINISHED);
+
     if (_cur_state == state) {
         return;
     }
@@ -293,19 +306,46 @@ void PipelineTask::set_state(PipelineTaskState state) {
             COUNTER_UPDATE(_block_by_sink_counts, 1);
         }
     }
+
+    if (state == PipelineTaskState::FINISHED) {
+        _finish_p_dependency();
+    }
+
     _cur_state = state;
 }
 
-std::string PipelineTask::debug_string() const {
+std::string PipelineTask::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+
+    fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id));
+    fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
+                   print_id(fragment_context()->get_fragment_instance_id()));
+
+    fmt::format_to(debug_string_buffer, "RuntimeUsage: {}\n",
+                   PrettyPrinter::print(get_runtime_ns(), TUnit::TIME_NS));
+    {
+        std::stringstream profile_ss;
+        _fresh_profile_counter();
+        _task_profile->pretty_print(&profile_ss, "");
+        fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
+    }
     fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
                        _operators[i]->debug_string());
+        std::stringstream profile_ss;
+        _operators[i]->get_runtime_profile()->pretty_print(&profile_ss, std::string(i * 2, ' '));
+        fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
     }
     fmt::format_to(debug_string_buffer, "\n{}{}", std::string(_operators.size() * 2, ' '),
                    _sink->debug_string());
+    {
+        std::stringstream profile_ss;
+        _sink->get_runtime_profile()->pretty_print(&profile_ss,
+                                                   std::string(_operators.size() * 2, ' '));
+        fmt::format_to(debug_string_buffer, "\n{}", profile_ss.str());
+    }
     return fmt::to_string(debug_string_buffer);
 }
 

@@ -262,6 +262,10 @@ struct DecimalBinaryOperation {
             for (size_t i = 0; i < size; ++i) {
                 null_map[i] = apply_op_safely(a[i], b[i], c[i].value);
             }
+        } else {
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = apply(a[i], b[i], null_map[i]);
+            }
         }
     }
 

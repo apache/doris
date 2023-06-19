@@ -32,4 +32,13 @@ suite("test_select_with_predicate_like") {
     qt_select_default2 "select 1 from test_basic_agg where  '199.8' like '1%';"
     qt_select_default3 "select 1 from test_basic_agg where   299.8  like '1%';"
     qt_select_default4 "select 1 from test_basic_agg where  '299.8' like '1%';"
+
+    qt_select2_default  "select 1 from test_basic_agg where  like(  1998 , '1%');"
+    qt_select2_default2 "select 1 from test_basic_agg where  like( '1998', '1%');"
+    qt_select2_default3 "select 1 from test_basic_agg where  like(  2998 , '1%');"
+    qt_select2_default4 "select 1 from test_basic_agg where  like( '2998', '1%');"
+    qt_select2_default  "select 1 from test_basic_agg where  like( 199.8 , '1%');"
+    qt_select2_default2 "select 1 from test_basic_agg where  like('199.8', '1%');"
+    qt_select2_default3 "select 1 from test_basic_agg where  like( 299.8 , '1%');"
+    qt_select2_default4 "select 1 from test_basic_agg where  like('299.8', '1%');"
 }

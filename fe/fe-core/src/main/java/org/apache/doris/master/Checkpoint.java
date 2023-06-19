@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
@@ -40,7 +41,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Iterator;
 import java.util.List;
 
@@ -83,6 +83,10 @@ public class Checkpoint extends MasterDaemon {
     // public for unit test, so that we can trigger checkpoint manually.
     // DO NOT call it manually outside the unit test.
     public synchronized void doCheckpoint() throws CheckpointException {
+        if (!Env.getServingEnv().isHttpReady()) {
+            LOG.info("Http server is not ready.");
+            return;
+        }
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
@@ -185,8 +189,8 @@ public class Checkpoint extends MasterDaemon {
         if (!allFrontends.isEmpty()) {
             otherNodesCount = allFrontends.size() - 1; // skip master itself
             for (Frontend fe : allFrontends) {
-                String host = fe.getIp();
-                if (host.equals(Env.getServingEnv().getMasterIp())) {
+                String host = fe.getHost();
+                if (host.equals(Env.getServingEnv().getMasterHost())) {
                     // skip master itself
                     continue;
                 }
@@ -227,13 +231,13 @@ public class Checkpoint extends MasterDaemon {
                 long deleteVersion = storage.getLatestValidatedImageSeq();
                 if (successPushed > 0) {
                     for (Frontend fe : allFrontends) {
-                        String host = fe.getIp();
-                        if (host.equals(Env.getServingEnv().getMasterIp())) {
+                        String host = fe.getHost();
+                        if (host.equals(Env.getServingEnv().getMasterHost())) {
                             // skip master itself
                             continue;
                         }
                         int port = Config.http_port;
-                        URL idURL;
+                        String idURL;
                         HttpURLConnection conn = null;
                         try {
                             /*
@@ -242,8 +246,8 @@ public class Checkpoint extends MasterDaemon {
                              * any non-master node's current replayed journal id. otherwise,
                              * this lagging node can never get the deleted journal.
                              */
-                            idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id");
-                            conn = (HttpURLConnection) idURL.openConnection();
+                            idURL = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id";
+                            conn = HttpURLUtil.getConnectionWithNodeIdent(idURL);
                             conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
                             conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
                             String idString = conn.getHeaderField("id");

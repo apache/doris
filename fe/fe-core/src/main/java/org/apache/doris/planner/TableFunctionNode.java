@@ -53,11 +53,15 @@ public class TableFunctionNode extends PlanNode {
     public TableFunctionNode(PlanNodeId id, PlanNode inputNode, TupleId lateralViewTupleId,
             ArrayList<Expr> fnCallExprList, List<SlotId> outputSlotIds) {
         super(id, "TABLE FUNCTION NODE", StatisticalType.TABLE_FUNCTION_NODE);
-        List<TupleId> childOutputTupleIds = inputNode.getOutputTupleIds();
-        if (childOutputTupleIds != null && !childOutputTupleIds.isEmpty()) {
-            tupleIds.addAll(childOutputTupleIds);
+        if (inputNode.outputTupleDesc != null) {
+            tupleIds.add(inputNode.outputTupleDesc.getId());
         } else {
-            tupleIds.addAll(inputNode.getTupleIds());
+            List<TupleId> childOutputTupleIds = inputNode.getOutputTupleIds();
+            if (childOutputTupleIds != null && !childOutputTupleIds.isEmpty()) {
+                tupleIds.addAll(childOutputTupleIds);
+            } else {
+                tupleIds.addAll(inputNode.getTupleIds());
+            }
         }
         tupleIds.add(lateralViewTupleId);
         this.lateralViewTupleIds = Lists.newArrayList(lateralViewTupleId);

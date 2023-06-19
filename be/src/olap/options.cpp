@@ -36,6 +36,7 @@
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "util/path_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -54,11 +55,11 @@ static std::string CACHE_TOTAL_SIZE = "total_size";
 static std::string CACHE_QUERY_LIMIT_SIZE = "query_limit";
 
 // TODO: should be a general util method
-static std::string to_upper(const std::string& str) {
-    std::string out = str;
-    std::transform(out.begin(), out.end(), out.begin(), [](auto c) { return std::toupper(c); });
-    return out;
-}
+// static std::string to_upper(const std::string& str) {
+//     std::string out = str;
+//     std::transform(out.begin(), out.end(), out.begin(), [](auto c) { return std::toupper(c); });
+//     return out;
+// }
 
 // Currently, both of three following formats are supported(see be.conf), remote cache is the
 // local cache path for remote storage.

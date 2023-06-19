@@ -73,8 +73,6 @@ public class ClusterLoadStatisticsTest {
 
         be1.setDisks(ImmutableMap.copyOf(disks));
         be1.setAlive(true);
-        be1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-
 
         // be2
         be2 = new Backend(10002, "192.168.0.2", 9052);
@@ -93,7 +91,6 @@ public class ClusterLoadStatisticsTest {
 
         be2.setDisks(ImmutableMap.copyOf(disks));
         be2.setAlive(true);
-        be2.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
 
         // be3
         be3 = new Backend(10003, "192.168.0.3", 9053);
@@ -118,7 +115,6 @@ public class ClusterLoadStatisticsTest {
 
         be3.setDisks(ImmutableMap.copyOf(disks));
         be3.setAlive(true);
-        be3.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
 
         // compute role node
         be4 = new Backend(10004, "192.168.0.4", 9053);
@@ -131,7 +127,6 @@ public class ClusterLoadStatisticsTest {
 
         be4.setDisks(ImmutableMap.copyOf(disks));
         be4.setAlive(true);
-        be4.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         Map<String, String> tagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
         tagMap.put(Tag.TYPE_ROLE, Tag.VALUE_COMPUTATION);
         be4.setTagMap(tagMap);
@@ -161,10 +156,10 @@ public class ClusterLoadStatisticsTest {
 
     @Test
     public void test() {
-        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
+        LoadStatisticForTag loadStatistic = new LoadStatisticForTag(
                 Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
         loadStatistic.init();
-        List<List<String>> infos = loadStatistic.getClusterStatistic(TStorageMedium.HDD);
+        List<List<String>> infos = loadStatistic.getStatistic(TStorageMedium.HDD);
         Assert.assertEquals(3, infos.size());
     }
 

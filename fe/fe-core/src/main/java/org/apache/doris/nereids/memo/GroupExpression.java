@@ -77,7 +77,7 @@ public class GroupExpression {
     // After mergeGroup(), source Group was cleaned up, but it may be in the Job Stack. So use this to mark and skip it.
     private boolean isUnused = false;
 
-    private ObjectId id = StatementScopeIdGenerator.newObjectId();
+    private final ObjectId id = StatementScopeIdGenerator.newObjectId();
 
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
@@ -164,12 +164,12 @@ public class GroupExpression {
         ruleMasks.set(rule.getRuleType().ordinal());
     }
 
-    public void setApplied(RuleType ruleType) {
-        ruleMasks.set(ruleType.ordinal());
-    }
-
     public void propagateApplied(GroupExpression toGroupExpression) {
         toGroupExpression.ruleMasks.or(ruleMasks);
+    }
+
+    public void clearApplied() {
+        ruleMasks.clear();
     }
 
     public boolean isStatDerived() {

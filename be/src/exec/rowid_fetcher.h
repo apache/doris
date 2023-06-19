@@ -17,12 +17,16 @@
 
 #pragma once
 
+#include <brpc/controller.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
 #include <vector>
 
 #include "common/status.h"
+#include "exec/tablet_info.h" // DorisNodesInfo
+#include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
@@ -38,18 +42,29 @@ class MutableBlock;
 
 // fetch rows by global rowid
 // tablet_id/rowset_name/segment_id/ordinal_id
+
+struct FetchOption {
+    TupleDescriptor* desc = nullptr;
+    RuntimeState* runtime_state = nullptr;
+    TFetchOption t_fetch_opt;
+};
+
 class RowIDFetcher {
 public:
-    RowIDFetcher(TupleDescriptor* desc, RuntimeState* st) : _tuple_desc(desc), _st(st) {}
-    Status init(DorisNodesInfo* nodes_info);
-    Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::MutableBlock* block);
+    RowIDFetcher(const FetchOption& fetch_opt) : _fetch_option(fetch_opt) {}
+    Status init();
+    Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::Block* block);
 
 private:
-    PMultiGetRequest _init_fetch_request(const vectorized::ColumnString& row_ids);
+    PMultiGetRequest _init_fetch_request(const vectorized::ColumnString& row_ids) const;
+    Status _merge_rpc_results(const PMultiGetRequest& request,
+                              const std::vector<PMultiGetResponse>& rsps,
+                              const std::vector<brpc::Controller>& cntls,
+                              vectorized::Block* output_block,
+                              std::vector<PRowLocation>* rows_id) const;
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
-    TupleDescriptor* _tuple_desc;
-    RuntimeState* _st;
+    FetchOption _fetch_option;
 };
 
 } // namespace doris

@@ -21,15 +21,18 @@
 #include <rapidjson/writer.h>
 #include <stdint.h>
 
+#include <chrono>
 #include <iosfwd>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "common/logging.h"
 #include "gutil/ref_counted.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
 #include "gutil/threading/thread_collision_warner.h"
+#include "util/scoped_cleanup.h"
 #include "util/spinlock.h"
 #include "util/time.h"
 #include "util/trace_metrics.h"
@@ -43,22 +46,6 @@ class Trace;
 //
 // 't' should be a Trace* pointer.
 #define ADOPT_TRACE(t) doris::ScopedAdoptTrace _adopt_trace(t);
-
-// Issue a trace message, if tracing is enabled in the current thread.
-// See Trace::SubstituteAndTrace for arguments.
-// Example:
-//  TRACE("Acquired timestamp $0", timestamp);
-#define TRACE(format, substitutions...)                                                \
-    do {                                                                               \
-        doris::Trace* _trace = doris::Trace::CurrentTrace();                           \
-        if (_trace) {                                                                  \
-            _trace->SubstituteAndTrace(__FILE__, __LINE__, (format), ##substitutions); \
-        }                                                                              \
-    } while (0)
-
-// Like the above, but takes the trace pointer as an explicit argument.
-#define TRACE_TO(trace, format, substitutions...) \
-    (trace)->SubstituteAndTrace(__FILE__, __LINE__, (format), ##substitutions)
 
 // Increment a counter associated with the current trace.
 //
@@ -98,20 +85,31 @@ class Trace;
 #define TRACE_COUNTER_SCOPE_LATENCY_US(counter_name) \
     ::doris::ScopedTraceLatencyCounter _scoped_latency(counter_name)
 
-// Construct a constant C string counter name which acts as a sort of
-// coarse-grained histogram for trace metrics.
-#define BUCKETED_COUNTER_NAME(prefix, duration_us) \
-    []() {                                         \
-        if (duration_us >= 100 * 1000) {           \
-            return prefix "_gt_100_ms";            \
-        } else if (duration_us >= 10 * 1000) {     \
-            return prefix "_10-100_ms";            \
-        } else if (duration_us >= 1000) {          \
-            return prefix "_1-10_ms";              \
-        } else {                                   \
-            return prefix "_lt_1ms";               \
-        }                                          \
-    }()
+// If this scope times out, make a simple trace.
+// It will log the cost time only.
+// Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
+#define SCOPED_SIMPLE_TRACE_IF_TIMEOUT(timeout) \
+    SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, LOG(WARNING))
+
+// If this scope times out, then put simple trace to the stream.
+// Timeout is chrono duration struct, eg: 5ms, 100 * 1s.
+// For example:
+//
+//    std::string tag = "[foo]";
+//    SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(5s, LOG(INFO) << tag);
+//
+#define SCOPED_SIMPLE_TRACE_TO_STREAM_IF_TIMEOUT(timeout, stream)                       \
+    using namespace std::chrono_literals;                                               \
+    auto VARNAME_LINENUM(scoped_simple_trace) = doris::MonotonicMicros();               \
+    SCOPED_CLEANUP({                                                                    \
+        auto VARNAME_LINENUM(timeout_us) =                                              \
+                std::chrono::duration_cast<std::chrono::microseconds>(timeout).count(); \
+        auto VARNAME_LINENUM(cost_us) =                                                 \
+                doris::MonotonicMicros() - VARNAME_LINENUM(scoped_simple_trace);        \
+        if (VARNAME_LINENUM(cost_us) >= VARNAME_LINENUM(timeout_us)) {                  \
+            stream << "Simple trace cost(us): " << VARNAME_LINENUM(cost_us);            \
+        }                                                                               \
+    })
 
 namespace doris {
 

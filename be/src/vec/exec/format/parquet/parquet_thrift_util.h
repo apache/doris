@@ -48,7 +48,11 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     uint8_t* magic_ptr = footer + bytes_read - 4;
     if (bytes_read < PARQUET_FOOTER_SIZE ||
         memcmp(magic_ptr, PARQUET_VERSION_NUMBER, sizeof(PARQUET_VERSION_NUMBER)) != 0) {
-        return Status::Corruption("Invalid magic number in parquet file");
+        return Status::Corruption(
+                "Invalid magic number in parquet file, bytes read: {}, file size: {}, path: {}, "
+                "read magic: {}",
+                bytes_read, file_size, file->path().native(),
+                std::string((char*)magic_ptr, sizeof(PARQUET_VERSION_NUMBER)));
     }
 
     // get metadata_size

@@ -79,7 +79,8 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& b
                     res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
                                 col.name});
                 } else {
-                    LOG(FATAL) << "Illegal column for DataTypeNullable";
+                    LOG(FATAL) << "Illegal column= " << col.column->get_name()
+                               << " for DataTypeNullable";
                 }
             } else {
                 res.insert(col);

@@ -28,6 +28,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/core/sort_description.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class RuntimeState;
@@ -43,7 +44,6 @@ class Arena;
 class Block;
 class BufferWritable;
 class IColumn;
-class VExprContext;
 
 class AggFnEvaluator {
     ENABLE_FACTORY_CREATOR(AggFnEvaluator);
@@ -99,7 +99,7 @@ public:
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
     bool is_merge() const { return _is_merge; }
-    const std::vector<VExprContext*>& input_exprs_ctxs() const { return _input_exprs_ctxs; }
+    const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
 private:
     const TFunction _fn;
@@ -123,7 +123,7 @@ private:
     RuntimeProfile::Counter* _expr_timer;
 
     // input context
-    std::vector<VExprContext*> _input_exprs_ctxs;
+    VExprContextSPtrs _input_exprs_ctxs;
 
     SortDescription _sort_description;
 

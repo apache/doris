@@ -78,7 +78,7 @@ public class TableProcDir implements ProcDirInterface {
         }
 
         if (entryName.equals(PARTITIONS)) {
-            if (table.getType() == TableType.OLAP) {
+            if (table.isManagedTable()) {
                 return new PartitionsProcDir((Database) db, (OlapTable) table, false);
             } else if (table.getType() == TableType.ELASTICSEARCH) {
                 return new EsPartitionsProcDir((Database) db, (EsTable) table);

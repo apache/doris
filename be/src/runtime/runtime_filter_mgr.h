@@ -68,18 +68,22 @@ public:
 
     RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx);
 
-    ~RuntimeFilterMgr();
+    ~RuntimeFilterMgr() = default;
 
     Status init();
 
-    // get a consumer filter by filter-id
-    Status get_consume_filter(const int filter_id, IRuntimeFilter** consumer_filter);
+    Status get_consume_filter(const int filter_id, const int node_id,
+                              IRuntimeFilter** consumer_filter);
+
+    Status get_consume_filters(const int filter_id, std::vector<IRuntimeFilter*>& consumer_filters);
 
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
-    // regist filter
-    Status register_filter(const RuntimeFilterRole role, const TRuntimeFilterDesc& desc,
-                           const TQueryOptions& options, int node_id = -1,
-                           bool build_bf_exactly = false);
+
+    // register filter
+    Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
+                                    int node_id, bool build_bf_exactly = false);
+    Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
+                                    bool build_bf_exactly = false);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -90,19 +94,16 @@ public:
     Status get_merge_addr(TNetworkAddress* addr);
 
 private:
-    Status get_filter_by_role(const int filter_id, const RuntimeFilterRole role,
-                              IRuntimeFilter** target);
-
-    struct RuntimeFilterMgrVal {
-        RuntimeFilterRole role; // consumer or producer
+    struct ConsumerFilterHolder {
+        int node_id;
         IRuntimeFilter* filter;
     };
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
     // key: "filter-id"
     /// TODO: should it need protected by a mutex?
-    std::map<int32_t, RuntimeFilterMgrVal> _consumer_map;
-    std::map<int32_t, RuntimeFilterMgrVal> _producer_map;
+    std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
+    std::map<int32_t, IRuntimeFilter*> _producer_map;
 
     RuntimeState* _state;
     QueryContext* _query_ctx;

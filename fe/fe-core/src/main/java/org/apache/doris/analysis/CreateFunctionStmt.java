@@ -665,6 +665,9 @@ public class CreateFunctionStmt extends DdlStmt {
             case QUANTILE_STATE:
                 typeBuilder.setId(Types.PGenericType.TypeId.QUANTILE_STATE);
                 break;
+            case AGG_STATE:
+                typeBuilder.setId(Types.PGenericType.TypeId.AGG_STATE);
+                break;
             case DATE:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATE);
                 break;

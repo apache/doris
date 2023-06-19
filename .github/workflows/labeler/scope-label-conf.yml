@@ -31,9 +31,6 @@ kind/test:
 area/docker:
   - docker/runtime/*
 
-area/vectorization:
-  - be/src/vec/**/*
-
 area/nereids:
   - fe/fe-core/src/main/java/org/apache/doris/nereids/**/*
   - fe/fe-core/src/main/antlr4/org/apache/doris/nereids/**/*
@@ -47,13 +44,6 @@ area/load:
   - fe/fe-core/src/main/java/org/apache/doris/load/*
   - fe/fe-core/src/main/java/org/apache/doris/load/**/*
 
-area/routine load:
-  - fe/fe-core/src/main/java/org/apache/doris/load/routineload/*
+area/pipeline:
+  - be/src/pipeline/**/*
 
-area/sql/function:
-  - fe/fe-core/src/main/java/org/apache/doris/rewrite/FEFunctions.java
-  - gensrc/script/doris_builtins_functions.py
-  - be/src/vec/functions/*
-
-area/spark-load:
-  - fe/fe-core/src/main/java/org/apache/doris/load/loadv2/SparkLoad*.java

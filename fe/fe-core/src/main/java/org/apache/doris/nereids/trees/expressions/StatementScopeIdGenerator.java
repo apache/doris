@@ -47,6 +47,14 @@ public class StatementScopeIdGenerator {
         return ConnectContext.get().getStatementContext().getNextObjectId();
     }
 
+    public static CTEId newCTEId() {
+        // this branch is for test only
+        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
+            return statementContext.getNextCTEId();
+        }
+        return ConnectContext.get().getStatementContext().getNextCTEId();
+    }
+
     /**
      *  Reset Id Generator
      */

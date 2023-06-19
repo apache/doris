@@ -192,6 +192,8 @@ suite("test_grouping_sets", "p0") {
         """
     sql """drop table if exists test_query_db.test_grouping_sets_id_null"""
     // test grouping sets shoot rollup
+    // because nereids cannot support rollup correctly forbid it temporary
+    sql """set enable_nereids_planner=false"""
     sql "drop table if exists test_query_db.test_grouping_sets_rollup"
     sql """
         create table if not exists test_query_db.test_grouping_sets_rollup(

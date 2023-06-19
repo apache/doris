@@ -101,7 +101,7 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
                             left, right);
                     JoinExchange.setNewLeftJoinReorder(newLeftJoin, leftJoin);
-                    JoinExchange.setNewRightJoinReorder(newRightJoin, leftJoin);
+                    JoinExchange.setNewRightJoinReorder(newRightJoin, rightJoin);
                     JoinExchange.setNewTopJoinReorder(newTopJoin, topJoin);
 
                     return CBOUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);

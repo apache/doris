@@ -32,7 +32,10 @@ public:
     using BasePtr = MinMaxFuncBase*;
     template <PrimitiveType type, size_t N>
     static BasePtr get_function() {
-        return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
+        return new MinMaxNumFunc<std::conditional_t<
+                type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 || type == TYPE_DECIMAL128I,
+                vectorized::Decimal<typename PrimitiveTypeTraits<type>::CppType>,
+                typename PrimitiveTypeTraits<type>::CppType>>();
     }
 };
 
@@ -122,7 +125,7 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type) {
         APPLY_FOR_PRIMTYPE(M)
 #undef M
     default:
-        DCHECK(false) << "Invalid type.";
+        DCHECK(false) << "Invalid type: " << type_to_string(type);
     }
 
     return nullptr;
@@ -142,7 +145,7 @@ typename Traits::BasePtr create_bitmap_predicate_function(PrimitiveType type) {
     case TYPE_BIGINT:
         return Creator::template create<TYPE_BIGINT>();
     default:
-        DCHECK(false) << "Invalid type.";
+        DCHECK(false) << "Invalid type: " << type_to_string(type);
     }
 
     return nullptr;

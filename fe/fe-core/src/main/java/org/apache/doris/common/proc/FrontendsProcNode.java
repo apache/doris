@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
@@ -44,7 +43,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
+            .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
             .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg").add("Version")
             .add("CurrentConnected")
@@ -88,7 +87,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
         // Because the `show frontend` stmt maybe forwarded from other FE.
         // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
-        String selfNode = Env.getCurrentEnv().getSelfNode().getIp();
+        String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
         if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
             selfNode = ConnectContext.get().getCurrentConnectedFEIp();
         }
@@ -97,16 +96,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
-            info.add(fe.getIp());
-            if (Config.enable_fqdn_mode) {
-                info.add(fe.getHostName());
-            } else {
-                info.add(NetUtils.getHostnameByIp(fe.getIp()));
-            }
+            info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 
-            if (fe.getIp().equals(env.getSelfNode().getIp())) {
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
             } else {
@@ -115,7 +109,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
 
             info.add(fe.getRole().name());
-            InetSocketAddress socketAddress = new InetSocketAddress(fe.getIp(), fe.getEditLogPort());
+            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
             //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
             //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
             info.add(String.valueOf(socketAddress.equals(master)));
@@ -123,7 +117,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFe, fe)));
 
-            if (fe.getIp().equals(env.getSelfNode().getIp())) {
+            if (fe.getHost().equals(env.getSelfNode().getHost())) {
                 info.add("true");
                 info.add(Long.toString(env.getEditLog().getMaxJournalId()));
             } else {
@@ -135,7 +129,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getHeartbeatErrMsg());
             info.add(fe.getVersion());
             // To indicate which FE we currently connected
-            info.add(fe.getIp().equals(selfNode) ? "Yes" : "No");
+            info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
 
             infos.add(info);
         }
@@ -151,8 +145,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 continue;
             }
             if (!Strings.isNullOrEmpty(addr.getHostName())) {
-                if (addr.getHostName().equals(fe.getHostName())
-                        || addr.getHostName().equals(fe.getIp())) {
+                if (addr.getHostName().equals(fe.getHost())) {
                     return true;
                 }
             }
@@ -163,7 +156,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 LOG.warn("Failed to get InetAddress {}", addr);
                 continue;
             }
-            if (fe.getIp().equals(address.getHostAddress())) {
+            if (fe.getHost().equals(address.getHostAddress())) {
                 return true;
             }
         }

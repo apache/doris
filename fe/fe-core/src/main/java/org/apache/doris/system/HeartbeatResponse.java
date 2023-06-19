@@ -17,8 +17,13 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -38,10 +43,12 @@ public class HeartbeatResponse implements Writable {
         OK, BAD
     }
 
+    @SerializedName(value = "type")
     protected Type type;
-    protected boolean isTypeRead = false;
-
+    @SerializedName(value = "status")
     protected HbStatus status;
+    @Deprecated
+    protected boolean isTypeRead = false;
 
     /**
      * msg and hbTime are no need to be synchronized to other Frontends,
@@ -75,36 +82,41 @@ public class HeartbeatResponse implements Writable {
     }
 
     public static HeartbeatResponse read(DataInput in) throws IOException {
-        HeartbeatResponse result = null;
-        Type type = Type.valueOf(Text.readString(in));
-        if (type == Type.FRONTEND) {
-            result = new FrontendHbResponse();
-        } else if (type == Type.BACKEND) {
-            result = new BackendHbResponse();
-        } else if (type == Type.BROKER) {
-            result = new BrokerHbResponse();
-        } else {
-            throw new IOException("Unknown job type: " + type.name());
-        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_121) {
+            HeartbeatResponse result = null;
+            Type type = Type.valueOf(Text.readString(in));
+            if (type == Type.FRONTEND) {
+                result = new FrontendHbResponse();
+            } else if (type == Type.BACKEND) {
+                result = new BackendHbResponse();
+            } else if (type == Type.BROKER) {
+                result = new BrokerHbResponse();
+            } else {
+                throw new IOException("Unknown job type: " + type.name());
+            }
 
-        result.setTypeRead(true);
-        result.readFields(in);
-        return result;
+            result.setTypeRead(true);
+            result.readFields(in);
+            return result;
+        } else {
+            return GsonUtils.GSON.fromJson(Text.readString(in), HeartbeatResponse.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-        Text.writeString(out, status.name());
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            type = Type.valueOf(Text.readString(in));
-            isTypeRead = true;
+    @Deprecated
+    protected void readFields(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_121) {
+            if (!isTypeRead) {
+                type = Type.valueOf(Text.readString(in));
+                isTypeRead = true;
+            }
+            status = HbStatus.valueOf(Text.readString(in));
         }
-
-        status = HbStatus.valueOf(Text.readString(in));
     }
 
     @Override

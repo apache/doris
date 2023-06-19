@@ -20,8 +20,8 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -53,7 +53,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         super();
     }
 
-    public OlapAnalysisTask(AnalysisTaskInfo info) {
+    public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 
@@ -74,7 +74,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = info.partitionNames;
+            Set<String> partNames = info.colToPartitions.get(info.colName);
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {
@@ -108,10 +108,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-            r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            this.stmtExecutor.execute();
+        QueryState queryState = StatisticsUtil.execUpdate(sql);
+        if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+            throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s",
+                    info.catalogName, info.dbName, info.colName, queryState.getErrorMessage()));
         }
     }
 }

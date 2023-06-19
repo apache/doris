@@ -39,6 +39,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,6 +52,7 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
+    public static final String FRAGMENT_ID = "fragment";
     private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(CounterEvent.class,
             EventChannel.getDefaultChannel()
                     .addEnhancers(new AddCounterEventEnhancer())
@@ -123,6 +126,21 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                 plan -> ((Plan) plan).displayExtraPlanFirst());
     }
 
+    /** top toJson method, can be override by specific operator */
+    public JSONObject toJson() {
+        JSONObject json = new JSONObject();
+        json.put("PlanType", getType().toString());
+        if (this.children().size() == 0) {
+            return json;
+        }
+        JSONArray childrenJson = new JSONArray();
+        for (Plan child : children) {
+            childrenJson.put(((AbstractPlan) child).toJson());
+        }
+        json.put("children", childrenJson);
+        return json;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -145,11 +163,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public List<Slot> getOutput() {
         return getLogicalProperties().getOutput();
-    }
-
-    @Override
-    public List<Slot> getNonUserVisibleOutput() {
-        return getLogicalProperties().getNonUserVisibleOutput();
     }
 
     @Override

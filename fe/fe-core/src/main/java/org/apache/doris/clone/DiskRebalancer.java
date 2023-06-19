@@ -24,6 +24,7 @@ import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -110,8 +111,7 @@ public class DiskRebalancer extends Rebalancer {
      */
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium) {
-        String clusterName = clusterStat.getClusterName();
+            LoadStatisticForTag clusterStat, TStorageMedium medium) {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
@@ -123,7 +123,7 @@ public class DiskRebalancer extends Rebalancer {
         if (!(lowBEs.isEmpty() && highBEs.isEmpty())) {
             // the cluster is not balanced
             if (prioBackends.isEmpty()) {
-                LOG.info("cluster is not balanced: {} with medium: {}. skip", clusterName, medium);
+                LOG.info("cluster is not balanced with medium: {}. skip", medium);
                 return alternativeTablets;
             } else {
                 // prioBEs are not empty, we only schedule prioBEs' disk balance task
@@ -171,7 +171,7 @@ public class DiskRebalancer extends Rebalancer {
             // for each path, we try to select at most BALANCE_SLOT_NUM_FOR_PATH tablets
             Map<Long, Integer> remainingPaths = Maps.newHashMap();
             for (Long pathHash : pathHigh) {
-                remainingPaths.put(pathHash, TabletScheduler.BALANCE_SLOT_NUM_FOR_PATH);
+                remainingPaths.put(pathHash, Config.balance_slot_num_per_path);
             }
 
             if (remainingPaths.isEmpty()) {
@@ -199,7 +199,7 @@ public class DiskRebalancer extends Rebalancer {
                         continue;
                     }
 
-                    TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
+                    TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE,
                             tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
                             tabletMeta.getIndexId(), tabletId, null /* replica alloc is not used for balance*/,
                             System.currentTimeMillis());
@@ -232,8 +232,8 @@ public class DiskRebalancer extends Rebalancer {
         // remove balanced BEs from prio backends
         prioBackends.keySet().removeIf(id -> !unbalancedBEs.contains(id));
         if (!alternativeTablets.isEmpty()) {
-            LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                    clusterName, medium, alternativeTablets.size(),
+            LOG.info("select alternative tablets, medium: {}, num: {}, detail: {}",
+                    medium, alternativeTablets.size(),
                     alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         }
         return alternativeTablets;
@@ -248,10 +248,10 @@ public class DiskRebalancer extends Rebalancer {
     @Override
     public void completeSchedCtx(TabletSchedCtx tabletCtx,
             Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
-        ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
+        LoadStatisticForTag clusterStat = statisticMap.get(tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE,
-                    String.format("cluster %s for tag %s does not exist", tabletCtx.getCluster(), tabletCtx.getTag()));
+                    String.format("tag %s does not exist", tabletCtx.getTag()));
         }
         if (tabletCtx.getTempSrcBackendId() == -1 || tabletCtx.getTempSrcPathHash() == -1) {
             throw new SchedException(Status.UNRECOVERABLE,

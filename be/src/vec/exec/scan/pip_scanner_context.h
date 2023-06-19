@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/descriptors.h"
 #include "scanner_context.h"
 
 namespace doris {
@@ -156,7 +157,7 @@ public:
         return _current_used_bytes < _max_bytes_in_queue / 2 * _max_queue_size;
     }
 
-    virtual void _dispose_coloate_blocks_not_in_queue() override {
+    void _dispose_coloate_blocks_not_in_queue() override {
         if (_need_colocate_distribute) {
             for (int i = 0; i < _max_queue_size; ++i) {
                 std::scoped_lock s(*_colocate_block_mutexs[i], *_queue_mutexs[i]);

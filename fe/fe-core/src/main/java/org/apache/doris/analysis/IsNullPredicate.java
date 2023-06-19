@@ -41,37 +41,25 @@ public class IsNullPredicate extends Predicate {
             if (t.isNull()) {
                 continue;
             }
-            String isNullSymbol;
-            if (t == Type.BOOLEAN) {
-                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE"
-                        + "EES3_PNS2_15FunctionContextERKT_";
-            } else {
-                String udfType = Function.getUdfType(t.getPrimitiveType());
-                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf"
-                        + udfType.length() + udfType
-                        + "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
-            }
 
-            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, isNullSymbol,
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
                     Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
-            String isNotNullSymbol = isNullSymbol.replace("7is_null", "11is_not_null");
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                    isNotNullSymbol, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+                    null, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
             // for array type
             for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
-                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, isNullSymbol,
+                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
                         Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                        isNotNullSymbol, Lists.newArrayList(complexType), Type.BOOLEAN,
+                        null, Lists.newArrayList(complexType), Type.BOOLEAN,
                         NullableMode.ALWAYS_NOT_NULLABLE));
             }
 
         }
     }
-
 
     private final boolean isNotNull;
 

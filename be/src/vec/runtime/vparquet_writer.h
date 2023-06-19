@@ -31,14 +31,12 @@
 
 #include "common/status.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 namespace io {
 class FileWriter;
 } // namespace io
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 namespace parquet {
 namespace schema {
@@ -86,11 +84,14 @@ public:
 
     static void build_version(parquet::WriterProperties::Builder& builder,
                               const TParquetVersion::type& parquet_version);
+    static void build_schema_data_logical_type(
+            std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
+            const TParquetDataLogicalType::type& column_data_logical_type);
 };
 
 class VFileWriterWrapper {
 public:
-    VFileWriterWrapper(const std::vector<VExprContext*>& output_vexpr_ctxs, bool output_object_data)
+    VFileWriterWrapper(const VExprContextSPtrs& output_vexpr_ctxs, bool output_object_data)
             : _output_vexpr_ctxs(output_vexpr_ctxs),
               _cur_written_rows(0),
               _output_object_data(output_object_data) {}
@@ -106,7 +107,7 @@ public:
     virtual int64_t written_len() = 0;
 
 protected:
-    const std::vector<VExprContext*>& _output_vexpr_ctxs;
+    const VExprContextSPtrs& _output_vexpr_ctxs;
     int64_t _cur_written_rows;
     bool _output_object_data;
 };
@@ -115,7 +116,7 @@ protected:
 class VParquetWriterWrapper final : public VFileWriterWrapper {
 public:
     VParquetWriterWrapper(doris::io::FileWriter* file_writer,
-                          const std::vector<VExprContext*>& output_vexpr_ctxs,
+                          const VExprContextSPtrs& output_vexpr_ctxs,
                           const std::vector<TParquetSchema>& parquet_schemas,
                           const TParquetCompressionType::type& compression_type,
                           const bool& parquet_disable_dictionary,
@@ -134,11 +135,9 @@ public:
 private:
     parquet::RowGroupWriter* get_rg_writer();
 
-    void parse_schema(const std::vector<TParquetSchema>& parquet_schemas);
+    Status parse_schema();
 
-    void parse_properties(const TParquetCompressionType::type& compression_type,
-                          const bool& parquet_disable_dictionary,
-                          const TParquetVersion::type& parquet_version);
+    Status parse_properties();
 
 private:
     std::shared_ptr<ParquetOutputStream> _outstream;
@@ -147,6 +146,11 @@ private:
     std::unique_ptr<parquet::ParquetFileWriter> _writer;
     parquet::RowGroupWriter* _rg_writer;
     const int64_t _max_row_per_group = 10;
+
+    const std::vector<TParquetSchema>& _parquet_schemas;
+    const TParquetCompressionType::type& _compression_type;
+    const bool& _parquet_disable_dictionary;
+    const TParquetVersion::type& _parquet_version;
 };
 
 } // namespace doris::vectorized

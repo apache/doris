@@ -28,13 +28,13 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.common.property.PropertySchema;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.Maps;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -132,7 +132,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         PropertySchema.DateProperty prop =
-                new PropertySchema.DateProperty("key", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+                new PropertySchema.DateProperty("key", TimeUtils.DATETIME_FORMAT);
         // list iceberg tables in dbs
         // When listing table is done, remove database from icebergDbs.
         for (Iterator<Map.Entry<Long, Database>> it = icebergDbs.entrySet().iterator(); it.hasNext(); it.remove()) {
@@ -257,7 +257,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
     }
 
     public boolean isQueueFull() {
-        return tableCreationRecordQueue.size() >= Config.max_iceberg_table_creation_record_size;
+        return tableCreationRecordQueue.size() >= 2000;
     }
 
     private void readLock() {

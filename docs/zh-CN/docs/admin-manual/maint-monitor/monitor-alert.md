@@ -40,7 +40,7 @@ Dashboard 模板会不定期更新。更新模板的方式见最后一小节。
 
 ## 组件
 
-Doris 使用 [Prometheus](https://prometheus.io/) 和 [Grafana](https://grafana.com/) 进项监控项的采集和展示。
+Doris 使用 [Prometheus](https://prometheus.io/) 和 [Grafana](https://grafana.com/) 进行监控项的采集和展示。
 
 ![](/images/dashboard_overview.png)
 

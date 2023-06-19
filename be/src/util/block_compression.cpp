@@ -45,6 +45,7 @@ namespace doris {
 
 using strings::Substitute;
 
+// exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                                        faststring* output) {
     faststring buf;
@@ -229,7 +230,7 @@ public:
 private:
     Status _compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
                      faststring* output) {
-        CContext* context;
+        CContext* context = nullptr;
         RETURN_IF_ERROR(_acquire_compression_ctx(&context));
         bool compress_failed = false;
         Defer defer {[&] {

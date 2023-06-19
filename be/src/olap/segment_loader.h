@@ -46,7 +46,7 @@ class BetaRowset;
 // the segments of a specified rowset:
 //
 //  SegmentCacheHandle cache_handle;
-//  RETURN_NOT_OK(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
+//  RETURN_IF_ERROR(SegmentCache::instance()->load_segments(_rowset, &cache_handle));
 //  for (auto& seg_ptr : cache_handle.value()->segments) {
 //      ... visit segment ...
 //  }

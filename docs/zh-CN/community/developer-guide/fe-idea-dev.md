@@ -57,7 +57,7 @@ JDK1.8+, IntelliJ IDEA
 
         将其中的：
 
-        `#rl "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
+        `url "https://www.apache.org/dyn/closer.lua?path=thrift/0.16.0/thrift-0.16.0.tar.gz"`
 
         修改为：
 
@@ -170,7 +170,6 @@ http_port = 8030
 rpc_port = 9020
 query_port = 9030
 edit_log_port = 9010
-mysql_service_nio_enabled = true
 
 # Choose one if there are more than one ip except loopback address. 
 # Note that there should at most one ip match this list.
@@ -189,7 +188,6 @@ mysql_service_nio_enabled = true
 # audit_log_roll_num = 10
 # meta_delay_toleration_second = 10
 # qe_max_connection = 1024
-# max_conn_per_user = 100
 # qe_query_timeout_second = 300
 # qe_slow_log_ms = 5000
 

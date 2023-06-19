@@ -59,6 +59,10 @@ public class If extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateV2Type.INSTANCE)
+                    .args(BooleanType.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(BooleanType.INSTANCE, BooleanType.INSTANCE, BooleanType.INSTANCE),
             FunctionSignature.ret(TinyIntType.INSTANCE)
@@ -78,14 +82,10 @@ public class If extends ScalarFunction
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(BooleanType.INSTANCE, DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).args(BooleanType.INSTANCE, DateType.INSTANCE, DateType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(BooleanType.INSTANCE, DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DecimalV3Type.WILDCARD)
                     .args(BooleanType.INSTANCE, DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT)
+                    .args(BooleanType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(BitmapType.INSTANCE)
                     .args(BooleanType.INSTANCE, BitmapType.INSTANCE, BitmapType.INSTANCE),
             FunctionSignature.ret(HllType.INSTANCE).args(BooleanType.INSTANCE, HllType.INSTANCE, HllType.INSTANCE),
@@ -127,12 +127,12 @@ public class If extends ScalarFunction
                     .args(BooleanType.INSTANCE, ArrayType.of(DateV2Type.INSTANCE), ArrayType.of(DateV2Type.INSTANCE)),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE,
-                            ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT),
-                            ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
-                    .args(BooleanType.INSTANCE,
                             ArrayType.of(DecimalV3Type.WILDCARD),
                             ArrayType.of(DecimalV3Type.WILDCARD)),
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(BooleanType.INSTANCE,
+                            ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT),
+                            ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(BooleanType.INSTANCE,
                             ArrayType.of(VarcharType.SYSTEM_DEFAULT),

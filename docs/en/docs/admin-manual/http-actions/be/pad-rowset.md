@@ -1,6 +1,6 @@
 ---
 {
-    "title": "PAD ROWSET",
+    "title": "Pad Rowset",
     "language": "en"
 }
 ---
@@ -24,18 +24,45 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PAD ROWSET
-## description
-   
-    Pad one empty rowset as one substitute for error replica.
+# Pad Rowset
 
-    METHOD: POST
-    URI: http://be_host:be_http_port/api/pad_rowset?tablet_id=xxx&start_version=xxx&end_version=xxx
+## Request
 
-## example
+`POST /api/pad_rowset?tablet_id={int}&start_version={int}&end_version={int}`
 
-    curl -X POST "http://hostname:8088/api/pad_rowset?tablet_id=123456\&start_version=1111111\$end_version=1111112"
+## Description
 
-## keyword
+Pad one empty rowset as one substitute for error replica.
 
-    ROWSET,TABLET,ROWSET,TABLET
+## Query parameters
+
+* `tablet_id`
+    ID of the tablet
+
+* `start_version`
+    Start version
+
+* `end_version`
+    End version       
+
+
+## Request body
+
+None
+
+## Response
+
+    ```
+    {
+        msg: "OK",
+        code: 0
+    }
+    ```
+## Examples
+
+
+    ```
+    curl -X POST "http://127.0.0.1:8040/api/pad_rowset?tablet_id=123456&start_version=1111111&end_version=1111112"
+
+    ```
+

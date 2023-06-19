@@ -55,6 +55,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -492,12 +494,14 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
-    public List<List<Comparable>> getDbInfo() {
-        List<List<Comparable>> infos = new ArrayList<List<Comparable>>();
+    public List<List<String>> getDbInfo() {
+        List<List<String>> infos = new ArrayList<>();
+        long totalRunningNum = 0;
         List<Long> dbIds = Lists.newArrayList(dbIdToDatabaseTransactionMgrs.keySet());
+        Collections.sort(dbIds);
         for (long dbId : dbIds) {
-            List<Comparable> info = new ArrayList<Comparable>();
-            info.add(dbId);
+            List<String> info = new ArrayList<>();
+            info.add(String.valueOf(dbId));
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
@@ -507,12 +511,15 @@ public class GlobalTransactionMgr implements Writable {
             try {
                 DatabaseTransactionMgr dbMgr = getDatabaseTransactionMgr(dbId);
                 runningNum = dbMgr.getRunningTxnNums() + dbMgr.getRunningRoutineLoadTxnNums();
+                totalRunningNum += runningNum;
             } catch (AnalysisException e) {
                 LOG.warn("get database running transaction num failed", e);
             }
-            info.add(runningNum);
+            info.add(String.valueOf(runningNum));
             infos.add(info);
         }
+        List<String> info = Arrays.asList("0", "Total", String.valueOf(totalRunningNum));
+        infos.add(info);
         return infos;
     }
 

@@ -146,8 +146,7 @@ public class ExternalMetaCacheMgr {
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
-            metaCache.dropPartitionsCache(dbName, table.getName(), partitionNames,
-                    ((HMSExternalTable) table).getPartitionColumnTypes(), true);
+            metaCache.dropPartitionsCache(dbName, table.getName(), partitionNames, true);
         }
         LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
     }

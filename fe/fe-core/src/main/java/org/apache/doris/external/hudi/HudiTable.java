@@ -34,11 +34,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-/**
- * External Hudi table.
- */
+@Deprecated
 public class HudiTable extends Table {
     private static final Logger LOG = LogManager.getLogger(HudiTable.class);
+
+    public static final String HUDI_DATABASE = "hudi.database";
+    public static final String HUDI_TABLE = "hudi.table";
 
     // table properties of this hudi table
     private Map<String, String> tableProperties = Maps.newHashMap();
@@ -62,24 +63,8 @@ public class HudiTable extends Table {
     public HudiTable(long id, String tableName, List<Column> fullSchema, Map<String, String>  tableProperties) {
         super(id, tableName, TableType.HUDI, fullSchema);
         this.tableProperties = tableProperties;
-        this.hmsDatabaseName = tableProperties.get(HudiProperty.HUDI_DATABASE);
-        this.hmsTableName = tableProperties.get(HudiProperty.HUDI_TABLE);
-    }
-
-    public String getHmsDatabaseName() {
-        return hmsDatabaseName;
-    }
-
-    public String getHmsTableName() {
-        return hmsTableName;
-    }
-
-    public Map<String, String> getTableProperties() {
-        return tableProperties;
-    }
-
-    public String getHmsTableIdentifer() {
-        return String.format("%s.%s", hmsDatabaseName, hmsTableName);
+        this.hmsDatabaseName = tableProperties.get(HUDI_DATABASE);
+        this.hmsTableName = tableProperties.get(HUDI_TABLE);
     }
 
     @Override
@@ -113,9 +98,9 @@ public class HudiTable extends Table {
     @Override
     public TTableDescriptor toThrift() {
         THudiTable thriftHudiTable = new THudiTable();
-        thriftHudiTable.setDbName(getHmsDatabaseName());
-        thriftHudiTable.setTableName(getHmsTableName());
-        thriftHudiTable.setProperties(getTableProperties());
+        thriftHudiTable.setDbName(hmsDatabaseName);
+        thriftHudiTable.setTableName(hmsTableName);
+        thriftHudiTable.setProperties(tableProperties);
 
         TTableDescriptor thriftTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
                 fullSchema.size(), 0, getName(), "");

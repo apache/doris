@@ -42,10 +42,28 @@ namespace doris {
 namespace io {
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               const std::string& cache_path)
+                                               const std::string& cache_path,
+                                               const long modification_time)
         : _remote_file_reader(std::move(remote_file_reader)) {
-    _cache_key = IFileCache::hash(cache_path);
+    // Use path and modification time to build cache key
+    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
+    _cache_key = IFileCache::hash(unique_path);
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+}
+
+CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
+                                               const std::string& cache_base_path,
+                                               const std::string& cache_path,
+                                               const long modification_time)
+        : _remote_file_reader(std::move(remote_file_reader)) {
+    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
+    _cache_key = IFileCache::hash(unique_path);
+    _cache = FileCacheFactory::instance().get_by_path(cache_base_path);
+    if (_cache == nullptr) {
+        LOG(WARNING) << "Can't get cache from base path: " << cache_base_path
+                     << ", using random instead.";
+        _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+    }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
@@ -58,9 +76,9 @@ Status CachedRemoteFileReader::close() {
 
 std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
                                                               size_t read_size) const {
-    size_t min_size = 1024 * 1024; // 1MB;
-    size_t segment_size = std::min(std::max(read_size, min_size),
-                                   (size_t)config::file_cache_max_file_segment_size);
+    size_t segment_size =
+            std::min(std::max(read_size, (size_t)config::file_cache_min_file_segment_size),
+                     (size_t)config::file_cache_max_file_segment_size);
     segment_size = BitUtil::next_power_of_two(segment_size);
     size_t left = offset;
     size_t right = offset + read_size - 1;

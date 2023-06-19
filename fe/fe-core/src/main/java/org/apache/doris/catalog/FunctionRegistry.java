@@ -19,10 +19,12 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -61,6 +63,18 @@ public class FunctionRegistry {
     public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
         int arity = arguments.size();
         List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
+        if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
+            String nestedName = AggStateFunctionBuilder.getNestedName(name);
+            String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
+
+            functionBuilders = name2Builders.get(nestedName.toLowerCase());
+
+            if (functionBuilders != null) {
+                functionBuilders = functionBuilders.stream().map(builder -> {
+                    return new AggStateFunctionBuilder(combinatorSuffix, builder);
+                }).filter(functionBuilder -> functionBuilder.canApply(arguments)).collect(Collectors.toList());
+            }
+        }
         if (functionBuilders == null || functionBuilders.isEmpty()) {
             throw new AnalysisException("Can not found function '" + name + "'");
         }

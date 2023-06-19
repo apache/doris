@@ -28,11 +28,11 @@
 #include "vec/core/block.h"
 #include "vec/core/sort_cursor.h"
 #include "vec/core/sort_description.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 
 namespace vectorized {
-class VExprContext;
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
 // sequence of blocks, which are fetched from a BlockSupplier function object.
@@ -45,10 +45,9 @@ public:
     // Function that returns the next block of rows from an input sorted run. The batch
     // is owned by the supplier (i.e. not VSortedRunMerger). eos is indicated by an NULL
     // batch being returned.
-    VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
-                     const std::vector<bool>& _is_asc_order, const std::vector<bool>& _nulls_first,
-                     const size_t batch_size, int64_t limit, size_t offset,
-                     RuntimeProfile* profile);
+    VSortedRunMerger(const VExprContextSPtrs& ordering_expr, const std::vector<bool>& _is_asc_order,
+                     const std::vector<bool>& _nulls_first, const size_t batch_size, int64_t limit,
+                     size_t offset, RuntimeProfile* profile);
 
     VSortedRunMerger(const SortDescription& desc, const size_t batch_size, int64_t limit,
                      size_t offset, RuntimeProfile* profile);
@@ -64,7 +63,7 @@ public:
     Status get_next(Block* output_block, bool* eos);
 
 protected:
-    const std::vector<VExprContext*> _ordering_expr;
+    const VExprContextSPtrs _ordering_expr;
     SortDescription _desc;
     const std::vector<bool> _is_asc_order;
     const std::vector<bool> _nulls_first;

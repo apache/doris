@@ -161,38 +161,38 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
     + 声明 `udf.h` 头文件位置
 
 
-    以 udf_sample 为例    
-    
-    ```
-    # Include udf
-    include_directories(../thirdparty/include)    
+以 udf_sample 为例    
 
-    # Set all libraries
-    add_library(udf STATIC IMPORTED)
-    set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
+```
+# Include udf
+include_directories(../thirdparty/include)    
 
-    # where to put generated libraries
-    set(LIBRARY_OUTPUT_PATH "src/udf_samples")
+# Set all libraries
+add_library(udf STATIC IMPORTED)
+set_target_properties(udf PROPERTIES IMPORTED_LOCATION ../thirdparty/lib/libDorisUdf.a)
 
-    # where to put generated binaries
-    set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
+# where to put generated libraries
+set(LIBRARY_OUTPUT_PATH "src/udf_samples")
 
-    add_library(udfsample SHARED udf_sample.cpp)
-        target_link_libraries(udfsample
-        udf
-        -static-libstdc++
-        -static-libgcc
-    )
+# where to put generated binaries
+set(EXECUTABLE_OUTPUT_PATH "src/udf_samples")
 
-    add_library(udasample SHARED uda_sample.cpp)
-        target_link_libraries(udasample
-        udf
-        -static-libstdc++
-        -static-libgcc
-    )
-    ```
+add_library(udfsample SHARED udf_sample.cpp)
+  target_link_libraries(udfsample
+  udf
+  -static-libstdc++
+  -static-libgcc
+)
 
-    如果用户的 UDF 函数还依赖了其他的三方库，则需要声明 include，lib，并在 `add_library` 中增加依赖。
+add_library(udasample SHARED uda_sample.cpp)
+  target_link_libraries(udasample
+  udf
+  -static-libstdc++
+  -static-libgcc
+)
+```
+
+如果用户的 UDF 函数还依赖了其他的三方库，则需要声明 include，lib，并在 `add_library` 中增加依赖。
 
 所有文件准备齐后完整的目录结构如下：
 

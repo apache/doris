@@ -35,6 +35,7 @@
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -57,6 +58,7 @@ class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
 struct RowsetWriterContext;
+struct FlushContext;
 
 namespace io {
 class FileWriter;
@@ -67,16 +69,13 @@ namespace segment_v2 {
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
-using KeySetPtr = std::shared_ptr<std::unordered_set<std::string>>;
-
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
     bool enable_unique_key_merge_on_write = false;
+    CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
-    // If it is directly write from load procedure, else
-    // it could be compaction or schema change etc..
-    bool is_direct_write = false;
+    DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -90,11 +89,11 @@ public:
                            std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
-    Status init(const vectorized::Block* block = nullptr);
+    Status init(const FlushContext* flush_ctx = nullptr);
 
     // for vertical compaction
     Status init(const std::vector<uint32_t>& col_ids, bool has_key,
-                const vectorized::Block* block = nullptr);
+                const FlushContext* flush_ctx = nullptr);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -106,7 +105,9 @@ public:
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
+    size_t try_get_inverted_index_file_size();
 
+    size_t get_inverted_index_file_size() const { return _inverted_index_file_size; }
     uint32_t num_rows_written() const { return _num_rows_written; }
     uint32_t row_count() const { return _row_count; }
 
@@ -119,12 +120,10 @@ public:
     Status finalize_footer(uint64_t* segment_file_size);
     Status finalize_footer();
 
-    static void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
-                                 TabletSchemaSPtr tablet_schema);
+    void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                          TabletSchemaSPtr tablet_schema);
     Slice min_encoded_key();
     Slice max_encoded_key();
-
-    KeySetPtr get_key_set() { return _key_set; }
 
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
@@ -136,11 +135,9 @@ public:
                                 const std::vector<bool>& use_default_flag, bool has_default);
 
 private:
-    Status _create_writers_with_dynamic_block(
-            const vectorized::Block* block,
-            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
-    Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
+    Status _create_writers(const TabletSchema& tablet_schema, const std::vector<uint32_t>& col_ids,
+                           std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
@@ -181,6 +178,7 @@ private:
     SegmentFooterPB _footer;
     size_t _num_key_columns;
     size_t _num_short_key_columns;
+    size_t _inverted_index_file_size;
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -192,8 +190,6 @@ private:
     const KeyCoder* _seq_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
-    // used to check if there's duplicate key in aggregate key and unique key data model
-    KeySetPtr _key_set;
 
     std::vector<uint32_t> _column_ids;
     bool _has_key = true;

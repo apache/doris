@@ -3,7 +3,6 @@
 *.pyc
 *.class
 *.iml
-*.swp
 *.jar
 *.log
 *.so.tmp
@@ -35,6 +34,7 @@ package-lock.json
 .settings/
 **/.idea/
 **/.vscode/
+**/.fleet/
 
 # docs
 docs/contents/
@@ -46,6 +46,7 @@ rpc_data/
 metastore_db/
 thirdparty/src*
 thirdparty/installed*
+thirdparty/doris-thirdparty*.tar.xz
 
 fe_plugins/output
 fe_plugins/**/.factorypath
@@ -59,6 +60,7 @@ regression-test/realdata/*
 regression-test/cacheData/*
 regression-test/conf/regression-conf-custom.groovy
 regression-test/framework/bin/*
+regression-test/framework/src/main/groovy/org/apache/doris/thrift
 regression-test/certificate.p12
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
@@ -76,6 +78,7 @@ fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
 fe/fe-common/src/main/java/org/apache/doris/thrift
 fe/fe-common/src/main/java/org/apache/parquet
+fe/fe-core/src/main/java/org/apache/parquet
 
 # BE
 be/build*/
@@ -97,6 +100,9 @@ tools/**/tpc-h_v*.docx
 tools/**/tpc-h_v*.pdf
 tools/**/tpch-data/
 tools/single-node-cluster/fe*
+tools/tpcds-tools/TPC-DS_Tools_*.zip
+tools/tpcds-tools/bin/DSGen-software*
+tools/tpcds-tools/bin/tpcds-data/
 
 # be-ut
 data_test

@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.property;
 
 import org.apache.doris.datasource.property.constants.CosProperties;
+import org.apache.doris.datasource.property.constants.GCSProperties;
+import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -32,11 +34,16 @@ public class S3ClientBEProperties {
      *  On BE, should use properties like AWS_XXX.
      */
     public static Map<String, String> getBeFSProperties(Map<String, String> properties) {
-        if (properties.containsKey(S3Properties.ENDPOINT)) {
+        if (properties.containsKey(MinioProperties.ENDPOINT)) {
+            // minio does not have region, use an arbitrary one.
+            properties.put(MinioProperties.REGION, "us-east-1");
+            return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
+        } else if (properties.containsKey(S3Properties.ENDPOINT)) {
             // s3,oss,cos,obs use this.
             return getBeAWSPropertiesFromS3(properties);
         } else if (properties.containsKey(ObsProperties.ENDPOINT)
                 || properties.containsKey(OssProperties.ENDPOINT)
+                || properties.containsKey(GCSProperties.ENDPOINT)
                 || properties.containsKey(CosProperties.ENDPOINT)) {
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
         }

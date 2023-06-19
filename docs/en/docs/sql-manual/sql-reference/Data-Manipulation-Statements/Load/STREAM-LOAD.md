@@ -338,6 +338,28 @@ ERRORS:
     curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
     ```
     
+17. Import data into a table whose table field contains DEFAULT CURRENT_TIMESTAMP
+
+    Table Structure:
+    
+    ```sql
+    `id` bigint(30) NOT NULL,
+    `order_code` varchar(30) DEFAULT NULL COMMENT '',
+    `create_time` datetimev2(3) DEFAULT CURRENT_TIMESTAMP    
+    ```
+
+    JSON data format:
+
+    ```
+    {"id":1,"order_Code":"avc"}
+    ```
+
+    Import command:
+
+    ```
+    curl --location-trusted -u root -T test.json -H "label:1" -H "format:json" -H 'columns: id, order_code, create_time=CURRENT_TIMESTAMP()' http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    
 ### Keywords
 
     STREAM, LOAD

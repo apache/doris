@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view_date", "rollup") {
+
+    // because nereids cannot support rollup correctly forbid it temporary
+    sql """set enable_nereids_planner=false"""
+
     def tbName1 = "test_materialized_view_date"
 
     def getJobState = { tableName ->

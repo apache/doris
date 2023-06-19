@@ -186,7 +186,7 @@ under the License.
         <module>spark-dpp</module>
         <module>fe-core</module>
         <module>hive-udf</module>
-        <module>java-udf</module>
+        <module>be-java-extensions</module>
     </modules>
     <properties>
         <!--suppress UnresolvedMavenProperty -->
@@ -195,7 +195,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.3-SNAPSHOT</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.4-SNAPSHOT</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -218,7 +218,7 @@ under the License.
         <jackson.version>2.12.3</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
-        <javax.servlet-api.version>3.0.1</javax.servlet-api.version>
+        <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <je.version>18.3.14-doris-SNAPSHOT</je.version>
         <jflex.version>1.4.3</jflex.version>
         <jmockit.version>1.49</jmockit.version>
@@ -263,15 +263,22 @@ under the License.
         <RoaringBitmap.version>0.8.13</RoaringBitmap.version>
         <spark.version>2.4.6</spark.version>
         <hive.version>3.1.3</hive.version>
+        <hive.common.version>2.3.9</hive.common.version>
+        <mapreduce.client.version>2.10.1</mapreduce.client.version>
         <calcite.version>1.33.0</calcite.version>
         <avatica.version>1.22.0</avatica.version>
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.1.0</iceberg.version>
+        <maxcompute.version>0.43.3-public</maxcompute.version>
+        <arrow.version>9.0.0</arrow.version>
         <avro.version>1.11.1</avro.version>
         <!-- hudi -->
         <hudi.version>0.13.0</hudi.version>
+        <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
+        <presto.hive.version>3.0.0-8</presto.hive.version>
+
         <parquet.version>1.13.0</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <commons-compress.version>1.22</commons-compress.version>
@@ -292,12 +299,16 @@ under the License.
         <zookeeper.version>3.4.14</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ojdbc6.version>11.2.0.4</ojdbc6.version>
-        <opentelemetry.version>1.14.0</opentelemetry.version>
+        <opentelemetry.version>1.26.0</opentelemetry.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
+        <vesoft.client.version>3.0.0</vesoft.client.version>
+        <!-- paimon -->
+        <paimon.version>0.4.0-incubating</paimon.version>
+        <disruptor.version>3.3.4</disruptor.version>
     </properties>
     <profiles>
         <profile>
@@ -352,10 +363,9 @@ under the License.
                 <version>${opentelemetry.version}</version>
             </dependency>
 
-            <!-- https://mvnrepository.com/artifact/io.opentelemetry/opentelemetry-exporter-otlp-http-trace -->
             <dependency>
                 <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-exporter-otlp-http-trace</artifactId>
+                <artifactId>opentelemetry-exporter-otlp</artifactId>
                 <version>${opentelemetry.version}</version>
             </dependency>
             <dependency>
@@ -460,6 +470,12 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -696,6 +712,11 @@ under the License.
                 <artifactId>log4j-api</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.lmax</groupId>
+                <artifactId>disruptor</artifactId>
+                <version>${disruptor.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
@@ -812,6 +833,11 @@ under the License.
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-stub</artifactId>
+                <version>${grpc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-core</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
@@ -999,13 +1025,19 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-launcher_2.12</artifactId>
                 <version>${spark.version}</version>
-                <scope>provided</scope>
+                <!-- <scope>provided</scope> -->
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
             <dependency>
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-sql_2.12</artifactId>
                 <version>${spark.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.arrow</groupId>
+                        <artifactId>arrow-vector</artifactId>
+                    </exclusion>
+                </exclusions>
                 <scope>provided</scope>
             </dependency>
 
@@ -1079,6 +1111,12 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client</artifactId>
                 <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <!-- jettison -->
             <dependency>
@@ -1098,7 +1136,17 @@ under the License.
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
-
+            <dependency>
+                <groupId>com.aliyun.odps</groupId>
+                <artifactId>odps-sdk-core</artifactId>
+                <version>${maxcompute.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.apache.arrow</groupId>
+                        <artifactId>arrow-vector</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <!-- For Iceberg, must be consistent with Iceberg version -->
             <dependency>
                 <groupId>org.apache.avro</groupId>
@@ -1249,6 +1297,27 @@ under the License.
                 <version>${dlf-metastore-client-hive.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-common</artifactId>
+                <version>${hive.common.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
+                <version>${mapreduce.client.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>javax.servlet</groupId>
+                        <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-common</artifactId>
+                <version>${mapreduce.client.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.alibaba</groupId>
                 <artifactId>druid</artifactId>
                 <version>${druid.version}</version>
@@ -1275,6 +1344,11 @@ under the License.
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-core</artifactId>
                 <version>${tomcat-embed-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.vesoft</groupId>
+                <artifactId>client</artifactId>
+                <version>${vesoft.client.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

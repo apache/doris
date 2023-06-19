@@ -20,12 +20,15 @@ package org.apache.doris.fs.remote;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.UserException;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.RemoteFiles;
 
 import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public abstract class RemoteFileSystem extends PersistentFileSystem {
     protected org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
@@ -34,17 +37,31 @@ public abstract class RemoteFileSystem extends PersistentFileSystem {
         super(name, type);
     }
 
-    protected org.apache.hadoop.fs.FileSystem getFileSystem(String remotePath) throws UserException {
+    protected org.apache.hadoop.fs.FileSystem nativeFileSystem(String remotePath) throws UserException {
         throw new UserException("Not support to getFileSystem.");
     }
 
     @Override
-    public RemoteIterator<LocatedFileStatus> listLocatedStatus(String remotePath) throws UserException {
-        org.apache.hadoop.fs.FileSystem fileSystem = getFileSystem(remotePath);
+    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) throws UserException {
+        org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(remotePath);
         try {
-            return fileSystem.listLocatedStatus(new Path(remotePath));
+            Path locatedPath = new Path(remotePath);
+            RemoteIterator<LocatedFileStatus> locatedFiles = onlyFiles ? fileSystem.listFiles(locatedPath, recursive)
+                        : fileSystem.listLocatedStatus(locatedPath);
+            return getFileLocations(locatedFiles);
         } catch (IOException e) {
             throw new UserException("Failed to list located status for path: " + remotePath, e);
         }
+    }
+
+    private RemoteFiles getFileLocations(RemoteIterator<LocatedFileStatus> locatedFiles) throws IOException {
+        List<RemoteFile> locations = new ArrayList<>();
+        while (locatedFiles.hasNext()) {
+            LocatedFileStatus fileStatus = locatedFiles.next();
+            RemoteFile location = new RemoteFile(fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                    fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
+            locations.add(location);
+        }
+        return new RemoteFiles(locations);
     }
 }

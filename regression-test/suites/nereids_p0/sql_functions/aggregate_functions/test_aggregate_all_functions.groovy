@@ -490,7 +490,7 @@ suite("test_aggregate_all_functions") {
        
     sql "DROP TABLE IF EXISTS ${tableName_10}"
 
-    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from test_query_db.test  """
+    qt_select44 """select sum(distinct k1), sum(distinct k2), sum(distinct k3), sum(distinct cast(k4 as largeint)), sum(distinct k5), sum(distinct k8), sum(distinct k9) from nereids_test_query_db.test  """
 
     qt_select45 """select * from ${tableName_12} order by id,level"""
 

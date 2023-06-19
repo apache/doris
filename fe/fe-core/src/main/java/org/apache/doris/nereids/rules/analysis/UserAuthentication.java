@@ -39,6 +39,10 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
     }
 
     private Plan checkPermission(LogicalRelation relation, ConnectContext connectContext) {
+        // do not check priv when replaying dump file
+        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+            return relation;
+        }
         String dbName = !relation.getQualifier().isEmpty() ? relation.getQualifier().get(0) : null;
         String tableName = relation.getTable().getName();
         if (!connectContext.getEnv().getAccessManager()

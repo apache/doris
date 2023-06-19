@@ -41,13 +41,15 @@ The `retention` function takes as arguments a set of conditions from 1 to 32 arg
 
 The conditions, except the first, apply in pairs: the result of the second will be true if the first and second are true, of the third if the first and third are true, etc.
 
+To put it simply, the first digit of the return value array indicates whether `event1` is true or false, the second digit represents the truth and falseness of `event1` and `event2`, and the third digit represents whether `event1` is true or false and `event3` is true False and, and so on. If `event1` is false, return an array full of zeros.
+
 #### Arguments
 
 `event` — An expression that returns a `UInt8` result (1 or 0).
 
 ##### Returned value
 
-The array of 1 or 0.
+An array of 1s and 0s with a maximum length of 32 bits, the final output array has the same length as the input parameter.
 
 1 — Condition was met for the event.
 

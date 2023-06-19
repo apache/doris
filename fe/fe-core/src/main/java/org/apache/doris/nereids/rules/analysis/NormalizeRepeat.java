@@ -20,8 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotContext;
-import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotTriplet;
+import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
+import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotTriplet;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -226,17 +226,9 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
 
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
-
-        // nullable will be different from grouping set and output expressions,
-        // so we can not use the slot in grouping set，but use the equivalent slot in output expressions.
-        List<NamedExpression> outputs = repeat.getOutputExpressions();
-
         Map<Expression, NormalizeToSlotTriplet> normalizeToSlotMap = Maps.newLinkedHashMap();
         for (Expression expression : sourceExpressions) {
             Optional<NormalizeToSlotTriplet> pushDownTriplet;
-            if (expression instanceof NamedExpression && outputs.contains(expression)) {
-                expression = outputs.get(outputs.indexOf(expression));
-            }
             if (groupingSetExpressions.contains(expression)) {
                 pushDownTriplet = toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
             } else {

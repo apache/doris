@@ -15,35 +15,43 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
--- Modified
-
-
-select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=16, batch_size=4096, disable_join_reorder=true, enable_cost_based_join_reorder=true, enable_projection=true) */
-s_name, count(*) as numwait
+select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
+    s_name,
+    count(*) as numwait
 from
-  lineitem l2 right semi join
-  (
-    select * from
-    lineitem l3 right anti join
-    (
-      select * from
-      orders join lineitem l1 on l1.l_orderkey = o_orderkey and o_orderstatus = 'F'
-      join
-      (
-        select * from
-        supplier join nation
-        where s_nationkey = n_nationkey
-          and n_name = 'SAUDI ARABIA'
-      ) t1
-      where t1.s_suppkey = l1.l_suppkey and l1.l_receiptdate > l1.l_commitdate
-    ) t2
-    on l3.l_orderkey = t2.l_orderkey and l3.l_suppkey <> t2.l_suppkey  and l3.l_receiptdate > l3.l_commitdate
-  ) t3
-  on l2.l_orderkey = t3.l_orderkey and l2.l_suppkey <> t3.l_suppkey 
-
+    supplier,
+    lineitem l1,
+    orders,
+    nation
+where
+    s_suppkey = l1.l_suppkey
+    and o_orderkey = l1.l_orderkey
+    and o_orderstatus = 'F'
+    and l1.l_receiptdate > l1.l_commitdate
+    and exists (
+        select
+            *
+        from
+            lineitem l2
+        where
+                l2.l_orderkey = l1.l_orderkey
+          and l2.l_suppkey <> l1.l_suppkey
+    )
+    and not exists (
+        select
+            *
+        from
+            lineitem l3
+        where
+                l3.l_orderkey = l1.l_orderkey
+          and l3.l_suppkey <> l1.l_suppkey
+          and l3.l_receiptdate > l3.l_commitdate
+    )
+    and s_nationkey = n_nationkey
+    and n_name = 'SAUDI ARABIA'
 group by
-    t3.s_name
+    s_name
 order by
     numwait desc,
-    t3.s_name
+    s_name
 limit 100;

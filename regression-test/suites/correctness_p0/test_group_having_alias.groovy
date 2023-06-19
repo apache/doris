@@ -128,6 +128,7 @@
     qt_case3 """ SELECT id, v1-2 as v, sum(v2) v2 FROM test_having_alias_tb GROUP BY id,v having(v>0 AND sum(v2)>1) ORDER BY id,v; """
     qt_case4 """ SELECT id, v1-2 as v, sum(v2) vsum FROM test_having_alias_tb GROUP BY id,v having(v>0 AND vsum>1) ORDER BY id,v; """
     qt_case5 """ SELECT id, max(v1) v1 FROM test_having_alias_tb GROUP BY 1 having count(distinct v1)>1 ORDER BY id; """
+    qt_case_cir2273 """ select sum( id * 0.5 ) val from test_having_alias_tb having val > 0; """
 
     sql """set enable_nereids_planner=true"""
     sql """set enable_fallback_to_original_planner=false"""

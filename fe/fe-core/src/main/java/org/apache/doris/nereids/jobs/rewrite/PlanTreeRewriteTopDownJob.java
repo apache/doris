@@ -25,10 +25,15 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import java.util.List;
 import java.util.Objects;
 
-/** PlanTreeRewriteTopDownJob */
+/**
+ * PlanTreeRewriteTopDownJob
+ * It's easier than the 'BottomUp' job, it handles the plan tree top-down. If some new plans generated after rewrite,
+ * it only processes the current node again. Otherwise, it just recursively handles its children.
+ */
 public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
-    private RewriteJobContext rewriteJobContext;
-    private List<Rule> rules;
+
+    private final RewriteJobContext rewriteJobContext;
+    private final List<Rule> rules;
 
     public PlanTreeRewriteTopDownJob(RewriteJobContext rewriteJobContext, JobContext context, List<Rule> rules) {
         super(JobType.TOP_DOWN_REWRITE, context);
@@ -57,6 +62,7 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
                 pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, rules));
             }
         } else {
+            // All the children part are already visited. Just link the children plan to the current node.
             Plan result = linkChildrenAndParent(rewriteJobContext.plan, rewriteJobContext);
             if (rewriteJobContext.parentContext == null) {
                 context.getCascadesContext().setRewritePlan(result);

@@ -69,7 +69,7 @@ public class RefreshManager {
             refreshInternalCtlIcebergTable(stmt, env);
         } else {
             // Process external catalog table refresh
-            env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName);
+            env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName, false);
         }
         LOG.info("Successfully refresh table: {} from db: {}", tableName, dbName);
     }

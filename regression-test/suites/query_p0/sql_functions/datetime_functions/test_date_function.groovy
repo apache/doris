@@ -590,7 +590,7 @@ suite("test_date_function") {
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
-        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1), 
@@ -612,7 +612,7 @@ suite("test_date_function") {
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01 00:00:00'), 
-        ('2022-02-29', '2022-02-29 00:00:00'),
+        ('2022-02-27', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28 23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1) from ${tableName};
@@ -632,21 +632,18 @@ suite("test_date_function") {
             PROPERTIES( "replication_allocation" = "tag.location.default: 1");
         """
 
-    explain {
-        sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
-        contains "`birth` < '2022-01-01 00:00:00'"
-    }
+    String explainResult
+    explainResult = sql("select * from ${tableName} where date(birth) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
 
-    explain {
-        sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
-        contains "`birth1` < '2022-01-01'"
-    }
+    explainResult = sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
+    assertFalse(explainResult.contains("timestamp"))
 
     sql """
         insert into ${tableName} values 
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
-        ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
+        ('2022-02-27', '2022-02-27', '2022-02-27 00:00:00', '2022-02-27 00:00:00'),
         ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59'),
         ('1970-01-02', '1970-01-02', '1970-01-02 01:02:03', '1970-01-02 02:03:04');"""
     qt_sql """
@@ -689,5 +686,9 @@ suite("test_date_function") {
         }
     }
     sql """ DROP TABLE IF EXISTS ${tableName}; """
-
+    
+    test {
+        sql "select cast('20230631' as date), cast('20230632' as date)"
+        result([[null, null]])
+    }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.thrift.FrontendService;
@@ -88,7 +89,7 @@ public class MasterOpExecutor {
         if (!ctx.getEnv().isReady()) {
             throw new Exception("Node catalog is not ready, please wait for a while.");
         }
-        String masterHost = ctx.getEnv().getMasterIp();
+        String masterHost = ctx.getEnv().getMasterHost();
         int masterRpcPort = ctx.getEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
 
@@ -125,7 +126,9 @@ public class MasterOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
-
+        //node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 
         boolean isReturnToPool = false;

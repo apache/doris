@@ -49,7 +49,7 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
            logicalProject().then(project -> {
                boolean needGlobalAggregate = project.getProjects()
                        .stream()
-                       .anyMatch(p -> p.accept(NeedAggregateChecker.INSTANCE, null));
+                       .anyMatch(p -> p.accept(ContainsAggregateChecker.INSTANCE, null));
 
                if (needGlobalAggregate) {
                    return new LogicalAggregate<>(ImmutableList.of(), project.getProjects(), project.child());
@@ -60,9 +60,9 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
         );
     }
 
-    private static class NeedAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
+    private static class ContainsAggregateChecker extends DefaultExpressionVisitor<Boolean, Void> {
 
-        private static final NeedAggregateChecker INSTANCE = new NeedAggregateChecker();
+        private static final ContainsAggregateChecker INSTANCE = new ContainsAggregateChecker();
 
         @Override
         public Boolean visit(Expression expr, Void context) {

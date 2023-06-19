@@ -727,7 +727,7 @@ public class SelectStmtTest {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx); // CHECKSTYLE IGNORE THIS LINE
         } catch (Exception e) {
             e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+            Assert.assertTrue(e.getMessage().contains("should use byte_array"));
         }
 
         // do not support large int type, contains function
@@ -740,7 +740,7 @@ public class SelectStmtTest {
                     + "\"schema\"=\"required,int32,siteid;\");";
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx); // CHECKSTYLE IGNORE THIS LINE
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+            Assert.assertTrue(e.getMessage().contains("should use byte_array"));
         }
 
         // support cast

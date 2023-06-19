@@ -24,6 +24,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -39,6 +41,20 @@ public class ShowDataTypesStmt extends ShowStmt {
 
     public static ArrayList<PrimitiveType> getTypes() {
         return PrimitiveType.getSupportedTypes();
+    }
+
+    public static List<List<String>> getTypesAvailableInDdl() {
+        ArrayList<PrimitiveType> supportedTypes = getTypes();
+        List<List<String>> rows = Lists.newArrayList();
+        for (PrimitiveType type : supportedTypes) {
+            List<String> row = new ArrayList<>();
+            if (type.isAvailableInDdl()) {
+                row.add(type.toString());
+                row.add(Integer.toString(type.getSlotSize()));
+                rows.add(row);
+            }
+        }
+        return rows;
     }
 
     @Override

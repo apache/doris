@@ -74,7 +74,7 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     cache_handle->owned = !use_cache;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
-    RETURN_NOT_OK(rowset->load_segments(&segments));
+    RETURN_IF_ERROR(rowset->load_segments(&segments));
 
     if (use_cache) {
         // memory of SegmentLoader::CacheValue will be handled by SegmentLoader

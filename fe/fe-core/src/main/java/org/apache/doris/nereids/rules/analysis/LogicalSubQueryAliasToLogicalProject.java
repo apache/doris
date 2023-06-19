@@ -19,10 +19,9 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 
 /**
  * Eliminate the logical sub query and alias node after analyze and before rewrite
@@ -34,10 +33,8 @@ public class LogicalSubQueryAliasToLogicalProject extends OneAnalysisRuleFactory
     @Override
     public Rule build() {
         return RuleType.LOGICAL_SUB_QUERY_ALIAS_TO_LOGICAL_PROJECT.build(
-                logicalSubQueryAlias().then(alias -> {
-                    List<Slot> output = alias.getOutput();
-                    return new LogicalProject<>((List) output, alias.child());
-                })
+                logicalSubQueryAlias().then(
+                        alias -> new LogicalProject<>(ImmutableList.copyOf(alias.getOutput()), alias.child()))
         );
     }
 }

@@ -54,7 +54,6 @@ public:
         return remove_nullable(arguments[0]);
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
     bool use_default_implementation_for_nulls() const override { return false; }
 
     // trans nullable column to non-nullable column. If argument is already non-nullable, raise error.

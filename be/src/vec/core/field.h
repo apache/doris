@@ -1051,7 +1051,7 @@ struct NearestFieldTypeImpl<signed char> {
 };
 template <>
 struct NearestFieldTypeImpl<unsigned char> {
-    using Type = UInt64;
+    using Type = Int64;
 };
 
 template <>

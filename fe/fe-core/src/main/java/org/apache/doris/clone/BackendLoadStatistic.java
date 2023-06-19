@@ -83,10 +83,7 @@ public class BackendLoadStatistic {
     private TabletInvertedIndex invertedIndex;
 
     private long beId;
-    private String clusterName;
-
     private boolean isAvailable;
-
     private Tag tag;
 
     public static class LoadScore {
@@ -104,10 +101,9 @@ public class BackendLoadStatistic {
     private Map<TStorageMedium, Classification> clazzMap = Maps.newHashMap();
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
-    public BackendLoadStatistic(long beId, String clusterName, Tag tag, SystemInfoService infoService,
-                                TabletInvertedIndex invertedIndex) {
+    public BackendLoadStatistic(long beId, Tag tag, SystemInfoService infoService,
+            TabletInvertedIndex invertedIndex) {
         this.beId = beId;
-        this.clusterName = clusterName;
         this.tag = tag;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
@@ -115,10 +111,6 @@ public class BackendLoadStatistic {
 
     public long getBeId() {
         return beId;
-    }
-
-    public String getClusterName() {
-        return clusterName;
     }
 
     public Tag getTag() {
@@ -303,6 +295,8 @@ public class BackendLoadStatistic {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium
             if (!isSupplement && pathStatistic.getStorageMedium() != medium) {
+                LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
+                        beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
                 continue;
             }
 
@@ -440,7 +434,6 @@ public class BackendLoadStatistic {
     public List<String> getInfo(TStorageMedium medium) {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(beId));
-        info.add(clusterName);
         info.add(String.valueOf(isAvailable));
         long used = totalUsedCapacityMap.getOrDefault(medium, 0L);
         long total = totalCapacityMap.getOrDefault(medium, 0L);

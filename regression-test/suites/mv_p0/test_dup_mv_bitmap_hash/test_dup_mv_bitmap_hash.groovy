@@ -18,13 +18,20 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_bitmap_hash") {
+
+    // because nereids cannot support rollup correctly forbid it temporary
+    sql """set enable_nereids_planner=false"""
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
             create table d_table(
                 k1 int null,
                 k2 int null,
-                k3 varchar(100) null
+                k3 varchar(100) null,
+                INDEX auto_idx_k1 (`k1`) USING INVERTED COMMENT 'auto added inverted index for k1',
+                INDEX auto_idx_k2 (`k2`) USING INVERTED COMMENT 'auto added inverted index for k2',
+                INDEX auto_idx_k3 (`k3`) USING INVERTED COMMENT 'auto added inverted index for k3'
             )
             duplicate key (k1)
             distributed BY hash(k1) buckets 3

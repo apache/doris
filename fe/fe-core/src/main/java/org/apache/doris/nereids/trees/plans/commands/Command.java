@@ -109,11 +109,6 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     }
 
     @Override
-    public List<Slot> getNonUserVisibleOutput() {
-        throw new RuntimeException("Command do not implement getNonUserVisibleOutput");
-    }
-
-    @Override
     public String treeString() {
         throw new RuntimeException("Command do not implement treeString");
     }

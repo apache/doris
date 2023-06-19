@@ -17,6 +17,7 @@
 
 #include "data_type_nullable_serde.h"
 
+#include <arrow/array/array_base.h>
 #include <gen_cpp/types.pb.h>
 
 #include <algorithm>
@@ -25,6 +26,7 @@
 
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -94,5 +96,66 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
     auto& null_map_data = col.get_null_map_data();
     null_map_data.push_back(0);
 }
+
+/**nullable serialize to arrow
+   1/ convert the null_map from doris to arrow null byte map
+   2/ pass the arrow null byteamp to nested column , and call AppendValues
+**/
+void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                                                  arrow::ArrayBuilder* array_builder, int start,
+                                                  int end) const {
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    const PaddedPODArray<UInt8>& bytemap = column_nullable.get_null_map_data();
+    PaddedPODArray<UInt8> res;
+    if (column_nullable.has_null()) {
+        res.reserve(end - start);
+        for (size_t i = start; i < end; ++i) {
+            res.emplace_back(
+                    !(bytemap)[i]); //Invert values since Arrow interprets 1 as a non-null value
+        }
+    }
+    const UInt8* arrow_null_bytemap_raw_ptr = res.empty() ? nullptr : res.data();
+    nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
+                                        arrow_null_bytemap_raw_ptr, array_builder, start, end);
+}
+
+void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
+                                                   int start, int end,
+                                                   const cctz::time_zone& ctz) const {
+    auto& col = reinterpret_cast<ColumnNullable&>(column);
+    NullMap& map_data = col.get_null_map_data();
+    for (size_t i = start; i < end; ++i) {
+        auto is_null = arrow_array->IsNull(i);
+        map_data.emplace_back(is_null);
+    }
+    return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
+                                                ctz);
+}
+
+template <bool is_binary_format>
+Status DataTypeNullableSerDe::_write_column_to_mysql(
+        const IColumn& column, bool return_object_data_as_binary,
+        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
+        bool col_const) const {
+    int buf_ret = 0;
+    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    for (ssize_t i = start; i < end; ++i) {
+        if (0 != buf_ret) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+        const auto col_index = index_check_const(i, col_const);
+        if (col.is_null_at(col_index)) {
+            buf_ret = result[row_idx].push_null();
+        } else {
+            RETURN_IF_ERROR(nested_serde->write_column_to_mysql(
+                    nested_col, return_object_data_as_binary, result, row_idx, col_index,
+                    col_index + 1, col_const));
+        }
+        ++row_idx;
+    }
+    return Status::OK();
+}
+
 } // namespace vectorized
 } // namespace doris

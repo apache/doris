@@ -39,10 +39,10 @@ import java.util.List;
 public class Second extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE),
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE)
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
     /**

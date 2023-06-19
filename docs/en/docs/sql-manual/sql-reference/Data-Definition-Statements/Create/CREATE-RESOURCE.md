@@ -118,14 +118,14 @@ illustrate:
    PROPERTIES
    (
       "type" = "s3",
-      "AWS_ENDPOINT" = "bj.s3.com",
-      "AWS_REGION" = "bj",
-      "AWS_ACCESS_KEY" = "bbb",
-      "AWS_SECRET_KEY" = "aaaa",
+      "s3.endpoint" = "bj.s3.com",
+      "s3.region" = "bj",
+      "s3.access_key" = "bbb",
+      "s3.secret_key" = "aaaa",
       -- the followings are optional
-      "AWS_MAX_CONNECTIONS" = "50",
-      "AWS_REQUEST_TIMEOUT_MS" = "3000",
-      "AWS_CONNECTION_TIMEOUT_MS" = "1000"
+      "s3.connection.maximum" = "50",
+      "s3.connection.request.timeout" = "3000",
+      "s3.connection.timeout" = "1000"
    );
    ```
 
@@ -135,28 +135,28 @@ illustrate:
    PROPERTIES
    (
       "type" = "s3",
-      "AWS_ENDPOINT" = "bj.s3.com",
-      "AWS_REGION" = "bj",
-      "AWS_ACCESS_KEY" = "bbb",
-      "AWS_SECRET_KEY" = "aaaa",
+      "s3.endpoint" = "bj.s3.com",
+      "s3.region" = "bj",
+      "s3.access_key" = "bbb",
+      "s3.secret_key" = "aaaa",
       -- required by cooldown
-      "AWS_ROOT_PATH" = "/path/to/root",
-      "AWS_BUCKET" = "test-bucket",
+      "s3.root.path" = "/path/to/root",
+      "s3.bucket" = "test-bucket"
    );
    ```
 
    S3 related parameters are as follows:
    - Required parameters
-       - `AWS_ENDPOINT`: s3 endpoint
-       - `AWS_REGION`: s3 region
-       - `AWS_ROOT_PATH`: s3 root directory
-       - `AWS_ACCESS_KEY`: s3 access key
-       - `AWS_SECRET_KEY`: s3 secret key
-       - `AWS_BUCKET`: s3 bucket
+       - `s3.endpoint`: s3 endpoint
+       - `s3.region`:s3 region
+       - `s3.root.path`: s3 root directory
+       - `s3.access_key`: s3 access key
+       - `s3.secret_key`: s3 secret key
+       - `s3.bucket`：s3 bucket
    - optional parameter
-       - `AWS_MAX_CONNECTIONS`: the maximum number of s3 connections, the default is 50
-       - `AWS_REQUEST_TIMEOUT_MS`: s3 request timeout, in milliseconds, the default is 3000
-       - `AWS_CONNECTION_TIMEOUT_MS`: s3 connection timeout, in milliseconds, the default is 1000
+       - `s3.connection.maximum`: the maximum number of s3 connections, the default is 50
+       - `s3.connection.request.timeout`: s3 request timeout, in milliseconds, the default is 3000
+       - `s3.connection.timeout`: s3 connection timeout, in milliseconds, the default is 1000
 
 4. Create JDBC resource
 
@@ -220,7 +220,7 @@ illustrate:
    - hive.metastore.uris: hive metastore server address
    Optional:
    - dfs.*: If hive data is on hdfs, HDFS resource parameters should be added, or copy hive-site.xml into fe/conf.
-   - AWS_*: If hive data is on s3, S3 resource parameters should be added. If using [Aliyun Data Lake Formation](https://www.aliyun.com/product/bigdata/dlf), copy hive-site.xml into fe/conf.
+   - s3.*: If hive data is on s3, S3 resource parameters should be added. If using [Aliyun Data Lake Formation](https://www.aliyun.com/product/bigdata/dlf), copy hive-site.xml into fe/conf.
 
 7. Create ES resource
 

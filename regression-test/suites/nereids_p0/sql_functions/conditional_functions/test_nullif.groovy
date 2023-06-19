@@ -37,7 +37,7 @@ suite("test_nullif") {
                 c_timestamp_3 datetimev2(6),
                 c_boolean boolean,
                 c_short_decimal decimal(5,2),
-                c_long_decimal decimal(27,9)
+                c_long_decimal decimal(38,10)
             )
             DUPLICATE KEY(c_bigint)
             DISTRIBUTED BY HASH(c_bigint) BUCKETS 1
@@ -80,14 +80,14 @@ suite("test_nullif") {
         }
     }
 
-    qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
+    qt_select "select nullif(k6, \"false\") k from nereids_test_query_db.test order by k1"
     qt_select "select if(c_date is null,c_timestamp,c_date) from ${tableName} where c_date is null and c_timestamp is not null"
     qt_select "select if(c_bigint > 10,c_timestamp,c_date) from ${tableName}"
     qt_select "select if(c_date_1 is null,c_timestamp_1,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_1 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_2,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_2 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_3,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_3 is not null"
 
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
     def tableName1 = "test"
     qt_if_nullif1 """select if(null, -1, 10) a, if(null, "hello", "worlk") b"""
     qt_if_nullif2 """select if(k1 > 5, true, false) a from baseall order by k1"""
@@ -98,6 +98,12 @@ suite("test_nullif") {
     qt_if_nullif7 """select if(k6, -1, 0) a from baseall order by k6"""
     qt_if_nullif8 """select ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by a.k1"""
+    // make sure stable
+    qt_if_nullif8_1 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_2 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_3 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_4 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
+    qt_if_nullif8_5 """select   /*+ SET_VAR(enable_pipeline_engine=false,parallel_fragment_exec_instance_num=2,parallel_pipeline_task_num=2,enable_share_hash_table_for_broadcast_join=true) */ b.k1, ifnull(b.k1, -1) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 order by a.k1;"""
     qt_if_nullif10 """select ifnull(b.k6, "hll") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by k1"""
     qt_if_nullif11 """select ifnull(b.k10, "2017-06-06") k1 from baseall a left join bigtable b on 

@@ -65,7 +65,7 @@ public class UploadTask extends AgentTask {
     }
 
     public TUploadReq toThrift() {
-        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
+        TNetworkAddress address = new TNetworkAddress(broker.host, broker.port);
         TUploadReq request = new TUploadReq(jobId, srcToDestPath, address);
         request.setBrokerProp(brokerProperties);
         request.setStorageBackend(storageType.toThrift());

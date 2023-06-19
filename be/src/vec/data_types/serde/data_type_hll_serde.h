@@ -41,6 +41,33 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override;
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const override {
+        LOG(FATAL) << "Not support read hll column from arrow";
+    }
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
+                                      end, col_const);
+    }
+
+    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
+                                 int end, bool col_const) const override {
+        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
+                                      end, col_const);
+    }
+
+private:
+    // Hll is binary data which is not shown by mysql.
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
+                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
+                                  int row_idx, int start, int end, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

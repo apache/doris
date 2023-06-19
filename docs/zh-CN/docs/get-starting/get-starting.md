@@ -31,7 +31,7 @@ Apache Doris 是一个基于 MPP 架构的高性能、实时的分析型数据�
 
 ## 下载 Doris
 
-Doris 运行在 Linux 环境中，推荐 CentOS 7.x 或者 Ubuntu 16.04 以上版本，同时你需要安装 Java 运行环境（JDK最低版本要求是8），要检查你所安装的 Java 版本，请运行以下命令：
+Doris 运行在 Linux 环境中，推荐 CentOS 7.x 或者 Ubuntu 16.04 以上版本，同时你需要安装 Java 运行环境（JDK版本要求为8），要检查你所安装的 Java 版本，请运行以下命令：
 
 ```
 java -version
@@ -40,7 +40,7 @@ java -version
 接下来，[下载 Doris 的最新二进制版本](https://doris.apache.org/zh-CN/download)，然后解压。
 
 ```
-tar zxf apache-doris-x.x.x.tar.gz
+tar xf apache-doris-x.x.x.tar.xz
 ```
 
 ## 配置 Doris

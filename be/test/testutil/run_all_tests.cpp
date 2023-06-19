@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     doris::thread_context()->thread_mem_tracker_mgr->init();
     doris::TabletSchemaCache::create_global_schema_cache();
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10, 0);
     doris::SegmentLoader::create_global_instance(1000);
     std::string conf = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conf.c_str(), false)) {

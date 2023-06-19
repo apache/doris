@@ -51,6 +51,7 @@ bool is_olap_string_type(FieldType field_type) {
     case FieldType::OLAP_FIELD_TYPE_OBJECT:
     case FieldType::OLAP_FIELD_TYPE_STRING:
     case FieldType::OLAP_FIELD_TYPE_JSONB:
+    case FieldType::OLAP_FIELD_TYPE_AGG_STATE:
         return true;
     default:
         return false;
@@ -95,7 +96,8 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_JSONB>(),
-    };
+            nullptr,
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_AGG_STATE>()};
     return field_type_array[int(field_type)];
 }
 
@@ -166,7 +168,8 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DECIMAL64),
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DECIMAL128I),
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_JSONB),
-    };
+            {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
+            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_AGG_STATE)};
     return array_type_Info_arr[int(leaf_type)][iterations];
 }
 

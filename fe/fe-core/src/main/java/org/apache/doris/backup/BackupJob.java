@@ -67,7 +67,6 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -114,6 +113,9 @@ public class BackupJob extends AbstractJob {
     private String localJobInfoFilePath = null;
     // backup properties
     private Map<String, String> properties = Maps.newHashMap();
+
+    private byte[] metaInfoBytes = null;
+    private byte[] jobInfoBytes = null;
 
     public BackupJob() {
         super(JobType.BACKUP);
@@ -283,7 +285,7 @@ public class BackupJob extends AbstractJob {
         }
 
         // get repo if not set
-        if (repo == null) {
+        if (repo == null && repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
             repo = env.getBackupHandler().getRepoMgr().getRepo(repoId);
             if (repo == null) {
                 status = new Status(ErrCode.COMMON_ERROR, "failed to get repository: " + repoId);
@@ -566,6 +568,11 @@ public class BackupJob extends AbstractJob {
     }
 
     private void uploadSnapshot() {
+        if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
+            state = BackupJobState.UPLOADING;
+            return;
+        }
+
         // reuse this set to save all unfinished tablets
         unfinishedTaskIds.clear();
         taskProgress.clear();
@@ -612,8 +619,8 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = env.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType(),
-                        repo.getLocation());
+                        brokers.get(0), repo.getRemoteFileSystem().getProperties(),
+                        repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
                 LOG.info("yy debug upload location: " + repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
@@ -647,8 +654,7 @@ public class BackupJob extends AbstractJob {
     }
 
     private void saveMetaInfo() {
-        String createTimeStr = TimeUtils.longToTimeString(createTime, new SimpleDateFormat(
-                "yyyy-MM-dd-HH-mm-ss"));
+        String createTimeStr = TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
         // local job dir: backup/label__createtime/
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
                                     label + "__" + createTimeStr).normalize();
@@ -675,6 +681,8 @@ public class BackupJob extends AbstractJob {
             }
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
+            // read meta info to metaInfoBytes
+            metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
 
             // 3. save job info file
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
@@ -687,6 +695,8 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo.writeToFile(jobInfoFile);
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
+            // read job info to jobInfoBytes
+            jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
             return;
@@ -699,7 +709,9 @@ public class BackupJob extends AbstractJob {
         jobInfo = null;
 
         // release all snapshots before clearing the snapshotInfos.
-        releaseSnapshots();
+        if (repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
+            releaseSnapshots();
+        }
 
         snapshotInfos.clear();
 
@@ -726,6 +738,13 @@ public class BackupJob extends AbstractJob {
     }
 
     private void uploadMetaAndJobInfoFile() {
+        if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
+            state = BackupJobState.FINISHED;
+            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
+            env.getBackupHandler().addSnapshot(label, snapshot);
+            return;
+        }
+
         String remoteMetaInfoFile = repo.assembleMetaInfoFilePath(label);
         if (!uploadFile(localMetaInfoFilePath, remoteMetaInfoFile)) {
             return;
@@ -778,8 +797,7 @@ public class BackupJob extends AbstractJob {
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
-            if (replica.getLastFailedVersion() < 0 && (replica.getVersion() > visibleVersion
-                    || (replica.getVersion() == visibleVersion))) {
+            if (replica.getLastFailedVersion() < 0 && replica.getVersion() >= visibleVersion) {
                 return replica;
             }
         }

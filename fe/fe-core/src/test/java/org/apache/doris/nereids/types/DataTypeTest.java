@@ -79,7 +79,9 @@ public class DataTypeTest {
         // double
         Assertions.assertEquals(DoubleType.INSTANCE, DataType.convertFromString("double"));
         // decimalv2
-        Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(13, 9),
+        Assertions.assertEquals(
+                Config.enable_decimal_conversion ? DecimalV3Type.createDecimalV3Type(13, 9)
+                        : DecimalV2Type.createDecimalV2Type(13, 9),
                 DataType.convertFromString("decimal(13, 9)"));
         // decimalv3
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(13, 9),
@@ -98,8 +100,7 @@ public class DataTypeTest {
         Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null"));
         Assertions.assertEquals(NullType.INSTANCE, DataType.convertFromString("null_type"));
         // date
-        Assertions.assertEquals(Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE,
-                DataType.convertFromString("date"));
+        Assertions.assertEquals(DateType.INSTANCE, DataType.convertFromString("date"));
         // datev2
         Assertions.assertEquals(DateV2Type.INSTANCE, DataType.convertFromString("datev2"));
         // time

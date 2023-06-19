@@ -25,10 +25,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Table;
 
 import java.util.List;
 import java.util.Map;
@@ -50,7 +48,7 @@ import java.util.Map;
 public abstract class Rebalancer {
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
     // Only use updateLoadStatistic() to load stats.
-    protected Table<String, Tag, ClusterLoadStatistic> statisticMap = HashBasedTable.create();
+    protected Map<Tag, LoadStatisticForTag> statisticMap = Maps.newHashMap();
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
     // be id -> end time of prio
@@ -63,7 +61,7 @@ public abstract class Rebalancer {
 
     public List<TabletSchedCtx> selectAlternativeTablets() {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
-        for (Table.Cell<String, Tag, ClusterLoadStatistic> entry : statisticMap.cellSet()) {
+        for (Map.Entry<Tag, LoadStatisticForTag> entry : statisticMap.entrySet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
                 alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getValue(), medium));
             }
@@ -74,7 +72,7 @@ public abstract class Rebalancer {
     // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium);
+            LoadStatisticForTag clusterStat, TStorageMedium medium);
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
@@ -99,7 +97,7 @@ public abstract class Rebalancer {
         return -1L;
     }
 
-    public void updateLoadStatistic(Table<String, Tag, ClusterLoadStatistic> statisticMap) {
+    public void updateLoadStatistic(Map<Tag, LoadStatisticForTag> statisticMap) {
         this.statisticMap = statisticMap;
     }
 

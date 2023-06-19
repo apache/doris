@@ -44,8 +44,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 
@@ -132,7 +130,7 @@ public class K8sDeployManager extends DeployManager {
                     System.exit(-1);
                 }
                 LOG.info("use statefulSetName: {}, {}", nodeType.name(), statefulSetName);
-                nodeTypeAttr.setSubAttr1(statefulSetName);
+                nodeTypeAttr.setSubAttr(statefulSetName);
             }
         }
 
@@ -172,9 +170,9 @@ public class K8sDeployManager extends DeployManager {
 
 
     private List<HostInfo> getGroupHostInfosByStatefulSet(NodeType nodeType) {
-        String statefulSetName = nodeTypeAttrMap.get(nodeType).getSubAttr1();
+        String statefulSetName = nodeTypeAttrMap.get(nodeType).getSubAttr();
         Preconditions.checkNotNull(statefulSetName);
-        StatefulSet statefulSet = statefulSet(appNamespace, nodeTypeAttrMap.get(nodeType).getSubAttr1());
+        StatefulSet statefulSet = statefulSet(appNamespace, nodeTypeAttrMap.get(nodeType).getSubAttr());
         if (statefulSet == null) {
             LOG.warn("get null statefulSet in namespace {}, statefulSetName: {}", appNamespace, statefulSetName);
             return null;
@@ -217,7 +215,7 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(new HostInfo(eaddr.getIp(), null, port));
+                result.add(new HostInfo(eaddr.getIp(), port));
             }
         }
 
@@ -225,11 +223,17 @@ public class K8sDeployManager extends DeployManager {
         return result;
     }
 
-    //The rules for the domain name of k8s are $(podName).$(servicename).$(namespace).svc.cluster.local
-    // can see https://www.cnblogs.com/xiaokantianse/p/14267987.html#_label1_4
-    private String getDomainName(String podName, String serviceName) {
+    // The rules for the domain name of k8s are $(podName).$(servicename).$(namespace).svc.cluster.local
+    // and The podName rule of k8s is $(statefulset name) - $(sequence number)
+    // see https://www.cnblogs.com/xiaokantianse/p/14267987.html#_label1_4
+    public String getDomainName(NodeType nodeType, int index) {
+        String statefulSetName = nodeTypeAttrMap.get(nodeType).getSubAttr();
+        Preconditions.checkNotNull(statefulSetName);
+        String serviceName = nodeTypeAttrMap.get(nodeType).getServiceName();
+        Preconditions.checkNotNull(serviceName);
+
         StringBuilder builder = new StringBuilder();
-        builder.append(podName);
+        builder.append(statefulSetName + "-" + index);
         builder.append(".");
         builder.append(serviceName);
         builder.append(".");
@@ -270,7 +274,6 @@ public class K8sDeployManager extends DeployManager {
         }
     }
 
-
     private void dealEvent(String statefulsetName, Integer num) {
         NodeType nodeType = getNodeType(statefulsetName);
         if (nodeType == null) {
@@ -290,28 +293,13 @@ public class K8sDeployManager extends DeployManager {
             LOG.warn("get servicePort failed,{}", nodeType.name());
             return null;
         }
-        String statefulsetName = nodeTypeAttrMap.get(nodeType).getSubAttr1();
-        Preconditions.checkNotNull(statefulsetName);
-        String serviceName = nodeTypeAttrMap.get(nodeType).getServiceName();
-        Preconditions.checkNotNull(serviceName);
         List<HostInfo> hostInfos = Lists.newArrayList();
         for (int i = 0; i < num; i++) {
-            //The podName rule of k8s is $(statefulset name) - $(sequence number)
-            //can see https://www.cnblogs.com/xiaokantianse/p/14267987.html#_label1_4
-            String domainName = getDomainName(statefulsetName + "-" + i, serviceName);
-            hostInfos.add(new HostInfo(getIpByDomain(domainName), domainName, servicePort));
+            String domainName = getDomainName(nodeType, i);
+            hostInfos.add(new HostInfo(domainName, servicePort));
+            LOG.debug("get hostInfo from domainName: {}, hostInfo: {}", domainName, hostInfos.get(i).toString());
         }
         return hostInfos;
-    }
-
-    private String getIpByDomain(String domainName) {
-        try {
-            InetAddress inetAddress = InetAddress.getByName(domainName);
-            return inetAddress.getHostAddress();
-        } catch (UnknownHostException e) {
-            LOG.info("unknown host name for domainName, {}", domainName, e);
-            return null;
-        }
     }
 
     private int getServicePort(NodeType nodeType) {
@@ -356,7 +344,7 @@ public class K8sDeployManager extends DeployManager {
             return null;
         }
         for (Map.Entry<NodeType, NodeTypeAttr> entry : nodeTypeAttrMap.entrySet()) {
-            if (ststefulSetName.equals(entry.getValue().getSubAttr1())) {
+            if (ststefulSetName.equals(entry.getValue().getSubAttr())) {
                 return entry.getKey();
             }
         }

@@ -31,7 +31,9 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 
 public class PropertySchemaTest {
@@ -220,13 +222,16 @@ public class PropertySchemaTest {
 
     @Test
     public void testDatePropNormal() throws Exception {
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
         ByteArrayOutputStream outStream = new ByteArrayOutputStream();
         DataOutput output = new DataOutputStream(outStream);
 
         PropertySchema.DateProperty prop =
-                new PropertySchema.DateProperty("key", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
-        prop.write(dateFormat.parse("2021-06-30 20:34:51"), output);
+                new PropertySchema.DateProperty("key",
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()));
+        prop.write(Date.from(
+                        LocalDateTime.parse("2021-06-30 20:34:51", dateFormat).atZone(ZoneId.systemDefault()).toInstant()),
+                output);
 
         ByteArrayInputStream inStream = new ByteArrayInputStream(outStream.toByteArray());
         DataInput input = new DataInputStream(inStream);
@@ -244,8 +249,9 @@ public class PropertySchemaTest {
         exceptionRule.expect(IllegalArgumentException.class);
         exceptionRule.expectMessage(Matchers.containsString("Invalid time format"));
 
-        PropertySchema.DateProperty prop = new PropertySchema.DateProperty("key", new SimpleDateFormat("yyyy-MM-dd "
-                + "HH:mm:ss"));
+        PropertySchema.DateProperty prop = new PropertySchema.DateProperty("key",
+                DateTimeFormatter.ofPattern("yyyy-MM-dd "
+                        + "HH:mm:ss").withZone(ZoneId.systemDefault()));
         prop.read("2021-06-30");
     }
 
@@ -254,8 +260,9 @@ public class PropertySchemaTest {
         exceptionRule.expect(IllegalArgumentException.class);
         exceptionRule.expectMessage(Matchers.containsString("Invalid time format"));
 
-        PropertySchema.DateProperty prop = new PropertySchema.DateProperty("key", new SimpleDateFormat("yyyy-MM-dd "
-                + "HH:mm:ss"));
+        PropertySchema.DateProperty prop = new PropertySchema.DateProperty("key",
+                DateTimeFormatter.ofPattern("yyyy-MM-dd "
+                        + "HH:mm:ss").withZone(ZoneId.systemDefault()));
         prop.read((String) null);
     }
 

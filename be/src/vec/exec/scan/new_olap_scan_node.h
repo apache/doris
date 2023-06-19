@@ -21,6 +21,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <stdint.h>
 
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <set>
@@ -88,6 +89,8 @@ protected:
 
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
+    void add_filter_info(int id, const PredicateFilterInfo& info);
+
 private:
     Status _build_key_ranges_and_filters();
 
@@ -128,6 +131,7 @@ private:
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
     RuntimeProfile::Counter* _expr_filter_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
+    std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
@@ -185,9 +189,6 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
-
-    // for debugging or profiling, record any info as you want
-    RuntimeProfile::Counter* _general_debug_timer[GENERAL_DEBUG_COUNT] = {};
 };
 
 } // namespace doris::vectorized

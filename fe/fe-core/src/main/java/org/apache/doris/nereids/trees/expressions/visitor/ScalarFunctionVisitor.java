@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
@@ -160,8 +161,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
@@ -943,8 +946,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonObject, context);
     }
 
+    default R visitJsonExtract(JsonExtract jsonExtract, C context) {
+        return visitScalarFunction(jsonExtract, context);
+    }
+
     default R visitJsonQuote(JsonQuote jsonQuote, C context) {
         return visitScalarFunction(jsonQuote, context);
+    }
+
+    default R visitJsonUnQuote(JsonUnQuote jsonUnQuote, C context) {
+        return visitScalarFunction(jsonUnQuote, context);
     }
 
     default R visitJsonbExistsPath(JsonbExistsPath jsonbExistsPath, C context) {
@@ -1617,5 +1628,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYearsDiff(YearsDiff yearsDiff, C context) {
         return visitScalarFunction(yearsDiff, context);
+    }
+
+    default R visitStateCombinator(StateCombinator combinator, C context) {
+        return visitScalarFunction(combinator, context);
     }
 }

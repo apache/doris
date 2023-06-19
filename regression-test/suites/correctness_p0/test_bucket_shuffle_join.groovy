@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_bucket_shuffle_join") {
+
+    // this case check explain, so we disable nereids
+    sql """set enable_nereids_planner=false"""
+
     sql """ DROP TABLE IF EXISTS `test_colo1` """
     sql """ DROP TABLE IF EXISTS `test_colo2` """
     sql """ DROP TABLE IF EXISTS `test_colo3` """

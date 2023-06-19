@@ -38,6 +38,7 @@ public class CostWeight {
     static final double MEMORY_WEIGHT = 1;
     static final double NETWORK_WEIGHT = 1.5;
     static final double DELAY = 0.5;
+
     final double cpuWeight;
     final double memoryWeight;
     final double networkWeight;

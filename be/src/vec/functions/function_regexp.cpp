@@ -380,8 +380,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
-
     bool use_default_implementation_for_nulls() const override { return false; }
 
     size_t get_number_of_arguments() const override {

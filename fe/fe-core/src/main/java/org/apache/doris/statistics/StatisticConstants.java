@@ -17,9 +17,17 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.system.SystemInfoService;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class StatisticConstants {
+    public static final String ANALYSIS_TBL_NAME = "table_statistics";
+
     public static final String STATISTIC_TBL_NAME = "column_statistics";
 
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
@@ -49,11 +57,6 @@ public class StatisticConstants {
     public static final int STATISTIC_CLEAN_INTERVAL_IN_HOURS = 24 * 2;
 
     /**
-     * The max cached item in `StatisticsCache`.
-     */
-    public static final long STATISTICS_RECORDS_CACHE_SIZE = 100000;
-
-    /**
      * If analysis job execution time exceeds this time, it would be cancelled.
      */
     public static final long STATISTICS_TASKS_TIMEOUT_IN_MS = TimeUnit.MINUTES.toMillis(10);
@@ -69,4 +72,20 @@ public class StatisticConstants {
 
     public static final int HISTOGRAM_MAX_BUCKET_NUM = 128;
 
+    /**
+     * The health of the table indicates the health of the table statistics, rang in [0, 100].
+     * Below this threshold will automatically re-collect statistics. TODO make it in fe.conf
+     */
+    public static final int TABLE_STATS_HEALTH_THRESHOLD = 80;
+
+    public static final int ANALYZE_MANAGER_INTERVAL_IN_SECS = 60;
+
+    public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
+
+    static {
+        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+                + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
+        STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
+                + ClusterNamespace.CLUSTER_DELIMITER + "information_schema");
+    }
 }

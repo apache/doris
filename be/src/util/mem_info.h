@@ -116,12 +116,19 @@ public:
         DCHECK(_s_initialized);
         return _s_soft_mem_limit_str;
     }
+    static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
+        return proc_mem_no_allocator_cache() + bytes > soft_mem_limit();
+    }
 
     static std::string debug_string();
 
     static void process_cache_gc(int64_t& freed_mem);
     static bool process_minor_gc();
     static bool process_full_gc();
+
+    static int64_t tg_hard_memory_limit_gc();
+
+    static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.

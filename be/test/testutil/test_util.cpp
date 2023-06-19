@@ -22,7 +22,7 @@
 #include <mach-o/dyld.h>
 #endif
 
-#include <common/configbase.h>
+#include <common/config.h>
 #include <ctype.h>
 #include <glog/logging.h>
 #include <libgen.h>

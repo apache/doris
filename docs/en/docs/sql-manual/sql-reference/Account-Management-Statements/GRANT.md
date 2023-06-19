@@ -73,9 +73,9 @@ Permission classification:
 Priv_level supports the following four forms:
 
     1. *.*.* permissions can be applied to all catalogs, all databases and all tables in them
-    2. ctl.*.* permissions can be applied to all databases and all tables in them
-    3. ctl.db.* permissions can be applied to all tables under the specified database
-    4. ctl.db.tbl permission can be applied to the specified table under the specified database
+    2. catalog_name.*.* permissions can be applied to all databases and all tables in them
+    3. catalog_name.db.* permissions can be applied to all tables under the specified database
+    4. catalog_name.db.tbl permission can be applied to the specified table under the specified database
     
     The catalog or database, table specified here may be not exist.
 
@@ -84,7 +84,7 @@ resource_name supports the following two forms:
     1. * Permissions apply to all resources
     2. The resource permission applies to the specified resource
     
-    The resource specified here can be a non-existing resource.
+    The resource specified here can be a non-existing resource. In addition, please distinguish the resources here from external tables, and use catalog as an alternative if you use external tables.
 
 user_identity:
 
@@ -131,6 +131,8 @@ role_list is the list of roles to be assigned, separated by commas,the specified
    ```sql
    GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
    ````
+   
+<version since="2.0.0"></version>
 
 7. Grant the specified role to a user
 

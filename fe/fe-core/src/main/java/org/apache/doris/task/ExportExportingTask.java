@@ -21,11 +21,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Version;
-import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.RuntimeProfile;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.ExportFailMsg;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJob.JobState;
@@ -48,10 +43,6 @@ public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
 
     protected final ExportJob job;
-
-    private RuntimeProfile profile = new RuntimeProfile("Export");
-    private List<RuntimeProfile> fragmentProfiles = Lists.newArrayList();
-
     private StmtExecutor stmtExecutor;
 
     public ExportExportingTask(ExportJob job) {
@@ -123,13 +114,11 @@ public class ExportExportingTask extends MasterTask {
         LOG.info("Exporting task progress is {}%, export job: {}", progress, job.getId());
 
         if (isFailed) {
-            registerProfile();
             job.cancel(errorMsg.getCancelType(), errorMsg.getMsg());
             LOG.warn("Exporting task failed because Exception: {}", errorMsg.getMsg());
             return;
         }
 
-        registerProfile();
         if (job.finish(outfileInfoList)) {
             LOG.info("export job success. job: {}", job);
             // TODO(ftw): when we implement exporting tablet one by one, we should release snapshot here
@@ -170,38 +159,6 @@ public class ExportExportingTask extends MasterTask {
         outfileInfo.setFileSize(resultAttachedInfo.get(OutFileClause.FILE_SIZE) + "bytes");
         outfileInfo.setUrl(resultAttachedInfo.get(OutFileClause.URL));
         return outfileInfo;
-    }
-
-    private void initProfile() {
-        profile = new RuntimeProfile("ExportJob");
-        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
-        summaryProfile.addInfoString(ProfileManager.JOB_ID, String.valueOf(job.getId()));
-        summaryProfile.addInfoString(ProfileManager.QUERY_ID, job.getQueryId());
-        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
-
-        long currentTimestamp = System.currentTimeMillis();
-        long totalTimeMs = currentTimestamp - job.getStartTimeMs();
-        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Export");
-        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
-        summaryProfile.addInfoString(ProfileManager.USER, job.getQualifiedUser());
-        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());
-        profile.addChild(summaryProfile);
-    }
-
-    private void registerProfile() {
-        if (!job.getEnableProfile()) {
-            return;
-        }
-        initProfile();
-        for (RuntimeProfile p : fragmentProfiles) {
-            profile.addChild(p);
-        }
-        ProfileManager.getInstance().pushProfile(profile);
     }
 
     private void handleInQueueState() {
