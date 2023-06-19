@@ -359,7 +359,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        return withExplain(new DeleteCommand(tableName, tableAlias, Optional.ofNullable(partitions), query), ctx.explain());
+        return withExplain(new DeleteCommand(tableName, tableAlias, Optional.ofNullable(partitions), query),
+                ctx.explain());
     }
 
     /**
