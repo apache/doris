@@ -160,7 +160,8 @@ public class FunctionRegistry {
 
         synchronized (name2UdfBuilders) {
             for (String scope : scopes) {
-                List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of()).get(name);
+                List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
+                        .get(name.toLowerCase());
                 if (candidate != null && !candidate.isEmpty()) {
                     return candidate;
                 }
