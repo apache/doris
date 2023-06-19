@@ -207,6 +207,17 @@ protected:
         return out.str();
     }
 
+    std::string get_child_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name();
+        }
+        return res;
+    }
+
     Status check_constant(const Block& block, ColumnNumbers arguments) const;
 
     /// Helper function that calls ctx->register(), sets fn_context_index_, and returns the
