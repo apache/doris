@@ -728,7 +728,7 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
-size_t SegmentWriter::get_inverted_index_file_size() {
+size_t SegmentWriter::try_get_inverted_index_file_size() {
     size_t total_size = 0;
     for (auto& column_writer : _column_writers) {
         total_size += column_writer->get_inverted_index_size();
@@ -769,7 +769,7 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
         }
         *index_size = _file_writer->bytes_appended() - index_start;
     }
-
+    _inverted_index_file_size = try_get_inverted_index_file_size();
     // reset all column writers and data_conveter
     clear();
 
