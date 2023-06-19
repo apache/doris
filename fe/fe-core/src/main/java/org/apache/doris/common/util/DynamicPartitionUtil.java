@@ -231,31 +231,40 @@ public class DynamicPartitionUtil {
         Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
-    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
+            Database db) throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
+
+        TStorageMedium storageMedium = null;
+        if (hotPartitionNum > 0) {
+            storageMedium = TStorageMedium.SSD;
+        }
+
+        try {
+            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, storageMedium);
+        } catch (DdlException e) {
+            if (hotPartitionNum <= 0) {
+                throw e;
+            } else {
+                throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
+                       + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "
+                       + "in ssd. Please check the replication num,replication tag and storage medium.");
+            }
+        }
     }
 
-    private static void checkHotPartitionNum(String val, ReplicaAllocation replicaAlloc) throws DdlException {
+    private static void checkHotPartitionNum(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HOT_PARTITION_NUM);
         }
         try {
-            int hotPartitionNum = Integer.parseInt(val);
-            if (hotPartitionNum < 0) {
+            if (Integer.parseInt(val) < 0) {
                 throw new DdlException(DynamicPartitionProperty.HOT_PARTITION_NUM + " must larger than 0.");
-            }
-            if (hotPartitionNum > 0 && replicaAlloc != null) {
-                Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD);
             }
         } catch (NumberFormatException e) {
             throw new DdlException("Invalid " + DynamicPartitionProperty.HOT_PARTITION_NUM + " value");
-        } catch (DdlException e) {
-            throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
-                   + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store in ssd. "
-                   + " Please check the replication num,replication tag and storage medium.");
         }
     }
 
@@ -608,11 +617,19 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
 
+        int hotPartitionNum = 0;
+        if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.HOT_PARTITION_NUM);
+            checkHotPartitionNum(val);
+            hotPartitionNum = Integer.parseInt(val);
+            properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
+        }
+
         // check replication_allocation first, then replciation_num
         ReplicaAllocation replicaAlloc = null;
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
-            checkReplicaAllocation(replicaAlloc, db);
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
@@ -624,15 +641,9 @@ public class DynamicPartitionUtil {
                     replicaAlloc.toCreateStmt());
         } else {
             replicaAlloc = olapTable.getDefaultReplicaAllocation();
-            checkReplicaAllocation(replicaAlloc, db);
         }
+        checkReplicaAllocation(replicaAlloc, hotPartitionNum, db);
 
-        if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
-            String val = properties.get(DynamicPartitionProperty.HOT_PARTITION_NUM);
-            checkHotPartitionNum(val, replicaAlloc);
-            properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
-            analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
-        }
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
             String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
             checkReservedHistoryPeriodValidate(reservedHistoryPeriods,
