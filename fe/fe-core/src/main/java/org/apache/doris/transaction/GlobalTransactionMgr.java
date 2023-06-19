@@ -199,8 +199,8 @@ public class GlobalTransactionMgr implements Writable {
             MetaLockUtils.writeUnlockTables(tableList);
         }
         stopWatch.stop();
-        LOG.info("stream load tasks are pre-committed successfully. txns: {}. time cost: {} ms."
-                + " data will be visible later.", transactionId, stopWatch.getTime());
+        LOG.info("stream load tasks are pre-committed successfully. txns: {}. time cost: {} ms.",
+            transactionId, stopWatch.getTime());
     }
 
     public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,

@@ -426,9 +426,9 @@ public class DatabaseTransactionMgr {
         unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
                 totalInvolvedBackends, db);
 
-        // disable this log, as this logging is in table write lock
+        // change this log from info to debug, as this logging is in table write lock
         // some-times, this logging will cost much time and impact the flink job with 2pc stream load
-        // LOG.info("transaction:[{}] successfully pre-committed", transactionState);
+        LOG.debug("transaction:[{}] successfully pre-committed", transactionState);
     }
 
     private void checkCommitStatus(List<Table> tableList, TransactionState transactionState,
@@ -678,11 +678,9 @@ public class DatabaseTransactionMgr {
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
         updateCatalogAfterCommitted(transactionState, db);
-        // do not log this info when enable 2pc, as 2pc will hold table write lock outside
+        // change this logging from info to debug, as 2pc will hold table write lock outside
         // which will cause holding lock long time, and impact the parallelism of flink job
-        if (!is2PC) {
-            LOG.info("transaction:[{}] successfully committed", transactionState);
-        }
+        LOG.debug("transaction:[{}] successfully committed", transactionState);
     }
 
     public boolean waitForTransactionFinished(DatabaseIf db, long transactionId, long timeoutMillis)
