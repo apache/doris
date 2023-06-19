@@ -148,7 +148,7 @@ public class DistributedPlannerTest {
 
     @Test
     public void testBroadcastJoinCostThreshold() throws Exception {
-        String sql = "explain select * from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k3";
+        String sql = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();
