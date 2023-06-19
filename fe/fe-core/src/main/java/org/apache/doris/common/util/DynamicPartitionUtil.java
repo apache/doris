@@ -237,13 +237,13 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
 
-        TStorageMedium storageMedium = null;
-        if (hotPartitionNum > 0) {
-            storageMedium = TStorageMedium.SSD;
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
+        if (hotPartitionNum <= 0) {
+            return;
         }
 
         try {
-            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, storageMedium);
+            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD);
         } catch (DdlException e) {
             if (hotPartitionNum <= 0) {
                 throw e;
