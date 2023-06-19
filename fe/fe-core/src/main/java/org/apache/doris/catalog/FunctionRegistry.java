@@ -64,6 +64,9 @@ public class FunctionRegistry {
     @VisibleForTesting
     protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {}
 
+    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
+        return findFunctionBuilder(null, name, arguments);
+    }
 
     public FunctionBuilder findFunctionBuilder(String name, Object argument) {
         return findFunctionBuilder(null, name, ImmutableList.of(argument));

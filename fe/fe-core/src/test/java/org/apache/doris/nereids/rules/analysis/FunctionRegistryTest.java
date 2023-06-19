@@ -120,7 +120,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
         };
 
         ImmutableList<Expression> arguments = ImmutableList.of(Literal.of(1));
-        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(null, "foo", arguments);
+        FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder("foo", arguments);
         BoundFunction function = functionBuilder.build("foo", arguments);
         Assertions.assertEquals(function.getClass(), ExtendFunction.class);
         Assertions.assertEquals(arguments, function.getArguments());
@@ -137,7 +137,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
 
         // currently we can not support the override same arity function with difference types
         Assertions.assertThrowsExactly(AnalysisException.class, () -> {
-            functionRegistry.findFunctionBuilder(null, "abc", ImmutableList.of(Literal.of(1)));
+            functionRegistry.findFunctionBuilder("abc", ImmutableList.of(Literal.of(1)));
         });
     }
 
