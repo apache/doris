@@ -155,6 +155,7 @@ import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadLoadingChecker;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.loadv2.LoadManagerAdapter;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.loadv2.ProgressManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
@@ -225,6 +226,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CompactionTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.task.PriorityMasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -409,7 +411,7 @@ public class Env {
 
     // Thread pools for pending and loading task, separately
     private MasterTaskExecutor pendingLoadTaskScheduler;
-    private MasterTaskExecutor loadingLoadTaskScheduler;
+    private PriorityMasterTaskExecutor<LoadTask> loadingLoadTaskScheduler;
 
     private LoadJobScheduler loadJobScheduler;
 
@@ -632,8 +634,8 @@ public class Env {
         // The loadingLoadTaskScheduler's queue size is unlimited, so that it can receive all loading tasks
         // created after pending tasks finish. And don't worry about the high concurrency, because the
         // concurrency is limited by Config.desired_max_waiting_jobs and Config.async_loading_load_task_pool_size.
-        this.loadingLoadTaskScheduler = new MasterTaskExecutor("loading-load-task-scheduler",
-                Config.async_loading_load_task_pool_size, Integer.MAX_VALUE, !isCheckpointCatalog);
+        this.loadingLoadTaskScheduler = new PriorityMasterTaskExecutor<>("loading-load-task-scheduler",
+                Config.async_loading_load_task_pool_size, LoadTask.COMPARATOR, LoadTask.class, !isCheckpointCatalog);
 
         this.loadJobScheduler = new LoadJobScheduler();
         this.loadManager = new LoadManager(loadJobScheduler);

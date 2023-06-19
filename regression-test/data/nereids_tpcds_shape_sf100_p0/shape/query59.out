@@ -24,8 +24,9 @@ CteAnchor[cteId= ( CTEId#4=] )
 ------------------PhysicalOlapScan[date_dim]
 ------------PhysicalDistribute
 --------------hashJoin[INNER_JOIN](y.s_store_id1 = x.s_store_id2)(wss.ss_store_sk = store.s_store_sk)
-----------------PhysicalProject
-------------------PhysicalOlapScan[store]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[store]
 ----------------PhysicalDistribute
 ------------------hashJoin[INNER_JOIN](expr_cast(d_week_seq1 as BIGINT) = expr_(d_week_seq2 - 52))
 --------------------PhysicalProject
@@ -33,8 +34,9 @@ CteAnchor[cteId= ( CTEId#4=] )
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](wss.ss_store_sk = store.s_store_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[store]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[store]
 --------------------------PhysicalDistribute
 ----------------------------hashJoin[INNER_JOIN](d.d_week_seq = d_week_seq1)
 ------------------------------PhysicalProject

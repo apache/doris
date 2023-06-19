@@ -27,15 +27,19 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapContains;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -44,8 +48,10 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -105,29 +111,81 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     if (type == TRuntimeFilterType.BITMAP) {
                         continue;
                     }
-                    // currently, we can ensure children in the two side are corresponding to the equal_to's.
-                    // so right maybe an expression and left is a slot
-                    Slot unwrappedSlot = checkTargetChild(equalTo.left());
-                    // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-                    // contains join with denied join type. for example: a left join b on a.id = b.id
-                    if (unwrappedSlot == null || !aliasTransferMap.containsKey(unwrappedSlot)) {
-                        continue;
-                    }
-                    Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
-                    PhysicalRelation scan = aliasTransferMap.get(unwrappedSlot).first;
-                    // in-filter is not friendly to pipeline
-                    if (type == TRuntimeFilterType.IN_OR_BLOOM
-                            && ctx.getSessionVariable().enablePipelineEngine()
-                            && hasRemoteTarget(join, scan)) {
-                        type = TRuntimeFilterType.BLOOM;
-                    }
+                    if (join.left() instanceof PhysicalUnion
+                            || join.left() instanceof PhysicalIntersect
+                            || join.left() instanceof PhysicalExcept) {
+                        List<Slot> targetList = new ArrayList<>();
+                        int projIndex = -1;
+                        for (int j = 0; j < join.left().children().size(); j++) {
+                            PhysicalPlan child = (PhysicalPlan) join.left().child(j);
+                            if (child instanceof PhysicalProject) {
+                                PhysicalProject project = (PhysicalProject) child;
+                                Slot leftSlot = checkTargetChild(equalTo.left());
+                                if (leftSlot == null) {
+                                    break;
+                                }
+                                for (int k = 0; projIndex < 0 && k < project.getProjects().size(); k++) {
+                                    NamedExpression expr = (NamedExpression) project.getProjects().get(k);
+                                    if (expr.getName().equals(leftSlot.getName())) {
+                                        projIndex = k;
+                                        break;
+                                    }
+                                }
+                                Preconditions.checkState(projIndex >= 0
+                                        && projIndex < project.getProjects().size());
 
-                    long buildSideNdv = getBuildSideNdv(join, equalTo);
-                    RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            equalTo.right(), olapScanSlot, type, i, join, buildSideNdv);
-                    ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
-                    ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-                    ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first.getId(), olapScanSlot);
+                                NamedExpression targetExpr = (NamedExpression) project.getProjects().get(projIndex);
+
+                                SlotReference origSlot = null;
+                                if (targetExpr instanceof Alias) {
+                                    origSlot = (SlotReference) targetExpr.child(0);
+                                } else {
+                                    origSlot = (SlotReference) targetExpr;
+                                }
+                                Slot olapScanSlot = aliasTransferMap.get(origSlot).second;
+                                PhysicalRelation scan = aliasTransferMap.get(origSlot).first;
+                                if (type == TRuntimeFilterType.IN_OR_BLOOM
+                                        && ctx.getSessionVariable().enablePipelineEngine()
+                                        && hasRemoteTarget(join, scan)) {
+                                    type = TRuntimeFilterType.BLOOM;
+                                }
+                                targetList.add(olapScanSlot);
+                                ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
+                                ctx.setTargetsOnScanNode(aliasTransferMap.get(origSlot).first.getId(), olapScanSlot);
+                            }
+                        }
+                        if (!targetList.isEmpty()) {
+                            long buildSideNdv = getBuildSideNdv(join, equalTo);
+                            RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                                    equalTo.right(), targetList, type, i, join, buildSideNdv);
+                            for (int j = 0; j < targetList.size(); j++) {
+                                ctx.setTargetExprIdToFilter(targetList.get(j).getExprId(), filter);
+                            }
+                        }
+                    } else {
+                        // currently, we can ensure children in the two side are corresponding to the equal_to's.
+                        // so right maybe an expression and left is a slot
+                        Slot unwrappedSlot = checkTargetChild(equalTo.left());
+                        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+                        // contains join with denied join type. for example: a left join b on a.id = b.id
+                        if (unwrappedSlot == null || !aliasTransferMap.containsKey(unwrappedSlot)) {
+                            continue;
+                        }
+                        Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
+                        PhysicalRelation scan = aliasTransferMap.get(unwrappedSlot).first;
+                        // in-filter is not friendly to pipeline
+                        if (type == TRuntimeFilterType.IN_OR_BLOOM
+                                && ctx.getSessionVariable().enablePipelineEngine()
+                                && hasRemoteTarget(join, scan)) {
+                            type = TRuntimeFilterType.BLOOM;
+                        }
+                        long buildSideNdv = getBuildSideNdv(join, equalTo);
+                        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                                equalTo.right(), ImmutableList.of(olapScanSlot), type, i, join, buildSideNdv);
+                        ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
+                        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+                        ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first.getId(), olapScanSlot);
+                    }
                 }
             }
         }
@@ -194,8 +252,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (targetSlot != null && aliasTransferMap.containsKey(targetSlot)) {
                     Slot olapScanSlot = aliasTransferMap.get(targetSlot).second;
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            bitmapContains.child(0), olapScanSlot,
-                            bitmapContains.child(1), type, i, join, isNot, -1L);
+                            bitmapContains.child(0), ImmutableList.of(olapScanSlot),
+                            ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L);
                     ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                     ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
                     ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first.getId(),
@@ -221,7 +279,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             if (expr instanceof NamedExpression && aliasTransferMap.containsKey((NamedExpression) expr)) {
                 if (expression instanceof Alias) {
                     Alias alias = ((Alias) expression);
-                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
+                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.get(expr));
                 }
             }
         }

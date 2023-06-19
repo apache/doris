@@ -203,8 +203,8 @@ Status DeltaWriter::init() {
     context.tablet_id = _tablet->table_id();
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
-    context.mow_context =
-            std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
+    context.mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
+                                                       _delete_bitmap);
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
     _schema.reset(new Schema(_tablet_schema));
@@ -347,7 +347,8 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
-    auto mow_context = std::make_shared<MowContext>(_cur_max_version, _rowset_ids, _delete_bitmap);
+    auto mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
+                                                    _delete_bitmap);
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
                                   mem_table_insert_tracker, mem_table_flush_tracker));
@@ -453,11 +454,9 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
                                                                          _delete_bitmap));
         }
-        int64_t cur_max_version = _tablet->max_version().second;
-        RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(_cur_rowset, _rowset_ids,
-                                                                   _delete_bitmap, cur_max_version,
-                                                                   segments, _rowset_writer.get()));
-        _rowset_ids = _tablet->all_rs_id(cur_max_version);
+        RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
+                _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
+                _rowset_writer.get()));
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
                                                             _req.load_id, _cur_rowset, false);

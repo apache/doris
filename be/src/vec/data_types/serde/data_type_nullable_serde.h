@@ -48,25 +48,20 @@ public:
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                 int end, const cctz::time_zone& ctz) const override;
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
-                                      end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_column_to_mysql(column, return_object_data_as_binary, result, row_idx, start,
-                                      end, col_const);
+    void set_return_object_as_string(bool value) override {
+        DataTypeSerDe::set_return_object_as_string(value);
+        nested_serde->set_return_object_as_string(value);
     }
 
 private:
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 
     DataTypeSerDeSPtr nested_serde;
 };

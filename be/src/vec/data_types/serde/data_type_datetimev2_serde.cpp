@@ -46,27 +46,34 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
         }
     }
 }
+
 template <bool is_binary_format>
-Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(
-        const IColumn& column, bool return_object_data_as_binary,
-        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
-        bool col_const) const {
+Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
+                                                       MysqlRowBuffer<is_binary_format>& result,
+                                                       int row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
-    int buf_ret = 0;
-    for (ssize_t i = start; i < end; ++i) {
-        if (0 != buf_ret) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        const auto col_index = index_check_const(i, col_const);
-        auto time_num = data[col_index];
-        char buf[64];
-        DateV2Value<DateTimeV2ValueType> date_val =
-                binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
-        char* pos = date_val.to_string(buf, scale);
-        buf_ret = result[row_idx].push_string(buf, pos - buf - 1);
-        ++row_idx;
+    const auto col_index = index_check_const(row_idx, col_const);
+    char buf[64];
+    DateV2Value<DateTimeV2ValueType> date_val =
+            binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
+    char* pos = date_val.to_string(buf, scale);
+    if (UNLIKELY(0 != result.push_string(buf, pos - buf - 1))) {
+        return Status::InternalError("pack mysql buffer failed.");
     }
     return Status::OK();
 }
+
+Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
+                                                      MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                      bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
+                                                      MysqlRowBuffer<false>& row_buffer,
+                                                      int row_idx, bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
 } // namespace vectorized
 } // namespace doris

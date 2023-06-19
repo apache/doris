@@ -688,7 +688,8 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  WORKLOAD_GROUPS
+  WORKLOAD_GROUPS,
+  FRONTENDS
 }
 
 enum TIcebergQueryType {

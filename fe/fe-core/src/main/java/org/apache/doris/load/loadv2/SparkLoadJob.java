@@ -212,7 +212,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // create pending task
         LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), sparkResource,
-                brokerDesc);
+                brokerDesc, getPriority());
         task.init();
         idToTasks.put(task.getSignature(), task);
         Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);

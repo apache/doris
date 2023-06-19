@@ -48,7 +48,7 @@ public class RepeatNodeTest extends TestWithFeService {
 
     @Test
     public void testNormal() throws Exception {
-        String sql = "select id, name, sum(cost), grouping_id(id, name) from mycost group by cube(id, name);";
+        String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ id, name, sum(cost), grouping_id(id, name) from mycost group by cube(id, name);";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assertions.assertTrue(explainString.contains("exprs: `id`, `name`, `cost`"));
         Assertions.assertTrue(explainString.contains(
@@ -57,21 +57,21 @@ public class RepeatNodeTest extends TestWithFeService {
 
     @Test
     public void testExpr() throws Exception {
-        String sql1 = "select if(c.id > 0, 1, 0) as id_, p.name, sum(c.cost) from mycost c "
+        String sql1 = "select /*+ SET_VAR(enable_nereids_planner=false) */ if(c.id > 0, 1, 0) as id_, p.name, sum(c.cost) from mycost c "
                 + "join mypeople p on c.id = p.id group by grouping sets((id_, name),());";
         String explainString1 = getSQLPlanOrErrorMsg("explain " + sql1);
         System.out.println(explainString1);
         Assertions.assertTrue(explainString1.contains(
                 "output slots: `if(`c`.`id` > 0, 1, 0)`, ``p`.`name``, ``c`.`cost``, ``GROUPING_ID``"));
 
-        String sql2 = "select (id + 1) id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
+        String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ (id + 1) id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
         String explainString2 = getSQLPlanOrErrorMsg("explain " + sql2);
         System.out.println(explainString2);
         Assertions.assertTrue(explainString2.contains("exprs: (`id` + 1), `name`, `cost`"));
         Assertions.assertTrue(
                 explainString2.contains(" output slots: `(`id` + 1)`, ``name``, ``cost``, ``GROUPING_ID``"));
 
-        String sql3 = "select 1 as id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
+        String sql3 = "select /*+ SET_VAR(enable_nereids_planner=false) */ 1 as id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
         String explainString3 = getSQLPlanOrErrorMsg("explain " + sql3);
         System.out.println(explainString3);
         Assertions.assertTrue(explainString3.contains("exprs: 1, `name`, `cost`"));

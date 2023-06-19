@@ -14,22 +14,23 @@ PhysicalTopN
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
---------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------hashJoin[INNER_JOIN](store_sales.ss_addr_sk = customer_address.ca_address_sk)
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
-----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
+--------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
+----------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalProject
 ------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
 --------------------------------------PhysicalOlapScan[customer_address]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Home'))
@@ -44,17 +45,18 @@ PhysicalTopN
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_addr_sk = customer_address.ca_address_sk)
-----------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[catalog_sales]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
-------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
-----------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
+----------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalProject
+------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
+--------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
@@ -73,17 +75,18 @@ PhysicalTopN
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN](web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)
-----------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[web_sales]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
-------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
-----------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
+----------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalProject
+------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
+--------------------------------------PhysicalOlapScan[customer_address]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Home'))
