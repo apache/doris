@@ -36,6 +36,9 @@ public class PlannerTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+
+        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+
         // Create database `db1`.
         createDatabase("db1");
 
