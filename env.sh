@@ -18,7 +18,6 @@
 # under the License.
 
 # check DORIS_HOME
-DORIS_HOME="/mnt/datadisk1/changyuwei/doris"
 export LC_ALL=C
 
 if [[ -z "${DORIS_HOME}" ]]; then
