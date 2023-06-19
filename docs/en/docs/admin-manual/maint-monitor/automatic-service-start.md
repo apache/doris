@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Automatic service start",
+    "title": "Automated Service Startup",
     "language": "en"
 }
 
