@@ -15,26 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.regression.suite.client
+suite("join_subquery_to_apply") {
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-import org.apache.doris.thrift.FrontendService
-import org.apache.doris.thrift.TNetworkAddress
-import org.apache.thrift.protocol.TBinaryProtocol
-import org.apache.thrift.transport.TSocket
-import org.apache.thrift.transport.TTransportException
-
-
-class FrontendClientImpl {
-    private TSocket tSocket
-    public FrontendService.Client client
-
-    FrontendClientImpl(TNetworkAddress address) throws TTransportException {
-        this.tSocket = new TSocket(address.hostname, address.port)
-        this.client = new FrontendService.Client(new TBinaryProtocol(tSocket))
-        this.tSocket.open()
-    }
-
-    void close() {
-        this.tSocket.close()
-    }
+    qt_sql"""
+        select 
+        ref_25.`user_name` as c3
+        from
+        (select 'zhangsan' as user_name) as ref_25 
+        where
+        bitxor(cast(find_in_set(cast(coalesce(hex(cast((select 211985) as bigint)), ref_25.`user_name`) as varchar), 'zhangsan') as int), 1) is NULL;
+    """
 }
