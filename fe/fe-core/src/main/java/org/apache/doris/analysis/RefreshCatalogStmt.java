@@ -38,7 +38,7 @@ public class RefreshCatalogStmt extends DdlStmt {
 
     private final String catalogName;
     private Map<String, String> properties;
-    private boolean invalidCache = false;
+    private boolean invalidCache = true;
 
     public RefreshCatalogStmt(String catalogName, Map<String, String> properties) {
         this.catalogName = catalogName;
@@ -66,9 +66,12 @@ public class RefreshCatalogStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
-        String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
-        // Default is to invalid cache.
-        invalidCache = invalidConfig == null ? true : invalidConfig.equalsIgnoreCase("true");
+
+        boolean notInvalidCache = properties != null && properties.get(INVALID_CACHE).equalsIgnoreCase("false");
+        // set default value of invalidCache to true
+        // otherwise RefreshManager will lost the default value of invalidCache
+        // set invalidCache to false only if user set the property "invalid_cache"="false"
+        invalidCache = invalidCache && !notInvalidCache;
     }
 
     @Override
@@ -77,4 +80,5 @@ public class RefreshCatalogStmt extends DdlStmt {
         stringBuilder.append("REFRESH CATALOG ").append("`").append(catalogName).append("`");
         return stringBuilder.toString();
     }
+
 }
