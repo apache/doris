@@ -117,16 +117,12 @@ For details, please refer to the [resource](../sql-manual/sql-reference/Data-Def
 
 As above, cold data introduces the cache in order to optimize query performance. After the first hit after cooling, Doris will reload the cooled data to be's local disk. The cache has the following characteristics:
 - The cache is actually stored on the be local disk and does not occupy memory.
-- the cache can limit expansion and clean up data through LRU
-- The be parameter `file_cache_alive_time_sec` can set the maximum storage time of the cache data after it has not been accessed. The default is 604800, which is one week.
-- The be parameter `file_cache_max_size_per_disk` can set the disk size occupied by the cache. Once this setting is exceeded, the cache that has not been accessed for the longest time will be deleted. The default is 0, means no limit to the size, unit: byte.
-- The be parameter `file_cache_type` is optional `sub_file_cache` (segment the remote file for local caching) and `whole_file_cache` (the entire remote file for local caching), the default is "", means no file is cached, please set it when caching is required this parameter.
-
-
+- The cache can limit expansion and clean up data through LRU
+- The implementation of the cache is the same as the cache of the federated query catalog. The documentation is [here](../lakehouse/filecache.md)
 
 ## cold data compaction
 The time when cold data is imported is from the moment when the data rowset file is written to the local disk, plus the cooling time. Since the data is not written and cooled at one time, to avoid the problem of small files in the object storage, doris will also perform compaction of cold data.
-However, the frequency of cold data compaction and the priority of resource occupation are not very high. Specifically, it can be adjusted by the following be parameters:
+However, the frequency of cold data compaction and the priority of resource occupation are not very high, let the local hot data be compacted as much as possible before performing cooling. Specifically, it can be adjusted by the following be parameters:
 - The be parameter `cold_data_compaction_thread_num` can set the concurrency of executing cold data compaction, the default is 2.
 - The be parameter `cold_data_compaction_interval_sec` can set the time interval for executing cold data compaction, the default is 1800, unit: second, that is, half an hour.
 
