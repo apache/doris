@@ -25,6 +25,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -333,5 +334,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public void createTable(String tableName, long tableId) {
         throw new NotImplementedException("createTable() is not implemented");
+    }
+
+    @Override
+    public CatalogIf getCatalog() {
+        return extCatalog;
     }
 }

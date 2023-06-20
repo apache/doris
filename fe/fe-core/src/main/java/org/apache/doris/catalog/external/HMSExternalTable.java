@@ -18,17 +18,16 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
-import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -51,6 +50,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -392,11 +392,15 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            TableStatistic tableStatistic = StatisticsRepository.fetchTableLevelStats(id);
-            return tableStatistic.rowCount;
-        } catch (DdlException e) {
-            return 1;
+            Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
+                    catalog.getId(), catalog.getDbOrAnalysisException(dbName).getId(), id);
+            if (tableStatistics.isPresent()) {
+                return tableStatistics.get().rowCount;
+            }
+        } catch (Exception e) {
+            LOG.warn(String.format("Fail to get row count for table %s", name), e);
         }
+        return 1;
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
