@@ -39,7 +39,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     TCheckAuthResult auth_result;
     AuthInfo auth_info;
 
-    if (!config::enable_http_auth) {
+    if (!config::enable_all_http_auth) {
         return 0;
     }
 

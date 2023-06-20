@@ -210,10 +210,15 @@ public:
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
     }
+    std::unique_ptr<ThreadPool>& calc_delete_bitmap_thread_pool() {
+        return _calc_delete_bitmap_thread_pool;
+    }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
+
+    void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
 private:
     // Instance should be inited from `static open()`
@@ -310,7 +315,8 @@ private:
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
-    void _gc_binlogs();
+
+    void _gc_binlogs(int64_t tablet_id, int64_t version);
 
 private:
     struct CompactionCandidate {
@@ -411,6 +417,7 @@ private:
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
+    std::unique_ptr<ThreadPool> _calc_delete_bitmap_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
     std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;

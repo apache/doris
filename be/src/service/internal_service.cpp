@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -50,6 +51,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -285,7 +287,9 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     try {
         st = _exec_plan_fragment(request->request(), version, compact);
     } catch (const Exception& e) {
-        st = Status::Error(e.code(), e.to_string());
+        st = e.to_status();
+    } catch (...) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR);
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;

@@ -19,9 +19,9 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
@@ -112,6 +112,23 @@ public class Memo {
 
     public int getGroupExpressionsSize() {
         return groupExpressions.size();
+    }
+
+    /** just keep LogicalExpression in Memo. */
+    public void removePhysicalExpression() {
+        groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
+
+        for (Group group : groups.values()) {
+            group.clearPhysicalExpressions();
+            group.clearLowestCostPlans();
+            group.removeParentPhysicalExpressions();
+            group.setExplored(false);
+        }
+
+        // logical groupExpression reset ruleMask
+        groupExpressions.values().stream()
+                .filter(groupExpression -> groupExpression.getPlan() instanceof LogicalPlan)
+                .forEach(GroupExpression::clearApplied);
     }
 
     private Plan skipProject(Plan plan, Group targetGroup) {
@@ -366,7 +383,8 @@ public class Memo {
             throw new IllegalStateException("Insert a plan into targetGroup but differ in logicalproperties");
         }
         Optional<GroupExpression> groupExpr = plan.getGroupExpression();
-        if (groupExpr.isPresent() && groupExpressions.containsKey(groupExpr.get())) {
+        if (groupExpr.isPresent()) {
+            Preconditions.checkState(groupExpressions.containsKey(groupExpr.get()));
             return CopyInResult.of(false, groupExpr.get());
         }
         List<Group> childrenGroups = Lists.newArrayList();

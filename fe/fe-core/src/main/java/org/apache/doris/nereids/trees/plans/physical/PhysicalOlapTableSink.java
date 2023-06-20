@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -82,8 +83,8 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
                 statistics, child);
         this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = copyIfNotNull(cols);
-        this.partitionIds = copyIfNotNull(partitionIds);
+        this.cols = Utils.copyIfNotNull(cols);
+        this.partitionIds = Utils.copyIfNotNull(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
     }
 
@@ -105,10 +106,6 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     public boolean isSingleReplicaLoad() {
         return singleReplicaLoad;
-    }
-
-    private <T> List<T> copyIfNotNull(List<T> list) {
-        return list == null ? null : ImmutableList.copyOf(list);
     }
 
     @Override

@@ -182,12 +182,6 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        for (auto& conjunct : _conjuncts) {
-            conjunct->close(state);
-        }
-
-        vectorized::VExpr::close(_projections, state);
-
         runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
     }

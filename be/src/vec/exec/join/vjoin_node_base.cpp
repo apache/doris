@@ -115,10 +115,11 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
 
     _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
     _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
+    _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
+    _build_output_block_timer =
+            ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
     _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
 
-    _build_output_block_timer = ADD_TIMER(runtime_profile(), "BuildOutPutBlockTimer");
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
     _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
 
@@ -130,7 +131,6 @@ Status VJoinNodeBase::close(RuntimeState* state) {
 }
 
 void VJoinNodeBase::release_resource(RuntimeState* state) {
-    VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
     ExecNode::release_resource(state);
 }

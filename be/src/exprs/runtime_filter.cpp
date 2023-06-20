@@ -280,7 +280,7 @@ Status create_literal(const TypeDescriptor& type, const void* data, vectorized::
     try {
         expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
-        return Status::Error(e.code(), e.to_string());
+        return e.to_status();
     }
 
     return Status::OK();
@@ -1105,6 +1105,12 @@ Status IRuntimeFilter::copy_from_shared_context(vectorized::SharedRuntimeFilterC
     return Status::OK();
 }
 
+void IRuntimeFilter::copy_from_other(IRuntimeFilter* other) {
+    _wrapper->_filter_type = other->_wrapper->_filter_type;
+    _wrapper->_is_bloomfilter = other->is_bloomfilter();
+    _wrapper->_context = other->_wrapper->_context;
+}
+
 void IRuntimeFilter::insert(const void* data) {
     DCHECK(is_producer());
     if (!_is_ignored) {
@@ -1126,13 +1132,14 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column,
 Status IRuntimeFilter::publish() {
     DCHECK(is_producer());
     if (_has_local_target) {
-        IRuntimeFilter* consumer_filter = nullptr;
-        RETURN_IF_ERROR(
-                _state->runtime_filter_mgr()->get_consume_filter(_filter_id, &consumer_filter));
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filters(_filter_id, filters));
         // push down
-        consumer_filter->_wrapper = _wrapper;
-        consumer_filter->update_runtime_filter_type_to_profile();
-        consumer_filter->signal();
+        for (auto filter : filters) {
+            filter->_wrapper = _wrapper;
+            filter->update_runtime_filter_type_to_profile();
+            filter->signal();
+        }
         return Status::OK();
     } else {
         TNetworkAddress addr;

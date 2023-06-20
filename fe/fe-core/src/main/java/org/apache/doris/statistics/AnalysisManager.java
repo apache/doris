@@ -178,7 +178,9 @@ public class AnalysisManager extends Daemon implements Writable {
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
                 analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
-            sendJobId(analysisInfos);
+            if (!analyzeDBStmt.isSync()) {
+                sendJobId(analysisInfos);
+            }
         } finally {
             db.readUnlock();
         }
@@ -216,11 +218,12 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-
-        try {
-            updateTableStats(jobInfo);
-        } catch (Throwable e) {
-            throw new DdlException("Failed to update Table statistics");
+        if (!isSync) {
+            try {
+                updateTableStats(jobInfo);
+            } catch (Throwable e) {
+                throw new DdlException("Failed to update Table statistics");
+            }
         }
 
         if (isSync) {

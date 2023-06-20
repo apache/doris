@@ -63,6 +63,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -417,7 +418,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
-                for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
+                // use tree map to maintain display order, making it easier to view properties
+                Map<String, String> sortedMap = new TreeMap<>(catalog.getProperties()).descendingMap();
+                for (Map.Entry<String, String> elem : sortedMap.entrySet()) {
                     if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {
                         continue;
                     }

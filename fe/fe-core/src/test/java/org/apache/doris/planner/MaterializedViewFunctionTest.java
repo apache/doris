@@ -537,7 +537,7 @@ public class MaterializedViewFunctionTest {
         String query1 = "select distinct deptno from " + EMPS_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createEmpsMVsql);
         dorisAssert.query(query1).explainContains(QUERY_USE_EMPS_MV);
-        String query2 = "select deptno, sum(distinct salary) from " + EMPS_TABLE_NAME + " group by deptno;";
+        String query2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ deptno, sum(distinct salary) from " + EMPS_TABLE_NAME + " group by deptno;";
         dorisAssert.query(query2).explainWithout(QUERY_USE_EMPS_MV);
     }
 

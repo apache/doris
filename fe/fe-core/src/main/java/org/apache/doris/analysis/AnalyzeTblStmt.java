@@ -164,6 +164,15 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                         + "collection of external tables is not supported");
             }
         }
+        if (analyzeProperties.isSync()
+                && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {
+            throw new AnalysisException("Automatic/Period statistics collection "
+                    + "and synchronous statistics collection cannot be set at same time");
+        }
+        if (analyzeProperties.isAutomatic() && analyzeProperties.getPeriodTimeInMs() != 0) {
+            throw new AnalysisException("Automatic collection "
+                    + "and period statistics collection cannot be set at same time");
+        }
     }
 
     private void checkColumn() throws AnalysisException {

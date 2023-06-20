@@ -80,14 +80,14 @@ suite("test_nullif") {
         }
     }
 
-    qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
+    qt_select "select nullif(k6, \"false\") k from nereids_test_query_db.test order by k1"
     qt_select "select if(c_date is null,c_timestamp,c_date) from ${tableName} where c_date is null and c_timestamp is not null"
     qt_select "select if(c_bigint > 10,c_timestamp,c_date) from ${tableName}"
     qt_select "select if(c_date_1 is null,c_timestamp_1,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_1 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_2,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_2 is not null"
     qt_select "select if(c_date_1 is null,c_timestamp_3,c_date_1) from ${tableName} where c_date_1 is null and c_timestamp_3 is not null"
 
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
     def tableName1 = "test"
     qt_if_nullif1 """select if(null, -1, 10) a, if(null, "hello", "worlk") b"""
     qt_if_nullif2 """select if(k1 > 5, true, false) a from baseall order by k1"""

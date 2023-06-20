@@ -420,7 +420,7 @@ public abstract class Type {
     public boolean isStringType() {
         return isScalarType(PrimitiveType.VARCHAR)
                 || isScalarType(PrimitiveType.CHAR)
-                || isScalarType(PrimitiveType.STRING) || isScalarType(PrimitiveType.AGG_STATE);
+                || isScalarType(PrimitiveType.STRING);
     }
 
     public boolean isVarcharOrStringType() {

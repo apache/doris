@@ -273,7 +273,7 @@ void TaskScheduler::_do_work(size_t index) {
         try {
             status = task->execute(&eos);
         } catch (const Exception& e) {
-            status = Status::Error(e.code(), e.to_string());
+            status = e.to_status();
         }
 
         task->set_previous_core_id(index);
@@ -297,7 +297,6 @@ void TaskScheduler::_do_work(size_t index) {
                                      "finalize fail:" + status.to_string());
                 _try_close_task(task, PipelineTaskState::CANCELED);
             } else {
-                task->finish_p_dependency();
                 _try_close_task(task, PipelineTaskState::FINISHED);
             }
             continue;
@@ -338,10 +337,6 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
             return;
         }
         task->set_state(state);
-        // TODO: rethink the logic
-        if (state == PipelineTaskState::CANCELED) {
-            task->finish_p_dependency();
-        }
         task->fragment_context()->close_a_pipeline();
     }
 }
