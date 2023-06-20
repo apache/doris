@@ -98,6 +98,8 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
     _delete_bitmap_timer = ADD_TIMER(_profile, "MemTableDeleteBitmapTime");
     _close_wait_timer = ADD_TIMER(_profile, "DeltaWriterCloseWaitTime");
+    _rowset_build_timer = ADD_TIMER(_profile, "RowsetBuildTime");
+    _commit_txn_timer = ADD_TIMER(_profile, "CommitTxnTime");
     _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
     _segment_num = ADD_COUNTER(_profile, "SegmentNum", TUnit::UNIT);
@@ -435,8 +437,11 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                      << ", total received rows: " << _total_received_rows;
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
-    // use rowset meta manager to save meta
-    _cur_rowset = _rowset_writer->build();
+    {
+        SCOPED_TIMER(_rowset_build_timer);
+        // use rowset meta manager to save meta
+        _cur_rowset = _rowset_writer->build();
+    }
     if (_cur_rowset == nullptr) {
         LOG(WARNING) << "fail to build rowset";
         return Status::Error<MEM_ALLOC_FAILED>();
@@ -460,8 +465,13 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                 _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
                 _rowset_writer.get()));
     }
-    Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
-                                                            _req.load_id, _cur_rowset, false);
+
+    Status res;
+    {
+        SCOPED_TIMER(_commit_txn_timer);
+        res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
+                                                                _req.load_id, _cur_rowset, false);
+    }
 
     if (!res && !res.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
         LOG(WARNING) << "Failed to commit txn: " << _req.txn_id

@@ -215,6 +215,8 @@ private:
     RuntimeProfile::Counter* _sort_times = nullptr;
     RuntimeProfile::Counter* _agg_times = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_build_timer = nullptr;
+    RuntimeProfile::Counter* _commit_txn_timer = nullptr;
     RuntimeProfile::Counter* _segment_num = nullptr;
     RuntimeProfile::Counter* _raw_rows_num = nullptr;
     RuntimeProfile::Counter* _merged_rows_num = nullptr;
