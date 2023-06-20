@@ -942,9 +942,10 @@ public class DatabaseTransactionMgr {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                         ++healthReplicaNum;
                                     } else {
-                                        LOG.info("publish version failed for transaction {} on tablet {},"
+                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
                                                  + " on replica {} due to not catchup",
-                                                 transactionState, tablet, replica);
+                                                 partitionCommitInfo.getVersion(), transactionState, tablet,
+                                                 replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
@@ -953,16 +954,17 @@ public class DatabaseTransactionMgr {
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
                                 } else {
-                                    LOG.info("publish version failed for transaction {} on tablet {},"
-                                             + " on replica {} due to version hole or error", transactionState,
-                                             tablet, replica);
+                                    LOG.info("publish version {} failed for transaction {} on tablet {},"
+                                             + " on replica {} due to version hole or error",
+                                             partitionCommitInfo.getVersion(), transactionState, tablet, replica);
                                 }
                             }
 
                             if (healthReplicaNum < quorumReplicaNum) {
-                                LOG.info("publish version failed for transaction {} on tablet {},"
+                                LOG.info("publish version {} failed for transaction {} on tablet {},"
                                                 + " with only {} replicas less than quorum {}",
-                                        transactionState, tablet, healthReplicaNum, quorumReplicaNum);
+                                         partitionCommitInfo.getVersion(), transactionState, tablet, healthReplicaNum,
+                                         quorumReplicaNum);
                                 String errMsg = String.format("publish on tablet %d failed."
                                                 + " succeed replica num %d less than quorum %d."
                                                 + " table: %d, partition: %d, publish version: %d",
