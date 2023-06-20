@@ -1475,35 +1475,7 @@ public class FunctionCallExpr extends Expr {
 
                 // find user defined functions
                 if (fn == null) {
-                    if (!analyzer.isUDFAllowed()) {
-                        throw new AnalysisException(
-                                "Does not support non-builtin functions, or function does not exist: "
-                                        + this.toSqlImpl());
-                    }
-
-                    String dbName = fnName.analyzeDb(analyzer);
-                    if (!Strings.isNullOrEmpty(dbName)) {
-                        // check operation privilege
-                        if (!Env.getCurrentEnv().getAccessManager()
-                                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
-                            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
-                        }
-                        // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
-                        if (db != null && (db instanceof Database)) {
-                            Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
-                                    Type.INVALID, false);
-                            fn = ((Database) db).getFunction(searchDesc,
-                                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-                        }
-                    }
-                    // find from the internal database first, if not, then from the global functions
-                    if (fn == null) {
-                        Function searchDesc =
-                                new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-                        fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
-                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-                    }
+                    fn = findUdf(fnName, analyzer);
                 }
             }
         }
@@ -2160,5 +2132,39 @@ public class FunctionCallExpr extends Expr {
             return true;
         }
         return super.haveFunction(functionName);
+    }
+
+    public Function findUdf(FunctionName fnName, Analyzer analyzer) throws AnalysisException {
+        if (!analyzer.isUDFAllowed()) {
+            throw new AnalysisException(
+                    "Does not support non-builtin functions, or function does not exist: "
+                            + this.toSqlImpl());
+        }
+
+        Function fn = null;
+        String dbName = fnName.analyzeDb(analyzer);
+        if (!Strings.isNullOrEmpty(dbName)) {
+            // check operation privilege
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+            }
+            // TODO(gaoxin): ExternalDatabase not implement udf yet.
+            DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
+            if (db != null && (db instanceof Database)) {
+                Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
+                        Type.INVALID, false);
+                fn = ((Database) db).getFunction(searchDesc,
+                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            }
+        }
+        // find from the internal database first, if not, then from the global functions
+        if (fn == null) {
+            Function searchDesc =
+                    new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+            fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        }
+        return fn;
     }
 }

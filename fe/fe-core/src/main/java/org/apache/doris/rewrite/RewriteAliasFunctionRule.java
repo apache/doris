@@ -35,6 +35,10 @@ public class RewriteAliasFunctionRule implements ExprRewriteRule {
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (expr instanceof FunctionCallExpr) {
             Function fn = expr.getFn();
+            if (fn == null) {
+                fn = ((FunctionCallExpr) expr).findUdf(((FunctionCallExpr) expr).getFnName(), analyzer);
+                expr.setFn(fn);
+            }
             if (fn instanceof AliasFunction) {
                 Expr originFn = ((AliasFunction) fn).getOriginFunction();
                 if (originFn instanceof FunctionCallExpr) {
