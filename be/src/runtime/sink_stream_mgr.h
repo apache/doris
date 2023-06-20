@@ -35,6 +35,8 @@ struct TargetRowset {
     int64_t indexid;
     int64_t tabletid;
     RowsetId rowsetid; // TODO probably not needed
+
+    std::string to_string();
 };
 using TargetRowsetPtr = std::shared_ptr<TargetRowset>;
 struct TargetRowsetComparator {
@@ -46,6 +48,8 @@ struct TargetSegment {
     TargetRowsetPtr target_rowset;
     int64_t segmentid;
     // std::string ip_port or BE id?
+
+    std::string to_string();
 };
 using TargetSegmentPtr = std::shared_ptr<TargetSegment>;
 struct TargetSegmentComparator {

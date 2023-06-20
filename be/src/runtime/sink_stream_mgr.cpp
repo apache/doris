@@ -45,11 +45,22 @@ bool TargetRowsetComparator::operator()(const TargetRowsetPtr& lhs, const Target
     return true;
 }
 
+std::string TargetRowset::to_string() {
+    std::stringstream ss;
+    ss << "loadid: " << loadid << ", indexid: " << indexid << ", tabletid: " << tabletid;
+    return ss.str();
+}
+
+std::string TargetSegment::to_string() {
+    std::stringstream ss;
+    ss << target_rowset->to_string() << ", segmentid: " << segmentid;
+    return ss.str();
+}
 
 SinkStreamHandler::SinkStreamHandler() {
     ThreadPoolBuilder("SinkStreamHandler")
-            .set_min_threads(20) // TODO
-            .set_max_threads(20) // TODO
+            .set_min_threads(20) // TODO: make them configurable
+            .set_max_threads(20)
             .build(&_workers);
 }
 
@@ -71,10 +82,6 @@ Status SinkStreamHandler::_create_and_open_file(TargetSegmentPtr target_segment,
 }
 
 Status SinkStreamHandler::_append_data(TargetSegmentPtr target_segment, std::shared_ptr<butil::IOBuf> message) {
-    // TODO: wait if file is opening
-    // TODO: data reorder
-    // TODO: single file binding to single thread?
-    // give me a iterator of _file_map
     auto itr = _file_map.end();
     {
         std::lock_guard<std::mutex> l(_file_map_lock);
@@ -99,6 +106,7 @@ Status SinkStreamHandler::_close_file(TargetSegmentPtr target_segment, bool is_l
         _file_map.erase(itr);
     }
     file->close();
+    LOG(INFO) << "OOXXOO close file, is_last_segment = " << is_last_segment << " ";
     return Status::OK();
 }
 
@@ -180,6 +188,7 @@ void SinkStreamHandler::_handle_message(StreamId stream, PStreamHeader hdr,
 
 //TODO trigger build meta when last segment of all cluster is closed
 int SinkStreamHandler::on_received_messages(StreamId id, butil::IOBuf *const messages[], size_t size) {
+    LOG(INFO) << "OOXXOO on_received_messages " << id << " " << size;
     for (size_t i = 0; i < size; ++i) {
         std::shared_ptr<butil::IOBuf> messageBuf = std::make_shared<butil::IOBuf>(messages[i]->movable()); // hold the data
         size_t hdr_len = 0;
@@ -207,6 +216,8 @@ int SinkStreamHandler::on_received_messages(StreamId id, butil::IOBuf *const mes
         token->submit_func([this, id, hdr, target_rowset, target_segment, messageBuf]() {
             _handle_message(id, hdr, target_rowset, target_segment, messageBuf);
         });
+        LOG(INFO) << "OOXXOO target_segment: " << target_segment->to_string()
+                  << " submitted to threadpool via token: " << token.get();
     }
     return 0;
 }
@@ -239,8 +250,12 @@ StreamIdPtr SinkStreamMgr::get_free_stream_id() {
     StreamIdPtr ptr = nullptr;
     {
         std::lock_guard<std::mutex> l(_lock);
-        ptr = _free_stream_ids.back();
-        _free_stream_ids.pop_back();
+        if (_free_stream_ids.empty()) {
+            ptr = std::make_shared<StreamId>();
+        } else {
+            ptr = _free_stream_ids.back();
+            _free_stream_ids.pop_back();
+        }
     }
     return ptr;
 }

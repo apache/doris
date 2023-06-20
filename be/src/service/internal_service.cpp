@@ -255,7 +255,7 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
                                             POpenStreamSinkResponse* response,
                                             google::protobuf::Closure* done) {
     brpc::ClosureGuard done_guard(done);
-    LOG(INFO) << "OOXXOO: open stream sink";
+    LOG(INFO) << "OOXXOO: open stream sink"; //TODO: remove log
     std::unique_ptr<PStatus> status = std::make_unique<PStatus>();
     brpc::Controller* cntl =
             static_cast<brpc::Controller*>(controller);
@@ -265,6 +265,8 @@ void PInternalServiceImpl::open_stream_sink(google::protobuf::RpcController* con
 
     stream_options.handler = sink_stream_mgr->get_sink_stream_handler();
     StreamIdPtr streamid = sink_stream_mgr->get_free_stream_id();
+    LOG(INFO) << "OOXXOO: get streamid =" << streamid;
+
     if (brpc::StreamAccept(streamid.get(), *cntl, &stream_options) != 0) {
         cntl->SetFailed("Fail to accept stream");
         status->set_status_code(TStatusCode::CANCELLED);
