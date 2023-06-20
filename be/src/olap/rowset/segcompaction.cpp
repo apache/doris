@@ -302,7 +302,7 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
         case SEGCOMPACTION_INIT_READER:
         case SEGCOMPACTION_INIT_WRITER:
             LOG(WARNING) << "segcompaction failed, try next time:" << status;
-            return;
+            break;
         default:
             auto ctx = _writer->_context;
             LOG(WARNING) << "segcompaction fatal, terminating the write job."
