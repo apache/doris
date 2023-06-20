@@ -1747,7 +1747,7 @@ public class Config extends ConfigBase {
      * Otherwise, use external catalog metadata.
      */
     @ConfField(mutable = true)
-    public static boolean collect_external_table_stats_by_sql = false;
+    public static boolean collect_external_table_stats_by_sql = true;
 
     /**
      * Max num of same name meta informatntion in catalog recycle bin.

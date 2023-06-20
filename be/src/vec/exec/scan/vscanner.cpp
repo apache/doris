@@ -109,6 +109,10 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 }
 
 Status VScanner::_filter_output_block(Block* block) {
+    if (block->has(BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED)) {
+        // scanner filter_block is already done (only by _topn_next currently), just skip it
+        return Status::OK();
+    }
     auto old_rows = block->rows();
     Status st = VExprContext::filter_block(_conjuncts, block, block->columns());
     _counter.num_rows_unselected += old_rows - block->rows();

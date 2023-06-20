@@ -52,7 +52,7 @@ suite("insert_invalid") {
 
     test {
         sql """ insert into datatype_invalid select * from datatype_invalid_base;"""
-        exception "Invalid value in strict mode"
+        exception "Invalid value"
     }
 
     // test insert select: invalid value
@@ -74,7 +74,7 @@ suite("insert_invalid") {
     """
     test {
         sql """ insert into datatype_invalid select * from datatype_invalid_base;"""
-        exception "Invalid value in strict mode"
+        exception "Invalid value"
     }
 
     // test insert select: invalid value
@@ -96,7 +96,7 @@ suite("insert_invalid") {
     """
     test {
         sql """ insert into datatype_invalid select * from datatype_invalid_base;"""
-        exception "Invalid value in strict mode"
+        exception "Invalid value"
     }
 
     // test insert select: null into not nullable
@@ -148,7 +148,7 @@ suite("insert_invalid") {
     """
     test {
         sql """ insert into datatype_invalid values ('2022-02-29', 'a'); """
-        exception "Invalid value in strict mode"
+        exception "Invalid value"
     }
 
     sql """ set enable_insert_strict=false; """

@@ -24,7 +24,10 @@ public class StatisticsCacheKey {
 
     /**
      * May be index id either, since they are natively same in the code.
+     * catalogId and dbId are not included in the hashCode. Because tableId is globally unique.
      */
+    public final long catalogId;
+    public final long dbId;
     public final long tableId;
     public final long idxId;
     public final String colName;
@@ -36,6 +39,16 @@ public class StatisticsCacheKey {
     }
 
     public StatisticsCacheKey(long tableId, long idxId, String colName) {
+        this(-1, -1, tableId, idxId, colName);
+    }
+
+    public StatisticsCacheKey(long catalogId, long dbId, long tableId) {
+        this(catalogId, dbId, tableId, -1, "");
+    }
+
+    public StatisticsCacheKey(long catalogId, long dbId, long tableId, long idxId, String colName) {
+        this.catalogId = catalogId;
+        this.dbId = dbId;
         this.tableId = tableId;
         this.idxId = idxId;
         this.colName = colName;

@@ -119,7 +119,7 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         cntl.Reset();
     }
 
@@ -147,7 +147,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         cntl.Reset();
         cid = cntl.call_id();
     }
@@ -490,6 +490,9 @@ private:
     void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
                                             const VOlapTablePartition* partition,
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
+    Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
+                                      ChannelDistributionPayload& channel_to_payload,
+                                      size_t num_rows, int32_t filtered_rows);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.

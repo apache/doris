@@ -347,6 +347,8 @@ DECLARE_Bool(disable_storage_row_cache);
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
 DECLARE_String(pk_storage_page_cache_limit);
+// data page size for primary key index
+DECLARE_Int32(primary_key_data_page_size);
 
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);

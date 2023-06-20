@@ -81,6 +81,15 @@ suite("test_group_concat") {
                 b2;
               """
 
+    qt_select_12 """
+                select
+                group_concat( distinct b1, '?'), group_concat( distinct b3, '?')
+                from
+                table_group_concat
+                group by 
+                b2;
+              """
+
     sql """ drop table table_group_concat """
     sql """create table table_group_concat ( b1 varchar(10) not null, b2 int not null, b3 varchar(10) not null )
             ENGINE=OLAP
