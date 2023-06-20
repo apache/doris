@@ -253,6 +253,18 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
 }
 
 int64_t TabletsChannel::mem_consumption() {
+    int64_t mem_usage = 0;
+    {
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        for (auto& it : _tablet_writers) {
+            int64_t writer_mem = it.second->mem_consumption(MemType::ALL);
+            mem_usage += writer_mem;
+        }
+    }
+    return mem_usage;
+}
+
+void TabletsChannel::refresh_profile() {
     int64_t write_mem_usage = 0;
     int64_t flush_mem_usage = 0;
     int64_t max_tablet_mem_usage = 0;
@@ -260,7 +272,6 @@ int64_t TabletsChannel::mem_consumption() {
     int64_t max_tablet_flush_mem_usage = 0;
     {
         std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        _mem_consumptions.clear();
         for (auto& it : _tablet_writers) {
             int64_t write_mem = it.second->mem_consumption(MemType::WRITE);
             write_mem_usage += write_mem;
@@ -270,7 +281,6 @@ int64_t TabletsChannel::mem_consumption() {
             if (flush_mem > max_tablet_flush_mem_usage) max_tablet_flush_mem_usage = flush_mem;
             if (write_mem + flush_mem > max_tablet_mem_usage)
                 max_tablet_mem_usage = write_mem + flush_mem;
-            _mem_consumptions.emplace(write_mem + flush_mem, it.first);
         }
     }
     COUNTER_SET(_memory_usage_counter, write_mem_usage + flush_mem_usage);
@@ -279,7 +289,6 @@ int64_t TabletsChannel::mem_consumption() {
     COUNTER_SET(_max_tablet_memory_usage_counter, max_tablet_mem_usage);
     COUNTER_SET(_max_tablet_write_memory_usage_counter, max_tablet_write_mem_usage);
     COUNTER_SET(_max_tablet_flush_memory_usage_counter, max_tablet_flush_mem_usage);
-    return write_mem_usage + flush_mem_usage;
 }
 
 void TabletsChannel::get_active_memtable_mem_consumption(
