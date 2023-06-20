@@ -141,11 +141,13 @@ public:
             return st;
         }
         if (exists) {
-            st = _fs->delete_directory(index_path.c_str());
-            if (!st.ok()) {
-                LOG(ERROR) << "delete directory:" << index_path << " error:" << st;
-                return st;
-            }
+            LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
+            return Status::InternalError("init_fulltext_index a directory already exists");
+            //st = _fs->delete_directory(index_path.c_str());
+            //if (!st.ok()) {
+            //    LOG(ERROR) << "delete directory:" << index_path << " error:" << st;
+            //    return st;
+            //}
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
