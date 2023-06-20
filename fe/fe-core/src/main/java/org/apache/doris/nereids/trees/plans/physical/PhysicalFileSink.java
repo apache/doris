@@ -26,6 +26,8 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +54,15 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         this.properties = properties;
     }
 
+    public PhysicalFileSink(String filePath, String format, Map<String, String> properties,
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_FILE_SINK, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.filePath = filePath;
+        this.format = format;
+        this.properties = properties;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         return null;
@@ -64,21 +75,22 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public List<? extends Expression> getExpressions() {
-        return null;
+        return ImmutableList.of();
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return null;
+        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return null;
+        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, logicalProperties.get(), child());
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return null;
+        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, child());
     }
 }
