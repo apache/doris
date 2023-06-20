@@ -490,6 +490,9 @@ private:
     void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
                                             const VOlapTablePartition* partition,
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
+    Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
+                                      ChannelDistributionPayload& channel_to_payload,
+                                      size_t num_rows, int32_t filtered_rows);
 
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
