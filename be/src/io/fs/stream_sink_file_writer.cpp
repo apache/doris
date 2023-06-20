@@ -19,6 +19,8 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include "olap/olap_common.h"
+
 namespace doris {
 namespace io {
 
@@ -27,7 +29,7 @@ StreamSinkFileWriter::StreamSinkFileWriter(brpc::StreamId stream_id) : _stream(s
 StreamSinkFileWriter::~StreamSinkFileWriter() {}
 
 Status StreamSinkFileWriter::init(Path path, PUniqueId load_id, int64_t index_id, int64_t tablet_id,
-                                  int64_t rowset_id, int32_t segment_id, bool is_last_segment) {
+                                  RowsetId rowset_id, int32_t segment_id, bool is_last_segment) {
     _path = path;
     _load_id = load_id;
     _index_id = index_id;
@@ -49,7 +51,7 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     header.set_allocated_load_id(&_load_id);
     header.set_index_id(_index_id);
     header.set_tablet_id(_tablet_id);
-    header.set_rowset_id(_rowset_id);
+    header.set_rowset_id(_rowset_id.to_string());
     header.set_segment_id(_segment_id);
     header.set_is_last_segment(_is_last_segment);
     header.set_opcode(header.APPEND_DATA);
@@ -67,7 +69,7 @@ Status StreamSinkFileWriter::finalize() {
     header.set_allocated_load_id(&_load_id);
     header.set_index_id(_index_id);
     header.set_tablet_id(_tablet_id);
-    header.set_rowset_id(_rowset_id);
+    header.set_rowset_id(_rowset_id.to_string());
     header.set_segment_id(_segment_id);
     header.set_is_last_segment(_is_last_segment);
     header.set_opcode(header.CLOSE_FILE);

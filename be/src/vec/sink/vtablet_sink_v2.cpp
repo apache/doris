@@ -541,10 +541,10 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         _stream_pool.reset();
 
         // TODO: wait all stream replies
-        {
-            std::unique_lock lock(all_stream_done_mutex);
-            all_stream_done_cv.wait(lock);
-        }
+        //{
+        //    std::unique_lock lock(all_stream_done_mutex);
+        //    all_stream_done_cv.wait(lock);
+        //}
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         for (auto& entry : tablet_success_map) {

@@ -21,6 +21,7 @@
 #include <brpc/server.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "olap/olap_common.h"
 
 namespace doris {
 
@@ -156,7 +157,9 @@ TEST_F(StreamSinkFileWriterTest, TestInit) {
     PUniqueId load_id;
     load_id.set_hi(1);
     load_id.set_lo(1);
-    CHECK_STATUS_OK(writer.init("test", load_id, 1, 1, 1, 1, true));
+    RowsetId rowset_id;
+    rowset_id.init("1");
+    CHECK_STATUS_OK(writer.init("test", load_id, 1, 1, rowset_id, 1, true));
 }
 
 TEST_F(StreamSinkFileWriterTest, TestAppend) {
@@ -164,7 +167,9 @@ TEST_F(StreamSinkFileWriterTest, TestAppend) {
     PUniqueId load_id;
     load_id.set_hi(1);
     load_id.set_lo(1);
-    CHECK_STATUS_OK(writer.init("test", load_id, 1, 1, 1, 1, true));
+    RowsetId rowset_id;
+    rowset_id.init("1");
+    CHECK_STATUS_OK(writer.init("test", load_id, 1, 1, rowset_id, 1, true));
     strcpy(_buffer, "hello");
     _data->data = _buffer;
     CHECK_STATUS_OK(writer.appendv(_data, 6));
@@ -175,7 +180,9 @@ TEST_F(StreamSinkFileWriterTest, TestFinalize) {
     PUniqueId load_id;
     load_id.set_hi(1);
     load_id.set_lo(1);
-    CHECK_STATUS_OK(writer.init("test", load_id, 1, 1, 1, 1, true));
+    RowsetId rowset_id;
+    rowset_id.init("1");
+    CHECK_STATUS_OK(writer.init("test", load_id, 1, 1, rowset_id, 1, true));
     CHECK_STATUS_OK(writer.finalize());
 }
 

@@ -23,6 +23,9 @@
 #include "io/fs/file_writer.h"
 
 namespace doris {
+
+struct RowsetId;
+
 namespace io {
 class StreamSinkFileWriter : public FileWriter {
 public:
@@ -32,7 +35,7 @@ public:
     static void deleter(void* data) {}
 
     Status init(Path path, PUniqueId load_id, int64_t index_id, int64_t tablet_id,
-                int64_t rowset_id, int32_t segment_id, bool is_last_segment);
+                RowsetId rowset_id, int32_t segment_id, bool is_last_segment);
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
@@ -53,7 +56,7 @@ private:
     PUniqueId _load_id;
     int64_t _index_id;
     int64_t _tablet_id;
-    int64_t _rowset_id;
+    RowsetId _rowset_id;
     int32_t _segment_id;
     bool _is_last_segment;
 };

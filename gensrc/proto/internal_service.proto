@@ -702,13 +702,13 @@ message PStreamHeader {
         APPEND_DATA = 1;
         CLOSE_FILE = 2;
     }
-    required PUniqueId load_id = 1;
-    required int64 index_id = 2;
-    required int64 tablet_id = 3;
-    required int32 segment_id = 4;
-    required Opcode opcode = 5;
-    required bool is_last_segment = 6;
-    optional int64 rowset_id = 7;
+    optional PUniqueId load_id = 1;
+    optional int64 index_id = 2;
+    optional int64 tablet_id = 3;
+    optional int32 segment_id = 4;
+    optional Opcode opcode = 5;
+    optional bool is_last_segment = 6;
+    optional string rowset_id = 7;
 }
 
 service PBackendService {
