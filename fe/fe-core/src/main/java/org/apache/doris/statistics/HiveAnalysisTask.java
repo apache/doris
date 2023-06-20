@@ -256,7 +256,11 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
 
     private Map<String, String> buildTableStatsParams(String partId) {
         Map<String, String> commonParams = new HashMap<>();
-        commonParams.put("id", String.valueOf(tbl.getId()));
+        String id = StatisticsUtil.constructId(tbl.getId(), -1);
+        if (!partId.equals("NULL")) {
+            id = StatisticsUtil.constructId(id, partId);
+        }
+        commonParams.put("id", id);
         commonParams.put("catalogId", String.valueOf(catalog.getId()));
         commonParams.put("dbId", String.valueOf(db.getId()));
         commonParams.put("tblId", String.valueOf(tbl.getId()));
