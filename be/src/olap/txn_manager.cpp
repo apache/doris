@@ -82,6 +82,9 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_mutex = new std::shared_mutex[_txn_shard_size];
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
+    // For debugging
+    _tablet_version_cache = new ShardedLRUCache("TabletVersionCache", 100000,
+                                                LRUCacheType::NUMBER, 32);
 }
 
 // prepare txn should always be allowed because ingest task will be retried

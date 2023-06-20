@@ -90,6 +90,7 @@ public:
         delete[] _txn_mutex;
         delete[] _txn_tablet_delta_writer_map;
         delete[] _txn_tablet_delta_writer_map_locks;
+        delete _tablet_version_cache;
     }
 
     // add a txn to manager
@@ -172,6 +173,37 @@ public:
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
 
+    int64_t get_txn_by_tablet_version(int64_t tablet_id, int64_t version) {
+        char key[16];
+        memcpy(key, &tablet_id, sizeof(int64_t));
+        memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
+        CacheKey cache_key((const char*)&key, sizeof(key));
+
+        auto handle = _tablet_version_cache->lookup(cache_key);
+        if (handle == nullptr) {
+            return -1;
+        }
+        int64_t res = *(int64_t*)_tablet_version_cache->value(handle);
+        return res;
+    }
+
+    void update_tablet_version_txn(int64_t tablet_id, int64_t version, int64_t txn_id) {
+        char key[16];
+        memcpy(key, &tablet_id, sizeof(int64_t));
+        memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
+        CacheKey cache_key((const char*)&key, sizeof(key));
+
+        int64_t* value = new int64_t;
+        *value = txn_id;
+        auto deleter = [](const doris::CacheKey& key, void* value) {
+            int64_t* cache_value = (int64_t*)value;
+            delete cache_value;
+        };
+
+        _tablet_version_cache->insert(cache_key, value, sizeof(txn_id), deleter,
+                                      CachePriority::NORMAL, sizeof(txn_id));
+    }
+
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
@@ -232,6 +264,7 @@ private:
     std::shared_mutex* _txn_mutex;
 
     txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map;
+    ShardedLRUCache* _tablet_version_cache;
     std::shared_mutex* _txn_tablet_delta_writer_map_locks;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager

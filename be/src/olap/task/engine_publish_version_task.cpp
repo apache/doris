@@ -118,6 +118,13 @@ Status EnginePublishVersionTask::finish() {
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
             TabletInfo tablet_info = tablet_rs.first;
+            bool first_time_update = false;
+            if (StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
+                        tablet_info.tablet_id, version.second) < 0) {
+                first_time_update = true;
+                StorageEngine::instance()->txn_manager()->update_tablet_version_txn(
+                        tablet_info.tablet_id, version.second, transaction_id);
+            }
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
                           << "tablet_id=" << tablet_info.tablet_id
@@ -156,12 +163,6 @@ Status EnginePublishVersionTask::finish() {
                 }
                 if (tablet_state == TabletState::TABLET_RUNNING &&
                     version.first != max_version.second + 1) {
-                    LOG_EVERY_SECOND(INFO)
-                            << "uniq key with merge-on-write version not continuous, "
-                               "current max version="
-                            << max_version.second << ", publish_version=" << version.first
-                            << ", tablet_id=" << tablet->tablet_id()
-                            << ", transaction_id=" << _publish_version_req.transaction_id;
                     // If a tablet migrates out and back, the previously failed
                     // publish task may retry on the new tablet, so check
                     // whether the version exists. if not exist, then set
@@ -171,6 +172,21 @@ Status EnginePublishVersionTask::finish() {
                         _discontinuous_version_tablets->emplace_back(
                                 partition_id, tablet_info.tablet_id, version.first);
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>();
+                        int64_t missed_version = max_version.second + 1;
+                        int64_t missed_txn_id =
+                                StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
+                                        tablet->tablet_id(), missed_version);
+                        auto msg = fmt::format(
+                                "uniq key with merge-on-write version not continuous, "
+                                "missed version={}, it's transaction_id={}, current publish "
+                                "version={}, tablet_id={}, transaction_id={}",
+                                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
+                                _publish_version_req.transaction_id);
+                        if (first_time_update) {
+                            LOG(INFO) << msg;
+                        } else {
+                            LOG_EVERY_SECOND(INFO) << msg;
+                        }
                     }
                     continue;
                 }
