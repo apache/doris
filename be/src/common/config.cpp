@@ -145,6 +145,8 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// the timeout of EnginPublishVersionTask
+DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the count of thread to clear transaction task
@@ -351,7 +353,7 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
-DEFINE_mInt64(compaction_promotion_min_size_mbytes, "64");
+DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -587,7 +589,7 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "10000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
 
 // txn commit rpc timeout
 DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");

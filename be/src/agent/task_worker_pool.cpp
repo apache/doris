@@ -1461,7 +1461,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
-                if (time_elapsed > PUBLISH_TIMEOUT_SEC) {
+                if (time_elapsed > config::publish_version_task_timeout_s) {
                     LOG(INFO) << "task elapsed " << time_elapsed
                               << " seconds since it is inserted to queue, it is timeout";
                     is_task_timeout = true;
