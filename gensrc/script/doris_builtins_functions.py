@@ -1012,6 +1012,7 @@ visible_functions = {
         [['hour'], 'TINYINT', ['DATETIMEV2'], ''],
         [['minute'], 'TINYINT', ['DATETIMEV2'], ''],
         [['second'], 'TINYINT', ['DATETIMEV2'], ''],
+        [['microsecond'], 'INT', ['DATETIMEV2'], ''],
 
         [['year'], 'SMALLINT', ['DATEV2'], ''],
         [['month'], 'TINYINT', ['DATEV2'], ''],
@@ -2044,5 +2045,5 @@ null_result_with_one_null_param_functions = [
     'ST_Contains'
 ]
 
-invisible_functions = {
-}
+invisible_functions = [
+]

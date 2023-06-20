@@ -204,7 +204,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         });
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_TRACK_MEMORY_TO_UNKNOWN();
             if (enable_http_send_block(*brpc_request)) {
                 RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
                                                     *brpc_request,
@@ -251,7 +251,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         });
         {
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+            SCOPED_TRACK_MEMORY_TO_UNKNOWN();
             if (enable_http_send_block(*brpc_request)) {
                 RETURN_IF_ERROR(transmit_block_http(_context->get_runtime_state(), closure,
                                                     *brpc_request,

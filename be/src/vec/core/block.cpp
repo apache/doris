@@ -904,8 +904,12 @@ void MutableBlock::add_row(const Block* block, int row) {
 }
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
+    DCHECK_EQ(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
+        // DCHECK(_columns[i]->get_data_type() == block_data[i].column->get_data_type());
+        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+        DCHECK_EQ(_names[i], block_data[i].name);
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_indices_from(src, row_begin, row_end);
@@ -913,12 +917,41 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
 }
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
+    DCHECK_EQ(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
+        // DCHECK(_columns[i]->get_data_type() == block_data[i].column->get_data_type());
+        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
+        DCHECK_EQ(_names[i], block_data[i].name);
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_range_from(src, row_begin, length);
     }
+}
+
+void MutableBlock::erase(const String& name) {
+    auto index_it = index_by_name.find(name);
+    if (index_it == index_by_name.end()) {
+        LOG(FATAL) << fmt::format("No such name in Block::erase(): '{}'", name);
+    }
+
+    auto position = index_it->second;
+
+    _columns.erase(_columns.begin() + position);
+    _data_types.erase(_data_types.begin() + position);
+    _names.erase(_names.begin() + position);
+
+    for (auto it = index_by_name.begin(); it != index_by_name.end();) {
+        if (it->second == position)
+            index_by_name.erase(it++);
+        else {
+            if (it->second > position) --it->second;
+            ++it;
+        }
+    }
+    // if (position < row_same_bit.size()) {
+    //     row_same_bit.erase(row_same_bit.begin() + position);
+    // }
 }
 
 Block MutableBlock::to_block(int start_column) {

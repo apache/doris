@@ -119,6 +119,11 @@ public class ScanPredicate {
         }
 
         @Override
+        public boolean canGetStringAsBytes() {
+            return false;
+        }
+
+        @Override
         public String toString() {
             return inspectObject().toString();
         }

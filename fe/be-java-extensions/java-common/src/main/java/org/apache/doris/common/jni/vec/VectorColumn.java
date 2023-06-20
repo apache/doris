@@ -597,7 +597,11 @@ public class VectorColumn {
             case CHAR:
             case VARCHAR:
             case STRING:
-                appendStringAndOffset(o.getString());
+                if (o.canGetStringAsBytes()) {
+                    appendBytesAndOffset(o.getBytes());
+                } else {
+                    appendStringAndOffset(o.getString());
+                }
                 break;
             case BINARY:
                 appendBytesAndOffset(o.getBytes());
