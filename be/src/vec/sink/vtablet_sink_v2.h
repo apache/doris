@@ -161,12 +161,11 @@ public:
     std::unordered_map<TabletID, std::vector<int64_t>> tablet_success_map;
 
 private:
-
     Status _init_stream_pool(StreamPool& stream_pool);
 
     void _generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
-                                   const VOlapTablePartition* partition,
-                                   uint32_t tablet_index, int row_idx, size_t row_cnt);
+                                   const VOlapTablePartition* partition, uint32_t tablet_index,
+                                   int row_idx, size_t row_cnt);
     static void* _write_memtable_task(void* write_ctx);
 
     // make input data valid for OLAP table
