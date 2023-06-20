@@ -158,12 +158,11 @@ public class DateUtils {
                 getOrDefault(accessor, ChronoField.HOUR_OF_DAY),
                 getOrDefault(accessor, ChronoField.MINUTE_OF_HOUR),
                 getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE),
-                getOrDefault(accessor, ChronoField.MICRO_OF_SECOND)
-        );
+                1000 * getOrDefault(accessor, ChronoField.MICRO_OF_SECOND));
     }
 
     public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
-        return accessor.isSupported(field) ? accessor.get(field) : /*default value*/ 0;
+        return accessor.isSupported(field) ? accessor.get(field) : /* default value */ 0;
     }
 
     public static ZoneId getTimeZone() {

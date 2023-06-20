@@ -282,6 +282,16 @@ int64_t TabletsChannel::mem_consumption() {
     return write_mem_usage + flush_mem_usage;
 }
 
+void TabletsChannel::get_active_memtable_mem_consumption(
+        std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions) {
+    mem_consumptions->clear();
+    std::lock_guard<SpinLock> l(_tablet_writers_lock);
+    for (auto& it : _tablet_writers) {
+        int64_t active_memtable_mem = it.second->active_memtable_mem_consumption();
+        mem_consumptions->emplace(active_memtable_mem, it.first);
+    }
+}
+
 // Old logic,used for opening all writers of all partitions.
 Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;

@@ -32,7 +32,7 @@ import java.time.LocalDateTime;
 public class DateTimeV2Literal extends DateTimeLiteral {
 
     public DateTimeV2Literal(String s) {
-        this(DateTimeV2Type.MAX, s);
+        this(DateTimeV2Type.forTypeFromString(s), s);
     }
 
     public DateTimeV2Literal(DateTimeV2Type dateType, String s) {
@@ -62,9 +62,27 @@ public class DateTimeV2Literal extends DateTimeLiteral {
         return visitor.visitDateTimeV2Literal(this, context);
     }
 
+    private long formatMicroSecond(long microSecond) {
+        if (microSecond == 0) {
+            return microSecond;
+        }
+        while (10 * microSecond <= 999999) {
+            microSecond = 10 * microSecond;
+        }
+        return microSecond;
+    }
+
+    /*
+     * Legacy and Nereids have different approaches to handling accuracy in scale.
+     * For example, with a scale of 5, Legacy would store 123450, while Nereids
+     * would store it as 12345.
+     * Therefore, we need to perform a conversion.
+     * Alternatively, can we standardize the format?
+     */
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, microSecond,
+        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second,
+                formatMicroSecond(microSecond),
                 getDataType().toCatalogDataType());
     }
 
@@ -75,10 +93,15 @@ public class DateTimeV2Literal extends DateTimeLiteral {
 
     @Override
     public String getStringValue() {
-        return String.format("%04d-%02d-%02d %02d:%02d:%02d"
-                + (getDataType().getScale() > 0 ? ".%0" + getDataType().getScale() + "d" : ""),
-                year, month, day, hour, minute, second,
-                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
+        int scale = getDataType().getScale();
+        if (scale == 0) {
+            return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
+        } else {
+            int microsecond = (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - scale));
+            return String.format("%04d-%02d-%02d %02d:%02d:%02d"
+                    + ".%0" + scale + "d",
+                    year, month, day, hour, minute, second, microsecond);
+        }
     }
 
     @Override
