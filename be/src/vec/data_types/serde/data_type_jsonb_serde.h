@@ -34,44 +34,15 @@ namespace vectorized {
 class Arena;
 
 class DataTypeJsonbSerDe : public DataTypeStringSerDe {
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_jsonb_column_to_mysql(column, return_object_data_as_binary, result, row_idx,
-                                            start, end, col_const);
-    }
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_jsonb_column_to_mysql(column, return_object_data_as_binary, result, row_idx,
-                                            start, end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
 private:
     template <bool is_binary_format>
-    Status _write_jsonb_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                        std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                        int row_idx, int start, int end, bool col_const) const {
-        int buf_ret = 0;
-        auto& data = assert_cast<const ColumnString&>(column);
-        for (int i = start; i < end; ++i) {
-            if (0 != buf_ret) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-            const auto col_index = index_check_const(i, col_const);
-            const auto jsonb_val = data.get_data_at(col_index);
-            // jsonb size == 0 is NULL
-            if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
-                buf_ret = result[row_idx].push_null();
-            } else {
-                std::string json_str =
-                        JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
-                buf_ret = result[row_idx].push_string(json_str.c_str(), json_str.size());
-            }
-            ++row_idx;
-        }
-        return Status::OK();
-    }
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

@@ -67,4 +67,8 @@ Status MultiCastDataStreamerSourceOperator::close(doris::RuntimeState* state) {
     return OperatorBase::close(state);
 }
 
+RuntimeProfile* MultiCastDataStreamerSourceOperator::get_runtime_profile() const {
+    return _multi_cast_data_streamer->profile();
+}
+
 } // namespace doris::pipeline

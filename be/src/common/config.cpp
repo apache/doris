@@ -145,6 +145,8 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// the count of thread to calc delete bitmap
+DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the count of thread to clear transaction task
 DEFINE_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -421,7 +423,7 @@ DEFINE_String(ssl_certificate_path, "");
 // Path of private key
 DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
-DEFINE_Bool(enable_http_auth, "false");
+DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
@@ -968,7 +970,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
-DEFINE_Int32(inverted_index_fd_number_limit_percent, "50"); // 50%
+DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");

@@ -52,6 +52,7 @@ class Config {
     public String dataPath
     public String realDataPath
     public String cacheDataPath
+    public boolean enableCacheData
     public String pluginPath
     public String sslCertificatePath
 
@@ -89,7 +90,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
-           String suitePath, String dataPath, String realDataPath, String cacheDataPath,
+           String suitePath, String dataPath, String realDataPath, String cacheDataPath, Boolean enableCacheData,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
         this.defaultDb = defaultDb
@@ -104,6 +105,7 @@ class Config {
         this.dataPath = dataPath
         this.realDataPath = realDataPath
         this.cacheDataPath = cacheDataPath
+        this.enableCacheData = enableCacheData
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -241,6 +243,7 @@ class Config {
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
+            configToBoolean(obj.enableCacheData),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -326,6 +329,11 @@ class Config {
             log.info("Set cacheDataPath to '${config.cacheDataPath}' because not specify.".toString())
         }
 
+        if (config.enableCacheData == null) {
+            config.enableCacheData = true
+            log.info("Set enableCacheData to '${config.enableCacheData}' because not specify.".toString())
+        }
+
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
             log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
@@ -384,6 +392,20 @@ class Config {
 
     static String configToString(Object obj) {
         return (obj instanceof String || obj instanceof GString) ? obj.toString() : null
+    }
+
+    static Boolean configToBoolean(Object obj) {
+        if (obj instanceof Boolean) {
+            return (Boolean) obj
+        } else if (obj instanceof String || obj instanceof GString) {
+            String stringValue = obj.toString().trim()
+            if (stringValue.equalsIgnoreCase("true")) {
+                return true
+            } else if (stringValue.equalsIgnoreCase("false")) {
+                return false
+            }
+        }
+        return null
     }
 
     void tryCreateDbIfNotExist() {

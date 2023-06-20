@@ -802,8 +802,8 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
 
     Statistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size;
-    segstat.index_size = index_size;
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -844,8 +844,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     Statistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size;
-    segstat.index_size = index_size;
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);

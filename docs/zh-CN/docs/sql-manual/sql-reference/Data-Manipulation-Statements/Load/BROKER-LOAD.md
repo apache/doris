@@ -186,8 +186,14 @@ WITH BROKER broker_name
       
       布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
+    - <version since="dev" type="inline"> priority </version>
+
+      设置导入任务的优先级，可选 `HIGH/NORMAL/LOW` 三种优先级，默认为 `NORMAL`，对于处在 `PENDING` 状态的导入任务，更高优先级的任务将优先被执行进入 `LOADING` 状态。
+
 -  <version since="1.2.3" type="inline"> comment </version>
-  - 指定导入任务的备注信息。可选参数。
+
+   指定导入任务的备注信息。可选参数。
+
 ### Example
 
 1. 从 HDFS 导入一批数据

@@ -108,13 +108,14 @@ inline std::vector<std::wstring> FunctionMatchBase::analyse_data_token(
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
             std::vector<std::wstring> element_tokens =
                     doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                            column_name, str_ref.to_string(), query_type, inverted_index_ctx);
+                            column_name, str_ref.to_string(), query_type, inverted_index_ctx,
+                            false);
             data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
         data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                column_name, str_ref.to_string(), query_type, inverted_index_ctx);
+                column_name, str_ref.to_string(), query_type, inverted_index_ctx, false);
     }
     return data_tokens;
 }

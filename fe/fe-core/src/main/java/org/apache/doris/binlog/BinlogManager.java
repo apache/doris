@@ -17,13 +17,17 @@
 
 package org.apache.doris.binlog;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,25 +43,22 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class BinlogManager {
-    private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
     private static final int BUFFER_SIZE = 16 * 1024;
+
+    private static final Logger LOG = LogManager.getLogger(BinlogManager.class);
 
     private ReentrantReadWriteLock lock;
     private Map<Long, DBBinlog> dbBinlogMap;
-    // Pair(commitSeq, timestamp), used for gc
-    // need UpsertRecord to add timestamps for gc
-    private List<Pair<Long, Long>> timestamps;
 
     public BinlogManager() {
         lock = new ReentrantReadWriteLock();
         dbBinlogMap = Maps.newHashMap();
-        timestamps = new ArrayList<Pair<Long, Long>>();
     }
 
     private void addBinlog(TBinlog binlog) {
@@ -65,7 +66,15 @@ public class BinlogManager {
             return;
         }
 
+        // find db BinlogConfig
         long dbId = binlog.getDbId();
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            LOG.warn("db not found. dbId: {}", dbId);
+            return;
+        }
+        boolean dbBinlogEnable = db.getBinlogConfig().isEnable();
+
         DBBinlog dbBinlog;
         lock.writeLock().lock();
         try {
@@ -74,14 +83,11 @@ public class BinlogManager {
                 dbBinlog = new DBBinlog(dbId);
                 dbBinlogMap.put(dbId, dbBinlog);
             }
-            if (binlog.getTimestamp() > 0) {
-                timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
-            }
         } finally {
             lock.writeLock().unlock();
         }
 
-        dbBinlog.addBinlog(binlog);
+        dbBinlog.addBinlog(binlog, dbBinlogEnable);
     }
 
     private void addBinlog(long dbId, List<Long> tableIds, long commitSeq, long timestamp, TBinlogType type,
@@ -140,34 +146,74 @@ public class BinlogManager {
         }
     }
 
-    // gc binlog, remove all binlog timestamp < minTimestamp
-    // TODO(Drogon): get minCommitSeq from timestamps
-    public void gc(long minTimestamp) {
+    public List<BinlogTombstone> gc() {
+        LOG.info("begin gc binlog");
+
         lock.writeLock().lock();
-        long minCommitSeq = -1;
+        Map<Long, DBBinlog> gcDbBinlogMap = null;
         try {
-            // user iterator to remove element in timestamps
-            for (Iterator<Pair<Long, Long>> iterator = timestamps.iterator(); iterator.hasNext();) {
-                Pair<Long, Long> pair = iterator.next();
-                // long commitSeq = pair.first;
-                long timestamp = pair.second;
-
-                if (timestamp >= minTimestamp) {
-                    break;
-                }
-
-                iterator.remove();
-            }
+            gcDbBinlogMap = new HashMap<Long, DBBinlog>(dbBinlogMap);
         } finally {
             lock.writeLock().unlock();
         }
 
-        if (minCommitSeq == -1) {
+        if (gcDbBinlogMap.isEmpty()) {
+            LOG.info("gc binlog, dbBinlogMap is null");
+            return null;
+        }
+
+        List<BinlogTombstone> tombstones = Lists.newArrayList();
+        for (DBBinlog dbBinlog : gcDbBinlogMap.values()) {
+            List<BinlogTombstone> dbTombstones = dbBinlog.gc();
+            if (dbTombstones != null) {
+                tombstones.addAll(dbTombstones);
+            }
+        }
+        return tombstones;
+    }
+
+    public void replayGc(BinlogGcInfo binlogGcInfo) {
+        lock.writeLock().lock();
+        Map<Long, DBBinlog> gcDbBinlogMap = null;
+        try {
+            gcDbBinlogMap = new HashMap<Long, DBBinlog>(dbBinlogMap);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        if (gcDbBinlogMap.isEmpty()) {
+            LOG.info("replay gc binlog, dbBinlogMap is null");
             return;
         }
 
-        lock.writeLock().lock();
+        for (BinlogTombstone tombstone : binlogGcInfo.getTombstones()) {
+            long dbId = tombstone.getDbId();
+            DBBinlog dbBinlog = gcDbBinlogMap.get(dbId);
+            dbBinlog.replayGc(tombstone);
+        }
     }
+
+    public void removeDB(long dbId) {
+        lock.writeLock().lock();
+        try {
+            dbBinlogMap.remove(dbId);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void removeTable(long dbId, long tableId) {
+        lock.writeLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog != null) {
+                dbBinlog.removeTable(tableId);
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
 
     private static void writeTBinlogToStream(DataOutputStream dos, TBinlog binlog) throws TException, IOException {
         TMemoryBuffer buffer = new TMemoryBuffer(BUFFER_SIZE);

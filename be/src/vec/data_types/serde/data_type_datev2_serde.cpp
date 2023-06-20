@@ -65,25 +65,32 @@ void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::A
         col_data.emplace_back(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(v));
     }
 }
+
 template <bool is_binary_format>
-Status DataTypeDateV2SerDe::_write_column_to_mysql(
-        const IColumn& column, bool return_object_data_as_binary,
-        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
-        bool col_const) const {
+Status DataTypeDateV2SerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& result,
+                                                   int row_idx, bool col_const) const {
     auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
-    int buf_ret = 0;
-    for (ssize_t i = start; i < end; ++i) {
-        if (0 != buf_ret) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        const auto col_index = index_check_const(i, col_const);
-        auto time_num = data[col_index];
-        DateV2Value<DateV2ValueType> date_val =
-                binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
-        buf_ret = result[row_idx].push_vec_datetime(date_val);
-        ++row_idx;
+    auto col_index = index_check_const(row_idx, col_const);
+    DateV2Value<DateV2ValueType> date_val =
+            binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data[col_index]);
+    if (UNLIKELY(0 != result.push_vec_datetime(date_val))) {
+        return Status::InternalError("pack mysql buffer failed.");
     }
     return Status::OK();
 }
+
+Status DataTypeDateV2SerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeDateV2SerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
 } // namespace vectorized
 } // namespace doris

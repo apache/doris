@@ -26,6 +26,7 @@ import org.apache.doris.datasource.property.constants.DLFProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
 import org.apache.doris.datasource.property.constants.GlueProperties;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -80,13 +81,23 @@ public class PropertyConverter {
                 || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
             metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
-            // checkout env in the end
-            // if meet AWS_XXX properties, convert to s3 properties
-            return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
+            if (!hasS3Properties(props)) {
+                // checkout env in the end
+                // if meet AWS_XXX properties, convert to s3 properties
+                return convertToS3EnvProperties(props, S3Properties.getEnvironmentCredentialWithEndpoint(props), true);
+            }
         }
         metaProperties.putAll(props);
         metaProperties.putAll(S3ClientBEProperties.getBeFSProperties(props));
         return metaProperties;
+    }
+
+    private static boolean hasS3Properties(Map<String, String> props) {
+        return props.containsKey(ObsProperties.ENDPOINT)
+                || props.containsKey(GCSProperties.ENDPOINT)
+                || props.containsKey(OssProperties.ENDPOINT)
+                || props.containsKey(CosProperties.ENDPOINT)
+                || props.containsKey(MinioProperties.ENDPOINT);
     }
 
     /**
@@ -102,6 +113,8 @@ public class PropertyConverter {
             return convertToOSSProperties(props, OssProperties.getCredential(props));
         } else if (props.containsKey(CosProperties.ENDPOINT)) {
             return convertToCOSProperties(props, CosProperties.getCredential(props));
+        } else if (props.containsKey(MinioProperties.ENDPOINT)) {
+            return convertToMinioProperties(props, MinioProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.ENDPOINT)) {
             return convertToS3Properties(props, S3Properties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
@@ -179,6 +192,8 @@ public class PropertyConverter {
         }
         setS3FsAccess(s3Properties, properties, credential);
         s3Properties.putAll(properties);
+        // remove extra meta properties
+        S3Properties.FS_KEYS.forEach(s3Properties::remove);
         return s3Properties;
     }
 
@@ -232,6 +247,12 @@ public class PropertyConverter {
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
         // Now we use s3 client to access
+        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
+    }
+
+    private static Map<String, String> convertToMinioProperties(Map<String, String> props, CloudCredential credential) {
+        // minio does not have region, use an arbitrary one.
+        props.put(MinioProperties.REGION, "us-east-1");
         return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
 

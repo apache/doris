@@ -179,6 +179,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 input_rowsets->clear();
                 *compaction_score = 0;
                 transient_size = 0;
+                total_size = 0;
                 continue;
             }
         }
@@ -196,6 +197,7 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 // Only 1 non-overlapping rowset, skip it
                 input_rowsets->clear();
                 *compaction_score = 0;
+                total_size = 0;
                 continue;
             }
             return transient_size;

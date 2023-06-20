@@ -37,7 +37,6 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ISSUE_COMMENT: ${{ github.event.comment.body }}
-    needs: Latest-Master-Code-Check
     steps:
       - name: Run pipeline by teamcity restful
         run: |

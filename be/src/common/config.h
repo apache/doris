@@ -185,6 +185,8 @@ DECLARE_Int32(push_worker_count_high_priority);
 DECLARE_Int32(publish_version_worker_count);
 // the count of tablet thread to publish version
 DECLARE_Int32(tablet_publish_txn_max_thread);
+// the count of thread to calc delete bitmap
+DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the count of thread to clear transaction task
 DECLARE_Int32(clear_transaction_task_worker_count);
 // the count of thread to delete
@@ -457,7 +459,7 @@ DECLARE_String(ssl_certificate_path);
 // Path of private key
 DECLARE_String(ssl_private_key_path);
 // Whether to check authorization
-DECLARE_Bool(enable_http_auth);
+DECLARE_Bool(enable_all_http_auth);
 // Number of webserver workers
 DECLARE_Int32(webserver_num_workers);
 // Period to update rate counters and sampling counters in ms.
