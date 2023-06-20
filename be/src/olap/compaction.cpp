@@ -462,7 +462,14 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
         for (auto& index : _cur_tablet_schema->indexes()) {
             if (index.index_type() == IndexType::INVERTED) {
                 auto unique_id = index.col_unique_ids()[0];
-                if (field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
+                //NOTE: here src_rs may be in building index progress, so it would not contain inverted index info.
+                bool all_have_inverted_index = std::all_of(
+                        _input_rowsets.begin(), _input_rowsets.end(), [&](const auto& src_rs) {
+                            return src_rs->tablet_schema()->get_inverted_index(unique_id) !=
+                                   nullptr;
+                        });
+                if (all_have_inverted_index &&
+                    field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
                     ctx.skip_inverted_index.insert(unique_id);
                 }
             }
