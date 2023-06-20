@@ -33,6 +33,6 @@ suite("test_alias_function") {
     
     test {
         sql 'select f2(f1(3))'
-        result([[1]])
+        result([['1']])
     }
 }
