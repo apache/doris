@@ -2924,6 +2924,8 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         }
         remaining -= num_read;
     }
+    DCHECK_EQ(total, row_id) << "segment total rows: " << total << " row_id:" << row_id;
+
     if (pos > 0) {
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
                 rowset_schema, read_plan_ori, read_plan_update, rsid_to_rowset, &block));
