@@ -47,6 +47,7 @@ class PageBuilder;
 
 struct IndexedColumnWriterOptions {
     size_t index_page_size = 64 * 1024;
+    size_t data_page_size = 1024 * 1024;
     bool write_ordinal_index = false;
     bool write_value_index = false;
     EncodingTypePB encoding = DEFAULT_ENCODING;
