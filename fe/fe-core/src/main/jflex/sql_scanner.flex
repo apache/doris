@@ -130,6 +130,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("build", new Integer(SqlParserSymbols.KW_BUILD));
         keywordMap.put("builtin", new Integer(SqlParserSymbols.KW_BUILTIN));
         keywordMap.put("by", new Integer(SqlParserSymbols.KW_BY));
+        keywordMap.put("cached", new Integer(SqlParserSymbols.KW_CACHED));
         keywordMap.put("cancel", new Integer(SqlParserSymbols.KW_CANCEL));
         keywordMap.put("case", new Integer(SqlParserSymbols.KW_CASE));
         keywordMap.put("cast", new Integer(SqlParserSymbols.KW_CAST));
