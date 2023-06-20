@@ -154,7 +154,8 @@ public class TableBinlog {
             lock.writeLock().unlock();
         }
 
-        BinlogTombstone tombstone = new BinlogTombstone(dbId, tableId, largestExpiredCommitSeq);
+        // Test only
+        BinlogTombstone tombstone = new BinlogTombstone(dbId, largestExpiredCommitSeq);
         if (tombstoneUpsert != null) {
             UpsertRecord upsertRecord = UpsertRecord.fromJson(tombstoneUpsert.getData());
             tombstone.addTableRecord(tableId, upsertRecord);

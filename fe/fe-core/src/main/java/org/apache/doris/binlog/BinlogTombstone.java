@@ -22,8 +22,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -59,12 +58,12 @@ public class BinlogTombstone {
         this.commitSeq = commitSeq;
     }
 
-    public BinlogTombstone(long dbId, long tableId, long commitSeq) {
-        this.dbBinlogTombstone = false;
-        this.dbId = dbId;
-        this.tableIds = new ArrayList<Long>(Arrays.asList(tableId));
-        this.commitSeq = commitSeq;
-    }
+    // public BinlogTombstone(long dbId, long tableId, long commitSeq) {
+    //     this.dbBinlogTombstone = false;
+    //     this.dbId = dbId;
+    //     this.tableIds = Collections.singletonList(tableId);
+    //     this.commitSeq = commitSeq;
+    // }
 
     public void addTableRecord(long tableId, UpsertRecord upsertRecord) {
         Map<Long, UpsertRecord.TableRecord> tableRecords = upsertRecord.getTableRecords();
