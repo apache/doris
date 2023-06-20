@@ -84,11 +84,15 @@ public:
 
     bool set_status_on_error(const Status& status);
 
-    Status status() { return _process_status; }
+    Status status() {
+        std::lock_guard l(_transfer_lock);
+        return _process_status;
+    }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
     void set_should_stop() {
+        std::lock_guard l(_transfer_lock);
         _should_stop = true;
         _blocks_queue_added_cv.notify_one();
     }
@@ -101,6 +105,7 @@ public:
 
     // Update the running num of scanners and contexts
     void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
+        std::lock_guard l(_transfer_lock);
         _num_running_scanners += scanner_inc;
         _num_scheduling_ctx += sched_inc;
         _blocks_queue_added_cv.notify_one();

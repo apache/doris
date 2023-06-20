@@ -232,6 +232,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
 }
 
 bool ScannerContext::set_status_on_error(const Status& status) {
+    std::lock_guard l(_transfer_lock);
     if (_process_status.ok()) {
         _process_status = status;
         _status_error = true;
@@ -306,6 +307,7 @@ void ScannerContext::clear_and_join(VScanNode* node, RuntimeState* state) {
 }
 
 bool ScannerContext::no_schedule() {
+    std::unique_lock l(_transfer_lock);
     return _num_running_scanners == 0 && _num_scheduling_ctx == 0;
 }
 
@@ -321,6 +323,7 @@ std::string ScannerContext::debug_string() {
 }
 
 void ScannerContext::reschedule_scanner_ctx() {
+    std::lock_guard l(_transfer_lock);
     auto submit_st = _scanner_scheduler->submit(this);
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
     if (submit_st.ok()) {
@@ -333,6 +336,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         std::unique_lock l(_scanners_lock);
         _scanners.push_front(scanner);
     }
+    std::lock_guard l(_transfer_lock);
     if (has_enough_space_in_blocks_queue()) {
         _num_scheduling_ctx++;
         auto submit_st = _scanner_scheduler->submit(this);
