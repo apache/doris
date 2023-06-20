@@ -317,11 +317,9 @@ public class CreateTableStmt extends DdlStmt {
         analyzeEngineName();
 
         boolean enableDuplicateWithoutKeysByDefault = false;
-        boolean enableStoreRowColumn = false;
         if (properties != null) {
             enableDuplicateWithoutKeysByDefault =
                                             PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
-            enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
         }
         //pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
