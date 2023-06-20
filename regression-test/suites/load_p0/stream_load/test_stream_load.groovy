@@ -854,7 +854,6 @@ suite("test_stream_load", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
     
-    sql """DROP USER 'common_user'@'%'"""
     sql """create USER common_user@'%' IDENTIFIED BY '123456'"""
     sql """GRANT LOAD_PRIV ON *.* TO 'common_user'@'%';"""
 
