@@ -144,5 +144,5 @@ suite("test_delete_where_in", "delete_p0") {
     '''  
     
     sql 'delete from t1 where id in (select id from t3)'
-    qt_delete_in 'select * from t1'
+    qt_delete_in 'select * from t1 order by id'
 }
