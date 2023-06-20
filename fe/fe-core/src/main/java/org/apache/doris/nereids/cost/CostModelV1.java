@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -65,7 +66,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
     static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
-
+    private int beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+    private SessionVariable sessionVars = ConnectContext.get().getSessionVariable();
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
         CostV1 childCostV1 = (CostV1) childCost;
@@ -171,8 +173,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         Statistics childStatistics = context.getChildStatistics(0);
         double intputRowCount = childStatistics.getRowCount();
         DistributionSpec spec = distribute.getDistributionSpec();
-        int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
-        beNumber = Math.max(1, beNumber);
 
         // shuffle
         if (spec instanceof DistributionSpecHash) {
@@ -221,11 +221,16 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
-        // TODO: stage.....
-
         Statistics statistics = context.getStatisticsWithCheck();
         Statistics inputStatistics = context.getChildStatistics(0);
-        return CostV1.of(inputStatistics.getRowCount(), statistics.getRowCount(), 0);
+        if (aggregate.getAggPhase().isLocal() && !aggregate.getAggMode().isFinalPhase) {
+            return CostV1.of(inputStatistics.getRowCount()/ beNumber,
+                    inputStatistics.getRowCount() / beNumber, 0);
+        } else {
+            // global or one phase local
+            return CostV1.of(inputStatistics.getRowCount(),
+                    inputStatistics.getRowCount(), 0);
+        }
     }
 
     private double broadCastJoinBalancePenalty(Statistics probeStats, Statistics buildStats) {
