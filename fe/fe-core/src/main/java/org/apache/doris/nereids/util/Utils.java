@@ -252,7 +252,7 @@ public class Utils {
                         )
                 ).collect(ImmutableList.toImmutableList());
     }
-    
+
     public static <T> List<T> copyRequiredList(List<T> list) {
         return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
     }
