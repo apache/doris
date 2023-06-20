@@ -141,13 +141,13 @@ public class UdfTest extends TestWithFeService implements PlanPatternMatchSuppor
         Expression expected = new DateFormat(
                 new HoursAdd(
                         new DateTrunc(
-                                new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.MAX),
+                                new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.SYSTEM_DEFAULT),
                                 new VarcharLiteral("day")),
                         new Cast(new Add(
                                 new Multiply(
                                         new Floor(new Divide(
                                                 new Cast(
-                                                        new Hour(new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.MAX)),
+                                                        new Hour(new Cast(new VarcharLiteral("2023-05-20 12:23:45"), DateTimeV2Type.SYSTEM_DEFAULT)),
                                                         DoubleType.INSTANCE
                                                 ),
                                                 new Divide(
