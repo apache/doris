@@ -35,6 +35,7 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -241,8 +242,23 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToOSSProperties(Map<String, String> props, CloudCredential credential) {
-        // Now we use s3 client to access
-        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
+        Map<String, String> ossProperties = Maps.newHashMap();
+        ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, props.get(OssProperties.ENDPOINT));
+        ossProperties.put("fs.oss.impl.disable.cache", "true");
+        ossProperties.put("fs.oss.impl", AliyunOSSFileSystem.class.getName());
+        if (credential.isWhole()) {
+            ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_ID, credential.getAccessKey());
+            ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_SECRET, credential.getSecretKey());
+        }
+        if (credential.isTemporary()) {
+            ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.SECURITY_TOKEN, credential.getSessionToken());
+        }
+        for (Map.Entry<String, String> entry : props.entrySet()) {
+            if (entry.getKey().startsWith(OssProperties.OSS_FS_PREFIX)) {
+                ossProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return ossProperties;
     }
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
