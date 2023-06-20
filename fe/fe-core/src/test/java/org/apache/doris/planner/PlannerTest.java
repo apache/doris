@@ -36,6 +36,9 @@ public class PlannerTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+
+        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+
         // Create database `db1`.
         createDatabase("db1");
 
@@ -402,18 +405,18 @@ public class PlannerTest extends TestWithFeService {
             Assertions.assertEquals(plan1, plan2);
         };
 
-        compare.accept("select * from db1.tbl2 where k1 = 2.0", "select * from db1.tbl2 where k1 = 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where k1 = 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where k1 = 2");
         compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where k1 = 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl2 where 2 = 2.1");
-        compare.accept("select * from db1.tbl2 where k1 != 2.0", "select * from db1.tbl2 where k1 != 2");
-        compare.accept("select * from db1.tbl2 where k1 != 2.1", "select * from db1.tbl2 where TRUE");
-        compare.accept("select * from db1.tbl2 where k1 <= 2.0", "select * from db1.tbl2 where k1 <= 2");
-        compare.accept("select * from db1.tbl2 where k1 <= 2.1", "select * from db1.tbl2 where k1 <= 2");
-        compare.accept("select * from db1.tbl2 where k1 >= 2.0", "select * from db1.tbl2 where k1 >= 2");
-        compare.accept("select * from db1.tbl2 where k1 >= 2.1", "select * from db1.tbl2 where k1 > 2");
-        compare.accept("select * from db1.tbl2 where k1 < 2.0", "select * from db1.tbl2 where k1 < 2");
-        compare.accept("select * from db1.tbl2 where k1 < 2.1", "select * from db1.tbl2 where k1 <= 2");
-        compare.accept("select * from db1.tbl2 where k1 > 2.0", "select * from db1.tbl2 where k1 > 2");
-        compare.accept("select * from db1.tbl2 where k1 > 2.1", "select * from db1.tbl2 where k1 > 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 != 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 != 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 != 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where TRUE");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 >= 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 >= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 >= 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 < 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 < 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 < 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 <= 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2.0", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2");
+        compare.accept("select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2.1", "select /*+ SET_VAR(enable_nereids_planner=false) */* from db1.tbl2 where k1 > 2");
     }
 
     @Test

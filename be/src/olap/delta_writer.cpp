@@ -529,27 +529,6 @@ Status DeltaWriter::cancel_with_status(const Status& st) {
     return Status::OK();
 }
 
-void DeltaWriter::save_mem_consumption_snapshot() {
-    std::lock_guard<std::mutex> l(_lock);
-    _mem_consumption_snapshot = mem_consumption(MemType::ALL);
-    if (_mem_table == nullptr) {
-        _memtable_consumption_snapshot = 0;
-    } else {
-        _memtable_consumption_snapshot = _mem_table->memory_usage();
-    }
-}
-
-int64_t DeltaWriter::get_memtable_consumption_inflush() const {
-    if (!_is_init || _flush_token->get_stats().flush_running_count == 0) {
-        return 0;
-    }
-    return _mem_consumption_snapshot - _memtable_consumption_snapshot;
-}
-
-int64_t DeltaWriter::get_memtable_consumption_snapshot() const {
-    return _memtable_consumption_snapshot;
-}
-
 int64_t DeltaWriter::mem_consumption(MemType mem) {
     if (_flush_token == nullptr) {
         // This method may be called before this writer is initialized.
@@ -568,6 +547,23 @@ int64_t DeltaWriter::mem_consumption(MemType mem) {
             for (auto mem_table_tracker : _mem_table_flush_trackers) {
                 mem_usage += mem_table_tracker->consumption();
             }
+        }
+    }
+    return mem_usage;
+}
+
+int64_t DeltaWriter::active_memtable_mem_consumption() {
+    if (_flush_token == nullptr) {
+        // This method may be called before this writer is initialized.
+        // So _flush_token may be null.
+        return 0;
+    }
+    int64_t mem_usage = 0;
+    {
+        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
+        if (_mem_table_insert_trackers.size() > 0) {
+            mem_usage += (*_mem_table_insert_trackers.rbegin())->consumption();
+            mem_usage += (*_mem_table_flush_trackers.rbegin())->consumption();
         }
     }
     return mem_usage;
