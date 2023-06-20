@@ -122,6 +122,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collections;
@@ -138,6 +140,8 @@ import java.util.stream.Collectors;
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
+
+    private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     private final GroupExpression groupExpression;
 
     private boolean forbidUnknownColStats = false;
@@ -529,7 +533,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else if (isPlayNereidsDump) {
             return ColumnStatistic.UNKNOWN;
         } else {
-            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+            long catalogId;
+            long dbId;
+            try {
+                catalogId = table.getDatabase().getCatalog().getId();
+                dbId = table.getDatabase().getId();
+            } catch (Exception e) {
+                // Use -1 for catalog id and db id when failed to get them from metadata.
+                // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
+                // and the table id is globally unique.
+                LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
+                catalogId = -1;
+                dbId = -1;
+            }
+            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                catalogId, dbId, table.getId(), colName);
         }
     }
 

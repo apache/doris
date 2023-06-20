@@ -695,7 +695,7 @@ public class AnalysisManager extends Daemon implements Writable {
         long tblId = dropStatsStmt.getTblId();
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
-            Env.getCurrentEnv().getStatisticsCache().invidate(tblId, -1L, col);
+            Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
         }
     }
 
@@ -795,7 +795,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 } catch (Throwable t) {
                     colNames.add(task.info.colName);
                     updateSyncTaskStatus(task, AnalysisState.FAILED);
-                    LOG.info("Failed to analyze, info: {}", task);
+                    LOG.warn("Failed to analyze, info: {}", task, t);
                 }
             }
             if (!colNames.isEmpty()) {
