@@ -21,9 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 
 import java.util.Optional;
 
