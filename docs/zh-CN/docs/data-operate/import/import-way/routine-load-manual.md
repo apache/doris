@@ -389,6 +389,34 @@ eg: user_info 表的 json 数据
 >
 > [https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 
+**访问 PLAIN 认证的 Kafka 集群**
+
+访问开启 PLAIN 认证的Kafka集群，需要增加以下配置：
+
+   - property.security.protocol=SASL_PLAINTEXT : 使用 SASL plaintext
+   - property.sasl.mechanism=PLAIN : 设置 SASL 的认证方式为 PLAIN
+   - property.sasl.username=admin : 设置 SASL 的用户名
+   - property.sasl.password=admin : 设置 SASL 的密码
+
+1. 创建例行导入作业
+
+    ```sql
+    CREATE ROUTINE LOAD db1.job1 on tbl1
+    PROPERTIES (
+    "desired_concurrent_number"="1",
+     )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092",
+        "kafka_topic" = "my_topic",
+        "property.security.protocol"="SASL_PLAINTEXT",
+        "property.sasl.mechanism"="PLAIN",
+        "property.sasl.username"="admin",
+        "property.sasl.password"="admin"
+    );
+
+    ```
+
 **访问 Kerberos 认证的 Kafka 集群**
 
 <version since="1.2">
