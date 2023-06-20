@@ -39,6 +39,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -1946,7 +1947,7 @@ public class FunctionCallExpr extends Expr {
      * @return
      * @throws AnalysisException
      */
-    public Expr rewriteExpr() throws AnalysisException {
+    public Expr rewriteExpr(Analyzer analyzer) throws AnalysisException {
         if (isRewrote) {
             return this;
         }
@@ -1956,6 +1957,15 @@ public class FunctionCallExpr extends Expr {
         retExpr.originStmtFnExpr = clone();
         // clone alias function origin expr for alias
         FunctionCallExpr oriExpr = (FunctionCallExpr) ((AliasFunction) retExpr.fn).getOriginFunction().clone();
+        // if the original function contains an alias function, we must rewrite it again.
+        // for example: f1(n) -> hours_add(now(3), n), f2(n) -> dayofweek(f1(n))
+        // query is: select f2(dayofweek(f1(n)));
+        // firstly we expand f1: f2(dayofweek(hours_add(now(3), n))
+        // then we expand f2: dayofweek(f1(dayofweek(hours_add(now(3), n)))
+        // because f1 in f2's original function, the expanded function is also contains f1, we should expand it again.
+        // finally: dayofweek(hours_add(now(3), dayofweek(hours_add(now(3), n))))
+        Expr rewrittenOriExpr = analyzer.getExprRewriter().rewrite(oriExpr, analyzer);
+
         // reset fn name
         retExpr.fnName = oriExpr.getFnName();
         // reset fn params
@@ -1980,7 +1990,7 @@ public class FunctionCallExpr extends Expr {
 
         // reset children
         retExpr.children.clear();
-        retExpr.children.addAll(oriExpr.getChildren());
+        retExpr.children.addAll(rewrittenOriExpr.getChildren());
         retExpr.isRewrote = true;
         return retExpr;
     }
