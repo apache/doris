@@ -73,11 +73,9 @@ TabletsChannel::~TabletsChannel() {
 void TabletsChannel::_init_profile(RuntimeProfile* profile) {
     _profile =
             profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
-    profile->add_child(_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
 
     auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
-    _profile->add_child(memory_usage, false, nullptr);
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
     _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
     _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
