@@ -244,9 +244,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         // set hdfs params for hdfs file type.
         Map<String, String> locationProperties = getLocationProperties();
-        if (fileFormatType == TFileFormatType.FORMAT_JNI) {
+        if (fileFormatType == TFileFormatType.FORMAT_JNI || locationType == TFileType.FILE_S3) {
             params.setProperties(locationProperties);
-        } else if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
+        }
+        if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
             String fsName = getFsName(inputSplit);
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             tHdfsParams.setFsName(fsName);
@@ -259,8 +260,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 }
                 params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
             }
-        } else if (locationType == TFileType.FILE_S3) {
-            params.setProperties(locationProperties);
         }
 
         List<String> pathPartitionKeys = getPathPartitionKeys();
