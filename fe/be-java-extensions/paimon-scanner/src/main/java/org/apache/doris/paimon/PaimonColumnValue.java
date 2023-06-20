@@ -45,6 +45,11 @@ public class PaimonColumnValue implements ColumnValue {
     }
 
     @Override
+    public boolean canGetStringAsBytes() {
+        return false;
+    }
+
+    @Override
     public boolean getBoolean() {
         return record.getBoolean(idx);
     }
