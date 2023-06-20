@@ -233,7 +233,7 @@ under the License.
         <log4j-1.2.version>2.18.0</log4j-1.2.version>
         <slf4j.version>2.0.6</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <netty-all.version>4.1.89.Final</netty-all.version>
+        <netty-all.version>4.1.94.Final</netty-all.version>
         <objenesis.version>2.1</objenesis.version>
         <grpc.version>1.30.0</grpc.version>
         <protobuf.version>3.21.12</protobuf.version>
