@@ -96,7 +96,7 @@ struct WriteMemtableTaskClosure {
 
 // <tablet_id, index_id>
 using TabletID = std::pair<int64_t, int64_t>;
-using DeltaWriterForTablet = std::unordered_map<TabletID, DeltaWriter*>;
+using DeltaWriterForTablet = std::unordered_map<TabletID, std::unique_ptr<DeltaWriter>>;
 using StreamPool = std::vector<brpc::StreamId>;
 
 class StreamSinkHandler : public brpc::StreamInputHandler {

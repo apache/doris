@@ -478,11 +478,11 @@ void* VOlapTableSinkV2::_write_memtable_task(void* closure) {
             sink->_stream_pool_index = (sink->_stream_pool_index + 1) % sink->_stream_pool->size();
             DeltaWriter::open(&wrequest, &delta_writer, sink->_profile, sink->_load_id);
             delta_writer->add_stream(stream);
-            sink->_delta_writer_for_tablet->insert({key, delta_writer});
+            sink->_delta_writer_for_tablet->insert({key, std::unique_ptr<DeltaWriter>(delta_writer)});
         } else {
             LOG(INFO) << "Reusing DeltaWriter for Tablet(tablet id: " << ctx->tablet_id
                       << ", index id: " << ctx->index_id << ")";
-            delta_writer = it->second;
+            delta_writer = it->second.get();
         }
     }
     auto st = delta_writer->write(ctx->block.get(), ctx->row_idxes, false);
