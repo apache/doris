@@ -1054,6 +1054,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (cvb->notNull[i]) {
                     if constexpr (is_filter) {
                         if (!filter_data[i]) {
+                            string_values.emplace_back(empty_string.data(), 0);
                             continue;
                         }
                     }
@@ -1076,6 +1077,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             for (int i = 0; i < num_values; ++i) {
                 if constexpr (is_filter) {
                     if (!filter_data[i]) {
+                        string_values.emplace_back(empty_string.data(), 0);
                         continue;
                     }
                 }
@@ -1095,6 +1097,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (cvb->notNull[i]) {
                     if constexpr (is_filter) {
                         if (!filter_data[i]) {
+                            string_values.emplace_back(empty_string.data(), 0);
                             continue;
                         }
                     }
@@ -1110,6 +1113,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             for (int i = 0; i < num_values; ++i) {
                 if constexpr (is_filter) {
                     if (!filter_data[i]) {
+                        string_values.emplace_back(empty_string.data(), 0);
                         continue;
                     }
                 }
@@ -1123,8 +1127,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             }
         }
     }
-    data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
-                                              max_value_length);
+    data_column->insert_many_strings(&string_values[0], string_values.size());
     return Status::OK();
 }
 
@@ -1719,6 +1722,13 @@ Status OrcReader::on_string_dicts_loaded(
         std::unordered_map<StringRef, int64_t> dict_value_to_code;
         size_t max_value_length = 0;
         uint64_t dictionaryCount = dict->dictionaryOffset.size() - 1;
+        if (dictionaryCount == 0) {
+            it = _dict_filter_cols.erase(it);
+            for (auto& ctx : ctxs) {
+                _non_dict_filter_conjuncts.emplace_back(ctx);
+            }
+            continue;
+        }
         dict_values.reserve(dictionaryCount);
         for (int i = 0; i < dictionaryCount; ++i) {
             char* val_ptr;
@@ -2037,7 +2047,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
             }
         }
     }
-    res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    res->insert_many_strings(&string_values[0], num_values);
     return res;
 }
 
