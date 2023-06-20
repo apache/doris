@@ -17,12 +17,13 @@
 
 #pragma once
 
-#include <brpc/stream.h>
-#include "util/threadpool.h"
-#include "olap/olap_common.h"
-#include "butil/iobuf.h"
 #include <fstream>
 #include <iostream>
+#include <brpc/stream.h>
+#include "butil/iobuf.h"
+#include "util/threadpool.h"
+#include "olap/olap_common.h"
+#include <gen_cpp/internal_service.pb.h>
 
 namespace doris {
 using namespace brpc;
@@ -61,8 +62,9 @@ public:
     void on_closed(StreamId id) override;
 
 private:
-    void _handle_message(StreamId id, std::shared_ptr<butil::IOBuf> message);
-    void _parse_header(butil::IOBuf *const message, int *opcode, UniqueId *loadid, int64_t *indexid, int64_t *tabletid, RowsetId *rowsetid, int64_t *segmentidx, bool *is_last_segment);
+    void _handle_message(StreamId id, PStreamHeader hdr, TargetRowsetPtr rowset,
+                         TargetSegmentPtr segment, std::shared_ptr<butil::IOBuf> message);
+    void _parse_header(butil::IOBuf *const message, PStreamHeader& hdr);
     Status _create_and_open_file(TargetSegmentPtr target_segment, std::string path);
     Status _append_data(TargetSegmentPtr target_segment, std::shared_ptr<butil::IOBuf> message);
     Status _close_file(TargetSegmentPtr target_segment, bool is_last_segment);
@@ -71,10 +73,14 @@ private:
 
 private:
     std::unique_ptr<ThreadPool> _workers;
+    // TODO: make it per load
     std::map<TargetSegmentPtr, std::shared_ptr<std::ofstream>, TargetSegmentComparator> _file_map;
     std::mutex _file_map_lock;
+    // TODO: make it per load
     std::map<TargetRowsetPtr, size_t, TargetRowsetComparator> _tablet_segment_next_id;
     std::mutex _tablet_segment_next_id_lock;
+    // TODO: make it per load
+    std::map<TargetSegmentPtr, std::shared_ptr<ThreadPoolToken>> _segment_token_map; // accessed in single thread, safe
 };
 
 // managing stream_id allocation and release

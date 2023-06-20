@@ -18,7 +18,6 @@
 #include "sink_stream_mgr.h"
 #include "util/uid_util.h"
 #include "common/config.h"
-#include <gen_cpp/internal_service.pb.h>
 #include <runtime/exec_env.h>
 
 namespace doris {
@@ -61,6 +60,7 @@ SinkStreamHandler::~SinkStreamHandler() {
 }
 
 Status SinkStreamHandler::_create_and_open_file(TargetSegmentPtr target_segment, std::string path) {
+    LOG(INFO) << "create and open file, path = " << path;
     std::shared_ptr<std::ofstream> file = std::make_shared<std::ofstream>();
     file->open(path.c_str(), std::ios::out | std::ios::app);
     {
@@ -120,21 +120,17 @@ void SinkStreamHandler::_report_status(StreamId stream, TargetRowsetPtr target_r
     }
 }
 
-void SinkStreamHandler::_parse_header(butil::IOBuf *const message, int *opcode, UniqueId *loadid, int64_t *indexid,
-                  int64_t *tabletid, RowsetId *rowsetid, int64_t *segmentid, bool *is_last_segment) {
+void SinkStreamHandler::_parse_header(butil::IOBuf *const message, PStreamHeader& hdr) {
     butil::IOBufAsZeroCopyInputStream wrapper(*message);
-    PStreamHeader hdr;
     hdr.ParseFromZeroCopyStream(&wrapper);
-    *opcode = hdr.opcode();
-    *loadid = hdr.load_id();
-    *indexid = hdr.index_id();
-    *tabletid = hdr.tablet_id();
-    // *rowsetid = hdr.rowset_id(); // TODO not needed?
-    *segmentid = hdr.segment_id();
-    *is_last_segment = hdr.is_last_segment();
-    if (hdr.has_is_last_segment()) {
-        *is_last_segment = hdr.is_last_segment();
-    }
+    // TODO: make it VLOG
+    LOG(INFO) << "header parse result:"
+              << "opcode = " << hdr.opcode()
+              << ", loadid = " << hdr.load_id()
+              << ", indexid = " << hdr.index_id()
+              << ", tabletid = " << hdr.tablet_id()
+              << ", segmentid = " << hdr.segment_id()
+              << ", is_last_segment = " << (hdr.has_is_last_segment()?hdr.is_last_segment():false);
 }
 
 uint64_t SinkStreamHandler::get_next_segmentid(TargetRowsetPtr target_rowset, int64_t segmentid, bool is_open) {
@@ -153,41 +149,13 @@ uint64_t SinkStreamHandler::get_next_segmentid(TargetRowsetPtr target_rowset, in
     }
 }
 
-void SinkStreamHandler::_handle_message(StreamId stream, std::shared_ptr<butil::IOBuf> message) {
+void SinkStreamHandler::_handle_message(StreamId stream, PStreamHeader hdr,
+                                        TargetRowsetPtr target_rowset,
+                                        TargetSegmentPtr target_segment,
+                                        std::shared_ptr<butil::IOBuf> message) {
     Status s = Status::OK();
-    int opcode = -1;
-    UniqueId loadid;
-    int64_t indexid = -1;
-    int64_t tabletid = -1;
-    RowsetId rowsetid; //TODO useless probabily
-    int64_t segmentid = -1;
-    bool is_last_segment = false;
     std::string path;
-    std::string remote_ip_port; // TODO: not needed?
-    size_t hdr_len = 0;
-    message->cutn((void*)&hdr_len, sizeof(size_t));
-
-    butil::IOBuf hdr_buf;
-    message->cutn(&hdr_buf, hdr_len);
-    _parse_header(&hdr_buf, &opcode, &loadid, &indexid, &tabletid, &rowsetid, &segmentid, &is_last_segment);
-    TargetRowsetPtr target_rowset = std::make_shared<TargetRowset>();
-    target_rowset->loadid = loadid;
-    target_rowset->indexid = indexid;
-    target_rowset->tabletid = tabletid;
-    uint64_t final_segmentid = get_next_segmentid(target_rowset, segmentid, opcode == PStreamHeader::OPEN_FILE);
-    TargetSegmentPtr target_segment = std::make_shared<TargetSegment>();
-    target_segment->target_rowset = target_rowset;
-    target_segment->segmentid = final_segmentid;
-
-    // TODO: make it VLOG
-    LOG(INFO) << "header parse result:"
-              << " loadid = "  << loadid
-              << ", indexid = " << indexid
-              << ", tabletid = " << tabletid
-              << ", segmentid = " << segmentid
-              << ", final segmentid = " << final_segmentid;
-
-    switch(opcode) {
+    switch(hdr.opcode()) {
     case PStreamHeader::OPEN_FILE:
         path = message->to_string();
         s = _create_and_open_file(target_segment, path);
@@ -196,8 +164,8 @@ void SinkStreamHandler::_handle_message(StreamId stream, std::shared_ptr<butil::
         s= _append_data(target_segment, message);
         break;
     case PStreamHeader::CLOSE_FILE:
-        s = _close_file(target_segment, is_last_segment);
-        if (is_last_segment) {
+        s = _close_file(target_segment, hdr.is_last_segment());
+        if (hdr.is_last_segment()) {
             return _report_status(stream, target_rowset, s.ok(), s.to_string());
         }
         break;
@@ -211,16 +179,36 @@ void SinkStreamHandler::_handle_message(StreamId stream, std::shared_ptr<butil::
 }
 
 //TODO trigger build meta when last segment of all cluster is closed
-
 int SinkStreamHandler::on_received_messages(StreamId id, butil::IOBuf *const messages[], size_t size) {
     for (size_t i = 0; i < size; ++i) {
-        // TODO make sure that memory will be released at right time!
         std::shared_ptr<butil::IOBuf> messageBuf = std::make_shared<butil::IOBuf>(messages[i]->movable()); // hold the data
-        _workers->submit_func([this, id, messageBuf]() { // make it shared_ptr to release data when it is done
-            _handle_message(id, messageBuf);
+        size_t hdr_len = 0;
+        messageBuf->cutn((void*)&hdr_len, sizeof(size_t));
+        butil::IOBuf hdr_buf;
+        PStreamHeader hdr;
+        messageBuf->cutn(&hdr_buf, hdr_len);
+        _parse_header(&hdr_buf, hdr);
+
+        TargetRowsetPtr target_rowset = std::make_shared<TargetRowset>();
+        target_rowset->loadid = hdr.load_id();
+        target_rowset->indexid = hdr.index_id();
+        target_rowset->tabletid = hdr.tablet_id();
+        uint64_t final_segmentid = get_next_segmentid(target_rowset, hdr.segment_id(), hdr.opcode() == PStreamHeader::OPEN_FILE);
+        TargetSegmentPtr target_segment = std::make_shared<TargetSegment>();
+        target_segment->target_rowset = target_rowset;
+        target_segment->segmentid = final_segmentid;
+
+        // serialize OPs on same file: open, write1, write2, ... , close
+        if (_segment_token_map.find(target_segment) == _segment_token_map.end()) {
+            _segment_token_map[target_segment] = _workers->new_token(ThreadPool::ExecutionMode::SERIAL);
+        }
+
+        auto token = _segment_token_map[target_segment];
+        token->submit_func([this, id, hdr, target_rowset, target_segment, messageBuf]() {
+            _handle_message(id, hdr, target_rowset, target_segment, messageBuf);
         });
     }
-    return 0; // TODO
+    return 0;
 }
 
 void SinkStreamHandler::on_idle_timeout(StreamId id) {
