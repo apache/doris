@@ -702,7 +702,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
             builder.setMinValue(columnStat.minValue / factor);
             builder.setMaxValue(columnStat.maxValue / factor);
-            if (columnStat.ndv > rowCount ) {
+            if (columnStat.ndv > rowCount) {
                 builder.setNdv(rowCount);
             }
             builder.setDataSize(rowCount * outputExpression.getDataType().width());
