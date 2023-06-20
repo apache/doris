@@ -82,9 +82,10 @@ private:
 
 class EnginePublishVersionTask : public EngineTask {
 public:
-    EnginePublishVersionTask(const TPublishVersionRequest& publish_version_req,
-                             vector<TTabletId>* error_tablet_ids,
-                             std::vector<TTabletId>* succ_tablet_ids = nullptr);
+    EnginePublishVersionTask(
+            const TPublishVersionRequest& publish_version_req, vector<TTabletId>* error_tablet_ids,
+            std::vector<TTabletId>* succ_tablet_ids,
+            std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets);
     ~EnginePublishVersionTask() {}
 
     virtual Status finish() override;
@@ -103,9 +104,32 @@ private:
     std::mutex _tablet_ids_mutex;
     vector<TTabletId>* _error_tablet_ids;
     vector<TTabletId>* _succ_tablet_ids;
+    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinous_version_tablets;
 
     std::mutex _tablet_finish_mutex;
     std::condition_variable _tablet_finish_cond;
+};
+
+class AsyncTabletPublishTask {
+public:
+    AsyncTabletPublishTask(TabletSharedPtr tablet, int64_t partition_id, int64_t transaction_id,
+                           int64_t version)
+            : _tablet(tablet),
+              _partition_id(partition_id),
+              _transaction_id(transaction_id),
+              _version(version) {
+        _stats.submit_time_us = MonotonicMicros();
+    }
+    ~AsyncTabletPublishTask() = default;
+
+    void handle();
+
+private:
+    TabletSharedPtr _tablet;
+    int64_t _partition_id;
+    int64_t _transaction_id;
+    int64_t _version;
+    TabletPublishStatistics _stats;
 };
 
 } // namespace doris

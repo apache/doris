@@ -61,6 +61,7 @@
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/task/index_builder.h"
 #include "runtime/client_cache.h"
 #include "service/brpc.h"
@@ -244,6 +245,11 @@ Status StorageEngine::start_bg_threads() {
             .set_min_threads(1)
             .set_max_threads(config::calc_delete_bitmap_max_thread)
             .build(&_calc_delete_bitmap_thread_pool);
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "aync_publish_version_thread",
+            [this]() { this->_async_publish_callback(); }, &_async_publish_thread));
+    LOG(INFO) << "async publish thread started";
 
     LOG(INFO) << "all storage engine's background threads are started.";
     return Status::OK();
@@ -1202,6 +1208,46 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
         LOG(INFO) << "Begin to Clean cache files";
         FileCacheManager::instance()->gc_file_caches();
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_async_publish_callback() {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
+        std::lock_guard<std::mutex> lock(_aync_publish_mutex);
+        for (auto iter = _async_publish_tasks.begin(); iter != _async_publish_tasks.end();) {
+            int64_t tablet_id = iter->first;
+            auto task_iter = iter->second.begin();
+            int64_t version = task_iter->first;
+            int64_t transaction_id = task_iter->second.first;
+            int64_t partition_id = task_iter->second.second;
+            TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+            if (!tablet) {
+                LOG(WARNING) << "tablet does not exist, tablet_id: " << tablet_id
+                             << " publish_version: " << version;
+                iter = _async_publish_tasks.erase(iter);
+            }
+
+            int64_t max_version;
+            {
+                std::shared_lock rdlock(tablet->get_header_lock());
+                max_version = tablet->max_version().second;
+            }
+            if (version != max_version + 1) {
+                iter++;
+                continue;
+            }
+
+            auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
+                    tablet, partition_id, transaction_id, version);
+            StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
+                    [=]() { async_publish_task->handle(); });
+            iter->second.erase(task_iter);
+            if (iter->second.empty()) {
+                iter = _async_publish_tasks.erase(iter);
+            } else {
+                iter++;
+            }
+        }
+    }
 }
 
 } // namespace doris
