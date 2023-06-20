@@ -58,12 +58,12 @@ public class BinlogTombstone {
         this.commitSeq = commitSeq;
     }
 
-    // public BinlogTombstone(long dbId, long tableId, long commitSeq) {
-    //     this.dbBinlogTombstone = false;
-    //     this.dbId = dbId;
-    //     this.tableIds = Collections.singletonList(tableId);
-    //     this.commitSeq = commitSeq;
-    // }
+    public BinlogTombstone(long dbId, long tableId, long commitSeq) {
+        this.dbBinlogTombstone = false;
+        this.dbId = dbId;
+        this.tableIds = Collections.singletonList(tableId);
+        this.commitSeq = commitSeq;
+    }
 
     public void addTableRecord(long tableId, UpsertRecord upsertRecord) {
         Map<Long, UpsertRecord.TableRecord> tableRecords = upsertRecord.getTableRecords();
