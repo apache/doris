@@ -27,6 +27,9 @@ import java.util.List;
  * Column value in vector column
  */
 public interface ColumnValue {
+    // Get bytes directly when reading string value to avoid decoding&encoding
+    boolean canGetStringAsBytes();
+
     boolean isNull();
 
     boolean getBoolean();
