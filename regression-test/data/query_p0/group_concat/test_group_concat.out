@@ -35,6 +35,10 @@ false
 1	2
 1	2
 
+-- !select_12 --
+1	2
+1	2
+
 -- !select_group_concat_order_by_all_data --
 1	1	1
 1	1	11
