@@ -34,6 +34,9 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <antlr4.version>4.9.3</antlr4.version>
         <awssdk.version>2.17.257</awssdk.version>
+        <huaweiobs.version>3.1.1-hw-45</huaweiobs.version>
+        <tencentcos.version>3.3.5</tencentcos.version>
+        <aliyunoss.version>3.2.2</aliyunoss.version>
     </properties>
     <profiles>
         <profile>
@@ -399,13 +402,23 @@ under the License.
         <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
-            <version>3.1.1-hw-45</version>
+            <version>${huaweiobs.version}</version>
             <exclusions>
                 <exclusion>
                     <artifactId>jackson-databind</artifactId>
                     <groupId>com.fasterxml.jackson.core</groupId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aliyun</artifactId>
+            <version>${aliyunoss.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-cos</artifactId>
+            <version>${tencentcos.version}</version>
         </dependency>
         <dependency>
             <groupId>com.aliyun.odps</groupId>
