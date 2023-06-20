@@ -88,7 +88,6 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, Runti
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
-    profile->add_child(_profile, false, nullptr);
     _lock_timer = ADD_TIMER(_profile, "LockTime");
     _sort_timer = ADD_TIMER(_profile, "MemTableSortTime");
     _agg_timer = ADD_TIMER(_profile, "MemTableAggTime");
