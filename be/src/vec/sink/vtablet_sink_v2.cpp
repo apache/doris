@@ -340,13 +340,14 @@ Status VOlapTableSinkV2::find_tablet(RuntimeState* state, vectorized::Block* blo
     return status;
 }
 
-void VOlapTableSinkV2::_generate_rows_for_tablet(
-        RowsForTablet& rows_for_tablet, const VOlapTablePartition* partition,
-        uint32_t tablet_index, int row_idx, size_t row_cnt) {
+void VOlapTableSinkV2::_generate_rows_for_tablet(RowsForTablet& rows_for_tablet,
+                                                 const VOlapTablePartition* partition,
+                                                 uint32_t tablet_index, int row_idx,
+                                                 size_t row_cnt) {
     // Generate channel payload for sinking data to each tablet
     for (const auto& index : partition->indexes) {
         auto tablet_id = index.tablets[tablet_index];
-        auto key = TabletKey{partition->id, index.index_id, tablet_id};
+        auto key = TabletKey {partition->id, index.index_id, tablet_id};
         if (rows_for_tablet.count(key) == 0) {
             rows_for_tablet.insert({key, std::vector<int32_t>()});
         }
@@ -389,8 +390,8 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
         SCOPED_RAW_TIMER(&_validate_data_ns);
         _filter_bitmap.Reset(block->rows());
         bool stop_processing = false;
-        RETURN_IF_ERROR(
-                _validate_data(state, block.get(), &_filter_bitmap, &filtered_rows, &stop_processing));
+        RETURN_IF_ERROR(_validate_data(state, block.get(), &_filter_bitmap, &filtered_rows,
+                                       &stop_processing));
         _number_filtered_rows += filtered_rows;
         if (stop_processing) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
@@ -416,8 +417,8 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
         const VOlapTablePartition* partition = nullptr;
         bool is_continue = false;
         uint32_t tablet_index = 0;
-        RETURN_IF_ERROR(find_tablet(state, block.get(), i, &partition, tablet_index, stop_processing,
-                                    is_continue));
+        RETURN_IF_ERROR(find_tablet(state, block.get(), i, &partition, tablet_index,
+                                    stop_processing, is_continue));
         if (is_continue) {
             continue;
         }
@@ -428,7 +429,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     // For each tablet, send its rows from block to delta writer
     for (const auto& entry : rows_for_tablet) {
         bthread_t th;
-        auto closure = new WriteMemtableTaskClosure{};
+        auto closure = new WriteMemtableTaskClosure {};
         closure->sink = this;
         closure->block = block;
         closure->partition_id = entry.first.partition_id;
