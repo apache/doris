@@ -34,7 +34,8 @@ public class ShowProcesslistStmt extends ShowStmt {
             .addColumn(new Column("Command", ScalarType.createVarchar(16)))
             .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
             .addColumn(new Column("State", ScalarType.createVarchar(64)))
-            .addColumn(new Column("Info", ScalarType.STRING)).build();
+            .addColumn(new Column("Info", ScalarType.STRING))
+            .addColumn(new Column("Progress", ScalarType.STRING)).build();
 
     private boolean isFull;
 

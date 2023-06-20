@@ -467,6 +467,9 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
         *eof = false;
     }
     _update_realtime_counters();
+
+    _state->update_num_finished_scan_range(1);
+
     return Status::OK();
 }
 

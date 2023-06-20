@@ -76,6 +76,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerScanRange;
+import org.apache.doris.thrift.TDataGenScanRange;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
@@ -572,6 +573,7 @@ public class Coordinator {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(queryId, topParams.instanceExecParams.get(0).instanceId,
                     addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
+            Env.getCurrentEnv().getProgressManager().addTotalScanNums(DebugUtil.printId(queryId), scanRangeNum);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
                         topParams.instanceExecParams.get(0).host);
@@ -1897,6 +1899,9 @@ public class Coordinator {
         if (isPointQuery) {
             // Fast path for evaluate Backend for point query
             List<TScanRangeLocations> locations = ((OlapScanNode) scanNodes.get(0)).lazyEvaluateRangeLocations();
+            for (TScanRangeLocations location : locations) {
+                updateScanRangeNumByScanRange(location.getScanRange());
+            }
             Preconditions.checkNotNull(locations);
             return;
         }
@@ -1973,7 +1978,7 @@ public class Coordinator {
                 TScanRangeParams scanRangeParams = new TScanRangeParams();
                 scanRangeParams.scan_range = location.scan_range;
                 scanRangeParamsList.add(scanRangeParams);
-                updateScanRangeNumByScanRange(scanRangeParams);
+                updateScanRangeNumByScanRangeParam(scanRangeParams);
             }
         }
     }
@@ -2071,15 +2076,15 @@ public class Coordinator {
             // Volume is optional, so we need to set the value and the is-set bit
             scanRangeParams.setVolumeId(minLocation.volume_id);
             scanRangeParamsList.add(scanRangeParams);
-            updateScanRangeNumByScanRange(scanRangeParams);
+            updateScanRangeNumByScanRangeParam(scanRangeParams);
         }
     }
 
-    private void updateScanRangeNumByScanRange(TScanRangeParams param) {
-        TScanRange scanRange = param.getScanRange();
+    private void updateScanRangeNumByScanRange(TScanRange scanRange) {
         if (scanRange == null) {
             return;
         }
+        LOG.info(scanRange.toString());
         TBrokerScanRange brokerScanRange = scanRange.getBrokerScanRange();
         if (brokerScanRange != null) {
             scanRangeNum += brokerScanRange.getRanges().size();
@@ -2093,13 +2098,26 @@ public class Coordinator {
         }
         TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
         if (paloScanRange != null) {
+            LOG.info("Found paloScanRange");
             scanRangeNum = scanRangeNum + 1;
         }
-        // TODO: more ranges?
+
+        TDataGenScanRange dataGenScanRange = scanRange.getDataGenScanRange();
+        if (dataGenScanRange != null) {
+            scanRangeNum = scanRangeNum + 1;
+        }
     }
 
-    // update job progress from BE
+    private void updateScanRangeNumByScanRangeParam(TScanRangeParams param) {
+        if (param == null) {
+            return;
+        }
+        TScanRange scanRange = param.getScanRange();
+        updateScanRangeNumByScanRange(scanRange);
+    }
+
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
+        LOG.info(params.toString());
         if (enablePipelineEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
             if (!ctx.updateProfile(params)) {
@@ -2205,6 +2223,7 @@ public class Coordinator {
             Env.getCurrentEnv().getLoadManager().updateJobProgress(
                     jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
                     params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+            // update job progress from BE
             Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
                     params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
         }
@@ -2435,7 +2454,7 @@ public class Coordinator {
                     TScanRangeParams scanRangeParams = new TScanRangeParams();
                     scanRangeParams.scan_range = location.scan_range;
                     scanRangeParamsList.add(scanRangeParams);
-                    updateScanRangeNumByScanRange(scanRangeParams);
+                    updateScanRangeNumByScanRangeParam(scanRangeParams);
                 }
             }
         }

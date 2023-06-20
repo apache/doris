@@ -49,6 +49,7 @@ public class SessionController extends BaseController {
         SESSION_TABLE_HEADER.add("Time");
         SESSION_TABLE_HEADER.add("State");
         SESSION_TABLE_HEADER.add("Info");
+        SESSION_TABLE_HEADER.add("Progress");
     }
 
     @RequestMapping(path = "/session", method = RequestMethod.GET)

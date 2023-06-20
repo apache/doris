@@ -1358,6 +1358,7 @@ public class StmtExecutor {
         }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+        Env.getCurrentProgressManager().registerProgressSimple(DebugUtil.printId(context.queryId()));
         profile.addExecutionProfile(coord.getExecutionProfile());
         Span queryScheduleSpan =
                 context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();

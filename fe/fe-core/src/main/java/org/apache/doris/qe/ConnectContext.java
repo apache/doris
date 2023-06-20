@@ -737,7 +737,9 @@ public class ConnectContext {
                     sql = sql.substring(0, Math.min(sql.length(), 100));
                 }
                 row.add(sql);
+                row.add(Env.getCurrentProgressManager().getProgressInfo(DebugUtil.printId(queryId)));
             } else {
+                row.add("");
                 row.add("");
             }
             return row;
