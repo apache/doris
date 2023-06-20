@@ -242,10 +242,11 @@ public class JdbcMySQLClient extends JdbcClient {
                     return Type.BIGINT;
                 case "BIGINT":
                     return Type.LARGEINT;
-                case "DECIMAL":
+                case "DECIMAL": {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                }
                 case "DOUBLE":
                     // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
                     // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
@@ -278,19 +279,28 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME":
-            case "DATETIMEV2": // for jdbc catalog connecting Doris database
+            // for jdbc catalog connecting Doris database
+            case "DATETIMEV2": {
                 // mysql can support microsecond
-                // todo(gaoxin): Get real precision of DATETIMEV2
-                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                // use columnSize to calculate the precision of timestamp/datetime
+                int columnSize = fieldSchema.getColumnSize();
+                int scale = columnSize > 19 ? columnSize - 20 : 0;
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
-            case "DECIMALV3": // for jdbc catalog connecting Doris database
+            // for jdbc catalog connecting Doris database
+            case "DECIMALV3": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
+            }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
