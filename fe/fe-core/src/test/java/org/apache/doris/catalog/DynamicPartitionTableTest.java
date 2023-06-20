@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.AnalysisException;
