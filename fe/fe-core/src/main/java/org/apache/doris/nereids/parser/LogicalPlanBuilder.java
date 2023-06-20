@@ -314,8 +314,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
-        List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
-        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
         UnboundOlapTableSink<?> sink = new UnboundOlapTableSink<>(
                 tableName,
                 colNames,
@@ -348,7 +348,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
         LogicalPlan query = withTableAlias(withCheckPolicy(
                 new UnboundRelation(RelationUtil.newRelationId(), tableName)), ctx.tableAlias());
         if (ctx.USING() != null) {
@@ -359,7 +359,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        return withExplain(new DeleteCommand(tableName, tableAlias, Optional.ofNullable(partitions), query),
+        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query),
                 ctx.explain());
     }
 
