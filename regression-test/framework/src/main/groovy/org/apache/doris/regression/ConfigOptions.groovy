@@ -32,10 +32,6 @@ class ConfigOptions {
     static Option jdbcOpt
     static Option userOpt
     static Option passwordOpt
-    static Option feSourceThriftAddressOpt
-    static Option feTargetThriftAddressOpt
-    static Option feSyncerUserOpt
-    static Option feSyncerPasswordOpt
     static Option feHttpAddressOpt
     static Option feHttpUserOpt
     static Option feHttpPasswordOpt
@@ -217,38 +213,6 @@ class ConfigOptions {
                 .longOpt("excludeDirectories")
                 .desc("the use cases in these directories will not be tested")
                 .build()
-        feSourceThriftAddressOpt = Option.builder("stfa")
-                .argName("address")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("feSourceThriftAddressOpt")
-                .desc("the fe source thrift address, format is ip:port")
-                .build()
-        feTargetThriftAddressOpt = Option.builder("ttfa")
-                .argName("address")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("feTargetThriftAddressOpt")
-                .desc("the fe target thrift address, format is ip:port")
-                .build()
-        feSyncerUserOpt = Option.builder("syncu")
-                .argName("userName")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("feSyncerUser")
-                .desc("the user of syncer")
-                .build()
-        feSyncerPasswordOpt = Option.builder("syncp")
-                .argName("password")
-                .required(false)
-                .hasArg(true)
-                .type(String.class)
-                .longOpt("feSyncerPassword")
-                .desc("the password of syncer")
-                .build()
         feHttpAddressOpt = Option.builder("ha")
                 .argName("address")
                 .required(false)
@@ -371,10 +335,6 @@ class ConfigOptions {
                 .addOption(excludeGroupsOpt)
                 .addOption(directoriesOpt)
                 .addOption(excludeDirectoriesOpt)
-                .addOption(feSourceThriftAddressOpt)
-                .addOption(feTargetThriftAddressOpt)
-                .addOption(feSyncerUserOpt)
-                .addOption(feSyncerPasswordOpt)
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)

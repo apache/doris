@@ -25,6 +25,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Maps;
@@ -70,6 +71,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
             List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
             for (AnalysisInfo jobInfo : jobInfos) {
+                jobInfo = new AnalysisInfoBuilder(jobInfo).setJobType(JobType.SYSTEM).build();
                 analysisManager.createAnalysisJob(jobInfo);
             }
         } catch (DdlException e) {
@@ -78,17 +80,19 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
     }
 
     private void analyzeAutomatically() {
-        try {
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            List<AnalysisInfo> jobInfos = analysisManager.findAutomaticAnalysisJobs();
-            for (AnalysisInfo jobInfo : jobInfos) {
-                AnalysisInfo checkedJobInfo = checkAutomaticJobInfo(jobInfo);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        List<AnalysisInfo> jobInfos = analysisManager.findAutomaticAnalysisJobs();
+        for (AnalysisInfo jobInfo : jobInfos) {
+            AnalysisInfo checkedJobInfo = null;
+            try {
+                checkedJobInfo = checkAutomaticJobInfo(jobInfo);
                 if (checkedJobInfo != null) {
                     analysisManager.createAnalysisJob(checkedJobInfo);
                 }
+            } catch (Throwable t) {
+                LOG.warn("Failed to create analyze job: {}", checkedJobInfo);
             }
-        } catch (Throwable e) {
-            LOG.warn("Failed to automatically analyze the statistics." + e);
+
         }
     }
 
