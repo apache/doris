@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -49,12 +50,12 @@ import java.util.stream.Collectors;
 public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
     private final Database database;
     private final OlapTable targetTable;
-    private final Optional<List<Column>> cols;
-    private final Optional<List<Long>> partitionIds;
+    private final List<Column> cols;
+    private final List<Long> partitionIds;
     private final boolean singleReplicaLoad;
 
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, Optional<List<Long>> partitionIds,
-            Optional<List<Column>> cols, boolean singleReplicaLoad, LogicalProperties logicalProperties,
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+            List<Column> cols, boolean singleReplicaLoad, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
         this(database, targetTable, partitionIds, cols, singleReplicaLoad, Optional.empty(), logicalProperties, child);
     }
@@ -62,8 +63,8 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, Optional<List<Long>> partitionIds,
-            Optional<List<Column>> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+            List<Column> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.database = Preconditions.checkNotNull(database, "database != null in PhysicalOlapTableSink");
@@ -76,16 +77,16 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, Optional<List<Long>> partitionIds,
-            Optional<List<Column>> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+            List<Column> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
             CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
         this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = cols;
-        this.partitionIds = partitionIds;
+        this.cols = Utils.copyRequiredList(cols);
+        this.partitionIds = Utils.copyRequiredList(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
     }
 
@@ -97,11 +98,11 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
         return targetTable;
     }
 
-    public Optional<List<Column>> getCols() {
+    public List<Column> getCols() {
         return cols;
     }
 
-    public Optional<List<Long>> getPartitionIds() {
+    public List<Long> getPartitionIds() {
         return partitionIds;
     }
 

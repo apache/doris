@@ -53,7 +53,6 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -74,20 +73,20 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
                     LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                             database,
                             table,
-                            Optional.of(bindTargetColumns(table, sink.getColNames().orElse(null))),
-                            Optional.ofNullable(bindPartitionIds(table, sink.getPartitions().orElse(null))),
+                            bindTargetColumns(table, sink.getColNames()),
+                            bindPartitionIds(table, sink.getPartitions()),
                             sink.child());
 
                     // we need to insert all the columns of the target table although some columns are not mentions.
                     // so we add a projects to supply the default value.
 
-                    if (boundSink.getCols().get().size() != child.getOutput().size()) {
+                    if (boundSink.getCols().size() != child.getOutput().size()) {
                         throw new AnalysisException("insert into cols should be corresponding to the query output");
                     }
 
                     Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
-                    for (int i = 0; i < boundSink.getCols().get().size(); ++i) {
-                        columnToChildOutput.put(boundSink.getCols().get().get(i), child.getOutput().get(i));
+                    for (int i = 0; i < boundSink.getCols().size(); ++i) {
+                        columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
                     }
 
                     Map<String, NamedExpression> columnToOutput = Maps.newLinkedHashMap();
@@ -167,8 +166,8 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions) {
-        return partitions == null
-                ? null
+        return partitions.isEmpty()
+                ? ImmutableList.of()
                 : partitions.stream().map(pn -> {
                     Partition partition = table.getPartition(pn);
                     if (partition == null) {
@@ -180,7 +179,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     }
 
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
-        return colsName == null
+        return colsName.isEmpty()
                 ? table.getFullSchema().stream().filter(column -> column.isVisible()
                         && !column.isMaterializedViewColumn())
                 .collect(Collectors.toList())

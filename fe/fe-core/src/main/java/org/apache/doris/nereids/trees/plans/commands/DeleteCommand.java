@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -41,7 +42,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -50,20 +50,19 @@ import java.util.Optional;
 public class DeleteCommand extends Command implements ForwardWithSync, Explainable {
     private final List<String> nameParts;
     private final String tableAlias;
-    private final Optional<List<String>> partitions;
+    private final List<String> partitions;
     private LogicalPlan logicalQuery;
     private OlapTable targetTable;
 
     /**
      * constructor
      */
-    public DeleteCommand(List<String> nameParts, String tableAlias, Optional<List<String>> partitions,
+    public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions,
             LogicalPlan logicalQuery) {
         super(PlanType.DELETE_COMMAND);
-        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
-                "nameParts in DeleteCommand cannot be null"));
+        this.nameParts = Utils.copyRequiredList(nameParts);
         this.tableAlias = tableAlias;
-        this.partitions = partitions;
+        this.partitions = Utils.copyRequiredList(partitions);
         this.logicalQuery = logicalQuery;
     }
 
@@ -113,7 +112,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, Optional.of(cols), Optional.empty(),
+        return new UnboundOlapTableSink<>(nameParts, cols, ImmutableList.of(),
                 partitions, logicalQuery);
     }
 

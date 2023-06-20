@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -42,24 +43,23 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     // bound data sink
     private Database database;
     private OlapTable targetTable;
-    private Optional<List<Column>> cols;
-    private Optional<List<Long>> partitionIds;
+    private List<Column> cols;
+    private List<Long> partitionIds;
 
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, Optional<List<Column>> cols,
-            Optional<List<Long>> partitionIds,
+    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
             CHILD_TYPE child) {
         this(database, targetTable, cols, partitionIds, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, Optional<List<Column>> cols,
-            Optional<List<Long>> partitionIds, Optional<GroupExpression> groupExpression,
+    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+            List<Long> partitionIds, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
-        this.cols = cols;
-        this.partitionIds = partitionIds;
+        this.cols = Utils.copyRequiredList(cols);
+        this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
 
     @Override
@@ -77,11 +77,11 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         return targetTable;
     }
 
-    public Optional<List<Column>> getCols() {
+    public List<Column> getCols() {
         return cols;
     }
 
-    public Optional<List<Long>> getPartitionIds() {
+    public List<Long> getPartitionIds() {
         return partitionIds;
     }
 
