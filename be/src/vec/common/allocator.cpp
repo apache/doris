@@ -61,10 +61,11 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
         }
         if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
-            int64_t wait_milliseconds = doris::config::thread_wait_gc_max_milliseconds;
-            LOG(INFO) << fmt::format("Query:{} waiting for enough memory, maximum 5s, {}.",
-                                     print_id(doris::thread_context()->task_id()), err_msg);
-            while (wait_milliseconds > 0) {
+            int64_t wait_milliseconds = 0;
+            LOG(INFO) << fmt::format("Query:{} waiting for enough memory, maximum {}ms, {}.",
+                                     print_id(doris::thread_context()->task_id()),
+                                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
+            while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 if (!doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
                     doris::MemInfo::refresh_interval_memory_growth += size;
@@ -74,22 +75,24 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                             doris::thread_context()->task_id())) {
                     return;
                 }
-                wait_milliseconds -= 100;
+                wait_milliseconds += 100;
             }
-            if (wait_milliseconds <= 0) {
+            if (wait_milliseconds >= doris::config::thread_wait_gc_max_milliseconds) {
                 // Make sure to completely wait thread_wait_gc_max_milliseconds only once.
                 doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
                 doris::MemTrackerLimiter::print_log_process_usage(err_msg);
                 // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
                 if (!doris::enable_thread_catch_bad_alloc) {
                     LOG(INFO) << fmt::format(
-                            "Query:{} canceled asyn, after waiting for memory 5s, {}.",
-                            print_id(doris::thread_context()->task_id()), err_msg);
+                            "Query:{} canceled asyn, after waiting for memory {}ms, {}.",
+                            print_id(doris::thread_context()->task_id()), wait_milliseconds,
+                            err_msg);
                     doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
                 } else {
                     LOG(INFO) << fmt::format(
-                            "Query:{} throw exception, after waiting for memory 5s, {}.",
-                            print_id(doris::thread_context()->task_id()), err_msg);
+                            "Query:{} throw exception, after waiting for memory {}ms, {}.",
+                            print_id(doris::thread_context()->task_id()), wait_milliseconds,
+                            err_msg);
                 }
             }
             // else, enough memory is available, the query continues execute.
