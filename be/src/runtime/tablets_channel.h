@@ -115,6 +115,8 @@ public:
 
     int64_t mem_consumption();
 
+    void refresh_profile();
+
     void get_active_memtable_mem_consumption(
             std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions);
 
@@ -194,10 +196,6 @@ private:
     bool _is_high_priority = false;
 
     bool _write_single_replica = false;
-
-    // mem -> tablet_id
-    // sort by memory size
-    std::multimap<int64_t, int64_t, std::greater<int64_t>> _mem_consumptions;
 
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
