@@ -206,6 +206,13 @@ private:
     TUniqueId _fragment_instance_id;
 };
 
+#if defined(UNDEFINED_BEHAVIOR_SANITIZER)
+class SwitchBthreadLocal {
+public:
+    static void switch_to_bthread_local() {}
+    static void switch_back_pthread_local() {}
+};
+#else
 // Switch thread context from pthread local to bthread local context.
 // Cache the pointer of bthread local in pthead local,
 // Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.
@@ -253,6 +260,7 @@ public:
         }
     }
 };
+#endif
 
 static ThreadContext* thread_context() {
     if (bthread_self() != 0) {
