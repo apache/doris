@@ -352,7 +352,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
 
-    _agg_profile_arena = std::make_unique<Arena>();
+    _agg_profile_arena = std::make_unique<MemPool>();
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -405,7 +405,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
         _agg_data->init(AggregatedDataVariants::Type::without_key);
 
         _agg_data->without_key = reinterpret_cast<AggregateDataPtr>(
-                _agg_profile_arena->alloc(_total_size_of_aggregate_states));
+                _agg_profile_arena->allocate(_total_size_of_aggregate_states));
 
         if (_is_merge) {
             _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,

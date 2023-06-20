@@ -21,12 +21,12 @@
 
 #include "olap/decimal12.h"
 #include "olap/uint24.h"
+#include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/arena.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
@@ -279,10 +279,10 @@ public:
         }
         if constexpr (std::is_same_v<T, StringRef>) {
             if (_arena == nullptr) {
-                _arena.reset(new Arena());
+                _arena.reset(new MemPool());
             }
             const auto total_mem_size = offsets[num] - offsets[0];
-            char* destination = _arena->alloc(total_mem_size);
+            char* destination = (char*)_arena->allocate(total_mem_size);
             memcpy(destination, data_ + offsets[0], total_mem_size);
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -303,7 +303,7 @@ public:
         }
         if constexpr (std::is_same_v<T, StringRef>) {
             if (_arena == nullptr) {
-                _arena.reset(new Arena());
+                _arena.reset(new MemPool());
             }
 
             size_t total_mem_size = 0;
@@ -311,7 +311,7 @@ public:
                 total_mem_size += len_array[i];
             }
 
-            char* destination = _arena->alloc(total_mem_size);
+            char* destination = (char*)_arena->allocate(total_mem_size);
             char* org_dst = destination;
             size_t org_elem_num = data.size();
             data.resize(org_elem_num + num);
@@ -343,7 +343,7 @@ public:
     void clear() override {
         data.clear();
         if (_arena != nullptr) {
-            _arena.reset(new Arena());
+            _arena->clear();
         }
     }
 
@@ -549,7 +549,7 @@ public:
 private:
     Container data;
     // manages the memory for slice's data(For string type)
-    std::unique_ptr<Arena> _arena;
+    std::unique_ptr<MemPool> _arena;
 };
 
 } // namespace doris::vectorized
