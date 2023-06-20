@@ -84,4 +84,16 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public List<Slot> computeOutput() {
         return child().getOutput();
     }
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
 }
