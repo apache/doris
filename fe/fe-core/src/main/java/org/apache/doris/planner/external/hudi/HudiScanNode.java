@@ -30,6 +30,7 @@ import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.THudiFileDesc;
@@ -67,6 +68,8 @@ public class HudiScanNode extends HiveScanNode {
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
 
     private final boolean isCowTable;
+
+    private long noLogsSplitNum = 0;
 
     /**
      * External file scan node for Query Hudi table
@@ -140,8 +143,11 @@ public class HudiScanNode extends HiveScanNode {
     public List<Split> getSplits() throws UserException {
         if (isCowTable) {
             // skip hidden files start with "."
-            return super.getSplits().stream().filter(split -> !((FileSplit) split).getPath().getName().startsWith("."))
+            List<Split> cowSplits = super.getSplits().stream()
+                    .filter(split -> !((FileSplit) split).getPath().getName().startsWith("."))
                     .collect(Collectors.toList());
+            noLogsSplitNum = cowSplits.size();
+            return cowSplits;
         }
 
         HoodieTableMetaClient hudiClient = HiveMetaStoreClientHelper.getHudiClient(hmsTable);
@@ -211,6 +217,9 @@ public class HudiScanNode extends HiveScanNode {
 
                     List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath).map(Path::toString)
                             .collect(Collectors.toList());
+                    if (logs.isEmpty()) {
+                        noLogsSplitNum++;
+                    }
 
                     HudiSplit split = new HudiSplit(new Path(filePath), 0, fileSize, fileSize, new String[0],
                             partition.getPartitionValues());
@@ -232,5 +241,11 @@ public class HudiScanNode extends HiveScanNode {
             throw new IllegalArgumentException(errorMsg, e);
         }
         return splits;
+    }
+
+    @Override
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        return super.getNodeExplainString(prefix, detailLevel)
+                + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum, inputSplitsNum);
     }
 }

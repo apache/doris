@@ -220,9 +220,9 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType instanceof StringType) {
             return new StringLiteral(desc);
         } else if (targetType.isDateType()) {
-            return new DateLiteral(desc);
+            return Config.enable_date_conversion ? new DateV2Literal(desc) : new DateLiteral(desc);
         } else if (targetType.isDateTimeType()) {
-            return new DateTimeLiteral(desc);
+            return Config.enable_date_conversion ? new DateTimeV2Literal(desc) : new DateTimeLiteral(desc);
         } else if (targetType.isDecimalV2Type()) {
             return new DecimalLiteral((DecimalV2Type) targetType, new BigDecimal(desc));
         } else if (targetType.isDecimalV3Type()) {
