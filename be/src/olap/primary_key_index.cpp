@@ -38,6 +38,7 @@ Status PrimaryKeyIndexBuilder::init() {
     segment_v2::IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = true;
+    options.data_page_size = config::primary_key_data_page_size;
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
     // TODO(liaoxin) test to confirm whether it needs to be compressed
     options.compression = segment_v2::NO_COMPRESSION; // currently not compressed

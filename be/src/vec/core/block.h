@@ -584,6 +584,9 @@ public:
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
 
+    /// remove the column with the specified name
+    void erase(const String& name);
+
     std::string dump_data(size_t row_limit = 100) const;
 
     void clear() {
