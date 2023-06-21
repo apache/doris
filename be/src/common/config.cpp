@@ -1038,6 +1038,8 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+DEFINE_Int32(spill_io_thread_pool_thread_num, "64");
+DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
 
 #ifdef BE_TEST
 // test s3

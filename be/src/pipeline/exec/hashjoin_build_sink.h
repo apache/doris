@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "vec/exec/join/grace_hash_join_node.h"
 #include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
@@ -40,6 +41,21 @@ public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
     bool is_pending_finish() const override { return !_node->ready_for_finish(); }
+};
+
+class GraceHashJoinBuildSinkBuilder final : public OperatorBuilder<vectorized::GraceHashJoinNode> {
+public:
+    GraceHashJoinBuildSinkBuilder(int32_t, ExecNode*);
+
+    OperatorPtr build_operator() override;
+    bool is_sink() const override { return true; }
+};
+
+class GraceHashJoinBuildSink final : public StreamingOperator<GraceHashJoinBuildSinkBuilder> {
+public:
+    GraceHashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
+    bool can_write() override { return _node->can_sink_write(); }
+    bool io_task_finished() override { return _node->io_task_finished(); }
 };
 
 } // namespace pipeline

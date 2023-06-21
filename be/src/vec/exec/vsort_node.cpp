@@ -163,6 +163,23 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
     return Status::OK();
 }
 
+Status VSortNode::sort_block(Block& block, Block& dest_block, SortDescription& sort_description) {
+    return Sorter::sort(_vsort_exec_exprs, _is_asc_order, _nulls_first, sort_description, block,
+                        dest_block, block.rows());
+}
+Status VSortNode::release_sorted_blocks(RuntimeState* state, Blocks& blocks, int batch_size) {
+    RETURN_IF_ERROR(_sorter->prepare_for_read());
+
+    bool eos = false;
+    // merge blocks in memory and write merge result to disk
+    while (!eos) {
+        Block block;
+        RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(state, &block, batch_size, &eos));
+        blocks.emplace_back(std::move(block));
+    }
+    return Status::OK();
+}
+
 Status VSortNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));

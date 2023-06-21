@@ -44,6 +44,9 @@ class RowDescriptor;
 
 namespace doris::vectorized {
 
+// This number specifies the maximum size of sub blocks
+extern const int SORT_BLOCK_SPILL_BATCH_BYTES;
+
 // TODO: now we only use merge sort
 class MergeSorterState {
     ENABLE_FACTORY_CREATOR(MergeSorterState);
@@ -74,7 +77,7 @@ public:
 
     Status build_merge_tree(const SortDescription& sort_description);
 
-    Status merge_sort_read(doris::RuntimeState* state, doris::vectorized::Block* block, bool* eos);
+    Status merge_sort_read(doris::vectorized::Block* block, int batch_size, bool* eos);
 
     size_t data_size() const {
         size_t size = unsorted_block_->allocated_bytes();
@@ -88,7 +91,7 @@ public:
 
     bool is_spilled() const { return is_spilled_; }
 
-    const Block& last_sorted_block() const { return sorted_blocks_.back(); }
+    Block last_sorted_block() const { return sorted_blocks_.back(); }
 
     std::vector<Block>& get_sorted_block() { return sorted_blocks_; }
     std::priority_queue<MergeSortCursor>& get_priority_queue() { return priority_queue_; }
@@ -116,7 +119,7 @@ private:
     int64_t limit_;
 
     size_t avg_row_bytes_ = 0;
-    int spill_block_batch_size_ = 0;
+    int spill_block_batch_size_ = 4096;
     int64_t external_sort_bytes_threshold_;
 
     bool is_spilled_ = false;
@@ -161,9 +164,19 @@ public:
 
     virtual bool is_spilled() const { return false; }
 
+    bool is_append_block_oom() const { return _is_append_block_oom; }
+
     // for topn runtime predicate
     const SortDescription& get_sort_description() { return _sort_description; }
     virtual Field get_top_value() { return Field {Field::Types::Null}; }
+
+    virtual Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                             int batch_size, bool* eos);
+
+    static Status sort(const VSortExecExprs& vsort_exec_exprs,
+                       const std::vector<bool>& is_asc_order, const std::vector<bool>& nulls_first,
+                       SortDescription& sort_description, Block& src_block, Block& dest_block,
+                       size_t limit);
 
 protected:
     Status partial_sort(Block& src_block, Block& dest_block);
@@ -181,6 +194,7 @@ protected:
 
     std::priority_queue<MergeSortBlockCursor> _block_priority_queue;
     bool _materialize_sort_exprs;
+    bool _is_append_block_oom = false;
 };
 
 class FullSorter final : public Sorter {
@@ -203,6 +217,9 @@ public:
 
     bool is_spilled() const override { return _state->is_spilled(); }
 
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                     int batch_size, bool* eos) override;
+
 private:
     bool _reach_limit() {
         return _state->unsorted_block_->rows() > buffered_block_size_ ||
@@ -210,6 +227,8 @@ private:
     }
 
     Status _do_sort();
+
+    Status _append_block_impl(Block* block);
 
     std::unique_ptr<MergeSorterState> _state;
 

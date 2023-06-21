@@ -79,6 +79,7 @@
 #include "util/threadpool.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/spill/spill_stream_manager.h"
 
 #if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
         !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -146,6 +147,16 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::fragment_pool_queue_size)
             .build(&_join_node_thread_pool);
 
+    int spill_io_thread_count = config::spill_io_thread_pool_thread_num;
+    if (spill_io_thread_count <= 0) {
+        spill_io_thread_count = CpuInfo::num_cores();
+    }
+    ThreadPoolBuilder("SpillIOThreadPool")
+            .set_min_threads(spill_io_thread_count)
+            .set_max_threads(spill_io_thread_count)
+            .set_max_queue_size(config::spill_io_thread_pool_queue_size)
+            .build(&_spill_io_pool);
+
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
@@ -164,6 +175,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _spill_stream_mgr = new vectorized::SpillStreamManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -312,6 +324,8 @@ Status ExecEnv::_init_mem_env() {
 
     // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
+
+    RETURN_IF_ERROR(_spill_stream_mgr->init());
 
     // 5. init chunk allocator
     if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {

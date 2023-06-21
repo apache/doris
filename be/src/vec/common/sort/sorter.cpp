@@ -56,8 +56,7 @@ namespace doris::vectorized {
 // each sub block is serialized in PBlock format and appended
 // to the spill file.
 //
-// This number specifies the maximum size of sub blocks
-static constexpr int BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+const int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
 
 Status MergeSorterState::add_sorted_block(Block& block) {
     auto rows = block.rows();
@@ -66,7 +65,8 @@ Status MergeSorterState::add_sorted_block(Block& block) {
     }
     if (0 == avg_row_bytes_) {
         avg_row_bytes_ = std::max((std::size_t)1, block.bytes() / rows);
-        spill_block_batch_size_ = (BLOCK_SPILL_BATCH_BYTES + avg_row_bytes_ - 1) / avg_row_bytes_;
+        spill_block_batch_size_ =
+                (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes_ - 1) / avg_row_bytes_;
     }
 
     auto bytes_used = data_size();
@@ -136,8 +136,8 @@ Status MergeSorterState::build_merge_tree(const SortDescription& sort_descriptio
     return Status::OK();
 }
 
-Status MergeSorterState::merge_sort_read(doris::RuntimeState* state,
-                                         doris::vectorized::Block* block, bool* eos) {
+Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
+                                         bool* eos) {
     if (is_spilled_) {
         RETURN_IF_ERROR(merger_->get_next(block, eos));
     } else {
@@ -150,7 +150,7 @@ Status MergeSorterState::merge_sort_read(doris::RuntimeState* state,
             block->swap(sorted_blocks_[0]);
             *eos = true;
         } else {
-            RETURN_IF_ERROR(_merge_sort_read_not_spilled(state->batch_size(), block, eos));
+            RETURN_IF_ERROR(_merge_sort_read_not_spilled(batch_size, block, eos));
         }
     }
     return Status::OK();
@@ -170,6 +170,7 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
         auto current = priority_queue_.top();
         priority_queue_.pop();
 
+        // if spilled, may have bug
         if (offset_ == 0) {
             for (size_t i = 0; i < num_columns; ++i)
                 merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
@@ -200,7 +201,7 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
 }
 
 int MergeSorterState::_calc_spill_blocks_to_merge() const {
-    int count = external_sort_bytes_threshold_ / BLOCK_SPILL_BATCH_BYTES;
+    int count = external_sort_bytes_threshold_ / SORT_BLOCK_SPILL_BATCH_BYTES;
     return std::max(2, count);
 }
 
@@ -256,10 +257,24 @@ Status MergeSorterState::_create_intermediate_merger(int num_blocks,
     return Status::OK();
 }
 
+Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                         int batch_size, bool* eos) {
+    return get_next(state, block, eos);
+}
+
 Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
+    SCOPED_TIMER(_partial_sort_timer);
+    return sort(_vsort_exec_exprs, _is_asc_order, _nulls_first, _sort_description, src_block,
+                dest_block, _offset + _limit);
+}
+Status Sorter::sort(const VSortExecExprs& vsort_exec_exprs, const std::vector<bool>& is_asc_order,
+                    const std::vector<bool>& nulls_first, SortDescription& sort_description,
+                    Block& src_block, Block& dest_block, size_t limit) {
     size_t num_cols = src_block.columns();
-    if (_materialize_sort_exprs) {
-        auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
+
+    bool materialize_sort_exprs = vsort_exec_exprs.need_materialize_tuple();
+    if (materialize_sort_exprs) {
+        auto output_tuple_expr_ctxs = vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
         std::vector<int> valid_column_ids(output_tuple_expr_ctxs.size());
         for (int i = 0; i < output_tuple_expr_ctxs.size(); ++i) {
             RETURN_IF_ERROR(output_tuple_expr_ctxs[i]->execute(&src_block, &valid_column_ids[i]));
@@ -267,7 +282,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
 
         Block new_block;
         int i = 0;
-        const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
+        const auto& convert_nullable_flags = vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
             if (column_id < 0) {
                 continue;
@@ -284,23 +299,22 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         dest_block.swap(new_block);
     }
 
-    _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
-    Block* result_block = _materialize_sort_exprs ? &dest_block : &src_block;
-    for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
-        RETURN_IF_ERROR(ordering_expr->execute(result_block, &_sort_description[i].column_number));
+    sort_description.resize(vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    Block* result_block = materialize_sort_exprs ? &dest_block : &src_block;
+    for (int i = 0; i < sort_description.size(); i++) {
+        const auto& ordering_expr = vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
+        RETURN_IF_ERROR(ordering_expr->execute(result_block, &sort_description[i].column_number));
 
-        _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
-        _sort_description[i].nulls_direction =
-                _nulls_first[i] ? -_sort_description[i].direction : _sort_description[i].direction;
+        sort_description[i].direction = is_asc_order[i] ? 1 : -1;
+        sort_description[i].nulls_direction =
+                nulls_first[i] ? -sort_description[i].direction : sort_description[i].direction;
     }
 
     {
-        SCOPED_TIMER(_partial_sort_timer);
-        if (_materialize_sort_exprs) {
-            sort_block(dest_block, dest_block, _sort_description, _offset + _limit);
+        if (materialize_sort_exprs) {
+            sort_block(dest_block, dest_block, sort_description, limit);
         } else {
-            sort_block(src_block, dest_block, _sort_description, _offset + _limit);
+            sort_block(src_block, dest_block, sort_description, limit);
         }
         src_block.clear_column_data(num_cols);
     }
@@ -319,22 +333,33 @@ Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_merge_block_timer);
-        auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
-        const auto& arrival_data = block->get_columns_with_type_and_name();
-        auto sz = block->rows();
-        for (int i = 0; i < data.size(); ++i) {
-            DCHECK(data[i].type->equals(*(arrival_data[i].type)))
-                    << " type1: " << data[i].type->get_name()
-                    << " type2: " << arrival_data[i].type->get_name();
-            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
+        auto old_rows = _state->unsorted_block_->rows();
+        auto st = _append_block_impl(block);
+        if (st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+            _is_append_block_oom = true;
+            _state->unsorted_block_->resize(old_rows);
         }
-        block->clear_column_data();
+        RETURN_IF_ERROR(st);
     }
     if (_reach_limit()) {
         RETURN_IF_ERROR(_do_sort());
     }
+    return Status::OK();
+}
+
+Status FullSorter::_append_block_impl(Block* block) {
+    auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
+    const auto& arrival_data = block->get_columns_with_type_and_name();
+    auto sz = block->rows();
+    for (int i = 0; i < data.size(); ++i) {
+        DCHECK(data[i].type->equals(*(arrival_data[i].type)))
+                << " type1: " << data[i].type->get_name()
+                << " type2: " << arrival_data[i].type->get_name();
+        //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
+        RETURN_IF_CATCH_EXCEPTION(data[i].column->assume_mutable()->insert_range_from(
+                *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
+    }
+    block->clear_column_data();
     return Status::OK();
 }
 
@@ -346,7 +371,12 @@ Status FullSorter::prepare_for_read() {
 }
 
 Status FullSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
-    return _state->merge_sort_read(state, block, eos);
+    return _state->merge_sort_read(block, state->batch_size(), eos);
+}
+
+Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+                                             int batch_size, bool* eos) {
+    return _state->merge_sort_read(block, batch_size, eos);
 }
 
 Status FullSorter::_do_sort() {

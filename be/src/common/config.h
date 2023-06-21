@@ -1053,6 +1053,8 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+DECLARE_Int32(spill_io_thread_pool_thread_num);
+DECLARE_Int32(spill_io_thread_pool_queue_size);
 
 #ifdef BE_TEST
 // test s3

@@ -34,6 +34,7 @@ namespace doris {
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
+class SpillStreamManager;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
@@ -128,6 +129,7 @@ public:
     }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+    ThreadPool* spill_io_pool() { return _spill_io_pool.get(); }
 
     void set_serial_download_cache_thread_token() {
         _serial_download_cache_thread_token =
@@ -161,6 +163,7 @@ public:
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
+    doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
@@ -256,6 +259,8 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
+    doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+    std::unique_ptr<ThreadPool> _spill_io_pool;
 };
 
 template <>

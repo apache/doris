@@ -79,6 +79,7 @@ enum class PipelineTaskState : uint8_t {
     FINISHED = 6,
     CANCELED = 7,
     BLOCKED_FOR_RF = 8,
+    BLOCKED_FOR_IO = 9,
 };
 
 inline const char* get_state_name(PipelineTaskState idx) {
@@ -101,7 +102,10 @@ inline const char* get_state_name(PipelineTaskState idx) {
         return "CANCELED";
     case PipelineTaskState::BLOCKED_FOR_RF:
         return "BLOCKED_FOR_RF";
+    case PipelineTaskState::BLOCKED_FOR_IO:
+        return "BLOCKED_FOR_IO";
     }
+
     __builtin_unreachable();
 }
 
@@ -156,6 +160,8 @@ public:
     bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
     }
+
+    bool io_task_finished() { return _root->io_task_finished(); }
 
     bool sink_can_write() { return _sink->can_write(); }
 

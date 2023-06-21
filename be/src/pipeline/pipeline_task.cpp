@@ -216,7 +216,12 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
+            auto st = _root->get_block(_state, block, _data_state);
+            if (st.is<ErrorCode::PIP_WAIT_FOR_IO>()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_IO);
+                break;
+            }
+            RETURN_IF_ERROR(st);
         }
         *eos = _data_state == SourceState::FINISHED;
         if (_block->rows() != 0 || *eos) {
