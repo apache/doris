@@ -59,6 +59,11 @@ public class MaxComputeColumnValue implements ColumnValue {
     }
 
     @Override
+    public boolean canGetStringAsBytes() {
+        return false;
+    }
+
+    @Override
     public boolean isNull() {
         return column.isNull(idx);
     }

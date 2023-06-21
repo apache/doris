@@ -50,7 +50,6 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
@@ -700,6 +699,7 @@
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/backends",
+                                "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group"
                             ]
                         },
@@ -882,7 +882,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -1243,6 +1244,7 @@
             "label": "Release notes",
             "items": [
                 "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",

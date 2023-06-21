@@ -17,7 +17,7 @@
 
 #pragma once
 #include "common/status.h"
-#include "exec/exec_node.h"
+#include "vec/exec/runtime_filter_consumer_node.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -28,7 +28,7 @@ class TPlanNode;
 namespace vectorized {
 class Block;
 
-class VSelectNode final : public ExecNode {
+class VSelectNode final : public RuntimeFilterConsumerNode {
 public:
     VSelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
@@ -38,9 +38,12 @@ public:
     Status close(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) override;
 
+    Status alloc_resource(RuntimeState* state) override;
+
 private:
     // true if last get_next() call on child signalled eos
     bool _child_eos;
+    bool _opened = false;
 };
 } // namespace vectorized
 } // namespace doris

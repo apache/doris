@@ -321,6 +321,9 @@ public:
             segments_key_bounds->push_back(key_range);
         }
     }
+
+    auto& get_segments_key_bounds() { return _rowset_meta_pb.segments_key_bounds(); }
+
     virtual bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
         if (_rowset_meta_pb.segments_key_bounds_size() == 0) {

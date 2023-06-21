@@ -43,6 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/runtime_filter_consumer_node.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/runtime/shared_scanner_controller.h"
@@ -87,10 +88,10 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
-class VScanNode : public ExecNode {
+class VScanNode : public RuntimeFilterConsumerNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {
+            : RuntimeFilterConsumerNode(pool, tnode, descs) {
         if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
             // Which means the request could be fullfilled in a single segment iterator request.
             if (tnode.limit > 0 && tnode.limit < 1024) {
@@ -140,10 +141,6 @@ public:
 
     void set_no_agg_finalize() { _need_agg_finalize = false; }
 
-    // Try append late arrived runtime filters.
-    // Return num of filters which are applied already.
-    Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
-
     // Clone current _conjuncts to conjuncts, if exists.
     Status clone_conjunct_ctxs(VExprContextSPtrs& conjuncts);
 
@@ -156,7 +153,6 @@ public:
 
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
-    bool runtime_filters_are_ready_or_timeout();
 
     Status try_close();
 
@@ -240,11 +236,11 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
-    Status _prepare_scanners();
+    Status _prepare_scanners(const int query_parallel_instance_num);
 
-    RuntimeState* _state;
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
+
     // For load scan node, there should be both input and output tuple descriptor.
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
@@ -252,27 +248,11 @@ protected:
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
+    doris::Mutex _block_lock;
+
     // These two values are from query_options
     int _max_scan_key_num;
     int _max_pushdown_conditions_per_column;
-
-    // For runtime filters
-    struct RuntimeFilterContext {
-        RuntimeFilterContext() : apply_mark(false), runtime_filter(nullptr) {}
-        RuntimeFilterContext(IRuntimeFilter* rf) : apply_mark(false), runtime_filter(rf) {}
-        // set to true if this runtime filter is already applied to vconjunct_ctx_ptr
-        bool apply_mark;
-        IRuntimeFilter* runtime_filter;
-    };
-    std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
-
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    // Set to true if the runtime filter is ready.
-    std::vector<bool> _runtime_filter_ready_flag;
-    doris::Mutex _rf_locks;
-    phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
-    // True means all runtime filters are applied to scanners
-    bool _is_all_rf_applied = true;
 
     // Each scan node will generates a ScannerContext to manage all Scanners.
     // See comments of ScannerContext for more details
@@ -315,7 +295,6 @@ protected:
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
     bool _need_agg_finalize = true;
-    bool _blocked_by_rf = false;
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
@@ -356,6 +335,7 @@ protected:
 
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
     // Num of newly created free blocks when running query
@@ -371,13 +351,6 @@ protected:
     std::vector<int> _col_distribute_ids;
 
 private:
-    // Register and get all runtime filters at Init phase.
-    Status _register_runtime_filter();
-    // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter(bool wait = true);
-    // Append late-arrival runtime filters to the vconjunct_ctx.
-    Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
-
     Status _normalize_conjuncts();
     Status _normalize_predicate(const VExprSPtr& conjunct_expr_root, VExprContext* context,
                                 VExprSPtr& output_expr);
@@ -446,7 +419,8 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<VScannerSPtr>& scanners);
+    Status _start_scanners(const std::list<VScannerSPtr>& scanners,
+                           const int query_parallel_instance_num);
 };
 
 } // namespace doris::vectorized

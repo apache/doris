@@ -422,14 +422,14 @@ public class StmtExecutor {
                         MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                     }
                     // try to fall back to legacy planner
-                    LOG.warn("nereids cannot process statement\n" + originStmt.originStmt
+                    LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                             + "\n because of " + e.getMessage(), e);
                     if (e instanceof NereidsException
                             && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    LOG.info("fall back to legacy planner");
+                    LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
                     context.getState().setNereids(false);
                     executeByLegacy(queryId);
@@ -475,7 +475,7 @@ public class StmtExecutor {
     }
 
     private void executeByNereids(TUniqueId queryId) throws Exception {
-        LOG.info("Nereids start to execute query:\n {}", originStmt.originStmt);
+        LOG.debug("Nereids start to execute query:\n {}", originStmt.originStmt);
         context.setQueryId(queryId);
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
@@ -493,7 +493,7 @@ public class StmtExecutor {
                 if (isForwardToMaster()) {
                     if (isProxy) {
                         // This is already a stmt forwarded from other FE.
-                        // If goes here, which means we can't find a valid Master FE(some error happens).
+                        // If we goes here, means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new NereidsException(new UserException("The statement has been forwarded to master FE("
                                 + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
@@ -509,17 +509,17 @@ public class StmtExecutor {
             try {
                 ((Command) logicalPlan).run(context, this);
             } catch (QueryStateException e) {
-                LOG.warn("", e);
+                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
                 context.setState(e.getQueryState());
-                throw new NereidsException(e);
+                throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed", e);
             } catch (UserException e) {
                 // Return message to info client what happened.
-                LOG.warn("DDL statement({}) process failed.", originStmt.originStmt, e);
+                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed", e);
             } catch (Exception e) {
                 // Maybe our bug
-                LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+                LOG.debug("DDL statement(" + originStmt.originStmt + ") process failed.", e);
                 context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
                 throw new NereidsException("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             }
@@ -533,7 +533,7 @@ public class StmtExecutor {
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
             } catch (Exception e) {
-                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt);
+                LOG.debug("Nereids plan query failed:\n{}", originStmt.originStmt);
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
@@ -1922,8 +1922,6 @@ public class StmtExecutor {
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
-        // context.getState().setEof();
-        context.getState().setOk();
     }
 
 
@@ -1965,6 +1963,10 @@ public class StmtExecutor {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
+    private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
+        return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
+    }
+
     private void sendStmtPrepareOK() throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
@@ -1979,13 +1981,27 @@ public class StmtExecutor {
         int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
         serializer.writeInt2(numParams);
         // reserved_1
-        // serializer.writeInt1(0);
+        serializer.writeInt1(0);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
-            sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+            // send field one by one
+            // TODO use real type instead of string, for JDBC client it's ok
+            // but for other client, type should be correct
+            List<PrimitiveType> types = exprToStringType(prepareStmt.getPlaceHolderExprList());
+            List<String> colNames = prepareStmt.getColLabelsOfPlaceHolders();
+            LOG.debug("sendFields {}, {}", colNames, types);
+            for (int i = 0; i < colNames.size(); ++i) {
+                serializer.reset();
+                serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
         }
-        context.getState().setOk();
+        // send EOF if nessessary
+        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+            context.getState().setEof();
+        } else {
+            context.getState().setOk();
+        }
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {

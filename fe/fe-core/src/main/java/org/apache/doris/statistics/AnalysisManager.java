@@ -218,11 +218,12 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-
-        try {
-            updateTableStats(jobInfo);
-        } catch (Throwable e) {
-            throw new DdlException("Failed to update Table statistics");
+        if (!isSync) {
+            try {
+                updateTableStats(jobInfo);
+            } catch (Throwable e) {
+                throw new DdlException("Failed to update Table statistics");
+            }
         }
 
         if (isSync) {
@@ -694,7 +695,7 @@ public class AnalysisManager extends Daemon implements Writable {
         long tblId = dropStatsStmt.getTblId();
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
-            Env.getCurrentEnv().getStatisticsCache().invidate(tblId, -1L, col);
+            Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
         }
     }
 
@@ -710,7 +711,7 @@ public class AnalysisManager extends Daemon implements Writable {
         checkPriv(anyTask);
         logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
-            taskInfo.markAsKilled();
+            taskInfo.cancel();
             logKilled(taskInfo.info);
         }
     }
@@ -779,7 +780,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
         public void cancel() {
             cancelled = true;
-            tasks.forEach(BaseAnalysisTask::markAsKilled);
+            tasks.forEach(BaseAnalysisTask::cancel);
         }
 
         public void execute() {
@@ -794,7 +795,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 } catch (Throwable t) {
                     colNames.add(task.info.colName);
                     updateSyncTaskStatus(task, AnalysisState.FAILED);
-                    LOG.info("Failed to analyze, info: {}", task);
+                    LOG.warn("Failed to analyze, info: {}", task, t);
                 }
             }
             if (!colNames.isEmpty()) {

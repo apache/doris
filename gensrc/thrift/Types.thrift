@@ -218,7 +218,8 @@ enum TTaskType {
     NOTIFY_UPDATE_STORAGE_POLICY, // deprecated
     PUSH_COOLDOWN_CONF,
     PUSH_STORAGE_POLICY,
-    ALTER_INVERTED_INDEX
+    ALTER_INVERTED_INDEX,
+    GC_BINLOG
 }
 
 enum TStmtType {
@@ -687,7 +688,8 @@ enum TSortType {
 enum TMetadataType {
   ICEBERG,
   BACKENDS,
-  WORKLOAD_GROUPS
+  WORKLOAD_GROUPS,
+  FRONTENDS
 }
 
 enum TIcebergQueryType {

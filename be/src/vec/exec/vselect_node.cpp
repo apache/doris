@@ -37,19 +37,31 @@ class TPlanNode;
 namespace vectorized {
 
 VSelectNode::VSelectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs), _child_eos(false) {}
+        : RuntimeFilterConsumerNode(pool, tnode, descs), _child_eos(false) {}
 
 Status VSelectNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    return ExecNode::init(tnode, state);
+    return RuntimeFilterConsumerNode::init(tnode, state);
 }
 
 Status VSelectNode::prepare(RuntimeState* state) {
-    return ExecNode::prepare(state);
+    return RuntimeFilterConsumerNode::prepare(state);
 }
 
 Status VSelectNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ExecNode::open(state));
+    RETURN_IF_ERROR(RuntimeFilterConsumerNode::open(state));
     RETURN_IF_ERROR(child(0)->open(state));
+    return Status::OK();
+}
+
+Status VSelectNode::alloc_resource(RuntimeState* state) {
+    if (_opened) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(RuntimeFilterConsumerNode::alloc_resource(state));
+    RETURN_IF_ERROR(_acquire_runtime_filter());
+    RETURN_IF_CANCELLED(state);
+    _opened = true;
     return Status::OK();
 }
 

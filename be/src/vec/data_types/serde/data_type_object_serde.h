@@ -61,14 +61,14 @@ public:
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "Not support read object column from arrow";
     }
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
+
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override {
         LOG(FATAL) << "Not support write object column to mysql";
     }
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
+
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override {
         LOG(FATAL) << "Not support write object column to mysql";
     }
 };

@@ -51,11 +51,13 @@ public:
         std::map<int, bool> has_in_filter;
 
         auto ignore_local_filter = [state](int filter_id) {
-            IRuntimeFilter* consumer_filter = nullptr;
-            state->runtime_filter_mgr()->get_consume_filter(filter_id, &consumer_filter);
-            DCHECK(consumer_filter != nullptr);
-            consumer_filter->set_ignored();
-            consumer_filter->signal();
+            std::vector<IRuntimeFilter*> filters;
+            state->runtime_filter_mgr()->get_consume_filters(filter_id, filters);
+            DCHECK(!filters.empty());
+            for (auto filter : filters) {
+                filter->set_ignored();
+                filter->signal();
+            }
         };
 
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {

@@ -145,6 +145,10 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// the timeout of EnginPublishVersionTask
+DEFINE_Int32(publish_version_task_timeout_s, "8");
+// the count of thread to calc delete bitmap
+DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the count of thread to clear transaction task
 DEFINE_Int32(clear_transaction_task_worker_count, "1");
 // the count of thread to delete
@@ -304,6 +308,8 @@ DEFINE_Bool(disable_storage_row_cache, "true");
 
 // Cache for mow primary key storage page size
 DEFINE_String(pk_storage_page_cache_limit, "10%");
+// data page size for primary key index
+DEFINE_Int32(primary_key_data_page_size, "32768");
 
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
@@ -349,7 +355,7 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
-DEFINE_mInt64(compaction_promotion_min_size_mbytes, "64");
+DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -421,7 +427,7 @@ DEFINE_String(ssl_certificate_path, "");
 // Path of private key
 DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
-DEFINE_Bool(enable_http_auth, "false");
+DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
@@ -585,7 +591,7 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "10000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
 
 // txn commit rpc timeout
 DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");
@@ -968,7 +974,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
-DEFINE_Int32(inverted_index_fd_number_limit_percent, "50"); // 50%
+DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
