@@ -244,7 +244,7 @@ public class BaseController {
         if (Strings.isNullOrEmpty(encodedAuthString)) {
             return false;
         }
-        String[] parts = encodedAuthString.split(" ");
+        String[] parts = encodedAuthString.split("\\s+");
         if (parts.length != 2) {
             return false;
         }
