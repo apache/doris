@@ -46,7 +46,8 @@ public class TimeDiff extends ScalarFunction
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateV2Type.INSTANCE),
             FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
-
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeType.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(TimeType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE));
 
     /**
@@ -78,10 +79,15 @@ public class TimeDiff extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         if (arity() == 2 && signature.returnType instanceof TimeV2Type) {
-            DateTimeV2Type left = (DateTimeV2Type) getArgument(0).getDataType();
-            DateTimeV2Type right = (DateTimeV2Type) getArgument(1).getDataType();
-            int scale = Math.max(left.getScale(), right.getScale());
-
+            int scale = 0;
+            if (getArgument(0).getDataType() instanceof DateTimeV2Type) {
+                DateTimeV2Type left = (DateTimeV2Type) getArgument(0).getDataType();
+                scale = Math.max(scale, left.getScale());
+            }
+            if (getArgument(1).getDataType() instanceof DateTimeV2Type) {
+                DateTimeV2Type right = (DateTimeV2Type) getArgument(1).getDataType();
+                scale = Math.max(scale, right.getScale());
+            }
             signature = signature.withReturnType(TimeV2Type.of(scale));
             return signature;
         } else {
