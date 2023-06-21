@@ -3495,6 +3495,7 @@ template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
 template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
+template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MICROSECOND>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
 template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::HOUR>();

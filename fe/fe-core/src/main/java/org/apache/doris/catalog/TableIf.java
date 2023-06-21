@@ -22,6 +22,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.Lists;
@@ -30,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -127,6 +129,10 @@ public interface TableIf {
     BaseAnalysisTask createAnalysisTask(AnalysisInfo info);
 
     long estimatedRowCount();
+
+    DatabaseIf getDatabase();
+
+    Optional<ColumnStatistic> getColumnStatistic();
 
     /**
      * Doris table type.

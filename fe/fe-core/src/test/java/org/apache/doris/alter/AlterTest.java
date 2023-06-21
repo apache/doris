@@ -184,6 +184,7 @@ public class AlterTest {
     }
 
     private static void createTable(String sql) throws Exception {
+        Config.enable_odbc_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
     }

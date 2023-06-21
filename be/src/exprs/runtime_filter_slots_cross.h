@@ -19,6 +19,7 @@
 
 #include <vector>
 
+#include "common/status.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
@@ -88,14 +89,11 @@ public:
         return Status::OK();
     }
 
-    void publish() {
+    Status publish() {
         for (auto& filter : _runtime_filters) {
-            filter->publish();
+            RETURN_IF_ERROR(filter->publish());
         }
-        for (auto& filter : _runtime_filters) {
-            // todo: cross join may not need publish_finally()
-            filter->publish_finally();
-        }
+        return Status::OK();
     }
 
     bool empty() { return !_runtime_filters.size(); }

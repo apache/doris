@@ -36,6 +36,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
@@ -126,6 +127,10 @@ int64_t Compaction::get_avg_segment_rows() {
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
     // in disk is config::vertical_compaction_max_segment_size
+    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+        return (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+               (_input_rowsets_size / (_input_row_num + 1) + 1);
+    }
     return config::vertical_compaction_max_segment_size /
            (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
@@ -450,13 +455,21 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
+    ctx.write_type = DataWriteType::TYPE_COMPACTION;
     if (config::inverted_index_compaction_enable &&
         ((_tablet->keys_type() == KeysType::UNIQUE_KEYS ||
           _tablet->keys_type() == KeysType::DUP_KEYS))) {
         for (auto& index : _cur_tablet_schema->indexes()) {
             if (index.index_type() == IndexType::INVERTED) {
                 auto unique_id = index.col_unique_ids()[0];
-                if (field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
+                //NOTE: here src_rs may be in building index progress, so it would not contain inverted index info.
+                bool all_have_inverted_index = std::all_of(
+                        _input_rowsets.begin(), _input_rowsets.end(), [&](const auto& src_rs) {
+                            return src_rs->tablet_schema()->get_inverted_index(unique_id) !=
+                                   nullptr;
+                        });
+                if (all_have_inverted_index &&
+                    field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
                     ctx.skip_inverted_index.insert(unique_id);
                 }
             }

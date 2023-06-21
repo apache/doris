@@ -69,11 +69,11 @@ suite("join") {
 
     // must analyze before explain, because empty table may generate different plan
     sql """
-        analyze table test_table_b;
+        analyze table test_table_b with sync;
     """
 
     sql """
-        analyze table test_table_a;
+        analyze table test_table_a with sync;
     """
 
     order_qt_inner_join_1 """

@@ -31,7 +31,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.telemetry.ScopedSpan;
 import org.apache.doris.common.telemetry.Telemetry;
-import org.apache.doris.common.util.ConsistentHash;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -63,7 +62,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.ExternalScanNode;
-import org.apache.doris.planner.external.FileQueryScanNode;
+import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -84,7 +83,6 @@ import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
-import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -118,9 +116,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-import com.google.common.hash.Funnel;
-import com.google.common.hash.Hashing;
-import com.google.common.hash.PrimitiveSink;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
@@ -132,10 +127,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -194,6 +187,7 @@ public class Coordinator {
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
     private final List<PlanFragment> fragments;
+    private int instanceTotalNum;
 
     private Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
     private Map<Long, PipelineExecContexts> beToPipelineExecCtxs = Maps.newHashMap();
@@ -274,25 +268,6 @@ public class Coordinator {
 
     // True if all scan node are ExternalScanNode.
     private boolean isAllExternalScan = true;
-
-    private static class BackendHash implements Funnel<Backend> {
-        @Override
-        public void funnel(Backend backend, PrimitiveSink primitiveSink) {
-            primitiveSink.putLong(backend.getId());
-        }
-    }
-
-    private static class ScanRangeHash implements Funnel<TScanRangeLocations> {
-        @Override
-        public void funnel(TScanRangeLocations scanRange, PrimitiveSink primitiveSink) {
-            Preconditions.checkState(scanRange.scan_range.isSetExtScanRange());
-            for (TFileRangeDesc desc : scanRange.scan_range.ext_scan_range.file_scan_range.ranges) {
-                primitiveSink.putBytes(desc.path.getBytes(StandardCharsets.UTF_8));
-                primitiveSink.putLong(desc.start_offset);
-                primitiveSink.putLong(desc.size);
-            }
-        }
-    }
 
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
@@ -508,6 +483,10 @@ public class Coordinator {
         return result;
     }
 
+    public int getInstanceTotalNum() {
+        return instanceTotalNum;
+    }
+
     // Initialize
     private void prepare() {
         for (PlanFragment fragment : fragments) {
@@ -690,6 +669,7 @@ public class Coordinator {
                 // 1. set up exec states
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
+                instanceTotalNum += instanceNum;
                 List<TExecPlanFragmentParams> tParams = params.toThrift(backendIdx);
 
                 // 2. update memory limit for colocate join
@@ -1687,8 +1667,16 @@ public class Coordinator {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
+                        // disable shared scan optimization if one of conditions below is met:
+                        // 1. Use non-pipeline engine
+                        // 2. Number of scan ranges is larger than instances
+                        // 3. This fragment has a colocated scan node
+                        // 4. This fragment has a FileScanNode
+                        // 5. Disable shared scan optimization by session variable
                         if (!enablePipelineEngine || perNodeScanRanges.size() > parallelExecInstanceNum
-                                || (node.isPresent() && node.get().getShouldColoScan())) {
+                                || (node.isPresent() && node.get().getShouldColoScan())
+                                || (node.isPresent() && node.get() instanceof FileScanNode)
+                                || Config.disable_shared_scan) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
@@ -2074,58 +2062,12 @@ public class Coordinator {
         return location;
     }
 
-    private void computeScanRangeAssignmentByConsistentHash(
-            FileQueryScanNode scanNode,
-            final List<TScanRangeLocations> locations,
-            FragmentScanRangeAssignment assignment,
-            Map<TNetworkAddress, Long> assignedBytesPerHost,
-            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-
-        Collection<Backend> aliveBEs = scanNode.getBackendPolicy().getBackends();
-        if (aliveBEs.isEmpty()) {
-            throw new UserException("No available backends");
-        }
-
-        int virtualNumber = Math.max(Math.min(512 / aliveBEs.size(), 32), 2);
-        ConsistentHash<TScanRangeLocations, Backend> consistentHash = new ConsistentHash<>(
-                Hashing.murmur3_128(), new ScanRangeHash(), new BackendHash(), aliveBEs, virtualNumber);
-        for (TScanRangeLocations scanRangeLocations : locations) {
-            TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
-            Backend backend = consistentHash.getNode(scanRangeLocations);
-            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
-            this.addressToBackendID.put(execHostPort, backend.getId());
-            // Why only increase 1 in other implementations ?
-            if (scanRangeLocations.getScanRange().isSetExtScanRange()) {
-                for (TFileRangeDesc desc : scanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges) {
-                    assignedBytesPerHost.compute(execHostPort, (k, v) -> (v == null) ? desc.size : desc.size + v);
-                }
-            }
-            // Is replicaNumPerHost useful ?
-            replicaNumPerHost.computeIfPresent(minLocation.server, (k, v) -> v - 1);
-
-            Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort, new HashMap<>());
-            List<TScanRangeParams> scanRangeParamsList =
-                    findOrInsert(scanRanges, scanNode.getId().asInt(), new ArrayList<>());
-            TScanRangeParams scanRangeParams = new TScanRangeParams();
-            scanRangeParams.scan_range = scanRangeLocations.scan_range;
-            scanRangeParams.setVolumeId(minLocation.volume_id);
-            scanRangeParamsList.add(scanRangeParams);
-            updateScanRangeNumByScanRange(scanRangeParams);
-        }
-    }
-
     private void computeScanRangeAssignmentByScheduler(
             final ScanNode scanNode,
             final List<TScanRangeLocations> locations,
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
-        if (scanNode instanceof FileQueryScanNode) {
-            // Use consistent hash to assign the same scan range into the same backend among different queries
-            computeScanRangeAssignmentByConsistentHash(
-                    (FileQueryScanNode) scanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
-            return;
-        }
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
@@ -2274,7 +2216,7 @@ public class Coordinator {
             }
         }
 
-        if (params.isSetLoadedRows()) {
+        if (params.isSetLoadedRows() && jobId != -1) {
             Env.getCurrentEnv().getLoadManager().updateJobProgress(
                     jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
                     params.getLoadedRows(), params.getLoadedBytes(), params.isDone());

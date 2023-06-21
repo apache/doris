@@ -283,7 +283,9 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
 
         ArrayList<Expr> expr0Children = Lists.newArrayList();
-        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")
+                || distinctAggExprs.get(0).getFnName().getFunction()
+                        .equalsIgnoreCase("multi_distinct_group_concat")) {
             // Ignore separator parameter, otherwise the same would have to be present for all
             // other distinct aggregates as well.
             // TODO: Deal with constant exprs more generally, instead of special-casing
@@ -297,7 +299,9 @@ public final class AggregateInfo extends AggregateInfoBase {
         boolean hasMultiDistinct = false;
         for (int i = 1; i < distinctAggExprs.size(); ++i) {
             ArrayList<Expr> exprIChildren = Lists.newArrayList();
-            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")
+                    || distinctAggExprs.get(i).getFnName().getFunction()
+                            .equalsIgnoreCase("multi_distinct_group_concat")) {
                 exprIChildren.add(distinctAggExprs.get(i).getChild(0).ignoreImplicitCast());
             } else {
                 for (Expr expr : distinctAggExprs.get(i).getChildren()) {

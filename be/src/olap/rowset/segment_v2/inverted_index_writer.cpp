@@ -133,13 +133,21 @@ public:
                 _directory + "/" + _segment_file_name, _index_meta->index_id());
 
         // LOG(INFO) << "inverted index path: " << index_path;
-
-        if (lucene::index::IndexReader::indexExists(index_path.c_str())) {
-            create = false;
-            if (lucene::index::IndexReader::isLocked(index_path.c_str())) {
-                LOG(WARNING) << ("Lucene Index was locked... unlocking it.\n");
-                lucene::index::IndexReader::unlock(index_path.c_str());
-            }
+        bool exists = false;
+        auto st = _fs->exists(index_path.c_str(), &exists);
+        if (!st.ok()) {
+            LOG(ERROR) << "index_path:"
+                       << " exists error:" << st;
+            return st;
+        }
+        if (exists) {
+            LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
+            return Status::InternalError("init_fulltext_index a directory already exists");
+            //st = _fs->delete_directory(index_path.c_str());
+            //if (!st.ok()) {
+            //    LOG(ERROR) << "delete directory:" << index_path << " error:" << st;
+            //    return st;
+            //}
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
@@ -322,10 +330,24 @@ public:
         _rid++;
     }
 
-    uint64_t size() const override {
-        //TODO: get size of inverted index
+    int64_t size() const override {
+        //TODO: get memory size of inverted index
         return 0;
     }
+
+    int64_t file_size() const override {
+        std::filesystem::path dir(_directory);
+        dir /= _segment_file_name;
+        auto file_name =
+                InvertedIndexDescriptor::get_index_file_name(dir.string(), _index_meta->index_id());
+        int64_t size = -1;
+        auto st = _fs->file_size(file_name.c_str(), &size);
+        if (!st.ok()) {
+            LOG(ERROR) << "try to get file:" << file_name << " size error:" << st;
+        }
+        return size;
+    }
+
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out,
                            lucene::store::Directory* dir) {
         // write null_bitmap file

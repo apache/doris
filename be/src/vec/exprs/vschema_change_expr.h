@@ -53,8 +53,7 @@ public:
                    VExprContext* context) override;
     Status open(doris::RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     VExprSPtr clone() const override { return VSchemaChangeExpr::create_shared(*this); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;

@@ -96,6 +96,7 @@ suite("load_three_step") {
         finally {
             try_sql("DROP TABLE IF EXISTS ${table}")
         }
-
+        
+        sql """ ANALYZE TABLE $table WITH SYNC """
     }
 }

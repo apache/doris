@@ -376,12 +376,18 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
     if constexpr (std::is_same_v<T, UInt8>) {
         // nullmap : indices_begin[i] == -1 means is null at the here, set true here
         for (int i = 0; i < new_size; ++i) {
+            if (i + IColumn::PREFETCH_STEP < new_size) {
+                __builtin_prefetch(&src_data[indices_begin[i + IColumn::PREFETCH_STEP]], 0, 1);
+            }
             data[origin_size + i] = (indices_begin[i] == -1) +
                                     (indices_begin[i] != -1) * src_data[indices_begin[i]];
         }
     } else {
         // real data : indices_begin[i] == -1 what at is meaningless
         for (int i = 0; i < new_size; ++i) {
+            if (i + IColumn::PREFETCH_STEP < new_size) {
+                __builtin_prefetch(&src_data[indices_begin[i + IColumn::PREFETCH_STEP]], 0, 1);
+            }
             data[origin_size + i] = src_data[indices_begin[i]];
         }
     }

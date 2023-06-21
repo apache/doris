@@ -33,6 +33,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_fixed_length_object.h"
 #include "vec/io/io_helper.h"
 
 namespace doris {
@@ -121,56 +122,77 @@ public:
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
                                  size_t num_rows) const override {
-        auto data = assert_cast<const ColVecResult&>(column).get_data().data();
-        auto dst_data = reinterpret_cast<Data*>(places);
-        for (size_t i = 0; i != num_rows; ++i) {
-            dst_data[i].sum = data[i];
-        }
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        auto* data = col.get_data().data();
+        memcpy(places, data, sizeof(Data) * num_rows);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                              MutableColumnPtr& dst, const size_t num_rows) const override {
-        auto& col = assert_cast<ColVecResult&>(*dst);
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            data[i] = this->data(places[i] + offset).sum;
+            *reinterpret_cast<Data*>(&data[sizeof(Data) * i]) =
+                    *reinterpret_cast<Data*>(places[i] + offset);
         }
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena* arena) const override {
-        auto& col = assert_cast<ColVecResult&>(*dst);
+        auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
         auto& src = assert_cast<const ColVecType&>(*columns[0]);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
         auto* src_data = src.get_data().data();
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
-            dst_data[i] = src_data[i];
+            auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
+            state.sum = src_data[i];
         }
     }
 
     void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
                                            Arena* arena) const override {
-        auto data = assert_cast<const ColVecResult&>(column).get_data().data();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
         for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).sum += data[i];
+            this->data(place).sum += data[i].sum;
+        }
+    }
+
+    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
+                                                 const IColumn& column, size_t begin, size_t end,
+                                                 Arena* arena) const override {
+        DCHECK(end <= column.size() && begin <= end)
+                << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+        for (size_t i = begin; i <= end; ++i) {
+            this->data(place).sum += data[i].sum;
         }
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
-        auto& col = assert_cast<ColVecResult&>(to);
+        auto& col = assert_cast<ColumnFixedLengthObject&>(to);
+        DCHECK(col.item_size() == sizeof(Data))
+                << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(1);
         reinterpret_cast<Data*>(col.get_data().data())->sum = this->data(place).sum;
     }
 
     MutableColumnPtr create_serialize_column() const override {
-        return get_return_type()->create_column();
+        return ColumnFixedLengthObject::create(sizeof(Data));
     }
 
-    DataTypePtr get_serialized_type() const override { return get_return_type(); }
+    DataTypePtr get_serialized_type() const override {
+        return std::make_shared<DataTypeFixedLengthObject>();
+    }
 
 private:
     UInt32 scale;

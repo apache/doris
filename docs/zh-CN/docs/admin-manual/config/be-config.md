@@ -636,7 +636,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `segcompaction_small_threshold`
 
 * 类型：int32
-* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
 
 #### `disable_compaction_trace_log`
@@ -662,6 +662,33 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 描述：更新 peer replica infos 的最小间隔时间
 * 默认值：10（s）
+
+#### `compaction_policy`
+
+* 类型：string
+* 描述：配置 compaction 的合并策略，目前实现了两种合并策略，size_based 和 time_series
+  - size_based: 仅当 rowset 的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的 rowset 进行晋升到 base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
+  - time_series: 当 rowset 的磁盘体积积攒到一定大小时进行版本合并。合并后的 rowset 直接晋升到 base compaction 阶段。在时序场景持续导入的情况下有效降低 compact 的写入放大率。
+* 默认值：size_based
+
+#### `time_series_compaction_goal_size_mbytes`
+
+* 类型：int64
+* 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
+* 默认值：1024
+
+#### `time_series_compaction_file_count_threshold`
+
+* 类型：int64
+* 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值，只有当 time_series_compaction_goal_size_mbytes 条件不满足时，该参数才会发挥作用
+  - 一个 tablet 中文件数超过该配置，会触发 compaction
+* 默认值：10000
+
+#### `time_series_compaction_time_threshold_seconds`
+
+* 类型：int64
+* 描述：开启 time series compaction 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
+* 默认值：3600
 
 
 ### 导入
@@ -731,6 +758,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
+
+#### `multi_table_batch_plan_threshold`
+
+* 类型：int32
+* 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
+* 默认值：200
 
 #### `single_replica_load_download_num_workers`
 * 类型: int32

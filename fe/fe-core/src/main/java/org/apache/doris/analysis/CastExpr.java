@@ -63,6 +63,8 @@ public class CastExpr extends Expr {
     // True if this cast does not change the type.
     private boolean noOp = false;
 
+    private boolean notFold = false;
+
     private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
 
     static {
@@ -581,6 +583,14 @@ public class CastExpr extends Expr {
     @Override
     public String getStringValueForArray() {
         return children.get(0).getStringValueForArray();
+    }
+
+    public void setNotFold(boolean notFold) {
+        this.notFold = notFold;
+    }
+
+    public boolean isNotFold() {
+        return this.notFold;
     }
 }
 

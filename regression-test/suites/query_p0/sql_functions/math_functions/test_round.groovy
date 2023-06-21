@@ -108,4 +108,34 @@
     sql """ insert into ${tableName1} values ('111', 1.2432, '001', 0.2341, 12.1234123); """
     sql """ insert into ${tableName2} select  TENANT_ID,PRODENTP_CODE,ROUND((MAX(PURC_CNT)*MAX(PUBONLN_PRC)),2) delv_amt,ROUND(SUM(ORD_SUMAMT),2) from ${tableName1} GROUP BY TENANT_ID,PRODENTP_CODE; """
     qt_query """ select * from ${tableName2} """
+
+
+    def tableName3 = "test_round_decimal"
+    sql """ CREATE TABLE `${tableName3}` (
+          `id` int NOT NULL COMMENT 'id',
+          `d1` decimalv3(9, 4) NULL COMMENT '',
+          `d2` decimalv3(27, 4)  NULL DEFAULT "0" ,
+          `d3` decimalv3(38, 4)  NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );                """
+
+    sql """ insert into ${tableName3} values (1, 123.56789, 234.67895, 345.78956); """
+    sql """ insert into ${tableName3} values (2, 123.56789, 234.67895, 345.78956); """
+
+    qt_query """ select d1, d2, d3 from ${tableName3} order by d1 """
+
+    qt_query """ select cast(round(sum(d1), 6) as double), cast(round(sum(d2), 6) as double), cast(round(sum(d3), 6) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), 2) as double), cast(round(sum(d2), 2) as double), cast(round(sum(d3),2) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -2) as double), cast(round(sum(d2), -2) as double), cast(round(sum(d3), -2) as double) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -4) as double), cast(round(sum(d2), -4) as double), cast(round(sum(d3), -4) as double) from ${tableName3} """
+
+    qt_query """ select cast(round(sum(d1), 6) as decimalv3(27, 3)), cast(round(sum(d2), 6) as decimalv3(27, 3)), cast(round(sum(d3), 6) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), 2) as decimalv3(27, 3)), cast(round(sum(d2), 2) as decimalv3(27, 3)), cast(round(sum(d3),2) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -2) as decimalv3(27, 3)), cast(round(sum(d2), -2) as decimalv3(27, 3)), cast(round(sum(d3), -2) as decimalv3(27, 3)) from ${tableName3} """
+    qt_query """ select cast(round(sum(d1), -4) as decimalv3(27, 3)), cast(round(sum(d2), -4) as decimalv3(27, 3)), cast(round(sum(d3), -4) as decimalv3(27, 3)) from ${tableName3} """
+
 }

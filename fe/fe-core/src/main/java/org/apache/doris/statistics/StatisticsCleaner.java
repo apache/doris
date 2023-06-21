@@ -36,14 +36,12 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -56,8 +54,6 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private OlapTable colStatsTbl;
     private OlapTable histStatsTbl;
-
-    private OlapTable jobTbl;
 
     private Map<Long, CatalogIf> idToCatalog;
 
@@ -100,17 +96,6 @@ public class StatisticsCleaner extends MasterDaemon {
         } while (!expiredStats.isEmpty());
     }
 
-    private void clearJobTbl(BiFunction<Integer, Long, List<ResultRow>> fetchFunc, boolean taskOnly) {
-        List<String> jobIds = null;
-        long offset = 0;
-        do {
-            jobIds = new ArrayList<>();
-            offset = findExpiredJobs(jobIds, offset, fetchFunc);
-            doDelete("job_id", jobIds, FeConstants.INTERNAL_DB_NAME + "."
-                    + StatisticConstants.ANALYSIS_JOB_TABLE, taskOnly);
-        } while (!jobIds.isEmpty());
-    }
-
     private boolean init() {
         try {
             String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
@@ -124,9 +109,6 @@ public class StatisticsCleaner extends MasterDaemon {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.HISTOGRAM_TBL_NAME);
-            jobTbl = (OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                    dbName,
-                    StatisticConstants.ANALYSIS_JOB_TABLE);
         } catch (Throwable t) {
             LOG.warn("Failed to init stats cleaner", t);
             return false;
@@ -253,24 +235,6 @@ public class StatisticsCleaner extends MasterDaemon {
                     LOG.warn("Error occurred when retrieving expired stats", e);
                 }
             }
-            this.yieldForOtherTask();
-        }
-        return pos;
-    }
-
-    private long findExpiredJobs(List<String> jobIds, long offset, BiFunction<Integer, Long, List<ResultRow>>
-            fetchFunc) {
-        long pos = offset;
-        while (pos < jobTbl.getRowCount() && jobIds.size() < Config.max_allowed_in_element_num_of_delete) {
-            List<ResultRow> rows = fetchFunc.apply(StatisticConstants.FETCH_LIMIT, pos);
-            for (ResultRow r : rows) {
-                try {
-                    jobIds.add(r.getColumnValue("job_id"));
-                } catch (Exception e) {
-                    LOG.warn("Error when get job_id from ResultRow", e);
-                }
-            }
-            pos += StatisticConstants.FETCH_LIMIT;
             this.yieldForOtherTask();
         }
         return pos;

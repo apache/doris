@@ -502,6 +502,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         }
         int multi_matched_output_row_count = 0;
         if (current_offset < _batch_size) {
+            SCOPED_TIMER(_search_hashtable_timer);
             while (probe_index < probe_rows) {
                 // ignore null rows
                 if constexpr (ignore_null && need_null_map_for_probe) {
@@ -677,6 +678,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         // dispose the other join conjunct exec
         auto row_count = output_block->rows();
         if (row_count) {
+            SCOPED_TIMER(_join_node->_process_other_join_conjunct_timer);
             int orig_columns = output_block->columns();
             IColumn::Filter other_conjunct_filter(row_count, 1);
             bool can_be_filter_all;
@@ -1034,7 +1036,8 @@ void ProcessHashTableProbe<JoinOpType>::_process_splited_equal_matched_tuples(
             *visited_map[i] |= other_hit;
         }
     }
-    _join_node->_is_any_probe_match_row_output |= simd::contain_byte(filter_map, row_count, 1);
+    _join_node->_is_any_probe_match_row_output |=
+            simd::contain_byte(filter_map + start_row_idx, row_count, 1);
 }
 
 template <int JoinOpType>

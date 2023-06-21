@@ -44,12 +44,12 @@ public class Log4jConfig extends XmlConfiguration {
             + "  <Appenders>\n"
             + "    <Console name=\"Console\" target=\"SYSTEM_OUT\">"
             + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n"
+            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
             + "      </PatternLayout>\n"
             + "    </Console>"
             + "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n"
             + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n"
+            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
             + "      </PatternLayout>\n"
             + "      <Policies>\n"
             + "        <TimeBasedTriggeringPolicy/>\n"
@@ -64,7 +64,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "    </RollingFile>\n"
             + "    <RollingFile name=\"SysWF\" fileName=\"${sys_log_dir}/fe.warn.log\" filePattern=\"${sys_log_dir}/fe.warn.log.${sys_file_pattern}-%i\">\n"
             + "      <PatternLayout charset=\"UTF-8\">\n"
-            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n"
+            + "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)<!--REPLACED BY LOG FORMAT-->%m%n</Pattern>\n"
             + "      </PatternLayout>\n"
             + "      <Policies>\n"
             + "        <TimeBasedTriggeringPolicy/>\n"
@@ -94,7 +94,7 @@ public class Log4jConfig extends XmlConfiguration {
             + "    </RollingFile>\n"
             + "  </Appenders>\n"
             + "  <Loggers>\n"
-            + "    <Root level=\"${sys_log_level}\">\n"
+            + "    <Root level=\"${sys_log_level}\" includeLocation=\"${include_location_flag}\" immediateFlush=\"${immediate_flush_flag}\">\n"
             + "      <AppenderRef ref=\"Sys\"/>\n"
             + "      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n"
             + "      <!--REPLACED BY Console Logger-->\n"
@@ -109,6 +109,7 @@ public class Log4jConfig extends XmlConfiguration {
 
     private static StrSubstitutor strSub;
     private static String sysLogLevel;
+    private static String sysLogMode;
     private static String[] verboseModules;
     private static String[] auditModules;
     // save the generated xml conf template
@@ -137,6 +138,12 @@ public class Log4jConfig extends XmlConfiguration {
                 || sysLogLevel.equalsIgnoreCase("ERROR")
                 || sysLogLevel.equalsIgnoreCase("FATAL"))) {
             throw new IOException("sys_log_level config error");
+        }
+
+        if (!(sysLogMode.equalsIgnoreCase("NORMAL")
+                || sysLogMode.equalsIgnoreCase("BRIEF")
+                || sysLogMode.equalsIgnoreCase("ASYNC"))) {
+            throw new IOException("sys_log_mode config error");
         }
 
         String sysLogRollPattern = "%d{yyyyMMdd}";
@@ -174,6 +181,16 @@ public class Log4jConfig extends XmlConfiguration {
         newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->",
                 sb.toString());
 
+        if (sysLogMode.equalsIgnoreCase("NORMAL")) {
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY LOG FORMAT-->",
+                    " [%C{1}.%M():%L] ");
+        } else {
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY LOG FORMAT-->", " ");
+            if (sysLogMode.equalsIgnoreCase("ASYNC")) {
+                newXmlConfTemplate = newXmlConfTemplate.replaceAll("Root", "AsyncRoot");
+            }
+        }
+
         if (foreground) {
             StringBuilder consoleLogger = new StringBuilder();
             consoleLogger.append("<AppenderRef ref=\"Console\"/>\n");
@@ -193,6 +210,8 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("audit_roll_maxsize", auditRollMaxSize);
         properties.put("audit_roll_num", auditRollNum);
         properties.put("audit_log_delete_age", auditDeleteAge);
+        properties.put("include_location_flag", sysLogMode.equalsIgnoreCase("NORMAL") ? "true" : "false");
+        properties.put("immediate_flush_flag", sysLogMode.equalsIgnoreCase("ASYNC") ? "false" : "true");
 
         strSub = new StrSubstitutor(new Interpolator(properties));
         newXmlConfTemplate = strSub.replace(newXmlConfTemplate);
@@ -216,15 +235,17 @@ public class Log4jConfig extends XmlConfiguration {
         return logXmlConfTemplate;
     }
 
-    public static class Tuple<X, Y, Z> {
+    public static class Tuple<X, Y, Z, U> {
         public final X x;
         public final Y y;
         public final Z z;
+        public final U u;
 
-        public Tuple(X x, Y y, Z z) {
+        public Tuple(X x, Y y, Z z, U u) {
             this.x = x;
             this.y = y;
             this.z = z;
+            this.u = u;
         }
     }
 
@@ -239,6 +260,7 @@ public class Log4jConfig extends XmlConfiguration {
 
     public static synchronized void initLogging(String dorisConfDir) throws IOException {
         sysLogLevel = Config.sys_log_level;
+        sysLogMode = Config.sys_log_mode;
         verboseModules = Config.sys_log_verbose_modules;
         auditModules = Config.audit_log_modules;
         confDir = dorisConfDir;
@@ -246,11 +268,15 @@ public class Log4jConfig extends XmlConfiguration {
         reconfig();
     }
 
-    public static synchronized Tuple<String, String[], String[]> updateLogging(
-            String level, String[] verboseNames, String[] auditNames) throws IOException {
+    public static synchronized Tuple<String, String, String[], String[]> updateLogging(
+            String level, String mode, String[] verboseNames, String[] auditNames) throws IOException {
         boolean toReconfig = false;
         if (level != null) {
             sysLogLevel = level;
+            toReconfig = true;
+        }
+        if (mode != null) {
+            sysLogMode = mode;
             toReconfig = true;
         }
         if (verboseNames != null) {
@@ -264,6 +290,6 @@ public class Log4jConfig extends XmlConfiguration {
         if (toReconfig) {
             reconfig();
         }
-        return new Tuple<>(sysLogLevel, verboseModules, auditModules);
+        return new Tuple<>(sysLogLevel, sysLogMode, verboseModules, auditModules);
     }
 }

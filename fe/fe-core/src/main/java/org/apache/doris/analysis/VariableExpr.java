@@ -178,8 +178,12 @@ public class VariableExpr extends Expr {
                 msg.float_literal = new TFloatLiteral(floatValue);
                 break;
             default:
-                msg.node_type = TExprNodeType.STRING_LITERAL;
-                msg.string_literal = new TStringLiteral(strValue);
+                if (strValue == null) {
+                    msg.node_type = TExprNodeType.NULL_LITERAL;
+                } else {
+                    msg.node_type = TExprNodeType.STRING_LITERAL;
+                    msg.string_literal = new TStringLiteral(strValue);
+                }
         }
     }
 

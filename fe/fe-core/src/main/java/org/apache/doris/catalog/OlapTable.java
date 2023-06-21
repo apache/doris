@@ -1019,6 +1019,15 @@ public class OlapTable extends Table {
         return null;
     }
 
+    public Column getRowStoreCol() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isRowStoreColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
     public Boolean hasSequenceCol() {
         return getSequenceCol() != null;
     }
@@ -1489,21 +1498,9 @@ public class OlapTable extends Table {
         return replicaCount;
     }
 
-    public void checkStableAndNormal(String clusterName) throws DdlException {
+    public void checkNormalStateForAlter() throws DdlException {
         if (state != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + name + "]'s state is not NORMAL. "
-                    + "Do not allow doing materialized view");
-        }
-        // check if all tablets are healthy, and no tablet is in tablet scheduler
-        boolean isStable = isStable(Env.getCurrentSystemInfo(),
-                Env.getCurrentEnv().getTabletScheduler(),
-                clusterName);
-        if (!isStable) {
-            throw new DdlException("table [" + name + "] is not stable."
-                    + " Some tablets of this table may not be healthy or are being "
-                    + "scheduled."
-                    + " You need to repair the table first"
-                    + " or stop cluster balance. See 'help admin;'.");
+            throw new DdlException("Table[" + name + "]'s state is not NORMAL. Do not allow doing ALTER ops");
         }
     }
 
@@ -1767,7 +1764,7 @@ public class OlapTable extends Table {
     }
 
     public boolean isCcrEnable() {
-        return tableProperty != null ?  tableProperty.isCcrEnable() : false;
+        return tableProperty != null && tableProperty.isCcrEnable();
     }
 
     public void setDisableAutoCompaction(boolean disableAutoCompaction) {
