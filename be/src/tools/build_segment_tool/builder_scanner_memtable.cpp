@@ -203,7 +203,6 @@ TDescriptorTable BuilderScannerMemtable::create_descriptor_tablet() {
                        col.type() == FieldType::OLAP_FIELD_TYPE_VARCHAR) {
                 tuple_builder.add_slot(TSlotDescriptorBuilder()
                                                .string_type(col.length())
-                                               .nullable(col.is_nullable())
                                                .column_name(col.name())
                                                .column_pos(i)
                                                .build());
