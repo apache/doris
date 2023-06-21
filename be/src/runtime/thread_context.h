@@ -324,7 +324,7 @@ class TrackMemoryToUnknown {
 public:
     explicit TrackMemoryToUnknown() {
         if (bthread_self() != 0) {
-            bthread_id = bthread_self(); // save thread id in pthread local
+            _tid = std::this_thread::get_id(); // save pthread id
         }
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
@@ -334,13 +334,14 @@ public:
     ~TrackMemoryToUnknown() {
         if (bthread_self() != 0) {
             // make sure pthread is not switch, if switch, mem tracker will be wrong, but not crash in release
-            DCHECK(bthread_equal(bthread_self(), bthread_id));
+            DCHECK(_tid == std::this_thread::get_id());
         }
         thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
     }
 
 private:
     std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+    std::thread::id _tid;
 };
 
 class AddThreadMemTrackerConsumer {
