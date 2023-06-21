@@ -1021,7 +1021,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
-        DataType dataType = typedVisit(ctx.dataType());
+        List<String> types = typedVisit(ctx.dataType());
+        DataType dataType = DataType.convertPrimitiveFromStrings(types, true);
         Expression cast = ParserUtils.withOrigin(ctx, () ->
                 new Cast(getExpression(ctx.expression()), dataType));
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
@@ -1881,11 +1882,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
+    public List<String> visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
         String dataType = ctx.identifier().getText().toLowerCase(Locale.ROOT);
         List<String> l = Lists.newArrayList(dataType);
         ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
-        return DataType.convertPrimitiveFromStrings(l);
+        return l;
     }
 
     private Expression parseFunctionWithOrderKeys(String functionName, boolean isDistinct,
