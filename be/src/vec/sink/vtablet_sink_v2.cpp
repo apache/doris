@@ -377,8 +377,7 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         while (_flying_memtable_count.load() >= config::max_flying_memtable_per_sink) {
-            // sleep 1ms
-            bthread_usleep(1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
