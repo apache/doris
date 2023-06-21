@@ -129,6 +129,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
+DEFINE_mInt64(pre_serialize_keys_limit_bytes, "16777216");
+
 // the port heartbeat service used
 DEFINE_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
