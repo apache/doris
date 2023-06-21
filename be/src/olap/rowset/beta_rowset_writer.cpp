@@ -108,6 +108,7 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     _rowset_meta.reset(new RowsetMeta);
     _rowset_meta->set_fs(_context.fs);
     _rowset_meta->set_rowset_id(_context.rowset_id);
+    _index_id = _context.index_id;
     _rowset_meta->set_partition_id(_context.partition_id);
     _rowset_meta->set_tablet_id(_context.tablet_id);
     _rowset_meta->set_tablet_schema_hash(_context.tablet_schema_hash);
@@ -714,19 +715,20 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
+    Status st;
     if (config::experimental_olap_table_sink_v2) {
-        // TODO: create stream sink writer
-        //auto index_id = _rowset_meta->index_id();
-        //auto tablet_id = _rowset_meta->tablet_id();
-        //auto load_id = _rowset_meta->load_id();
-        //auto rowset_id = _rowset_meta->rowset_id();
-        //auto stream_id = *_streams.begin();
+        auto index_id = _index_id;
+        auto tablet_id = _rowset_meta->tablet_id();
+        auto load_id = _rowset_meta->load_id();
+        auto rowset_id = _rowset_meta->rowset_id();
+        auto stream_id = *_streams.begin();
 
-        //io::StreamSinkFileWriter writer(stream_id);
-        //writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
+        auto stream_writer = std::make_unique<io::StreamSinkFileWriter>(stream_id);
+        stream_writer->init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
+        file_writer = std::move(stream_writer);
+    } else {
+        st = fs->create_file(path, &file_writer);
     }
-    // TODO: else
-    Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
@@ -878,17 +880,18 @@ void BetaRowsetWriter::notify_last() {
     return;
     if (config::experimental_olap_table_sink_v2) {
         io::FileWriterPtr file_writer;
-        // TODO: create stream sink writer
-        //auto index_id = _rowset_meta->index_id();
-        //auto tablet_id = _rowset_meta->tablet_id();
-        int32_t segment_id = allocate_segment_id();
-        //auto p = path;
-        //auto load_id = _rowset_meta->load_id();
-        //auto rowset_id = _rowset_meta->rowset_id();
-        //auto stream_id = *_streams.begin();
-        //io::StreamSinkFileWriter writer(stream_id);
-        //writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, true);
-        //file_writer = writer;
+
+        int32_t segment_id = _next_segment_id.load();
+        std::string path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
+        auto index_id = _index_id;
+        auto tablet_id = _rowset_meta->tablet_id();
+        auto load_id = _rowset_meta->load_id();
+        auto rowset_id = _rowset_meta->rowset_id();
+        auto stream_id = *_streams.begin();
+
+        auto stream_writer = std::make_unique<io::StreamSinkFileWriter>(stream_id);
+        stream_writer->init(path, load_id, index_id, tablet_id, rowset_id, segment_id, true);
+        file_writer = std::move(stream_writer);
 
         segment_v2::SegmentWriterOptions writer_options;
         writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
@@ -898,6 +901,8 @@ void BetaRowsetWriter::notify_last() {
                 file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
                 _context.data_dir, _context.max_rows_per_segment, writer_options,
                 _context.mow_context));
+        
+        // TODO: flush will be ignored because block is empty?
         flush();
     }
 }

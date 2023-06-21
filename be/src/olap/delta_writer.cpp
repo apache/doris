@@ -198,6 +198,8 @@ Status DeltaWriter::init() {
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
+    context.index_id = _req.index_id;
+    context.partition_id = _req.partition_id;
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;

@@ -227,6 +227,8 @@ protected:
     std::shared_ptr<MowContext> _mow_context;
 
     std::vector<brpc::StreamId> _streams;
+
+    int64_t _index_id;
 };
 
 } // namespace doris
