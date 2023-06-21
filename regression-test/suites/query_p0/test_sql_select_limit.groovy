@@ -18,59 +18,41 @@
 suite('sql_select_limit') {
     sql 'use test_query_db'
     sql 'set sql_select_limit = 5'
-    sql 'set default_order_by_limit 4'
-    
-    test {
-        result = sql 'select * from baseall'
-        assertTrue(result.size() == 5)
-    }
+    sql 'set default_order_by_limit = 4'
 
-    test {
-        result = sql 'select * from baseall order by k1'
-        assertTrue(result.size() == 4)
-    }
+    def result = sql "select * from baseall"
+    assertTrue(result.size() == 5)
 
-    test {
-        result = sql '(select * from baseall) union (select * from test)'
-        assertTrue(result.size() == 5)
-    }
+    result = sql 'select * from baseall order by k1'
+    assertTrue(result.size() == 4)
+
+    result = sql '(select * from baseall) union (select * from test)'
+    assertTrue(result.size() == 5)
 
     sql 'set sql_select_limit = 4'
-    sql 'set default_order_by_limit 5'
+    sql 'set default_order_by_limit = 5'
 
-    test {
-        result = sql 'select * from baseall'
-        assertTrue(result.size() == 4)
-    }
+    result = sql 'select * from baseall'
+    assertTrue(result.size() == 4)
 
-    test {
-        result = sql 'select * from baseall order by k1'
-        assertTrue(result.size() == 4)
-    }
+    result = sql 'select * from baseall order by k1'
+    assertTrue(result.size() == 4)
 
-    test {
-        result = sql '(select * from baseall) union (select * from test)'
-        assertTrue(result.size() == 4)
-    }
+    result = sql '(select * from baseall) union (select * from test)'
+    assertTrue(result.size() == 4)
 
     sql 'set sql_select_limit = 0'
 
-    test {
-        result = sql 'select * from baseall'
-        assertTrue(result.size() == 0)
-    }
+    result = sql 'select * from baseall'
+    assertTrue(result.size() == 0)
 
     sql 'set sql_select_limit = -1'
 
-    test {
-        result = sql 'select * from baseall'
-        assertTrue(result.size() == 16)
-    }
+    result = sql 'select * from baseall'
+    assertTrue(result.size() == 16)
 
     sql 'set sql_select_limit = -10'
 
-    test {
-        result = sql 'select * from baseall'
-        assertTrue(result.size() == 16)
-    }
+    result = sql 'select * from baseall'
+    assertTrue(result.size() == 16)
 }
