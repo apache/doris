@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -191,6 +192,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         if (!VectorizedUtil.isVectorized() && limitElement.getOffset() > 0 && !hasOrderByClause()) {
             throw new AnalysisException("OFFSET requires an ORDER BY clause: "
                     + limitElement.toSql().trim());
+        }
+        // check if the query stmt is the top node and add a limit if the sv is open.
+        if (!analyzer.hasAncestors() && !limitElement.hasLimit() && ConnectContext.get() != null) {
+            limitElement = new LimitElement(ConnectContext.get().getSessionVariable().getSqlSelectLimit());
         }
         limitElement.analyze(analyzer);
     }
