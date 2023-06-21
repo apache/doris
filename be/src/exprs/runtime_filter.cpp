@@ -1199,7 +1199,6 @@ bool IRuntimeFilter::await() {
                                 ? RuntimeFilterState::TIME_OUT
                                 : RuntimeFilterState::NOT_READY,
                         std::memory_order_acq_rel)) {
-                DCHECK(expected == RuntimeFilterState::READY);
                 return true;
             }
             return false;
@@ -1272,7 +1271,6 @@ bool IRuntimeFilter::is_ready_or_timeout() {
         }
         if (!_rf_state_atomic.compare_exchange_strong(expected, RuntimeFilterState::NOT_READY,
                                                       std::memory_order_acq_rel)) {
-            DCHECK(expected == RuntimeFilterState::READY);
             return true;
         }
         return false;
