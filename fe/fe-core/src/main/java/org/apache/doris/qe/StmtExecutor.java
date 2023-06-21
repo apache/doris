@@ -1922,8 +1922,6 @@ public class StmtExecutor {
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
-        // context.getState().setEof();
-        context.getState().setOk();
     }
 
 
@@ -1965,6 +1963,10 @@ public class StmtExecutor {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
+    private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
+        return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
+    }
+
     private void sendStmtPrepareOK() throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
@@ -1979,13 +1981,27 @@ public class StmtExecutor {
         int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
         serializer.writeInt2(numParams);
         // reserved_1
-        // serializer.writeInt1(0);
+        serializer.writeInt1(0);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
-            sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+            // send field one by one
+            // TODO use real type instead of string, for JDBC client it's ok
+            // but for other client, type should be correct
+            List<PrimitiveType> types = exprToStringType(prepareStmt.getPlaceHolderExprList());
+            List<String> colNames = prepareStmt.getColLabelsOfPlaceHolders();
+            LOG.debug("sendFields {}, {}", colNames, types);
+            for (int i = 0; i < colNames.size(); ++i) {
+                serializer.reset();
+                serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
         }
-        context.getState().setOk();
+        // send EOF if nessessary
+        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+            context.getState().setEof();
+        } else {
+            context.getState().setOk();
+        }
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {

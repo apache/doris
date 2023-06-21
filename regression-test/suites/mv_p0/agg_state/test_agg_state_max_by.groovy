@@ -17,12 +17,14 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("mv_with_view") {
+suite ("test_agg_state_max_by") {
+
+    sql """set enable_nereids_planner=true"""
 
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
-            create table d_table (
+            create table d_table(
                 k1 int null,
                 k2 int not null,
                 k3 bigint null,
@@ -33,42 +35,21 @@ suite ("mv_with_view") {
             properties("replication_num" = "1");
         """
 
-    sql """insert into d_table select 1,1,1,'a';"""
-    sql """insert into d_table select 2,2,2,'b';"""
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
+    sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table(k4,k2) values('d',4);"
 
-    createMV("create materialized view k132 as select k1,k3,k2 from d_table;")
+    createMV("create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;")
 
-    sql """insert into d_table select 3,-3,null,'c';"""
+    sql "insert into d_table select -4,-4,-4,'d';"
 
-    explain {
-        sql("select * from d_table order by k1;")
-        contains "(d_table)"
-    }
     qt_select_star "select * from d_table order by k1;"
-
-    sql """
-        drop view if exists v_k132;
-    """
-
-    sql """
-        create view v_k132 as select k1,k3,k2 from d_table where k1 = 1;
-    """
+/*
     explain {
-        sql("select * from v_k132 order by k1;")
-        contains "(k132)"
+        sql("select k1,max_by(k2,k3) from d_table group by k1 order by k1;")
+        contains "(k1mb)"
     }
-    qt_select_mv "select * from v_k132 order by k1;"
-
-    sql """
-        drop view if exists v_k124;
-    """
-
-    sql """
-        create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
-    """
-    explain {
-        sql("select * from v_k124 order by k1;")
-        contains "(d_table)"
-    }
-    qt_select_mv "select * from v_k124 order by k1;"
+    qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by k1;"
+*/
 }

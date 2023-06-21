@@ -4743,6 +4743,10 @@ public class Env {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
     }
 
+    public boolean isAggFunctionName(String name) {
+        return functionSet.isAggFunctionName(name);
+    }
+
     @Deprecated
     public long loadCluster(DataInputStream dis, long checksum) throws IOException, DdlException {
         return getInternalCatalog().loadCluster(dis, checksum);
