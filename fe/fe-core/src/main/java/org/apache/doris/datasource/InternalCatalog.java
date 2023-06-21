@@ -1822,7 +1822,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
-                    if (countDownLatch.getStatus().errorCode == TStatusCode.TIMEOUT) {
+                    if (countDownLatch.getStatus().getErrorCode() == TStatusCode.TIMEOUT) {
                         SystemInfoService infoService = Env.getCurrentSystemInfo();
                         Set<String> downBeSet = countDownLatch.getLeftMarks().stream()
                                 .map(item -> infoService.getBackend(item.getKey()))
