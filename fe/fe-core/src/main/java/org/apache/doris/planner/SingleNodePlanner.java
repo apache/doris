@@ -237,6 +237,7 @@ public class SingleNodePlanner {
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
         long defaultLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
+        long sqlSelectLimit = analyzer.getContext().getSessionVariable().sqlSelectLimit;
         if (newDefaultOrderByLimit == -1) {
             if (defaultLimit <= -1) {
                 newDefaultOrderByLimit = Long.MAX_VALUE;
@@ -244,6 +245,7 @@ public class SingleNodePlanner {
                 newDefaultOrderByLimit = defaultLimit;
             }
         }
+        newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
