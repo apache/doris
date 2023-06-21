@@ -193,6 +193,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
@@ -1182,9 +1183,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
-                return new DateLiteral(value);
+                return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
             case "TIMESTAMP":
-                return new DateTimeLiteral(value);
+                return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
             case "DATEV2":
                 return new DateV2Literal(value);
             default:

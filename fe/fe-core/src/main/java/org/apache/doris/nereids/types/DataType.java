@@ -198,7 +198,7 @@ public abstract class DataType implements AbstractDataType {
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
             case "date":
-                return DateType.INSTANCE;
+                return Config.enable_date_conversion ? DateV2Type.INSTANCE : DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
@@ -206,7 +206,7 @@ public abstract class DataType implements AbstractDataType {
             case "datetime":
                 switch (types.size()) {
                     case 1:
-                        return DateTimeType.INSTANCE;
+                        return Config.enable_date_conversion ? DateTimeV2Type.SYSTEM_DEFAULT : DateTimeType.INSTANCE;
                     case 2:
                         return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                     default:
