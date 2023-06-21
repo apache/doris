@@ -690,3 +690,4 @@ if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
 fi
 
 exit 0
+
