@@ -183,7 +183,6 @@ Status EnginePublishVersionTask::finish() {
                         _discontinous_version_tablets->emplace_back(
                                 partition_id, tablet_info.tablet_id, version.first);
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>();
-                    }
                     continue;
                 }
             }
@@ -254,7 +253,14 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
 
 void TabletPublishTxnTask::handle() {
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
+    if (!_rowset->start_publish()) {
+        LOG(WARNING) << "publish is running. rowset_id=" << _rowset->rowset_id()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id;
+        _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
+        return;
+    }
     Defer defer {[&] {
+        _rowset->finish_publish();
         if (_engine_publish_version_task->finish_task() == 1) {
             _engine_publish_version_task->notify();
         }
@@ -304,6 +310,14 @@ void AsyncTabletPublishTask::handle() {
         return;
     }
     RowsetSharedPtr rowset = iter->second;
+    if (!rowset->start_publish()) {
+        LOG(WARNING) << "publish is running. rowset_id=" << rowset->rowset_id()
+                     << ", tablet_id=" << _tablet->tablet_id() << ", txn_id=" << _transaction_id;
+        return;
+    }
+    Defer defer {[&] {
+        rowset->finish_publish();
+    }};
     Version version(_version, _version);
     auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, version, &_stats);

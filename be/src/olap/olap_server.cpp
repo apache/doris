@@ -1213,9 +1213,13 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
 void StorageEngine::_async_publish_callback() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
         std::lock_guard<std::mutex> lock(_aync_publish_mutex);
-        for (auto iter = _async_publish_tasks.begin(); iter != _async_publish_tasks.end();) {
-            int64_t tablet_id = iter->first;
-            auto task_iter = iter->second.begin();
+        for (auto tablet_iter = _async_publish_tasks.begin(); tablet_iter != _async_publish_tasks.end();) {
+            if (tablet_iter->second.empty()) {
+                tablet_iter = _async_publish_tasks.erase(tablet_iter);
+                continue;
+            }
+            int64_t tablet_id = tablet_iter->first;
+            auto task_iter = tablet_iter->second.begin();
             int64_t version = task_iter->first;
             int64_t transaction_id = task_iter->second.first;
             int64_t partition_id = task_iter->second.second;
@@ -1223,7 +1227,7 @@ void StorageEngine::_async_publish_callback() {
             if (!tablet) {
                 LOG(WARNING) << "tablet does not exist, tablet_id: " << tablet_id
                              << " publish_version: " << version;
-                iter = _async_publish_tasks.erase(iter);
+                tablet_iter = _async_publish_tasks.erase(tablet_iter);
             }
 
             int64_t max_version;
@@ -1231,8 +1235,14 @@ void StorageEngine::_async_publish_callback() {
                 std::shared_lock rdlock(tablet->get_header_lock());
                 max_version = tablet->max_version().second;
             }
+
+            if (version <= max_version) {
+                tablet_iter->second.erase(task_iter);
+                tablet_iter++;
+                continue;
+            }
             if (version != max_version + 1) {
-                iter++;
+                tablet_iter++;
                 continue;
             }
 
@@ -1240,12 +1250,7 @@ void StorageEngine::_async_publish_callback() {
                     tablet, partition_id, transaction_id, version);
             StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
                     [=]() { async_publish_task->handle(); });
-            iter->second.erase(task_iter);
-            if (iter->second.empty()) {
-                iter = _async_publish_tasks.erase(iter);
-            } else {
-                iter++;
-            }
+            tablet_iter++;
         }
     }
 }
