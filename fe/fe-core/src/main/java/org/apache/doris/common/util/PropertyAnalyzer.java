@@ -96,7 +96,7 @@ public class PropertyAnalyzer {
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
-    public static final String PROPERTIES_DYNAMIC_SCHEMA = "dynamic_schema";
+    public static final String PROPERTIES_DYNAMIC_SCHEMA = "deprecated_dynamic_schema";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
