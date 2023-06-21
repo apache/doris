@@ -299,9 +299,10 @@ struct TimeDiffImpl {
             std ::is_same_v<DateType2, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
             std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>,
                                 DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
-    using ReturnType = std ::conditional_t<std::is_same_v<DateType1, DataTypeDateTimeV2> &&
-                                                   std::is_same_v<DateType2, DataTypeDateTimeV2>,
-                                           DataTypeTimeV2, DataTypeTime>;
+    static constexpr bool UsingTimev2 = std::is_same_v<DateType1, DataTypeDateTimeV2> ||
+                                        std::is_same_v<DateType2, DataTypeDateTimeV2>;
+    using ReturnType = std ::conditional_t<UsingTimev2, DataTypeTimeV2, DataTypeTime>;
+
     static constexpr auto name = "timediff";
     static constexpr auto is_nullable = false;
     static inline ReturnType ::FieldType execute(const ArgType1& t0, const ArgType2& t1,
@@ -309,8 +310,7 @@ struct TimeDiffImpl {
         const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
         const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
-        if constexpr (std::is_same_v<DateType1, DataTypeDateTimeV2> &&
-                      std::is_same_v<DateType2, DataTypeDateTimeV2>) {
+        if constexpr (UsingTimev2) {
             return ts0.microsecond_diff(ts1);
         } else {
             return ts0.second_diff(ts1);
