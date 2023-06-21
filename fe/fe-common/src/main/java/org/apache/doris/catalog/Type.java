@@ -129,109 +129,30 @@ public abstract class Type {
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
-        integerTypes = Lists.newArrayList();
-        integerTypes.add(TINYINT);
-        integerTypes.add(SMALLINT);
-        integerTypes.add(INT);
-        integerTypes.add(BIGINT);
-        integerTypes.add(LARGEINT);
+        integerTypes = Lists.newArrayList(TINYINT, SMALLINT, INT, BIGINT, LARGEINT);
 
-        stringTypes = Lists.newArrayList();
-        stringTypes.add(CHAR);
-        stringTypes.add(VARCHAR);
-        stringTypes.add(STRING);
+        stringTypes = Lists.newArrayList(CHAR, VARCHAR, STRING);
 
-        numericTypes = Lists.newArrayList();
+        numericTypes = Lists.newArrayList(FLOAT, DOUBLE, MAX_DECIMALV2_TYPE, DECIMAL32, DECIMAL64, DECIMAL128);
         numericTypes.addAll(integerTypes);
-        numericTypes.add(FLOAT);
-        numericTypes.add(DOUBLE);
-        numericTypes.add(MAX_DECIMALV2_TYPE);
-        numericTypes.add(DECIMAL32);
-        numericTypes.add(DECIMAL64);
-        numericTypes.add(DECIMAL128);
 
-        numericDateTimeTypes = Lists.newArrayList();
-        numericDateTimeTypes.add(DATE);
-        numericDateTimeTypes.add(DATETIME);
-        numericDateTimeTypes.add(DATEV2);
-        numericDateTimeTypes.add(DATETIMEV2);
-        numericDateTimeTypes.add(TIME);
-        numericDateTimeTypes.add(TIMEV2);
+        numericDateTimeTypes = Lists.newArrayList(DATE, DATETIME, DATEV2, DATETIMEV2, TIME, TIMEV2);
         numericDateTimeTypes.addAll(numericTypes);
 
-        trivialTypes = Lists.newArrayList();
+        trivialTypes = Lists.newArrayList(BOOLEAN, VARCHAR, STRING, CHAR, DATE, DATETIME, DATEV2, DATETIMEV2, TIME, TIMEV2, JSONB);
         trivialTypes.addAll(numericTypes);
-        trivialTypes.add(BOOLEAN);
-        trivialTypes.add(VARCHAR);
-        trivialTypes.add(STRING);
-        trivialTypes.add(CHAR);
-        trivialTypes.add(DATE);
-        trivialTypes.add(DATETIME);
-        trivialTypes.add(DATEV2);
-        trivialTypes.add(DATETIMEV2);
-        trivialTypes.add(TIME);
-        trivialTypes.add(TIMEV2);
-        trivialTypes.add(JSONB);
 
-        supportedTypes = Lists.newArrayList();
+        supportedTypes = Lists.newArrayList(NULL, HLL, BITMAP, QUANTILE_STATE, AGG_STATE);
         supportedTypes.addAll(trivialTypes);
-        supportedTypes.add(NULL);
-        supportedTypes.add(HLL);
-        supportedTypes.add(BITMAP);
-        supportedTypes.add(QUANTILE_STATE);
-        supportedTypes.add(AGG_STATE);
 
-        arraySubTypes = Lists.newArrayList();
-        arraySubTypes.add(BOOLEAN);
+        arraySubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DATE, DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING, DECIMAL32, DECIMAL64, DECIMAL128);
         arraySubTypes.addAll(integerTypes);
-        arraySubTypes.add(FLOAT);
-        arraySubTypes.add(DOUBLE);
-        arraySubTypes.add(DECIMALV2);
-        arraySubTypes.add(DATE);
-        arraySubTypes.add(DATETIME);
-        arraySubTypes.add(DATEV2);
-        arraySubTypes.add(DATETIMEV2);
-        arraySubTypes.add(CHAR);
-        arraySubTypes.add(VARCHAR);
-        arraySubTypes.add(STRING);
-        arraySubTypes.add(DECIMAL32);
-        arraySubTypes.add(DECIMAL64);
-        arraySubTypes.add(DECIMAL128);
 
-        mapSubTypes = Lists.newArrayList();
-        mapSubTypes.add(BOOLEAN);
+        mapSubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DECIMAL32, DECIMAL64, DECIMAL128, DATE, DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING, NULL);
         mapSubTypes.addAll(integerTypes);
-        mapSubTypes.add(FLOAT);
-        mapSubTypes.add(DOUBLE);
-        mapSubTypes.add(DECIMALV2);
-        mapSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
-        mapSubTypes.add(DECIMAL64);
-        mapSubTypes.add(DECIMAL128);
-        mapSubTypes.add(DATE);
-        mapSubTypes.add(DATETIME);
-        mapSubTypes.add(DATEV2);
-        mapSubTypes.add(DATETIMEV2);
-        mapSubTypes.add(CHAR);
-        mapSubTypes.add(VARCHAR);
-        mapSubTypes.add(STRING);
-        mapSubTypes.add(NULL);
 
-        structSubTypes = Lists.newArrayList();
-        structSubTypes.add(BOOLEAN);
+        structSubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DECIMAL32, DECIMAL64, DECIMAL128, DATE, DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING);
         structSubTypes.addAll(integerTypes);
-        structSubTypes.add(FLOAT);
-        structSubTypes.add(DOUBLE);
-        structSubTypes.add(DECIMALV2);
-        structSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
-        structSubTypes.add(DECIMAL64);
-        structSubTypes.add(DECIMAL128);
-        structSubTypes.add(DATE);
-        structSubTypes.add(DATETIME);
-        structSubTypes.add(DATEV2);
-        structSubTypes.add(DATETIMEV2);
-        structSubTypes.add(CHAR);
-        structSubTypes.add(VARCHAR);
-        structSubTypes.add(STRING);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
