@@ -46,7 +46,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
         Assertions.assertEquals(JobState.ACTIVE, resultJob.getState());
         long jobId = resultJob.getId();
         ChangeMTMVJob changeMTMVJob = new ChangeMTMVJob(jobId, JobState.PAUSE);
-        jobManager.updateJob(changeMTMVJob, false);
+        resultJob.updateJob(changeMTMVJob, false);
         resultJob = jobManager.getJob("dummy");
         Assertions.assertEquals("dummy", resultJob.getName());
         Assertions.assertEquals(JobState.PAUSE, resultJob.getState());
@@ -85,7 +85,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
 
         Assertions.assertEquals(1, jobManager.getTaskManager().getHistoryTasks().size());
         Assertions.assertEquals(1, jobManager.getTaskManager().showAllTasks().size());
-        Assertions.assertEquals(1, jobManager.getTaskManager().showTasks(MTMVUtilsTest.dbName).size());
+        Assertions.assertEquals(1, jobManager.getTaskManager().showTasksWithLock(MTMVUtilsTest.dbName).size());
         Assertions.assertEquals(1,
                 jobManager.getTaskManager().showTasks(MTMVUtilsTest.dbName, MTMVUtilsTest.MV_NAME).size());
 
