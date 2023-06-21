@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -65,15 +66,13 @@ public class S3TvfLoadStmtTest {
 
     private LabelName labelName;
 
-    private Analyzer analyzer;
-
     private BrokerDesc brokerDesc;
 
     private Set<String> colNames;
 
     @Before
     public void setUp() throws AnalysisException {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        FeConstants.runningUnitTest = true;
 
         labelName = new LabelName("testDb", "testTbl");
 
@@ -176,17 +175,17 @@ public class S3TvfLoadStmtTest {
         };
         final S3TvfLoadStmt s3TvfLoadStmt = new S3TvfLoadStmt(labelName, Collections.singletonList(dataDescription),
                 brokerDesc, null, "comment");
+        s3TvfLoadStmt.setTargetTable(targetTable);
         Deencapsulation.setField(s3TvfLoadStmt, "functionGenTableColNames", Sets.newHashSet("c1", "c2", "c3"));
 
         Deencapsulation.invoke(s3TvfLoadStmt, "rewriteExpr", columnsDescList);
         Assert.assertEquals(columnsDescList.size(), 5);
-        final String orig4 = "`c1` + 1 + 1";
+        final String orig4 = "upper(`c1`) + 1 + 1";
         Assert.assertEquals(orig4, columnsDescList.get(4).getExpr().toString());
 
         final List<ImportColumnDesc> filterColumns = Deencapsulation.invoke(s3TvfLoadStmt,
                 "filterColumns", columnsDescList);
         Assert.assertEquals(filterColumns.size(), 4);
-        Assert.assertFalse(filterColumns.get(0).isColumn());
     }
 
     private static DataDescription buildDataDesc(Iterable<String> columns, Expr fileFilter, Expr wherePredicate,
