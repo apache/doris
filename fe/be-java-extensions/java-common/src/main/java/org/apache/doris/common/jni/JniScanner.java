@@ -24,6 +24,8 @@ import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.VectorTable;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Map;
 
 public abstract class JniScanner {
     protected VectorTable vectorTable;
@@ -77,6 +79,15 @@ public abstract class JniScanner {
             return 0;
         }
         return getMetaAddress(numRows);
+    }
+
+    /**
+     * Get performance metrics. The key should be pattern like "metricType:metricName".
+     * Support three metric types: timer, counter and bytes.
+     * The c++ side will attach metricName into profile automatically.
+     */
+    public Map<String, String> getStatistics() {
+        return Collections.emptyMap();
     }
 
     private long getMetaAddress(int numRows) {
