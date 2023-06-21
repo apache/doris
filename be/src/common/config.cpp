@@ -666,7 +666,7 @@ DEFINE_mBool(transfer_large_data_by_brpc, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
-DEFINE_mInt64(max_runnings_transactions_per_txn_map, "100");
+DEFINE_mInt64(max_runnings_transactions_per_txn_map, "500");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet

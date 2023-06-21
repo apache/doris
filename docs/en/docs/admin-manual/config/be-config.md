@@ -1410,7 +1410,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `max_runnings_transactions_per_txn_map`
 
 * Description: Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
-* Default value: 100
+* Default value: 500
 
 #### `max_download_speed_kbps`
 

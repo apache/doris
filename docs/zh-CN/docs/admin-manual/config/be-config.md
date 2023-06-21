@@ -1427,7 +1427,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `max_runnings_transactions_per_txn_map`
 
 * 描述: txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
-* 默认值: 100
+* 默认值: 500
 
 #### `max_download_speed_kbps`
 
