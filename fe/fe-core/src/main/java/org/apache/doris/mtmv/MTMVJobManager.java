@@ -82,10 +82,6 @@ public class MTMVJobManager {
     }
 
     public void start() {
-        if (!Env.getCurrentEnv().isMaster()) {
-            LOG.warn("only master can run MTMVJob");
-            return;
-        }
         if (isStarted.compareAndSet(false, true)) {
             // check the scheduler before using it
             // since it may be shutdown when master change to follower without process shutdown.
@@ -99,6 +95,10 @@ public class MTMVJobManager {
                 cleanerScheduler = Executors.newScheduledThreadPool(1);
             }
             cleanerScheduler.scheduleAtFixedRate(() -> {
+                if (!Env.getCurrentEnv().isMaster()) {
+                    LOG.warn("only master can run MTMVJob");
+                    return;
+                }
                 removeExpiredJobs();
                 taskManager.removeExpiredTasks();
             }, 0, 1, TimeUnit.MINUTES);
