@@ -375,17 +375,10 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
     {
-        MonotonicStopWatch watch;
-        watch.start();
-        bool waited = false;
+        SCOPED_TIMER(_wait_mem_limit_timer);
         while (_flying_memtable_count.load() >= config::max_flying_memtable_per_sink) {
             // sleep 1ms
             bthread_usleep(1000);
-            waited = true;
-        }
-        watch.stop();
-        if (waited) {
-            LOG(INFO) << "waited " << watch.elapsed_time() / 1000000 << "ms for flying memtable count limit";
         }
     }
 
