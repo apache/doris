@@ -248,9 +248,6 @@ public class SingleNodePlanner {
                 newDefaultOrderByLimit = defaultLimit;
             }
         }
-        if (sqlSelectLimit <= -1) {
-            sqlSelectLimit = Long.MAX_VALUE;
-        }
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
@@ -302,8 +299,10 @@ public class SingleNodePlanner {
             ((SortNode) root).setDefaultLimit(limit == -1);
             ((SortNode) root).setOffset(stmt.getOffset());
             if (useTopN) {
-                // if limit != -1, it means limit clause exists, we get the minimum.
-                root.setLimit(limit != -1 ? limit : Math.min(newDefaultOrderByLimit, sqlSelectLimit));
+                if (sqlSelectLimit > -1) {
+                    newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
+                }
+                root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit;
             } else {
                 root.setLimit(limit);
             }
