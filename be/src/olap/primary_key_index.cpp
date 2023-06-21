@@ -40,8 +40,7 @@ Status PrimaryKeyIndexBuilder::init() {
     options.write_value_index = true;
     options.data_page_size = config::primary_key_data_page_size;
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
-    // TODO(liaoxin) test to confirm whether it needs to be compressed
-    options.compression = segment_v2::ZSTD; // currently not compressed
+    options.compression = segment_v2::ZSTD;
     _primary_key_index_builder.reset(
             new segment_v2::IndexedColumnWriter(options, type_info, _file_writer));
     RETURN_IF_ERROR(_primary_key_index_builder->init());
