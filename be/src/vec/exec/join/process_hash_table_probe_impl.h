@@ -181,7 +181,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         if (_arena) {
             old_probe_keys_memory_usage = _arena->size();
         }
-        _arena.reset(new Arena());
+        _arena.reset(new Arena()); // TODO arena reuse by clear()?
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
             if (_probe_keys.size() < probe_rows) {
                 _probe_keys.resize(probe_rows);
