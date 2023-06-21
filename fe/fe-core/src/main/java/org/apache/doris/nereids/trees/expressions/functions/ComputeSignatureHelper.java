@@ -22,7 +22,6 @@ import org.apache.doris.catalog.FunctionSignature.TripleFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -124,13 +123,7 @@ public class ComputeSignatureHelper {
                 continue;
             }
             if (finalType == null) {
-                if (arguments.get(i) instanceof StringLikeLiteral) {
-                    // We need to determine the scale based on the string literal.
-                    StringLikeLiteral str = (StringLikeLiteral) arguments.get(i);
-                    finalType = DateTimeV2Type.forTypeFromString(str.getStringValue());
-                } else {
-                    finalType = DateTimeV2Type.forType(arguments.get(i).getDataType());
-                }
+                finalType = DateTimeV2Type.forType(arguments.get(i).getDataType());
             } else {
                 finalType = DateTimeV2Type.getWiderDatetimeV2Type(finalType,
                         DateTimeV2Type.forType(arguments.get(i).getDataType()));

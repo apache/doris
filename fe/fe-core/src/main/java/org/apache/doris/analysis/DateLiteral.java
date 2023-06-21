@@ -323,7 +323,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = dateTime.getMonthValue();
         this.day = dateTime.getDayOfMonth();
         this.type = type;
-        if (type.isDatetime() || type.isDatetimeV2()) {
+        if (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2)) {
             this.hour = dateTime.getHour();
             this.minute = dateTime.getMinute();
             this.second = dateTime.getSecond();
@@ -444,9 +444,8 @@ public class DateLiteral extends LiteralExpr {
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
             if (microsecond != 0 && type.isDatetime()) {
-                int dotIndex = s.lastIndexOf(".");
-                int scale = s.length() - dotIndex - 1;
-                type = ScalarType.createDatetimeV2Type(scale);
+                LOG.warn("Microseconds is not supported by Datetime type and hence is ignored."
+                        + "Please change to Datetimev2 to use it.");
             }
             this.type = type;
             if (checkRange() || checkDate()) {
@@ -1001,9 +1000,7 @@ public class DateLiteral extends LiteralExpr {
         final int second = getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE, 0);
         final int microSeconds = getOrDefault(accessor, ChronoField.MICRO_OF_SECOND, 0);
 
-        // LocalDateTime of(int year, int month, int dayOfMonth, int hour, int minute,
-        // int second, int nanoOfSecond)
-        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds * 1000);
+        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds);
     }
 
     public DateLiteral plusYears(int year) throws AnalysisException {
