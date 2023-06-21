@@ -32,7 +32,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TNullSide;
@@ -265,30 +264,6 @@ public abstract class JoinNodeBase extends PlanNode {
         outputSmap = ExprSubstitutionMap.composeAndReplace(outputSmap, srcTblRefToOutputTupleSmap, analyzer);
     }
 
-    protected void replaceOutputSmapForOuterJoin() {
-        if (joinOp.isOuterJoin() && !VectorizedUtil.isVectorized()) {
-            List<Expr> lhs = new ArrayList<>();
-            List<Expr> rhs = new ArrayList<>();
-
-            for (int i = 0; i < outputSmap.size(); i++) {
-                Expr expr = outputSmap.getLhs().get(i);
-                boolean isInNullableTuple = false;
-                for (TupleId tupleId : nullableTupleIds) {
-                    if (expr.isBound(tupleId)) {
-                        isInNullableTuple = true;
-                        break;
-                    }
-                }
-
-                if (!isInNullableTuple) {
-                    lhs.add(outputSmap.getLhs().get(i));
-                    rhs.add(outputSmap.getRhs().get(i));
-                }
-            }
-            outputSmap = new ExprSubstitutionMap(lhs, rhs);
-        }
-    }
-
     @Override
     public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
         outputSlotIds = Lists.newArrayList();
@@ -464,9 +439,7 @@ public abstract class JoinNodeBase extends PlanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         super.finalize(analyzer);
-        if (VectorizedUtil.isVectorized()) {
-            computeIntermediateTuple(analyzer);
-        }
+        computeIntermediateTuple(analyzer);
     }
 
     /**
@@ -490,7 +463,6 @@ public abstract class JoinNodeBase extends PlanNode {
         assignedConjuncts = analyzer.getAssignedConjuncts();
         // outSmap replace in outer join may cause NULL be replace by literal
         // so need replace the outsmap in nullableTupleID
-        replaceOutputSmapForOuterJoin();
         computeStats(analyzer);
 
         if (isMarkJoin() && !joinOp.supportMarkJoin()) {

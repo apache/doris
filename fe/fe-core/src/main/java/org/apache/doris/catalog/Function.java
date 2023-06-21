@@ -757,10 +757,6 @@ public class Function implements Writable {
         return row;
     }
 
-    boolean isVectorized() {
-        return vectorized;
-    }
-
     public void setNullableMode(NullableMode nullableMode) {
         this.nullableMode = nullableMode;
     }
