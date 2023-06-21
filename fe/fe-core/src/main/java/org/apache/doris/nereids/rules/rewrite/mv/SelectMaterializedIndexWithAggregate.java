@@ -28,6 +28,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -45,6 +46,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Ndv;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
@@ -67,6 +70,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -1390,6 +1394,36 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 }
             }
             return ndv;
+        }
+
+        /**
+         * agg(col) -> agg_merge(mva_generic_aggregation__agg_state(col)) eg: max_by(k2,
+         * k3) -> max_by_merge(mva_generic_aggregation__max_by_state(k2, k3))
+         */
+        @Override
+        public Expression visitAggregateFunction(AggregateFunction aggregateFunction, RewriteContext context) {
+            String aggStateName = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
+                    AggregateType.GENERIC_AGGREGATION, StateCombinator.create(aggregateFunction).toSql()));
+
+            Column mvColumn = context.checkContext.scan.getTable().getVisibleColumn(aggStateName);
+            if (mvColumn != null && context.checkContext.valueNameToColumn.containsValue(mvColumn)) {
+                Slot aggStateSlot = context.checkContext.scan.getOutputByIndex(context.checkContext.index).stream()
+                        .filter(s -> aggStateName.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
+                        .orElseThrow(() -> new AnalysisException("cannot find agg state slot when select mv"));
+
+                List<Slot> slots = ExpressionUtils.getAllSlot(aggregateFunction);
+                for (Slot slot : slots) {
+                    if (!context.checkContext.keyNameToColumn.containsKey(normalizeName(slot.toSql()))) {
+                        context.exprRewriteMap.slotMap.put(slot, aggStateSlot);
+                        context.exprRewriteMap.projectExprMap.put(slot, aggStateSlot);
+                    }
+                }
+
+                MergeCombinator mergeCombinator = new MergeCombinator(Arrays.asList(aggStateSlot), aggregateFunction);
+                context.exprRewriteMap.aggFuncMap.put(aggregateFunction, mergeCombinator);
+                return mergeCombinator;
+            }
+            return aggregateFunction;
         }
     }
 

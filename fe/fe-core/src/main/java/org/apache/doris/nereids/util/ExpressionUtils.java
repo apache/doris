@@ -47,6 +47,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
@@ -249,6 +250,21 @@ public class ExpressionUtils {
         } else {
             return Optional.empty();
         }
+    }
+
+    /**
+     * get all slot child of expr
+     */
+    public static List<Slot> getAllSlot(Expression expr) {
+        List<Slot> slots = new ArrayList<>();
+        if (expr instanceof SlotReference) {
+            slots.add((Slot) expr);
+        } else {
+            for (Expression child : expr.children()) {
+                slots.addAll(getAllSlot(child));
+            }
+        }
+        return slots;
     }
 
     /**
