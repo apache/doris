@@ -29,6 +29,7 @@ import org.apache.doris.datasource.property.constants.S3Properties.Env;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -78,6 +79,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
      */
     private Map<String, String> selectColNameToCsvColName;
 
+    @VisibleForTesting
     private Set<String> functionGenTableColNames;
 
     public S3TvfLoadStmt(LabelName label, List<DataDescription> dataDescList, BrokerDesc brokerDesc,
@@ -223,6 +225,10 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         if (!isFileFieldSpecified) {
             return;
         }
+        if (isCsvFormat) {
+            // in tvf, csv format column names are like "c1, c2, c3", record for correctness of select list
+            recordCsvColNames(columnExprList);
+        }
         columnExprList = filterColumns(columnExprList);
         if (CollectionUtils.isEmpty(columnExprList)) {
             return;
@@ -270,10 +276,6 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
                     }
                     derivativeColumns.put(desc.getColumnName(), expr);
                 });
-        if (isCsvFormat) {
-            // in tvf, csv format column names are like "c1, c2, c3", record for correctness of select list
-            recordCsvColNames(columnDescList);
-        }
         // `tmp` columns with expr can be removed after expr rewritten
         columnDescList.removeIf(
                 Predicates.not(columnDesc ->
@@ -319,7 +321,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
         LOG.debug("select column name to csv colum name:{}", selectColNameToCsvColName);
     }
 
-    private List<ImportColumnDesc> filterColumns(List<ImportColumnDesc> columnExprList) throws AnalysisException {
+    private List<ImportColumnDesc> filterColumns(List<ImportColumnDesc> columnExprList) {
         Preconditions.checkNotNull(targetTable, "target table is unset");
 
         // remove all `tmp` columns, which are not in target table
@@ -356,30 +358,8 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
                         && desc.isColumn()
         );
 
-        Map<String, Expr> columnExprMap = columnExprList.stream()
-                // not using Collector.toMap because ImportColumnDesc::getExpr may be null
-                .collect(() -> Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER),
-                        (map, desc) -> map.put(desc.getColumnName(), desc.getExpr()), TreeMap::putAll);
-        checkUnspecifiedCols(columnExprMap);
         LOG.debug("filtered result:{}", columnExprList);
         return columnExprList;
-    }
-
-    /**
-     * unspecified columns must have default val
-     */
-    private void checkUnspecifiedCols(Map<String, Expr> columnExprMap)
-            throws AnalysisException {
-
-        final Optional<Column> colWithoutDefaultVal = targetTable.getBaseSchema()
-                .stream()
-                .filter(column -> !columnExprMap.containsKey(column.getName()))
-                .filter(Predicates.not(column -> Objects.nonNull(column.getDefaultValue()) || column.isAllowNull()))
-                .findFirst();
-        if (colWithoutDefaultVal.isPresent()) {
-            final String columnName = colWithoutDefaultVal.get().getName();
-            throw new AnalysisException("Column has no default value. column: " + columnName);
-        }
     }
 
     private void resetTargetColumnNames(List<ImportColumnDesc> columnExprList) {
