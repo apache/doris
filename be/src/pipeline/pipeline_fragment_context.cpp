@@ -154,9 +154,12 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         _runtime_state->set_is_cancelled(true);
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
-        for (auto& task : _tasks) {
-            LOG(WARNING) << task->debug_string();
-        }
+
+        // Print detail informations below when you debugging here.
+        //
+        // for (auto& task : _tasks) {
+        //     LOG(WARNING) << task->debug_string();
+        // }
 
         _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
