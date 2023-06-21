@@ -234,13 +234,14 @@ public class MTMVJobManager {
     }
 
     public void dropJobByName(String dbName, String mvName, boolean isReplay) {
+        List<Long> jobIds = Lists.newArrayList();
         for (String jobName : nameToJobMap.keySet()) {
             MTMVJob job = nameToJobMap.get(jobName);
             if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
-                dropJobs(Collections.singletonList(job.getId()), isReplay);
-                return;
+                jobIds.add(job.getId());
             }
         }
+        dropJobs(jobIds, isReplay);
     }
 
     public void dropJobs(List<Long> jobIds, boolean isReplay) {
