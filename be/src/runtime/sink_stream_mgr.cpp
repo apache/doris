@@ -19,6 +19,7 @@
 #include "util/uid_util.h"
 #include "common/config.h"
 #include <runtime/exec_env.h>
+#include <olap/rowset/rowset_meta.h>
 
 namespace doris {
 
@@ -157,6 +158,30 @@ uint64_t SinkStreamHandler::get_next_segmentid(TargetRowsetPtr target_rowset, in
     }
 }
 
+Status SinkStreamHandler::_build_rowset(TargetRowsetPtr target_rowset, const RowsetMetaPB& rowset_meta_pb) {
+    RowsetMetaSharedPtr rowset_meta_ptr(new RowsetMeta());
+    std::string rowset_meta_str;
+    bool ret = rowset_meta_pb.SerializeToString(&rowset_meta_str);
+    if (!ret) {
+        LOG(WARNING) << "failed to parse rowset meta pb sent by sink "
+                     << "rowset_id=" << rowset_meta_pb.rowset_id()
+                     << ", tablet_id=" << rowset_meta_pb.tablet_id()
+                     << ", txn_id=" << rowset_meta_pb.txn_id();
+        return Status::InternalError("failed to parse rowset meta pb sent by sink");
+    }
+    bool parsed = rowset_meta_ptr->init(rowset_meta_str);
+    if (!parsed) {
+        LOG(WARNING) << "failed to init rowset meta "
+                     << "rowset_id=" << rowset_meta_pb.rowset_id()
+                     << ", tablet_id=" << rowset_meta_pb.tablet_id()
+                     << ", txn_id=" << rowset_meta_pb.txn_id();
+        return Status::InternalError("failed to init rowset meta");
+    }
+
+
+    return Status::InternalError("build rowset failed");
+}
+
 void SinkStreamHandler::_handle_message(StreamId stream, PStreamHeader hdr,
                                         TargetRowsetPtr target_rowset,
                                         TargetSegmentPtr target_segment,
@@ -173,8 +198,12 @@ void SinkStreamHandler::_handle_message(StreamId stream, PStreamHeader hdr,
         break;
     case PStreamHeader::CLOSE_FILE:
         s = _close_file(target_segment, hdr.is_last_segment());
-        if (hdr.is_last_segment()) {
-            return _report_status(stream, target_rowset, s.ok(), s.to_string());
+        if (hdr.has_is_last_segment() && hdr.is_last_segment()) {
+            DCHECK(hdr.has_rowset_meta());
+            s = _build_rowset(target_rowset, hdr.rowset_meta());
+            if (s.ok()) {
+                return _report_status(stream, target_rowset, s.ok(), s.to_string());
+            }
         }
         break;
     default:

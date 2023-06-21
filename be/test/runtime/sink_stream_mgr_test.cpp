@@ -354,6 +354,9 @@ TEST_F(SinkStreamMgrTest, open_append_close_file_twice) {
         header.set_tablet_id(3);
         header.set_segment_id(4);
         header.set_is_last_segment(true); // change it to true when last segment
+        header.set_allocated_rowset_meta(new RowsetMetaPB()); // last segment has rowset meta
+        int64_t rowset_id = 1;
+        header.mutable_rowset_meta()->set_rowset_id(rowset_id);
         size_t hdr_len = header.ByteSizeLong();
         close_buf.append((char*)&hdr_len, sizeof(size_t));
         close_buf.append(header.SerializeAsString());
@@ -365,6 +368,7 @@ TEST_F(SinkStreamMgrTest, open_append_close_file_twice) {
         std::string data = "file2 hello world 123 !@#$%^&*()_+";
         CHECK_EQ(content, data);
         header.release_load_id();
+        header.release_rowset_meta();
         // CHECK
     }
 

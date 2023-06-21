@@ -66,7 +66,7 @@ message PTabletInfo {
     required int32 schema_hash = 2;
     // Delta Writer will write data to local disk and then check if there are new raw values not in global dict
     // if appears, then it should add the column name to this vector
-    repeated string invalid_dict_cols = 3; 
+    repeated string invalid_dict_cols = 3;
     // total rows num received by DeltaWriter
     optional int64 received_rows = 4;
 }
@@ -269,7 +269,7 @@ message PTabletKeyLookupRequest {
     // serilized from Descriptors.TDescriptorTable
     optional UUID uuid = 3;
     optional bytes desc_tbl = 4;
-    // serilized from TExprList 
+    // serilized from TExprList
     optional bytes output_expr = 5;
     // return binary mysql row format if true
     optional bool is_binary_row = 6;
@@ -282,7 +282,7 @@ message PTabletKeyLookupResponse {
 }
 
 //Add message definition to fetch and update cache
-enum PCacheStatus {    
+enum PCacheStatus {
     DEFAULT = 0;
     CACHE_OK = 1;
     PARAM_ERROR = 2;
@@ -637,7 +637,7 @@ message PMultiGetRequest {
 message PMultiGetResponse {
     optional PBlock block = 1;
     optional PStatus status = 2;
- 
+
     // more effecient serialization fields for row store
     enum RowFormat {
         JSONB = 0;
@@ -684,13 +684,14 @@ message PStreamHeader {
         APPEND_DATA = 1;
         CLOSE_FILE = 2;
     }
-    required PUniqueId load_id = 1;
-    required int64 index_id = 2;
-    required int64 tablet_id = 3;
-    required int32 segment_id = 4;
-    required Opcode opcode = 5;
-    required bool is_last_segment = 6;
+    optional PUniqueId load_id = 1;
+    optional int64 index_id = 2;
+    optional int64 tablet_id = 3;
+    optional int32 segment_id = 4;
+    optional Opcode opcode = 5;
+    optional bool is_last_segment = 6;
     optional int64 rowset_id = 7;
+    optional RowsetMetaPB rowset_meta = 8;
 }
 
 message POpenStreamSinkRequest {
@@ -725,7 +726,7 @@ service PBackendService {
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
-    rpc get_info(PProxyRequest) returns (PProxyResult); 
+    rpc get_info(PProxyRequest) returns (PProxyResult);
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
     rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
     rpc clear_cache(PClearCacheRequest) returns (PCacheResponse);

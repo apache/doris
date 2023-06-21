@@ -21,9 +21,7 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() : _is_init(false) {
-    _sink_stream_mgr = new SinkStreamMgr();
-}
+ExecEnv::ExecEnv() : _is_init(false) {}
 
 ExecEnv::~ExecEnv() {}
 
