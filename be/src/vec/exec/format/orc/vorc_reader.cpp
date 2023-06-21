@@ -94,6 +94,7 @@ namespace doris::vectorized {
 
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
+static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
 
 #define FOR_FLAT_ORC_COLUMNS(M)                            \
     M(TypeIndex::Int8, Int8, orc::LongVectorBatch)         \
@@ -1039,7 +1040,6 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                                                      const orc::TypeKind& type_kind,
                                                      orc::EncodedStringVectorBatch* cvb,
                                                      size_t num_values) {
-    const static std::string empty_string;
     std::vector<StringRef> string_values;
     size_t max_value_length = 0;
     string_values.reserve(num_values);
@@ -1054,7 +1054,7 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (cvb->notNull[i]) {
                     if constexpr (is_filter) {
                         if (!filter_data[i]) {
-                            string_values.emplace_back(empty_string.data(), 0);
+                            string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                             continue;
                         }
                     }
@@ -1070,14 +1070,14 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
                     // so other types do not need to be handled separately like string.
-                    string_values.emplace_back(empty_string.data(), 0);
+                    string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
                 if constexpr (is_filter) {
                     if (!filter_data[i]) {
-                        string_values.emplace_back(empty_string.data(), 0);
+                        string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                         continue;
                     }
                 }
@@ -1097,23 +1097,26 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
                 if (cvb->notNull[i]) {
                     if constexpr (is_filter) {
                         if (!filter_data[i]) {
-                            string_values.emplace_back(empty_string.data(), 0);
+                            string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                             continue;
                         }
                     }
                     char* val_ptr;
                     int64_t length;
                     cvb->dictionary->getValueByIndex(cvb->index.data()[i], val_ptr, length);
+                    if (length > max_value_length) {
+                        max_value_length = length;
+                    }
                     string_values.emplace_back(val_ptr, length);
                 } else {
-                    string_values.emplace_back(empty_string.data(), 0);
+                    string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
                 if constexpr (is_filter) {
                     if (!filter_data[i]) {
-                        string_values.emplace_back(empty_string.data(), 0);
+                        string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                         continue;
                     }
                 }
@@ -1127,7 +1130,8 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             }
         }
     }
-    data_column->insert_many_strings(&string_values[0], string_values.size());
+    data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
+                                              max_value_length);
     return Status::OK();
 }
 
@@ -1938,11 +1942,12 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
             const ColumnInt32* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
             DCHECK(dict_column);
+            const NullMap& null_map = nullable_column->get_null_map_data();
 
             MutableColumnPtr string_column;
             if (batch_vec != nullptr) {
                 string_column = _convert_dict_column_to_string_column(
-                        dict_column, (*batch_vec)[orc_col_idx->second],
+                        dict_column, &null_map, (*batch_vec)[orc_col_idx->second],
                         _col_orc_type[orc_col_idx->second]);
             } else {
                 string_column = ColumnString::create();
@@ -1958,7 +1963,7 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
             MutableColumnPtr string_column;
             if (batch_vec != nullptr) {
                 string_column = _convert_dict_column_to_string_column(
-                        dict_column, (*batch_vec)[orc_col_idx->second],
+                        dict_column, nullptr, (*batch_vec)[orc_col_idx->second],
                         _col_orc_type[orc_col_idx->second]);
             } else {
                 string_column = ColumnString::create();
@@ -1971,12 +1976,15 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
     return Status::OK();
 }
 
+// TODO: Possible optimization points.
+//  After filtering the dict column, the null_map for the null dict column should always not be null.
+//  Then it can avoid checking null_map. However, currently when inert materialization is enabled,
+//  the filter column will not be filtered first, but will be filtered together at the end.
 MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
-        const ColumnInt32* dict_column, orc::ColumnVectorBatch* cvb,
+        const ColumnInt32* dict_column, const NullMap* null_map, orc::ColumnVectorBatch* cvb,
         const orc::Type* orc_column_type) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     auto res = ColumnString::create();
-    const static std::string empty_string;
     auto* encoded_string_vector_batch = static_cast<orc::EncodedStringVectorBatch*>(cvb);
     DCHECK(encoded_string_vector_batch);
     std::vector<StringRef> string_values;
@@ -1984,11 +1992,12 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
     const int* dict_data = dict_column->get_data().data();
     string_values.reserve(num_values);
     size_t max_value_length = 0;
+    auto* null_map_data = null_map->data();
     if (orc_column_type->getKind() == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
-        if (cvb->hasNulls) {
+        if (null_map) {
             for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
+                if (!null_map_data[i]) {
                     char* val_ptr;
                     int64_t length;
                     encoded_string_vector_batch->dictionary->getValueByIndex(dict_data[i], val_ptr,
@@ -2002,7 +2011,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                     // Orc doesn't fill null values in new batch, but the former batch has been release.
                     // Other types like int/long/timestamp... are flat types without pointer in them,
                     // so other types do not need to be handled separately like string.
-                    string_values.emplace_back(empty_string.data(), 0);
+                    string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
             }
         } else {
@@ -2019,9 +2028,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
             }
         }
     } else {
-        if (cvb->hasNulls) {
+        if (null_map) {
             for (int i = 0; i < num_values; ++i) {
-                if (cvb->notNull[i]) {
+                if (!null_map_data[i]) {
                     char* val_ptr;
                     int64_t length;
                     encoded_string_vector_batch->dictionary->getValueByIndex(dict_data[i], val_ptr,
@@ -2031,7 +2040,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
                     }
                     string_values.emplace_back(val_ptr, length);
                 } else {
-                    string_values.emplace_back(empty_string.data(), 0);
+                    string_values.emplace_back(EMPTY_STRING_FOR_OVERFLOW, 0);
                 }
             }
         } else {
@@ -2047,7 +2056,7 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
             }
         }
     }
-    res->insert_many_strings(&string_values[0], num_values);
+    res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
     return res;
 }
 

@@ -44,6 +44,9 @@ static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_bytes_per_second(
 static bvar::Adder<uint64_t> g_index_reader_pages("doris_pk", "index_reader_pages");
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_pages_per_second(
         "doris_pk", "index_reader_pages_per_second", &g_index_reader_pages, 60);
+static bvar::Adder<uint64_t> g_index_reader_cached_pages("doris_pk", "index_reader_cached_pages");
+static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_cached_pages_per_second(
+        "doris_pk", "index_reader_cached_pages_per_second", &g_index_reader_cached_pages, 60);
 static bvar::Adder<uint64_t> g_index_reader_seek_count("doris_pk", "index_reader_seek_count");
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_seek_per_second(
         "doris_pk", "index_reader_seek_per_second", &g_index_reader_seek_count, 60);
@@ -124,6 +127,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     g_index_reader_compressed_bytes << pp.size;
     g_index_reader_bytes << footer->uncompressed_size();
     g_index_reader_pages << 1;
+    g_index_reader_cached_pages << tmp_stats.cached_pages_num;
     return st;
 }
 
