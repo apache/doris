@@ -118,13 +118,11 @@ ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="te
 上文提到冷数据为了优化查询的性能和对象存储资源节省，引入了cache的概念。在冷却后首次命中，Doris会将已经冷却的数据又重新加载到be的本地磁盘，cache有以下特性：
 - cache实际存储于be磁盘，不占用内存空间。
 - cache可以限制膨胀，通过LRU进行数据的清理
-- be参数`file_cache_alive_time_sec`可以设置cache数据再未被访问后的最大保存时间，默认是604800，即一周。
-- be参数`file_cache_max_size_per_disk` 可以设置cache占用磁盘大小，一旦超过这个设置，会删除最久未访问cache，默认是0，单位：字节，即不限制大小。
-- be参数`file_cache_type` 可选项`sub_file_cache`（切分远端文件进行本地缓存）和`whole_file_cache`（整个远端文件进行本地缓存），默认为""，即不缓存文件，需要缓存的时候请设置此参数。
+- cache的实现和联邦查询catalog的cache是同一套实现，文档参考[此处](../lakehouse/filecache.md)
 
 ## 冷数据的compaction
 冷数据传入的时间是数据rowset文件写入本地磁盘时刻起，加上冷却时间。由于数据并不是一次性写入和冷却的，因此避免在对象存储内的小文件问题，doris也会进行冷数据的compaction。
-但是，冷数据的compaction的频次和资源占用的优先级并不是很高。具体可以通过以下be参数调整：
+但是，冷数据的compaction的频次和资源占用的优先级并不是很高，也推荐本地热数据compaction后再执行冷却。具体可以通过以下be参数调整：
 - be参数`cold_data_compaction_thread_num`可以设置执行冷数据的compaction的并发，默认是2。
 - be参数`cold_data_compaction_interval_sec` 可以设置执行冷数据的compaction的时间间隔，默认是1800，单位：秒，即半个小时。
 

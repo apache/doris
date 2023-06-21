@@ -185,6 +185,8 @@ DECLARE_Int32(push_worker_count_high_priority);
 DECLARE_Int32(publish_version_worker_count);
 // the count of tablet thread to publish version
 DECLARE_Int32(tablet_publish_txn_max_thread);
+// the timeout of EnginPublishVersionTask
+DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the count of thread to clear transaction task
@@ -347,6 +349,8 @@ DECLARE_Bool(disable_storage_row_cache);
 // Cache for mow primary key storage page size, it's seperated from
 // storage_page_cache_limit
 DECLARE_String(pk_storage_page_cache_limit);
+// data page size for primary key index
+DECLARE_Int32(primary_key_data_page_size);
 
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);

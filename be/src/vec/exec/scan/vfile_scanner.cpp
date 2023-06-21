@@ -585,10 +585,18 @@ Status VFileScanner::_get_next_reader() {
         _current_range_path = range.path;
 
         // create reader for specific format
-        // TODO: add json, avro
         Status init_status;
-        // TODO: use data lake type
-        switch (_params.format_type) {
+        TFileFormatType::type format_type = _params.format_type;
+        // JNI reader can only push down column value range
+        bool push_down_predicates = !_is_load && _params.format_type != TFileFormatType::FORMAT_JNI;
+        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
+            range.table_format_params.table_format_type == "hudi") {
+            if (range.table_format_params.hudi_params.delta_logs.empty()) {
+                // fall back to native reader if there is no log file
+                format_type = TFileFormatType::FORMAT_PARQUET;
+            }
+        }
+        switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
             if (_real_tuple_desc->table_desc()->table_type() ==
                 ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
@@ -625,7 +633,7 @@ Status VFileScanner::_get_next_reader() {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
             }
-            if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
+            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
                     RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
@@ -660,7 +668,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, _params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
-            if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
+            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
                     RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));

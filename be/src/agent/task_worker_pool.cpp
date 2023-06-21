@@ -90,11 +90,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
-const int64_t PUBLISH_TIMEOUT_SEC = 10;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
+
+static bvar::LatencyRecorder g_publish_version_latency("doris_pk", "publish_version");
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
@@ -1440,6 +1441,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
+
         const TPublishVersionRequest& publish_version_req = agent_task_req.publish_version_req;
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task. signature=" << agent_task_req.signature;
@@ -1458,7 +1460,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
-                if (time_elapsed > PUBLISH_TIMEOUT_SEC) {
+                if (time_elapsed > config::publish_version_task_timeout_s) {
                     LOG(INFO) << "task elapsed " << time_elapsed
                               << " seconds since it is inserted to queue, it is timeout";
                     is_task_timeout = true;
@@ -1469,7 +1471,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
-                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done"
+                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
                                        << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
@@ -1518,10 +1520,13 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     }
                 }
             }
+            uint32_t cost_second = time(nullptr) - agent_task_req.recv_time;
+            g_publish_version_latency << cost_second;
             LOG_INFO("successfully publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("tablets_num", succ_tablet_ids.size());
+                    .tag("tablets_num", succ_tablet_ids.size())
+                    .tag("cost(s)", cost_second);
         }
 
         status.to_thrift(&finish_task_request.task_status);

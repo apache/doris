@@ -133,13 +133,21 @@ public:
                 _directory + "/" + _segment_file_name, _index_meta->index_id());
 
         // LOG(INFO) << "inverted index path: " << index_path;
-
-        if (lucene::index::IndexReader::indexExists(index_path.c_str())) {
-            create = false;
-            if (lucene::index::IndexReader::isLocked(index_path.c_str())) {
-                LOG(WARNING) << ("Lucene Index was locked... unlocking it.\n");
-                lucene::index::IndexReader::unlock(index_path.c_str());
-            }
+        bool exists = false;
+        auto st = _fs->exists(index_path.c_str(), &exists);
+        if (!st.ok()) {
+            LOG(ERROR) << "index_path:"
+                       << " exists error:" << st;
+            return st;
+        }
+        if (exists) {
+            LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
+            return Status::InternalError("init_fulltext_index a directory already exists");
+            //st = _fs->delete_directory(index_path.c_str());
+            //if (!st.ok()) {
+            //    LOG(ERROR) << "delete directory:" << index_path << " error:" << st;
+            //    return st;
+            //}
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();

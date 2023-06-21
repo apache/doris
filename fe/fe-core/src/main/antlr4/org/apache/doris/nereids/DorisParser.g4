@@ -49,6 +49,10 @@ statement
         SET updateAssignmentSeq
         fromClause?
         whereClause                                                    #update
+    | explain? DELETE FROM tableName=multipartIdentifier tableAlias
+        (PARTITION partition=identifierList)?
+        (USING relation (COMMA relation)*)
+        whereClause                                                    #delete
     ;
 
 // -----------------Command accessories-----------------

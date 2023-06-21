@@ -25,10 +25,13 @@ import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.DateObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.HiveDecimalObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.TimestampObjectInspector;
+import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -60,6 +63,11 @@ public class HudiColumnValue implements ColumnValue {
 
     private Object inspectObject() {
         return ((PrimitiveObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
+    }
+
+    @Override
+    public boolean canGetStringAsBytes() {
+        return true;
     }
 
     @Override
@@ -143,6 +151,16 @@ public class HudiColumnValue implements ColumnValue {
 
     @Override
     public byte[] getBytes() {
+        // Get bytes directly if fieldData is BytesWritable or Text to avoid decoding&encoding
+        if (fieldData instanceof BytesWritable) {
+            return ((BytesWritable) fieldData).getBytes();
+        }
+        if (fieldData instanceof Text) {
+            return ((Text) fieldData).getBytes();
+        }
+        if (fieldData instanceof String) {
+            return ((String) fieldData).getBytes(StandardCharsets.UTF_8);
+        }
         return (byte[]) inspectObject();
     }
 

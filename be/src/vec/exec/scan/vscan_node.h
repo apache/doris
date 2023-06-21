@@ -236,16 +236,19 @@ protected:
     // Only predicate on key column can be pushed down.
     virtual bool _is_key_column(const std::string& col_name) { return false; }
 
-    Status _prepare_scanners();
+    Status _prepare_scanners(const int query_parallel_instance_num);
 
     bool _is_pipeline_scan = false;
     bool _shared_scan_opt = false;
+
     // For load scan node, there should be both input and output tuple descriptor.
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
+
+    doris::Mutex _block_lock;
 
     // These two values are from query_options
     int _max_scan_key_num;
@@ -332,6 +335,7 @@ protected:
 
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
     // Num of newly created free blocks when running query
@@ -415,7 +419,8 @@ private:
                                       const std::string& fn_name, int slot_ref_child = -1);
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<VScannerSPtr>& scanners);
+    Status _start_scanners(const std::list<VScannerSPtr>& scanners,
+                           const int query_parallel_instance_num);
 };
 
 } // namespace doris::vectorized

@@ -53,6 +53,8 @@ public abstract class TableValuedFunctionIf {
                 return new IcebergTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
                 return new BackendsTableValuedFunction(params);
+            case FrontendsTableValuedFunction.NAME:
+                return new FrontendsTableValuedFunction(params);
             case WorkloadGroupsTableValuedFunction.NAME:
                 return new WorkloadGroupsTableValuedFunction(params);
             default:

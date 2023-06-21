@@ -83,6 +83,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         } catch (Exception e) {
             LOG.warn(String.format("Cancel job failed job info : %s", msg));
         }
+        // Interrupt thread when it's writing metadata would cause FE crush.
         return super.cancel(false);
     }
 

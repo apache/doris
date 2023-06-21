@@ -437,7 +437,9 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
         std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
         for (auto tracker : tracker_groups[i].trackers) {
             if (tracker->type() == type) {
-                if (tracker->consumption() <= 33554432) { // 32M small query does not cancel
+                // 32M small query does not cancel
+                if (tracker->consumption() <= 33554432 ||
+                    tracker->consumption() < tracker->limit()) {
                     continue;
                 }
                 if (tracker->is_query_cancelled()) {

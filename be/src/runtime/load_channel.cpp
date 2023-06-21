@@ -56,7 +56,6 @@ void LoadChannel::_init_profile() {
             _profile->create_child(fmt::format("LoadChannel load_id={} (host={}, backend_id={})",
                                                _load_id.to_string(), _sender_ip, _backend_id),
                                    true, true);
-    _profile->add_child(_self_profile, false, nullptr);
     _add_batch_number_counter = ADD_COUNTER(_self_profile, "NumberBatchAdded", TUnit::UNIT);
     _peak_memory_usage_counter = ADD_COUNTER(_self_profile, "PeakMemoryUsage", TUnit::BYTES);
     _add_batch_timer = ADD_TIMER(_self_profile, "AddBatchTime");
@@ -188,6 +187,13 @@ void LoadChannel::_report_profile(PTabletWriterAddBlockResult* response) {
     // and each TabletSink will periodically send fe reports all the LoadChannel profiles saved by itself,
     // and ensures to update the latest LoadChannel profile according to the timestamp.
     _self_profile->set_timestamp(_last_updated_time);
+
+    {
+        std::lock_guard<SpinLock> l(_tablets_channels_lock);
+        for (auto& it : _tablets_channels) {
+            it.second->refresh_profile();
+        }
+    }
 
     TRuntimeProfileTree tprofile;
     _profile->to_thrift(&tprofile);
