@@ -38,6 +38,11 @@ public class RefreshCatalogStmt extends DdlStmt {
 
     private final String catalogName;
     private Map<String, String> properties;
+
+    /**
+     * Set default value to true, otherwise
+     * {@link org.apache.doris.catalog.RefreshManager.RefreshTask} will lost the default value
+     */
     private boolean invalidCache = true;
 
     public RefreshCatalogStmt(String catalogName, Map<String, String> properties) {
@@ -67,11 +72,8 @@ public class RefreshCatalogStmt extends DdlStmt {
                     analyzer.getQualifiedUser(), catalogName);
         }
 
-        boolean notInvalidCache = properties != null && properties.get(INVALID_CACHE).equalsIgnoreCase("false");
-        // set default value of invalidCache to true
-        // otherwise RefreshManager will lost the default value of invalidCache
-        // set invalidCache to false only if user set the property "invalid_cache"="false"
-        invalidCache = invalidCache && !notInvalidCache;
+        // Set to false only if user set the property "invalid_cache"="false"
+        invalidCache = !(properties != null && properties.get(INVALID_CACHE).equalsIgnoreCase("false"));
     }
 
     @Override

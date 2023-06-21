@@ -17,12 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
-import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.*;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -189,6 +184,11 @@ public class RefreshManager {
                     CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
                     if (catalog != null) {
                         String catalogName = catalog.getName();
+                        /**
+                         * Now do not invoke
+                         * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
+                         * because the default value of invalidCache is true.
+                         * */
                         RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
                         try {
                             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
