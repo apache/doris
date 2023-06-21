@@ -185,6 +185,8 @@ DECLARE_Int32(push_worker_count_high_priority);
 DECLARE_Int32(publish_version_worker_count);
 // the count of tablet thread to publish version
 DECLARE_Int32(tablet_publish_txn_max_thread);
+// the timeout of EnginPublishVersionTask
+DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the count of thread to clear transaction task
