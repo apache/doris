@@ -321,7 +321,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
             return castResult;
         } catch (Throwable t) {
-            return cast;
+            return new NullLiteral(cast.getDataType());
         }
     }
 

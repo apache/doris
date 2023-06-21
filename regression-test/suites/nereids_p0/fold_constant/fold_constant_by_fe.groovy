@@ -144,4 +144,16 @@ suite("test_fold_constant_by_fe") {
         res = res.split('VUNION')[1]
         assertFalse(res.contains("unix"))
     }
+
+    res = sql "explain select case 'a' when 1 then 'a' when 'a' then 'b' else 'other' end as col212"
+    res = res.split('VUNION')[1]
+    assertFalse(res.contains("case") || res.contains("else"))
+
+    res = sql "explain select case '1' when 1 then 'a' when 'a' then 'b' else 'other' end as col212"
+    res = res.split('VUNION')[1]
+    assertFalse(res.contains("case") || res.contains("else"))
+
+    res = sql "explain select case '2' when 1 then 'a' when 'a' then 'b' else 'other' end as col212"
+    res = res.split('VUNION')[1]
+    assertFalse(res.contains("case") || res.contains("else"))
 }
