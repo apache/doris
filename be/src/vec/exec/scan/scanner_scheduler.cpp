@@ -153,6 +153,9 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
 }
 
 void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
+    MonotonicStopWatch watch;
+    watch.reset();
+    watch.start();
     ctx->incr_num_ctx_scheduling(1);
     if (ctx->done()) {
         ctx->update_num_running(0, -1);
@@ -257,6 +260,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         }
     }
 #endif
+    ctx->incr_ctx_scheduling_time(watch.elapsed_time());
 }
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
