@@ -103,6 +103,11 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
         reader.reset(
                 (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
+    } else if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
+        reader.reset(new lucene::util::SimpleInputStreamReader(
+                new lucene::util::AStringReader(value.c_str()),
+                lucene::util::SimpleInputStreamReader::UTF8));
     } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
         auto chinese_analyzer =
                 std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
