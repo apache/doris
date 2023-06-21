@@ -172,8 +172,12 @@ public class SingleNodePlanner {
         if (LOG.isTraceEnabled()) {
             LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
         }
+        long sqlSelectLimit = -1;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+            sqlSelectLimit = ConnectContext.get().getSessionVariable().sqlSelectLimit;
+        }
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
-                ctx.getQueryOptions().getDefaultOrderByLimit());
+                ctx.getQueryOptions().getDefaultOrderByLimit(), sqlSelectLimit);
         Preconditions.checkNotNull(singleNodePlan);
         analyzer.getDescTbl().materializeIntermediateSlots();
         return singleNodePlan;
@@ -233,7 +237,7 @@ public class SingleNodePlanner {
      * Create plan tree for single-node execution. Generates PlanNodes for the
      * Select/Project/Join/Union [All]/Group by/Having/Order by clauses of the query stmt.
      */
-    private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
+    private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit, long sqlSelectLimit)
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
         long defaultLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
@@ -282,8 +286,9 @@ public class SingleNodePlanner {
             }
         }
 
-        long sqlSelectLimit = analyzer.getContext().getSessionVariable().sqlSelectLimit;
-
+        if (sqlSelectLimit <= -1) {
+            sqlSelectLimit = Long.MAX_VALUE;
+        }
         if (stmt.evaluateOrderBy() && sortHasMaterializedSlots) {
             long limit = stmt.getLimit();
             // TODO: External sort could be used for very large limits
@@ -1622,7 +1627,7 @@ public class SingleNodePlanner {
             }
         }
 
-        PlanNode rootNode = createQueryPlan(inlineViewRef.getViewStmt(), inlineViewRef.getAnalyzer(), -1);
+        PlanNode rootNode = createQueryPlan(inlineViewRef.getViewStmt(), inlineViewRef.getAnalyzer(), -1, -1);
         // TODO: we should compute the "physical layout" of the view's descriptor, so that
         // the avg row size is available during optimization; however, that means we need to
         // select references to its resultExprs from the enclosing scope(s)
@@ -2253,7 +2258,7 @@ public class SingleNodePlanner {
                     continue;
                 }
             }
-            PlanNode opPlan = createQueryPlan(queryStmt, op.getAnalyzer(), defaultOrderByLimit);
+            PlanNode opPlan = createQueryPlan(queryStmt, op.getAnalyzer(), defaultOrderByLimit, -1);
             // There may still be unassigned conjuncts if the operand has an order by + limit.
             // Place them into a SelectNode on top of the operand's plan.
             opPlan = addUnassignedConjuncts(analyzer, opPlan.getTupleIds(), opPlan);
