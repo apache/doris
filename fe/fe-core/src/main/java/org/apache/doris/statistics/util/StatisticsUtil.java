@@ -32,17 +32,24 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -59,9 +66,15 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.text.SimpleDateFormat;
@@ -80,9 +93,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class StatisticsUtil {
+    private static final Logger LOG = LogManager.getLogger(StatisticsUtil.class);
 
     private static final String ID_DELIMITER = "-";
     private static final String VALUES_DELIMITER = ",";
+
+    private static final String TOTAL_SIZE = "totalSize";
+    private static final String NUM_ROWS = "numRows";
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
@@ -460,5 +477,103 @@ public class StatisticsUtil {
             double healthCoefficient = (double) (totalRows - updatedRows) / (double) totalRows;
             return (int) (healthCoefficient * 100.0);
         }
+    }
+
+    /**
+     * Estimate hive table row count.
+     * First get it from remote table parameters. If not found, estimate it : totalSize/estimatedRowSize
+     * @param table Hive HMSExternalTable to estimate row count.
+     * @return estimated row count
+     */
+    public static long getHiveRowCount(HMSExternalTable table) {
+        Map<String, String> parameters = table.getRemoteTable().getParameters();
+        if (parameters == null) {
+            return -1;
+        }
+        // Table parameters contains row count, simply get and return it.
+        if (parameters.containsKey(NUM_ROWS)) {
+            return Long.parseLong(parameters.get(NUM_ROWS));
+        }
+        if (!parameters.containsKey(TOTAL_SIZE)) {
+            return -1;
+        }
+        // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
+        long totalSize = Long.parseLong(parameters.get(TOTAL_SIZE));
+        long estimatedRowSize = 0;
+        for (Column column : table.getFullSchema()) {
+            estimatedRowSize += column.getDataType().getSlotSize();
+        }
+        if (estimatedRowSize == 0) {
+            return 1;
+        }
+        return totalSize / estimatedRowSize;
+    }
+
+    /**
+     * Estimate iceberg table row count.
+     * Get the row count by adding all task file recordCount.
+     * @param table Iceberg HMSExternalTable to estimate row count.
+     * @return estimated row count
+     */
+    public static long getIcebergRowCount(HMSExternalTable table) {
+        long rowCount = 0;
+        try {
+            Table icebergTable = HiveMetaStoreClientHelper.getIcebergTable(table);
+            TableScan tableScan = icebergTable.newScan().includeColumnStats();
+            for (FileScanTask task : tableScan.planFiles()) {
+                rowCount += task.file().recordCount();
+            }
+            return rowCount;
+        } catch (Exception e) {
+            LOG.warn("Fail to collect row count for db {} table {}", table.getDbName(), table.getName(), e);
+        }
+        return -1;
+    }
+
+    /**
+     * Estimate hive table row count : totalFileSize/estimatedRowSize
+     * @param table Hive HMSExternalTable to estimate row count.
+     * @return estimated row count
+     */
+    public static long getRowCountFromFileList(HMSExternalTable table) {
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
+        List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
+        HiveMetaStoreCache.HivePartitionValues partitionValues = null;
+        List<HivePartition> hivePartitions = Lists.newArrayList();
+        // Get table partitions from cache.
+        if (!partitionColumnTypes.isEmpty()) {
+            partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
+        }
+        if (partitionValues != null) {
+            Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
+            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(idToPartitionItem.size());
+            for (PartitionItem item : idToPartitionItem.values()) {
+                partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
+            }
+            hivePartitions = cache.getAllPartitions(table.getDbName(), table.getName(), partitionValuesList);
+        } else {
+            hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
+                    table.getRemoteTable().getSd().getInputFormat(),
+                    table.getRemoteTable().getSd().getLocation(), null));
+        }
+        // Get files for all partitions.
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(hivePartitions, true);
+        long totalSize = 0;
+        // Calculate the total file size.
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                totalSize += file.getLength();
+            }
+        }
+        // Estimate row count: totalSize/estimatedRowSize
+        long estimatedRowSize = 0;
+        for (Column column : table.getFullSchema()) {
+            estimatedRowSize += column.getDataType().getSlotSize();
+        }
+        if (estimatedRowSize == 0) {
+            return 1;
+        }
+        return totalSize / estimatedRowSize;
     }
 }
