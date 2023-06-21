@@ -1290,6 +1290,7 @@ void StorageEngine::_async_publish_callback() {
                         tablet, partition_id, transaction_id, version);
                 StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
                         [=]() { async_publish_task->handle(); });
+                tablet_iter->second.erase(task_iter);
                 need_removed_tasks.emplace_back(tablet, version);
                 tablet_iter++;
             }
