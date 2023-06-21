@@ -116,5 +116,6 @@ suite("load_four_step") {
             }
             sleep(5000)
         }
+        sql """ ANALYZE TABLE $table WITH SYNC """
     }
 }
