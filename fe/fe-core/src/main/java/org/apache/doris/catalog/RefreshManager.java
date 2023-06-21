@@ -17,7 +17,12 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.RefreshCatalogStmt;
+import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.RefreshTableStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
