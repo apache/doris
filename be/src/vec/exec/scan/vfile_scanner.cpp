@@ -348,8 +348,8 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
-        // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
+        // remove nullable here, let the get_function decide whether nullable
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
                 remove_nullable(return_type)->get_type_id());
         ColumnsWithTypeAndName arguments {
