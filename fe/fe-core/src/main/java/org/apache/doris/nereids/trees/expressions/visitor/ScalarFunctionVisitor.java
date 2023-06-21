@@ -204,6 +204,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicrosecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MicrosecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
@@ -743,6 +745,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(secondsSub, context);
     }
 
+    default R visitMicrosecondsSub(MicrosecondsSub microsecondsSub, C context) {
+        return visitScalarFunction(microsecondsSub, context);
+    }
+
     default R visitMonthsAdd(MonthsAdd monthsAdd, C context) {
         return visitScalarFunction(monthsAdd, context);
     }
@@ -761,6 +767,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitSecondsAdd(SecondsAdd secondsAdd, C context) {
         return visitScalarFunction(secondsAdd, context);
+    }
+
+    default R visitMicrosecondsAdd(MicrosecondsAdd microsecondsAdd, C context) {
+        return visitScalarFunction(microsecondsAdd, context);
     }
 
     default R visitDceil(Dceil dceil, C context) {
