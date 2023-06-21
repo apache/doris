@@ -69,8 +69,8 @@ public class Column implements Writable, GsonPostProcessable {
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
 
-    public static final Column UNSUPPORTED_COLUMN = new Column("unknown",
-            Type.UNSUPPORTED, true, null, true, false, null, "invalid", true, null, -1, null, null, null, null);
+    public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, false,
+            null, "invalid", true, null, -1, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -170,26 +170,24 @@ public class Column implements Writable, GsonPostProcessable {
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true, null,
-                COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue, null, null, null);
+                COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null,
-                colUniqueId, null, null, null, null);
+        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null, colUniqueId, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
             int colUniqueId, String realDefaultValue) {
         this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, visible, defaultValueExprDef,
-                colUniqueId, realDefaultValue, null, null, null);
+                colUniqueId, realDefaultValue);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             boolean isAutoInc, String defaultValue, String comment, boolean visible,
-            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue,
-            String genericAggregationName, List<Type> genericAggregationArguments, List<Boolean> nullableList) {
+            DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -215,13 +213,15 @@ public class Column implements Writable, GsonPostProcessable {
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
 
-        this.genericAggregationName = genericAggregationName;
-        if (genericAggregationArguments != null) {
-            for (int i = 0; i < genericAggregationArguments.size(); i++) {
-                Column c = new Column(COLUMN_AGG_ARGUMENT_CHILDREN, genericAggregationArguments.get(i));
-                c.setIsAllowNull(nullableList.get(i));
+        if (type.isAggStateType()) {
+            AggStateType aggState = (AggStateType) type;
+            for (int i = 0; i < aggState.getSubTypes().size(); i++) {
+                Column c = new Column(COLUMN_AGG_ARGUMENT_CHILDREN, aggState.getSubTypes().get(i));
+                c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
                 addChildrenColumn(c);
             }
+            this.genericAggregationName = aggState.getFunctionName();
+            this.aggregationType = AggregateType.GENERIC_AGGREGATION;
         }
     }
 
@@ -516,8 +516,9 @@ public class Column implements Writable, GsonPostProcessable {
         tColumn.setColUniqueId(uniqueId);
 
         if (type.isAggStateType()) {
-            tColumn.setAggregation(genericAggregationName);
-            tColumn.setResultIsNullable(((AggStateType) type).getResultIsNullable());
+            AggStateType aggState = (AggStateType) type;
+            tColumn.setAggregation(aggState.getFunctionName());
+            tColumn.setResultIsNullable(aggState.getResultIsNullable());
             for (Column column : children) {
                 tColumn.addToChildrenColumn(column.toThrift());
             }
