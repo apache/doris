@@ -330,9 +330,9 @@ if  [[ "${RUN_TRINO}" -eq 1 ]]; then
 
         # trino load hive catalog need restart server
         max_retries=3
-        sleep_interval=3s
 
         function control_container() {
+            max_retries=3
             operation=$1
             expected_status=$2
             retries=0
@@ -345,24 +345,24 @@ if  [[ "${RUN_TRINO}" -eq 1 ]]; then
                     break
                 else
                     echo "Waiting for container ${TRINO_CONTAINER_ID} to ${operation}..."
-                    sleep $sleep_interval
+                    sleep 5s
                     ((retries++))
                 fi
+                sleep 3s
             done
 
             if [ $retries -eq $max_retries ]; then
-                echo "${operation^} operation failed to complete after $max_retries attempts."
+                echo "${operation} operation failed to complete after $max_retries attempts."
                 exit 1
             fi
         }
         # Stop the container
         docker stop ${TRINO_CONTAINER_ID}
-        sleep $sleep_interval
+        sleep 5s
         control_container "stop" "false"
 
         # Start the container
         docker start ${TRINO_CONTAINER_ID}
-        sleep $sleep_interval
         control_container "start" "true"
 
         # waite trino init
