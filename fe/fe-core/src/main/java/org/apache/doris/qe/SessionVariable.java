@@ -1047,7 +1047,7 @@ public class SessionVariable implements Serializable, Writable {
                     break;
             }
         }
-        
+
         if (Config.fuzzy_test_type.equals("p0")) {
             if (Config.pull_request_id > 0) {
                 if (Config.pull_request_id % 2 == 1) {
