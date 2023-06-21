@@ -374,6 +374,21 @@ Status VOlapTableSinkV2::send(RuntimeState* state, vectorized::Block* input_bloc
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
+    {
+        MonotonicStopWatch watch;
+        watch.start();
+        bool waited = false;
+        while (_flying_memtable_count.load() >= config::max_flying_memtable_per_sink) {
+            // sleep 1ms
+            bthread_usleep(1000);
+            waited = true;
+        }
+        watch.stop();
+        if (waited) {
+            LOG(INFO) << "waited " << watch.elapsed_time() / 1000000 << "ms for flying memtable count limit";
+        }
+    }
+
     auto block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
     if (!_output_vexpr_ctxs.empty()) {
         // Do vectorized expr here to speed up load
@@ -478,6 +493,7 @@ void* VOlapTableSinkV2::_write_memtable_task(void* closure) {
             sink->_stream_pool_index = (sink->_stream_pool_index + 1) % sink->_stream_pool->size();
             DeltaWriter::open(&wrequest, &delta_writer, sink->_profile, sink->_load_id);
             delta_writer->add_stream(stream);
+            delta_writer->register_flying_memtable_counter(&sink->_flying_memtable_count);
             sink->_delta_writer_for_tablet->insert({key, std::unique_ptr<DeltaWriter>(delta_writer)});
         } else {
             LOG(INFO) << "Reusing DeltaWriter for Tablet(tablet id: " << ctx->tablet_id

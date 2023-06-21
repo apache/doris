@@ -309,6 +309,7 @@ private:
     std::shared_ptr<bthread::Mutex> _delta_writer_for_tablet_mutex;
     std::vector<bthread_t> _write_memtable_threads;
     std::atomic<int32_t> _flying_task_count {0};
+    std::atomic<int32_t> _flying_memtable_count {0};
 };
 
 } // namespace stream_load

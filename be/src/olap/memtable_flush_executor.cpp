@@ -71,6 +71,9 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     int64_t submit_task_time = MonotonicNanos();
     auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time);
     _stats.flush_running_count++;
+    if (_flying_memtable_counter != nullptr) {
+        _flying_memtable_counter->fetch_add(1);
+    }
     return _flush_token->submit(std::move(task));
 }
 
@@ -113,6 +116,9 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_running_count--;
+    if (_flying_memtable_counter != nullptr) {
+        _flying_memtable_counter->fetch_sub(1);
+    }
     _stats.flush_size_bytes += memtable->memory_usage();
     _stats.flush_disk_size_bytes += memtable->flush_size();
 }
