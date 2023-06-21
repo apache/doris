@@ -237,7 +237,6 @@ public class SingleNodePlanner {
             throws UserException {
         long newDefaultOrderByLimit = defaultOrderByLimit;
         long defaultLimit = analyzer.getContext().getSessionVariable().defaultOrderByLimit;
-        long sqlSelectLimit = analyzer.getContext().getSessionVariable().sqlSelectLimit;
         if (newDefaultOrderByLimit == -1) {
             if (defaultLimit <= -1) {
                 newDefaultOrderByLimit = Long.MAX_VALUE;
@@ -245,7 +244,6 @@ public class SingleNodePlanner {
                 newDefaultOrderByLimit = defaultLimit;
             }
         }
-        newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
@@ -284,6 +282,8 @@ public class SingleNodePlanner {
             }
         }
 
+        long sqlSelectLimit = analyzer.getContext().getSessionVariable().sqlSelectLimit;
+
         if (stmt.evaluateOrderBy() && sortHasMaterializedSlots) {
             long limit = stmt.getLimit();
             // TODO: External sort could be used for very large limits
@@ -297,7 +297,8 @@ public class SingleNodePlanner {
             ((SortNode) root).setDefaultLimit(limit == -1);
             ((SortNode) root).setOffset(stmt.getOffset());
             if (useTopN) {
-                root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                // if limit != -1, it means limit clause exists, we get the minimum.
+                root.setLimit(limit != -1 ? limit : Math.min(newDefaultOrderByLimit, sqlSelectLimit));
             } else {
                 root.setLimit(limit);
             }
@@ -307,7 +308,11 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
+            if (!stmt.hasLimit()) {
+                root.setLimitAndOffset(sqlSelectLimit, stmt.getOffset());
+            } else {
+                root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
+            }
             root.computeStats(analyzer);
         }
 

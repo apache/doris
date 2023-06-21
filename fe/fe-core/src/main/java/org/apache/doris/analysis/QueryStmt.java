@@ -193,10 +193,6 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             throw new AnalysisException("OFFSET requires an ORDER BY clause: "
                     + limitElement.toSql().trim());
         }
-        // check if the query stmt is the top node and add a limit if the sv is open.
-        if (!analyzer.hasAncestors() && !limitElement.hasLimit() && ConnectContext.get() != null) {
-            limitElement = new LimitElement(ConnectContext.get().getSessionVariable().getSqlSelectLimit());
-        }
         limitElement.analyze(analyzer);
     }
 
