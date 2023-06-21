@@ -661,7 +661,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `update_replica_infos_interval_seconds`
 
 * 描述：更新 peer replica infos 的最小间隔时间
-* 默认值：10（s）
+* 默认值：60（s）
 
 #### `compaction_policy`
 
@@ -675,14 +675,14 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：int64
 * 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
-* 默认值：1024
+* 默认值：512
 
 #### `time_series_compaction_file_count_threshold`
 
 * 类型：int64
 * 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值，只有当 time_series_compaction_goal_size_mbytes 条件不满足时，该参数才会发挥作用
   - 一个 tablet 中文件数超过该配置，会触发 compaction
-* 默认值：10000
+* 默认值：2000
 
 #### `time_series_compaction_time_threshold_seconds`
 
