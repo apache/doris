@@ -18,10 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQuqeryOnAggMV5") {
-
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
