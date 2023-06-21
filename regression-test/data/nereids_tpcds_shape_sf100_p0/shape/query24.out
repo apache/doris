@@ -9,6 +9,8 @@ CteAnchor[cteId= ( CTEId#0=] )
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = store_returns.sr_item_sk)(store_sales.ss_ticket_number = store_returns.sr_ticket_number)
 ----------------PhysicalProject
+------------------PhysicalOlapScan[store_returns]
+----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
 --------------------hashJoin[INNER_JOIN](store.s_zip = customer_address.ca_zip)(customer.c_current_addr_sk = customer_address.ca_address_sk)( not (c_birth_country = upper(ca_country)))
 ----------------------PhysicalProject
@@ -29,8 +31,6 @@ CteAnchor[cteId= ( CTEId#0=] )
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[item]
-----------------PhysicalProject
-------------------PhysicalOlapScan[store_returns]
 --PhysicalQuickSort
 ----PhysicalDistribute
 ------PhysicalQuickSort
