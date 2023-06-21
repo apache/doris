@@ -19,9 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testBitmapUnionInQuery") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
-
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (

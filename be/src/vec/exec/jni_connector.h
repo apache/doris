@@ -163,7 +163,10 @@ public:
                  std::vector<std::string> column_names)
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
-              _column_names(std::move(column_names)) {}
+              _column_names(std::move(column_names)) {
+        // Use java class name as connector name
+        _connector_name = split(_connector_class, "/").back();
+    }
 
     /// Should release jni resources if other functions are failed.
     ~JniConnector();
@@ -198,6 +201,11 @@ public:
     Status get_nex_block(Block* block, size_t* read_rows, bool* eof);
 
     /**
+     * Get performance metrics from java scanner
+     */
+    std::map<std::string, std::string> get_statistics(JNIEnv* env);
+
+    /**
      * Close scanner and release jni resources.
      */
     Status close();
@@ -210,9 +218,17 @@ public:
     static Status generate_meta_info(Block* block, std::unique_ptr<long[]>& meta);
 
 private:
+    std::string _connector_name;
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
+
+    RuntimeState* _state;
+    RuntimeProfile* _profile;
+    RuntimeProfile::Counter* _open_scanner_time;
+    RuntimeProfile::Counter* _java_scan_time;
+    RuntimeProfile::Counter* _fill_block_time;
+    std::map<std::string, RuntimeProfile::Counter*> _scanner_profile;
 
     size_t _has_read = 0;
 
@@ -224,6 +240,7 @@ private:
     jmethodID _jni_scanner_close;
     jmethodID _jni_scanner_release_column;
     jmethodID _jni_scanner_release_table;
+    jmethodID _jni_scanner_get_statistics;
 
     long* _meta_ptr;
     int _meta_index;
