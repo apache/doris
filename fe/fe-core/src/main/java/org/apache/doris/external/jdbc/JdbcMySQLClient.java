@@ -196,8 +196,7 @@ public class JdbcMySQLClient extends JdbcClient {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
                     field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, null, -1, null,
-                    null, null, null));
+                    true, null, -1, null));
         }
         return dorisTableSchema;
     }
