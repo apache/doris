@@ -104,7 +104,7 @@ private:
     std::mutex _tablet_ids_mutex;
     vector<TTabletId>* _error_tablet_ids;
     vector<TTabletId>* _succ_tablet_ids;
-    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinous_version_tablets;
+    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets;
 
     std::mutex _tablet_finish_mutex;
     std::condition_variable _tablet_finish_cond;

@@ -71,12 +71,12 @@ void TabletPublishStatistics::record_in_bvar() {
 EnginePublishVersionTask::EnginePublishVersionTask(
         const TPublishVersionRequest& publish_version_req, std::vector<TTabletId>* error_tablet_ids,
         std::vector<TTabletId>* succ_tablet_ids,
-        std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinous_version_tablets)
+        std::vector<std::tuple<int64_t, int64_t, int64_t>>* discontinuous_version_tablets)
         : _total_task_num(0),
           _publish_version_req(publish_version_req),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablet_ids(succ_tablet_ids),
-          _discontinous_version_tablets(discontinous_version_tablets) {}
+          _discontinuous_version_tablets(discontinuous_version_tablets) {}
 
 void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     std::lock_guard<std::mutex> lck(_tablet_ids_mutex);
@@ -180,7 +180,7 @@ Status EnginePublishVersionTask::finish() {
                     // publish failed
                     if (!tablet->check_version_exist(version)) {
                         add_error_tablet_id(tablet_info.tablet_id);
-                        _discontinous_version_tablets->emplace_back(
+                        _discontinuous_version_tablets->emplace_back(
                                 partition_id, tablet_info.tablet_id, version.first);
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>();
                     }
@@ -341,11 +341,10 @@ void AsyncTabletPublishTask::handle() {
     // print stats if publish cost > 500ms
     g_tablet_publish_latency << cost_us;
     _stats.record_in_bvar();
-    LOG(INFO) << "asyn publish version successfully on tablet"
-              << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->full_name()
-              << ", transaction_id=" << _transaction_id << ", version=" << _version
-              << ", num_rows=" << rowset->num_rows() << ", res=" << publish_status
-              << ", cost: " << cost_us << "(us) "
+    LOG(INFO) << "async publish version successfully on tablet, table_id=" << _tablet->table_id()
+              << ", tablet=" << _tablet->full_name() << ", transaction_id=" << _transaction_id
+              << ", version=" << _version << ", num_rows=" << rowset->num_rows()
+              << ", res=" << publish_status << ", cost: " << cost_us << "(us) "
               << (cost_us > 500 * 1000 ? _stats.to_string() : "");
 }
 

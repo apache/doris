@@ -1449,14 +1449,14 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         std::vector<TTabletId> error_tablet_ids;
         std::vector<TTabletId> succ_tablet_ids;
         // partition_id, tablet_id, publish_version
-        std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinous_version_tablets;
+        std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablet_ids, &discontinous_version_tablets);
+                                                 &succ_tablet_ids, &discontinuous_version_tablets);
             status = _env->storage_engine()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
@@ -1490,7 +1490,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             continue;
         }
 
-        for (auto& item : discontinous_version_tablets) {
+        for (auto& item : discontinuous_version_tablets) {
             StorageEngine::instance()->add_async_publish_task(
                     std::get<0>(item), std::get<1>(item), std::get<2>(item),
                     publish_version_req.transaction_id, false);

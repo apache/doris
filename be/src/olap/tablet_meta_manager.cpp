@@ -180,8 +180,8 @@ Status TabletMetaManager::save_pending_publish_info(DataDir* store, TTabletId ta
                                                     const std::string& meta_binary) {
     std::string key = fmt::format("{}{}_{}", PENDING_PUBLISH_INFO, tablet_id, publish_version);
     OlapMeta* meta = store->get_meta();
-    VLOG_NOTICE << "save pending publish rowset, key:" << key
-                << " meta_size=" << meta_binary.length();
+    LOG(INFO) << "save pending publish rowset, key:" << key
+              << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
@@ -190,7 +190,7 @@ Status TabletMetaManager::remove_pending_publish_info(DataDir* store, TTabletId 
     std::string key = fmt::format("{}{}_{}", PENDING_PUBLISH_INFO, tablet_id, publish_version);
     OlapMeta* meta = store->get_meta();
     Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
-    VLOG_NOTICE << "remove pending publish_info, key:" << key << ", res:" << res;
+    LOG(INFO) << "remove pending publish_info, key:" << key << ", res:" << res;
     return res;
 }
 

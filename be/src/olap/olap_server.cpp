@@ -1224,6 +1224,9 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
                                                      publish_version,
                                                      pending_publish_info_pb.SerializeAsString());
     }
+    LOG(INFO) << "add pending publish task, tablet_id: " << tablet_id
+              << " version: " << publish_version << " txn_id:" << transaction_id
+              << " is_recovery: " << is_recovery;
     std::lock_guard<std::mutex> lock(_async_publish_mutex);
     _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id};
 }
@@ -1232,6 +1235,9 @@ int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
     std::lock_guard<std::mutex> lock(_async_publish_mutex);
     auto iter = _async_publish_tasks.find(tablet_id);
     if (iter == _async_publish_tasks.end()) {
+        return INT64_MAX;
+    }
+    if (iter->second.empty()) {
         return INT64_MAX;
     }
     return iter->second.begin()->first;
@@ -1270,6 +1276,7 @@ void StorageEngine::_async_publish_callback() {
                 }
 
                 if (version <= max_version) {
+                    need_removed_tasks.emplace_back(tablet, version);
                     tablet_iter->second.erase(task_iter);
                     tablet_iter++;
                     continue;
