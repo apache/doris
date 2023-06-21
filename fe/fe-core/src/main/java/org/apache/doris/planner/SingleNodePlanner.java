@@ -248,6 +248,9 @@ public class SingleNodePlanner {
                 newDefaultOrderByLimit = defaultLimit;
             }
         }
+        if (sqlSelectLimit <= -1) {
+            sqlSelectLimit = Long.MAX_VALUE;
+        }
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
@@ -271,7 +274,7 @@ public class SingleNodePlanner {
             }
         } else {
             Preconditions.checkState(stmt instanceof SetOperationStmt);
-            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit);
+            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit, sqlSelectLimit);
         }
 
         // Avoid adding a sort node if the sort tuple has no materialized slots.
@@ -286,9 +289,6 @@ public class SingleNodePlanner {
             }
         }
 
-        if (sqlSelectLimit <= -1) {
-            sqlSelectLimit = Long.MAX_VALUE;
-        }
         if (stmt.evaluateOrderBy() && sortHasMaterializedSlots) {
             long limit = stmt.getLimit();
             // TODO: External sort could be used for very large limits
