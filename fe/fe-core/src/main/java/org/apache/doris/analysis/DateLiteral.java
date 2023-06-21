@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.IllegalFormatException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -346,6 +347,13 @@ public class DateLiteral extends LiteralExpr {
         return new DateLiteral(type, false);
     }
 
+    /*
+     * transform a string into Date-like value specific by type.
+     * 
+     * @throws IllegalFormatException if the transformed date-like value is illegal.
+     * 
+     * @throws AnalysisException if s can't be analysis.
+     */
     private void init(String s, Type type) throws AnalysisException {
         try {
             Preconditions.checkArgument(type.isDateType());
@@ -400,10 +408,10 @@ public class DateLiteral extends LiteralExpr {
                 }
                 String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
                 if (timePart.length > 0 && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
-                    throw new AnalysisException("Invalid date value: " + s);
+                    throw new IllegalFormatException("Invalid date value: " + s);
                 }
                 if (timePart.length == 0 && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
-                    throw new AnalysisException("Invalid datetime value: " + s);
+                    throw new IllegalFormatException("Invalid datetime value: " + s);
                 }
                 for (int i = 0; i < timePart.length; i++) {
                     switch (i) {
@@ -448,11 +456,16 @@ public class DateLiteral extends LiteralExpr {
                 type = ScalarType.createDatetimeV2Type(scale);
             }
             this.type = type;
-            if (checkRange() || checkDate()) {
-                throw new AnalysisException("Datetime value is out of range");
-            }
+        } catch (DateTimeParseException ex) {
+            throw new IllegalFormatException("Illegal datetime value");
+        } catch (AnalysisException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
+        }
+        checkValueValid();
+        if (checkRange() || checkDate()) {
+            throw new IllegalFormatException("datetime value is out of range");
         }
     }
 
@@ -809,30 +822,30 @@ public class DateLiteral extends LiteralExpr {
 
     // Validation check should be same as DateV2Value<T>::is_invalid in BE
     @Override
-    public void checkValueValid() throws AnalysisException {
+    public void checkValueValid() throws IllegalFormatException {
         if (year < 0 || year > 9999) {
-            throw new AnalysisException("DateLiteral has invalid year value: " + year);
+            throw new IllegalFormatException("DateLiteral has invalid year value: " + year);
         }
         if (month < 1 || month > 12) {
-            throw new AnalysisException("DateLiteral has invalid month value: " + month);
+            throw new IllegalFormatException("DateLiteral has invalid month value: " + month);
         }
         if (day < 1 || day > DAYS_IN_MONTH[(int) month]) {
             if (!(month == 2 && day == 29 && isLeapYear())) {
-                throw new AnalysisException("DateLiteral has invalid day value: " + day);
+                throw new IllegalFormatException("DateLiteral has invalid day value: " + day);
             }
         }
         if (type.isDatetimeV2() || type.isDatetime()) {
             if (hour < 0 || hour > 24) {
-                throw new AnalysisException("DateLiteral has invalid hour value: " + hour);
+                throw new IllegalFormatException("DateLiteral has invalid hour value: " + hour);
             }
             if (minute < 0 || minute > 60) {
-                throw new AnalysisException("DateLiteral has invalid minute value: " + minute);
+                throw new IllegalFormatException("DateLiteral has invalid minute value: " + minute);
             }
             if (second < 0 || second > 60) {
-                throw new AnalysisException("DateLiteral has invalid second value: " + second);
+                throw new IllegalFormatException("DateLiteral has invalid second value: " + second);
             }
             if (type.isDatetimeV2() && (microsecond < 0 || microsecond > 999999)) {
-                throw new AnalysisException("DateLiteral has invalid microsecond value: " + microsecond);
+                throw new IllegalFormatException("DateLiteral has invalid microsecond value: " + microsecond);
             }
         }
     }

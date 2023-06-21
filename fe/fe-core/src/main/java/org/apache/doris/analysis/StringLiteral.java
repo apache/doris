@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.IllegalFormatException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
@@ -171,31 +172,26 @@ public class StringLiteral extends LiteralExpr {
 
     /**
      * Convert a string literal to a date literal
+     * In our planner, Datetime also use this function to analyze. So we need to
+     * double-check it's type.
      *
      * @param targetType is the desired type
-     * @return new converted literal (not null)
-     * @throws AnalysisException when entire given string cannot be transformed into a date
+     * @return new converted literal, null if the given date was transformed into a
+     *         illegal date value.
+     * @throws AnalysisException if the given string can't be transformed into a
+     *                           date value.
      */
     public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
         LiteralExpr newLiteral = null;
         try {
             newLiteral = new DateLiteral(value, targetType);
-        } catch (AnalysisException e) {
-            if (targetType.isScalarType(PrimitiveType.DATETIME)) {
-                newLiteral = new DateLiteral(value, Type.DATE);
-                newLiteral.setType(Type.DATETIME);
-            } else if (targetType.isScalarType(PrimitiveType.DATETIMEV2)) {
-                newLiteral = new DateLiteral(value, Type.DATEV2);
-                newLiteral.setType(targetType);
-            } else {
-                throw e;
-            }
-        }
-        try {
             newLiteral.checkValueValid();
-        } catch (AnalysisException e) {
-            return NullLiteral.create(newLiteral.getType());
+        } catch (IllegalFormatException e) {
+            LOG.info("{} is illegal value for date-like type, insert null instead", value);
+            return NullLiteral.create(targetType);
         }
+        // don't catch AnalysisException, which means the literal can't be analyse. It
+        // will make the whole process fail.
         return newLiteral;
     }
 
@@ -261,12 +257,8 @@ public class StringLiteral extends LiteralExpr {
         } else if (targetType.isDateType()) {
             // FE only support 'yyyy-MM-dd hh:mm:ss' && 'yyyy-MM-dd' format
             // so if FE unchecked cast fail, we also build CastExpr for BE
-            // BE support other format suck as 'yyyyMMdd'...
-            try {
-                return convertToDate(targetType);
-            } catch (AnalysisException e) {
-                // pass;
-            }
+            // BE support other format such as 'yyyyMMdd'...
+            return convertToDate(targetType);
         } else if (targetType.equals(type)) {
             return this;
         } else if (targetType.isStringType()) {

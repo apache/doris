@@ -231,6 +231,8 @@ public class DateTimeLiteral extends DateLiteral {
             second = DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE);
             microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
 
+        } catch (AnalysisException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new AnalysisException("datetime literal [" + s + "] is invalid");
         }

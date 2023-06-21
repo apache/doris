@@ -1792,7 +1792,9 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
     if (year < MIN_YEAR || year > MAX_YEAR) {
         return true;
     }
-    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
+    if (month == 2 && day == 29 && doris::is_leap(year)) {
+        return false;
+    }
     if (month == 0 || month > 12 || day > s_days_in_month[month] || day == 0) {
         return true;
     }
