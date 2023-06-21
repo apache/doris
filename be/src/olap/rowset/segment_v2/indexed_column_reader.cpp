@@ -37,6 +37,8 @@ using namespace ErrorCode;
 namespace segment_v2 {
 
 static bvar::Adder<uint64_t> g_index_reader_bytes("doris_pk", "index_reader_bytes");
+static bvar::Adder<uint64_t> g_index_reader_compressed_bytes("doris_pk",
+                                                             "index_reader_compressed_bytes");
 static bvar::PerSecond<bvar::Adder<uint64_t>> g_index_reader_bytes_per_second(
         "doris_pk", "index_reader_bytes_per_second", &g_index_reader_bytes, 60);
 static bvar::Adder<uint64_t> g_index_reader_pages("doris_pk", "index_reader_pages");
@@ -119,6 +121,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     opts.pre_decode = pre_decode;
 
     auto st = PageIO::read_and_decompress_page(opts, handle, body, footer);
+    g_index_reader_compressed_bytes << pp.size;
     g_index_reader_bytes << footer->uncompressed_size();
     g_index_reader_pages << 1;
     return st;
