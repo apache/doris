@@ -75,11 +75,10 @@ suite("test_dynamic_table", "dynamic_table"){
             sql """
                 CREATE TABLE IF NOT EXISTS ${table_name} (
                     ${colume_set}
-                    ...
                 )
                 ${data_model} KEY(${key})
                 DISTRIBUTED BY HASH(`${columes[0]}`) BUCKETS 10
-                properties("replication_num" = "${replica_num}");
+                properties("replication_num" = "${replica_num}", "deprecated_dynamic_schema" = "true");
             """
         }catch(Exception ex) {
             logger.info("create ${table_name} fail, catch exception: ${ex}".toString())
