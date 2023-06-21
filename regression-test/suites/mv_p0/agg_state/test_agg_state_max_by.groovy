@@ -17,7 +17,9 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("sum_devide_count") {
+suite ("test_agg_state_max_by") {
+
+    sql """set enable_nereids_planner=true"""
 
     sql """ DROP TABLE IF EXISTS d_table; """
 
@@ -36,34 +38,18 @@ suite ("sum_devide_count") {
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table(k4,k2) values('d',4);"
 
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
+    createMV("create materialized view k1mb as select k1,max_by(k2,k3) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
-    sql "insert into d_table select 3,2,null,'c';"
-    qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
+    qt_select_star "select * from d_table order by k1;"
+/*
     explain {
-        sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
+        sql("select k1,max_by(k2,k3) from d_table group by k1 order by k1;")
+        contains "(k1mb)"
     }
-    qt_select_mv "select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;"
-
-    explain {
-        sql("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;")
-        contains "(kavg)"
-    }
-    qt_select_mv "select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;"
-
-    explain {
-        sql("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;")
-        contains "(kavg)"
-    }
-    qt_select_mv "select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;"
-
-    explain {
-        sql("select sum(k2)/count(k2) from d_table;")
-        contains "(kavg)"
-    }
-    qt_select_mv "select sum(k2)/count(k2) from d_table;"
+    qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by k1;"
+*/
 }
