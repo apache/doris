@@ -6,7 +6,7 @@
 7
 
 -- !test_timediff_varchar --
--24:00:00
+-96:00:00.333
 
 -- !test_timediff_char --
 -24:00:00
