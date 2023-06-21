@@ -325,7 +325,7 @@ public class SingleNodePlanner {
             root = createAssertRowCountNode(root, stmt.getAssertNumRowsElement(), analyzer);
         }
 
-        if (analyzer.hasEmptyResultSet() || root.getLimit() == 0) {
+        if (analyzer.hasEmptyResultSet() || root.getLimit() == 0 || newDefaultOrderByLimit == 0) {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
             Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
             scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
