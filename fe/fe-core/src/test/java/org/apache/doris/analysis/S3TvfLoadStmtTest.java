@@ -39,6 +39,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 import org.apache.hadoop.util.Lists;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.StringReader;
@@ -67,12 +68,11 @@ public class S3TvfLoadStmtTest {
 
     private Analyzer analyzer;
 
-    private TableRef tableRef;
-
     private BrokerDesc brokerDesc;
 
     private Set<String> colNames;
 
+    @Before
     public void setUp() throws AnalysisException {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
@@ -84,15 +84,6 @@ public class S3TvfLoadStmtTest {
         brokerProperties.put(Env.ENDPOINT, ENDPOINT_VALUE);
         brokerProperties.put(Env.REGION, REGION_VALUE);
         brokerDesc = new BrokerDesc("s3", StorageType.S3, brokerProperties);
-
-        final Map<String, String> tvfProperties = Maps.newHashMap();
-        tvfProperties.put(S3Properties.ACCESS_KEY, ACCESS_KEY_VALUE);
-        tvfProperties.put(S3Properties.SECRET_KEY, SECRET_KEY_VALUE);
-        tvfProperties.put(S3Properties.ENDPOINT, ENDPOINT_VALUE);
-        tvfProperties.put(S3Properties.REGION, REGION_VALUE);
-        tvfProperties.put(S3TableValuedFunction.S3_URI, DATA_URI);
-        tableRef = new TableValuedFunctionRef(S3TableValuedFunction.NAME, "", tvfProperties);
-        final TableIf table = tableRef.getTable();
 
         colNames = Sets.newHashSet("k1", "k2", "k3", "k4");
     }
@@ -146,15 +137,18 @@ public class S3TvfLoadStmtTest {
     @Test
     public void testColumnMappings() throws Exception {
         // c1/c2/c3 in both file and table, and c5 is only in table
-        final List<ImportColumnDesc> columnsDescList = getColumnsDescList("c1,c2,c3,c1=upper(c1), tmp_c4=c1 + 1, c5 = tmp_c4+1");
+        final List<ImportColumnDesc> columnsDescList = getColumnsDescList(
+                "c1,c2,c3,c1=upper(c1), tmp_c4=c1 + 1, c5 = tmp_c4+1");
         //        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
-        final S3TvfLoadStmt s3TvfLoadStmt = new S3TvfLoadStmt(labelName, Collections.singletonList(dataDescription),
-                brokerDesc, null, "comment");
         new Expectations() {
             {
                 dataDescription.getParsedColumnExprList();
                 minTimes = 0;
                 result = columnsDescList;
+
+                dataDescription.getFilePaths();
+                minTimes = 0;
+                result = Collections.singletonList(DATA_URI);
 
                 targetTable.getBaseSchema();
                 minTimes = 0;
@@ -181,6 +175,8 @@ public class S3TvfLoadStmtTest {
                 result = null;
             }
         };
+        final S3TvfLoadStmt s3TvfLoadStmt = new S3TvfLoadStmt(labelName, Collections.singletonList(dataDescription),
+                brokerDesc, null, "comment");
         Deencapsulation.setField(s3TvfLoadStmt, "functionGenTableColNames", Sets.newHashSet("c1", "c2", "c3"));
 
         Deencapsulation.invoke(s3TvfLoadStmt, "rewriteExpr", columnsDescList);
