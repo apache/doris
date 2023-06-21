@@ -187,9 +187,6 @@ Status GraceHashJoinNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 void GraceHashJoinNode::release_resource(RuntimeState* state) {
-    VExpr::close(build_expr_ctxs_, state);
-    VExpr::close(probe_expr_ctxs_, state);
-
     _close_current_partitions(state);
 
     ExecNode::release_resource(state);

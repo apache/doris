@@ -404,7 +404,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::SORT_NODE:
-        if (state->enable_pipeline_exec() && state->enable_join_spill()) {
+        if (state->enable_pipeline_exec() && state->enable_sort_spill()) {
             *node = pool->add(new vectorized::SpillSortNode(pool, tnode, descs));
         } else {
             *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));

@@ -111,6 +111,7 @@ Status SpillSortNode::sink(RuntimeState* state, Block* input_block, bool eos) {
         sorted_streams_.emplace_back(stream);
     }
     if (eos) {
+        LOG(WARNING) << "spill sort eos";
         RETURN_IF_ERROR(_prepare_for_pull(state));
     }
     return Status::OK();
@@ -119,6 +120,7 @@ Status SpillSortNode::sink(RuntimeState* state, Block* input_block, bool eos) {
 Status SpillSortNode::_prepare_for_pull(RuntimeState* state) {
     if (sorted_streams_.size() < 2) {
         ready_for_pull_ = true;
+        LOG(WARNING) << "spill sort one stream";
         return Status::OK();
     }
     auto sort_description = in_memory_sort_node_->get_sort_description();
@@ -128,9 +130,11 @@ Status SpillSortNode::_prepare_for_pull(RuntimeState* state) {
         RETURN_IF_ERROR(_create_intermediate_merger(max_stream_count, sort_description));
         // all the remaining streams can be merged in a run
         if (sorted_streams_.empty()) {
+            LOG(WARNING) << "spill sort final merge";
             break;
         }
 
+        LOG(WARNING) << "spill sort merge intermediate streams";
         SpillStreamSPtr stream;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 stream, print_id(state->query_id()), "sort", id(), spill_block_batch_size_,
@@ -172,11 +176,14 @@ bool SpillSortNode::io_task_finished() {
 }
 Status SpillSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     if (!ready_for_pull_) {
+        LOG(WARNING) << "spill sort pull, not ready";
         return Status::OK();
     }
     if (sorted_streams_.size() < 2) {
+        LOG(WARNING) << "spill sort pull, one stream";
         return sorted_streams_[0]->get_next(output_block, eos);
     }
+    LOG(WARNING) << "spill sort pull, merge get next";
     return merger_->get_next(output_block, eos);
 }
 } // namespace vectorized
