@@ -64,6 +64,8 @@ public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
+    static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
+
     void static check_chars_length(size_t total_length, size_t element_number) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
             throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
