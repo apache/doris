@@ -714,20 +714,17 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         return Status::Error<INIT_FAILED>();
     }
     io::FileWriterPtr file_writer;
-    // TODO: fix index_id and rowset_id
-    //if (config::experimental_olap_table_sink_v2) {
-    //    // TODO: create stream sink writer
-    //    auto index_id = _rowset_meta->index_id();
-    //    auto tablet_id = _rowset_meta->tablet_id();
-    //    auto s = segment_id;
-    //    auto p = path;
-    //    auto load_id = _rowset_meta->load_id();
-    //    auto rowset_id = _rowset_meta->rowset_id();
-    //    auto stream_id = *_streams.begin();
+    if (config::experimental_olap_table_sink_v2) {
+        // TODO: create stream sink writer
+        //auto index_id = _rowset_meta->index_id();
+        //auto tablet_id = _rowset_meta->tablet_id();
+        //auto load_id = _rowset_meta->load_id();
+        //auto rowset_id = _rowset_meta->rowset_id();
+        //auto stream_id = *_streams.begin();
 
-    //    io::StreamSinkFileWriter writer(stream_id);
-    //    writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
-    //}
+        //io::StreamSinkFileWriter writer(stream_id);
+        //writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
+    }
     // TODO: else
     Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
@@ -890,7 +887,7 @@ void BetaRowsetWriter::notify_last() {
         //auto rowset_id = _rowset_meta->rowset_id();
         //auto stream_id = *_streams.begin();
         //io::StreamSinkFileWriter writer(stream_id);
-        //writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, false);
+        //writer.init(path, load_id, index_id, tablet_id, rowset_id, segment_id, true);
         //file_writer = writer;
 
         segment_v2::SegmentWriterOptions writer_options;

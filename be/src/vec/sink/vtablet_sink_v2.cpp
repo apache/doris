@@ -118,7 +118,7 @@ int StreamSinkHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* con
             }
             _sink->tablet_error_map[key].push_back(response.backend_id());
             if (_sink->tablet_error_map[key].size() * 2 >= replica) {
-                // TODO: cancel load
+                // TODO: _sink->cancel();
             }
         }
     }
@@ -532,6 +532,13 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
         }
         _delta_writer_for_tablet.reset();
 
+
+        // TODO: wait all stream replies
+        //{
+        //    std::unique_lock lock(all_stream_done_mutex);
+        //    all_stream_done_cv.wait(lock);
+        //}
+
         // close streams
         if (_stream_pool.use_count() == 1) {
             for (const auto& stream_id : *_stream_pool) {
@@ -539,12 +546,6 @@ Status VOlapTableSinkV2::close(RuntimeState* state, Status exec_status) {
             }
         }
         _stream_pool.reset();
-
-        // TODO: wait all stream replies
-        //{
-        //    std::unique_lock lock(all_stream_done_mutex);
-        //    all_stream_done_cv.wait(lock);
-        //}
 
         std::vector<TTabletCommitInfo> tablet_commit_infos;
         for (auto& entry : tablet_success_map) {
