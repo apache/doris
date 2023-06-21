@@ -16,6 +16,7 @@
 // under the License.
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -60,6 +61,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/index_builder.h"
@@ -1210,47 +1212,84 @@ void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
+void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_id,
+                                           int64_t publish_version, int64_t transaction_id,
+                                           bool is_recovery) {
+    if (!is_recovery) {
+        TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+        PendingPublishInfoPB pending_publish_info_pb;
+        pending_publish_info_pb.set_partition_id(partition_id);
+        pending_publish_info_pb.set_transaction_id(transaction_id);
+        TabletMetaManager::save_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
+                                                     publish_version,
+                                                     pending_publish_info_pb.SerializeAsString());
+    }
+    std::lock_guard<std::mutex> lock(_async_publish_mutex);
+    _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id};
+}
+
+int64_t StorageEngine::get_pending_publish_min_version(int64_t tablet_id) {
+    std::lock_guard<std::mutex> lock(_async_publish_mutex);
+    auto iter = _async_publish_tasks.find(tablet_id);
+    if (iter == _async_publish_tasks.end()) {
+        return INT64_MAX;
+    }
+    return iter->second.begin()->first;
+}
+
 void StorageEngine::_async_publish_callback() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(30))) {
-        std::lock_guard<std::mutex> lock(_aync_publish_mutex);
-        for (auto tablet_iter = _async_publish_tasks.begin(); tablet_iter != _async_publish_tasks.end();) {
-            if (tablet_iter->second.empty()) {
-                tablet_iter = _async_publish_tasks.erase(tablet_iter);
-                continue;
-            }
-            int64_t tablet_id = tablet_iter->first;
-            auto task_iter = tablet_iter->second.begin();
-            int64_t version = task_iter->first;
-            int64_t transaction_id = task_iter->second.first;
-            int64_t partition_id = task_iter->second.second;
-            TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
-            if (!tablet) {
-                LOG(WARNING) << "tablet does not exist, tablet_id: " << tablet_id
-                             << " publish_version: " << version;
-                tablet_iter = _async_publish_tasks.erase(tablet_iter);
-            }
+        // tablet, publish_version
+        std::vector<std::pair<TabletSharedPtr, int64_t>> need_removed_tasks;
+        {
+            std::lock_guard<std::mutex> lock(_async_publish_mutex);
+            for (auto tablet_iter = _async_publish_tasks.begin();
+                 tablet_iter != _async_publish_tasks.end();) {
+                if (tablet_iter->second.empty()) {
+                    tablet_iter = _async_publish_tasks.erase(tablet_iter);
+                    continue;
+                }
+                int64_t tablet_id = tablet_iter->first;
+                TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+                if (!tablet) {
+                    LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
+                                 << tablet_id;
+                    // TODO(liaoxin) remove pending publish info from db
+                    tablet_iter = _async_publish_tasks.erase(tablet_iter);
+                    continue;
+                }
 
-            int64_t max_version;
-            {
-                std::shared_lock rdlock(tablet->get_header_lock());
-                max_version = tablet->max_version().second;
-            }
+                auto task_iter = tablet_iter->second.begin();
+                int64_t version = task_iter->first;
+                int64_t transaction_id = task_iter->second.first;
+                int64_t partition_id = task_iter->second.second;
+                int64_t max_version;
+                {
+                    std::shared_lock rdlock(tablet->get_header_lock());
+                    max_version = tablet->max_version().second;
+                }
 
-            if (version <= max_version) {
-                tablet_iter->second.erase(task_iter);
+                if (version <= max_version) {
+                    tablet_iter->second.erase(task_iter);
+                    tablet_iter++;
+                    continue;
+                }
+                if (version != max_version + 1) {
+                    tablet_iter++;
+                    continue;
+                }
+
+                auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
+                        tablet, partition_id, transaction_id, version);
+                StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
+                        [=]() { async_publish_task->handle(); });
+                need_removed_tasks.emplace_back(tablet, version);
                 tablet_iter++;
-                continue;
             }
-            if (version != max_version + 1) {
-                tablet_iter++;
-                continue;
-            }
-
-            auto async_publish_task = std::make_shared<AsyncTabletPublishTask>(
-                    tablet, partition_id, transaction_id, version);
-            StorageEngine::instance()->tablet_publish_txn_thread_pool()->submit_func(
-                    [=]() { async_publish_task->handle(); });
-            tablet_iter++;
+        }
+        for (auto& [tablet, publish_version] : need_removed_tasks) {
+            TabletMetaManager::remove_pending_publish_info(tablet->data_dir(), tablet->tablet_id(),
+                                                           publish_version);
         }
     }
 }

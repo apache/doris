@@ -303,9 +303,7 @@ public:
         bool expect = false;
         return _is_publish_running.compare_exchange_strong(expect, true);
     }
-    void finish_publish() {
-        _is_publish_running.store(false);
-    }
+    void finish_publish() { _is_publish_running.store(false); }
 
     [[nodiscard]] virtual Status add_to_binlog() { return Status::OK(); }
 

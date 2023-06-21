@@ -221,10 +221,8 @@ public:
     void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
     void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
-                                int64_t transaction_id) {
-        std::lock_guard<std::mutex> lock(_aync_publish_mutex);
-        _async_publish_tasks[tablet_id][publish_version] = {transaction_id, partition_id};
-    }
+                                int64_t transaction_id, bool is_recover);
+    int64_t get_pending_publish_min_version(int64_t tablet_id);
 
 private:
     // Instance should be inited from `static open()`
@@ -466,7 +464,7 @@ private:
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
-    std::mutex _aync_publish_mutex;
+    std::mutex _async_publish_mutex;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

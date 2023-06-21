@@ -1491,9 +1491,9 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
         }
 
         for (auto& item : discontinous_version_tablets) {
-            StorageEngine::instance()->add_async_publish_task(std::get<0>(item), std::get<1>(item),
-                                                              std::get<2>(item),
-                                                              publish_version_req.transaction_id);
+            StorageEngine::instance()->add_async_publish_task(
+                    std::get<0>(item), std::get<1>(item), std::get<2>(item),
+                    publish_version_req.transaction_id, false);
         }
         TFinishTaskRequest finish_task_request;
         if (!status) {

@@ -130,7 +130,16 @@ Status EngineCloneTask::_do_clone() {
         auto local_data_path = fmt::format("{}/{}", tablet->tablet_path(), CLONE_PREFIX);
         bool allow_incremental_clone = false;
 
-        tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
+        int64_t specified_version = _clone_req.committed_version;
+        if (tablet->enable_unique_key_merge_on_write()) {
+            int64_t min_pending_ver =
+                    StorageEngine::instance()->get_pending_publish_min_version(tablet->tablet_id());
+            if (min_pending_ver - 1 < specified_version) {
+                specified_version = min_pending_ver - 1;
+            }
+        }
+
+        tablet->calc_missed_versions(specified_version, &missed_versions);
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.

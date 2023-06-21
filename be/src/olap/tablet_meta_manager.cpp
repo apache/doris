@@ -175,4 +175,43 @@ Status TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta
     return save(store, tablet_id, schema_hash, meta_binary);
 }
 
+Status TabletMetaManager::save_pending_publish_info(DataDir* store, TTabletId tablet_id,
+                                                    int64_t publish_version,
+                                                    const std::string& meta_binary) {
+    std::string key = fmt::format("{}{}_{}", PENDING_PUBLISH_INFO, tablet_id, publish_version);
+    OlapMeta* meta = store->get_meta();
+    VLOG_NOTICE << "save pending publish rowset, key:" << key
+                << " meta_size=" << meta_binary.length();
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
+}
+
+Status TabletMetaManager::remove_pending_publish_info(DataDir* store, TTabletId tablet_id,
+                                                      int64_t publish_version) {
+    std::string key = fmt::format("{}{}_{}", PENDING_PUBLISH_INFO, tablet_id, publish_version);
+    OlapMeta* meta = store->get_meta();
+    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    VLOG_NOTICE << "remove pending publish_info, key:" << key << ", res:" << res;
+    return res;
+}
+
+Status TabletMetaManager::traverse_pending_publish(
+        OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func) {
+    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        std::vector<std::string> parts;
+        // key format: "ppi_" + tablet_id + "_" + publish_version
+        split_string<char>(key, '_', &parts);
+        if (parts.size() != 3) {
+            LOG(WARNING) << "invalid pending publish info key:" << key
+                         << ", split size:" << parts.size();
+            return true;
+        }
+        int64_t tablet_id = std::stol(parts[1], nullptr, 10);
+        int64_t version = std::stol(parts[2], nullptr, 10);
+        return func(tablet_id, version, value);
+    };
+    Status status =
+            meta->iterate(META_COLUMN_FAMILY_INDEX, PENDING_PUBLISH_INFO, traverse_header_func);
+    return status;
+}
+
 } // namespace doris
