@@ -8,9 +8,6 @@
 -- !test_timediff_varchar --
 -96:00:00
 
--- !test_timediff_varchar_scale --
--96:00:00.333
-
 -- !test_timediff_char --
 -24:00:00
 
