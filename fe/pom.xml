@@ -287,7 +287,7 @@ under the License.
         <lombok.version>1.18.24</lombok.version>
         <tree-printer.version>1.2</tree-printer.version>
         <hamcrest.version>2.1</hamcrest.version>
-        <httpclient.version>4.5.13</httpclient.version>
+        <httpclient.version>4.4.1</httpclient.version>
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.302</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
