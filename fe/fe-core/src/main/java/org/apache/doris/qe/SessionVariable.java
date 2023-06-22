@@ -1020,37 +1020,41 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
-        // pull_request_id default value is 0
-        switch (Config.pull_request_id % 4) {
-            case 0:
-                this.enablePipelineEngine = true;
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = true;
-                break;
-            case 1:
-                this.enablePipelineEngine = true;
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = false;
-                break;
-            case 2:
-                this.enablePipelineEngine = false;
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = true;
-                break;
-            case 3:
-                this.enablePipelineEngine = false;
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = false;
-                break;
-            default:
-                break;
+        // pull_request_id default value is 0. When it is 0, use default (global) session variable.
+        if (Config.pull_request_id > 0) {
+            switch (Config.pull_request_id % 4) {
+                case 0:
+                    this.enablePipelineEngine = true;
+                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
+                    break;
+                case 1:
+                    this.enablePipelineEngine = true;
+                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
+                    break;
+                case 2:
+                    this.enablePipelineEngine = false;
+                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
+                    break;
+                case 3:
+                    this.enablePipelineEngine = false;
+                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
-            if (Config.pull_request_id % 2 == 1) {
-                this.batchSize = 4064;
-            } else {
-                this.batchSize = 50;
+            if (Config.pull_request_id > 0) {
+                if (Config.pull_request_id % 2 == 1) {
+                    this.batchSize = 4064;
+                } else {
+                    this.batchSize = 50;
+                }
             }
         }
 
