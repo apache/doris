@@ -333,3 +333,8 @@ message BinlogMetaEntryPB {
     optional int64 creation_time = 5;
     optional string rowset_id_v2 = 6;
 }
+
+message PendingPublishInfoPB {
+    optional int64 partition_id = 1;
+    optional int64 transaction_id = 2;
+}
