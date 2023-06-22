@@ -73,6 +73,7 @@ inline void formatIPv4(const unsigned char* src, size_t src_size, char*& dst,
 
         memcpy(dst, str, len);
         dst += len;
+
         *dst++ = '.';
     }
 
@@ -83,7 +84,7 @@ inline void formatIPv4(const unsigned char* src, size_t src_size, char*& dst,
         *dst++ = '.';
     }
 
-    dst[-1] = '\0';
+    dst--;
 }
 
 inline void formatIPv4(const unsigned char* src, char*& dst, uint8_t mask_tail_octets = 0,
