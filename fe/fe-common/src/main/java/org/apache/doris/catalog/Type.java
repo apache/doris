@@ -139,19 +139,23 @@ public abstract class Type {
         numericDateTimeTypes = Lists.newArrayList(DATE, DATETIME, DATEV2, DATETIMEV2, TIME, TIMEV2);
         numericDateTimeTypes.addAll(numericTypes);
 
-        trivialTypes = Lists.newArrayList(BOOLEAN, VARCHAR, STRING, CHAR, DATE, DATETIME, DATEV2, DATETIMEV2, TIME, TIMEV2, JSONB);
+        trivialTypes = Lists.newArrayList(BOOLEAN, VARCHAR, STRING, CHAR, DATE, DATETIME, DATEV2, DATETIMEV2,
+            TIME, TIMEV2, JSONB);
         trivialTypes.addAll(numericTypes);
 
         supportedTypes = Lists.newArrayList(NULL, HLL, BITMAP, QUANTILE_STATE, AGG_STATE);
         supportedTypes.addAll(trivialTypes);
 
-        arraySubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DATE, DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING, DECIMAL32, DECIMAL64, DECIMAL128);
+        arraySubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DATE, DATETIME, DATEV2, DATETIMEV2,
+            CHAR, VARCHAR, STRING, DECIMAL32, DECIMAL64, DECIMAL128);
         arraySubTypes.addAll(integerTypes);
 
-        mapSubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DECIMAL32, DECIMAL64, DECIMAL128, DATE, DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING, NULL);
+        mapSubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DECIMAL32, DECIMAL64, DECIMAL128, DATE,
+            DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING, NULL);
         mapSubTypes.addAll(integerTypes);
 
-        structSubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DECIMAL32, DECIMAL64, DECIMAL128, DATE, DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING);
+        structSubTypes = Lists.newArrayList(BOOLEAN, FLOAT, DOUBLE, DECIMALV2, DECIMAL32, DECIMAL64, DECIMAL128, DATE,
+            DATETIME, DATEV2, DATETIMEV2, CHAR, VARCHAR, STRING);
         structSubTypes.addAll(integerTypes);
     }
 
