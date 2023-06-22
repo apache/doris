@@ -74,7 +74,7 @@ public:
 
 class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
-    DataTypeTimeV2(int scale = 6) : _scale(scale) {
+    DataTypeTimeV2(int scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
             LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
         }

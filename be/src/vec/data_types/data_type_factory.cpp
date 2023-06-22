@@ -521,7 +521,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     }
     case PGenericType::TIMEV2: {
-        nested = std::make_shared<DataTypeTimeV2>();
+        nested = std::make_shared<DataTypeTimeV2>(pcolumn.decimal_param().scale());
         break;
     }
     case PGenericType::AGG_STATE: {
