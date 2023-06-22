@@ -92,7 +92,8 @@ suite("advance_mv") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tbName1)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -113,7 +114,8 @@ suite("advance_mv") {
     int max_try_secs1 = 60
     while (max_try_secs1--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -134,7 +136,8 @@ suite("advance_mv") {
     int max_try_secs2 = 60
     while (max_try_secs2--) {
         String res = getJobState(tbName2)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -156,7 +159,8 @@ suite("advance_mv") {
     int max_try_secs3 = 60
     while (max_try_secs3--) {
         String res = getJobState(tbName3)
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
