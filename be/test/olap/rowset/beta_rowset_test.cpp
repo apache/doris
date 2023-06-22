@@ -73,7 +73,7 @@ namespace doris {
 using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+inline StorageEngine* k_engine = nullptr;
 static const std::string kTestDir = "./data_test/data/beta_rowset_test";
 
 class BetaRowsetTest : public testing::Test {
@@ -269,7 +269,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
                                  Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, true));
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -284,7 +283,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         fs->_client.reset(new S3ClientMockGetError());
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -299,7 +297,6 @@ TEST_F(BetaRowsetTest, ReadTest) {
         fs->_client.reset(new S3ClientMockGetErrorData());
 
         rowset.rowset_meta()->set_num_segments(1);
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_fs(fs);
 
         std::vector<segment_v2::SegmentSharedPtr> segments;

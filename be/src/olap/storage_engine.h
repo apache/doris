@@ -210,10 +210,15 @@ public:
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
         return _tablet_publish_txn_thread_pool;
     }
+    std::unique_ptr<ThreadPool>& calc_delete_bitmap_thread_pool() {
+        return _calc_delete_bitmap_thread_pool;
+    }
     bool stopped() { return _stopped; }
     ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
     Status process_index_change_task(const TAlterInvertedIndexReq& reqest);
+
+    void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
 private:
     // Instance should be inited from `static open()`
@@ -260,6 +265,8 @@ private:
     void _path_scan_thread_callback(DataDir* data_dir);
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
+
+    void _tablet_path_check_callback();
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
@@ -308,7 +315,8 @@ private:
                                   SegCompactionCandidatesSharedPtr segments);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
-    void _gc_binlogs();
+
+    void _gc_binlogs(int64_t tablet_id, int64_t version);
 
 private:
     struct CompactionCandidate {
@@ -378,6 +386,8 @@ private:
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    // thread to check tablet path
+    scoped_refptr<Thread> _tablet_path_check_thread;
     // thread to clean tablet lookup cache
     scoped_refptr<Thread> _lookup_cache_clean_thread;
 
@@ -407,6 +417,7 @@ private:
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
+    std::unique_ptr<ThreadPool> _calc_delete_bitmap_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
     std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;

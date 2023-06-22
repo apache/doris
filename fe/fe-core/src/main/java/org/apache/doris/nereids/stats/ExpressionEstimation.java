@@ -252,7 +252,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMin(Min min, Statistics context) {
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
+        if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
         /*
@@ -270,7 +270,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMax(Max max, Statistics context) {
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
+        if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
         /*

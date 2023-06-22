@@ -188,6 +188,10 @@ template <template <typename> class AggregateFunctionTemplate,
 AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
+    if (argument_types.size() != 2) {
+        return nullptr;
+    }
+
     WhichDataType which(remove_nullable(argument_types[0]));
 #define DISPATCH(TYPE)                                                                    \
     if (which.idx == TypeIndex::TYPE)                                                     \

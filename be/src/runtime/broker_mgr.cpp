@@ -95,7 +95,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Create broker client failed. broker=" << addr
-                             << ", status=" << status;
+                             << ", status=" << status << ", reason=" << e.what();
                 return;
             }
             client->ping(response, request);

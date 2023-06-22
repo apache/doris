@@ -161,9 +161,5 @@ suite("test_es_query", "p0") {
         order_qt_sql84 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
         order_qt_sql85 """select * from test1 where esquery(test2, '{"match":{"test2":"text#1"}}')"""
 
-
-        sql """drop catalog if exists es6;"""
-        sql """drop catalog if exists es7;"""
-        sql """drop catalog if exists es8;"""
     }
 }

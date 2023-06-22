@@ -247,7 +247,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
 
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
-    TRACE("got tablets shard lock");
     // Make create_tablet operation to be idempotent:
     // 1. Return true if tablet with same tablet_id and schema_hash exist;
     //           false if tablet with same tablet_id but different schema_hash exist.
@@ -290,7 +289,6 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
         return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
-    TRACE("succeed to create tablet");
 
     LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id;
     return Status::OK();
@@ -364,7 +362,6 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             LOG(WARNING) << "fail to get tablet. res=" << res;
             break;
         }
-        TRACE("add tablet to StorageEngine");
     } while (0);
 
     if (res.ok()) {
@@ -859,7 +856,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     }
 
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    if (tablet_meta->create_from_file(header_path) != Status::OK()) {
+    if (!tablet_meta->create_from_file(header_path).ok()) {
         LOG(WARNING) << "fail to load tablet_meta. file_path=" << header_path;
         return Status::Error<ENGINE_LOAD_INDEX_TABLE_ERROR>();
     }
@@ -914,7 +911,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
     for (auto& tablet : tablets) {
         auto& t_tablet = (*tablets_info)[tablet->tablet_id()];
         TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
-        tablet->build_tablet_report_info(&tablet_info, true);
+        tablet->build_tablet_report_info(&tablet_info, true, true);
         // find expired transaction corresponding to this tablet
         TabletInfo tinfo(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
         auto find = expire_txn_map.find(tinfo);

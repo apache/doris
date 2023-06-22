@@ -67,6 +67,7 @@ parser code {:
     public boolean isVerbose = false;
     public String wild;
     public Expr where;
+    public ArrayList<PlaceHolderExpr> placeholder_expr_list = Lists.newArrayList();
 
     // List of expected tokens ids from current parsing state for generating syntax error message
     private final List<Integer> expectedTokenIds = Lists.newArrayList();
@@ -256,6 +257,7 @@ terminal String
     KW_ANTI,
     KW_APPEND,
     KW_ARRAY,
+    KW_AUTO_INCREMENT,
     KW_AS,
     KW_ASC,
     KW_AUTHORS,
@@ -791,6 +793,7 @@ nonterminal Expr sign_chain_expr;
 nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
+nonterminal String optional_on_ident;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -867,7 +870,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local, opt_is_auto_inc;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -1072,7 +1075,11 @@ stmt ::=
     | switch_stmt:stmt
     {: RESULT = stmt; :}
     | query_stmt:query
-    {: RESULT = query; :}
+    {:
+        RESULT = query;
+        query.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
@@ -1734,7 +1741,7 @@ opt_refresh_trigger ::=
 
 opt_mv_refersh_info ::=
     {:
-        RESULT = null;
+        RESULT = new MVRefreshInfo(true);
     :}
     | KW_REFRESH opt_refresh_method:refreshMethod opt_refresh_trigger:refreshTrigger
     {:
@@ -1826,7 +1833,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -1852,7 +1859,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -2603,7 +2610,7 @@ resource_desc ::=
 
 // Routine load statement
 create_routine_load_stmt ::=
-    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel KW_ON ident:tableName
+    KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
     opt_with_merge_type:mergeType
     opt_load_property_list:loadPropertyList
     opt_properties:properties
@@ -2614,7 +2621,9 @@ create_routine_load_stmt ::=
          properties, type, customProperties, mergeType, comment);
     :}
     ;
-
+optional_on_ident ::= KW_ON ident:tableName 
+                    {: RESULT = tableName; :}
+                  | {: RESULT = null; :};
 opt_load_property_list ::=
     {:
         RESULT = null;
@@ -2787,7 +2796,7 @@ show_create_reporitory_stmt ::=
 // analyze statment
 analyze_stmt ::=
     // statistics
-    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols
+    KW_ANALYZE KW_TABLE table_name:tbl opt_partition_names:partitions opt_col_list:cols
       opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
     {:
         if (properties == null) {
@@ -2801,7 +2810,7 @@ analyze_stmt ::=
             properties.put("analysis.type", "FUNDAMENTALS");
         }
         AnalyzeProperties analyzeProperties= new AnalyzeProperties(properties);
-        RESULT = new AnalyzeTblStmt(tbl, cols, analyzeProperties);
+        RESULT = new AnalyzeTblStmt(tbl, partitions, cols, analyzeProperties);
     :}
     | KW_ANALYZE KW_DATABASE ident:ctlName DOT ident:dbName
           opt_with_analysis_properties:withAnalysisProperties opt_properties:properties
@@ -3235,6 +3244,10 @@ fixed_multi_partition_key_desc ::=
     {:
         RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, time_interval, time_unit);
     :}
+    | KW_FROM LPAREN partition_key_list:lower RPAREN KW_TO LPAREN partition_key_list:upper RPAREN KW_INTERVAL INTEGER_LITERAL:num_interval
+      {:
+          RESULT = PartitionKeyDesc.createMultiFixed(lower, upper, num_interval);
+      :}
     ;
 
 partition_key_desc ::=
@@ -3284,6 +3297,10 @@ partition_value_list ::=
     {:
         RESULT = Lists.newArrayList(new PartitionValue(item));
     :}
+    | INTEGER_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
     /* multi partition keys : (1, "beijing") */
     | LPAREN partition_key_item_list:l RPAREN
     {:
@@ -3302,6 +3319,15 @@ partition_key_item_list ::=
         l.add(new PartitionValue(item));
         RESULT = l;
     :}
+    | INTEGER_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | partition_key_item_list:l COMMA INTEGER_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
     ;
 
 partition_key_list ::=
@@ -3315,12 +3341,21 @@ partition_key_list ::=
         l.add(new PartitionValue(item));
         RESULT = l;
     :}
+    | partition_key_list:l COMMA INTEGER_LITERAL:item
+    {:
+        l.add(new PartitionValue(item));
+        RESULT = l;
+    :}
     | partition_key_list:l COMMA KW_MAX_VALUE
     {:
         l.add(PartitionValue.MAX_VALUE);
         RESULT = l;
     :}
     | STRING_LITERAL:item
+    {:
+        RESULT = Lists.newArrayList(new PartitionValue(item));
+    :}
+    | INTEGER_LITERAL:item
     {:
         RESULT = Lists.newArrayList(new PartitionValue(item));
     :}
@@ -3467,21 +3502,21 @@ opt_is_key ::=
     ;
 
 column_definition ::=
-    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
         columnDef.setGenericAggregationName(fnName);
         columnDef.setGenericAggregationArguments(list);
         RESULT = columnDef;
     :}
-    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_default_value:defaultValue opt_comment:comment
     {:
-        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment
@@ -3521,6 +3556,15 @@ opt_is_allow_null ::=
     :}
     ;
 
+opt_is_auto_inc ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_AUTO_INCREMENT
+    {:
+        RESULT = true;
+    :}
+    ;
 opt_comment ::=
     /* empty */
     {:
@@ -3889,6 +3933,10 @@ show_param ::=
     | KW_RESTORE opt_db:db opt_wild_where
     {:
         RESULT = new ShowRestoreStmt(db, parser.where);
+    :}
+    | KW_BRIEF KW_RESTORE opt_db:db opt_wild_where
+    {:
+        RESULT = new ShowRestoreStmt(db, parser.where, true);
     :}
     | KW_BROKER
     {:
@@ -4914,9 +4962,9 @@ option_value_no_option_type ::=
     {:
         RESULT = new SetVar(variable, expr);
     :}
-    | AT ident_or_text:var equal literal:expr
+    | AT ident_or_text:var equal expr:expr
     {:
-        RESULT = new SetVar(var, expr);
+        RESULT = new SetUserDefinedVar(var, expr);
     :}
     /* Ident */
     | AT AT variable_name:variable equal set_expr_or_default:expr
@@ -5142,6 +5190,8 @@ prepare_stmt ::=
     KW_PREPARE variable_name:name KW_FROM select_stmt:s
     {:
         RESULT = new PrepareStmt(s, name, false);
+        s.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
     :}
     ;
 
@@ -6398,13 +6448,17 @@ exists_predicate ::=
 non_pred_expr ::=
   sign_chain_expr:e
   {: RESULT = e; :}
+  | AT ident:l
+  {:
+    RESULT = new VariableExpr(l, SetType.USER);
+  :}
   | AT AT ident:l
   {:
-    RESULT = new SysVariableDesc(l);
+    RESULT = new VariableExpr(l);
   :}
   | AT AT var_ident_type:type ident:l
   {:
-    RESULT = new SysVariableDesc(l, type);
+    RESULT = new VariableExpr(l, type);
   :}
   | literal:l
   {: RESULT = l; :}
@@ -6421,11 +6475,11 @@ non_pred_expr ::=
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATE), new StringLiteral(l)); :}
   | KW_DATEV2 STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATEV2), new StringLiteral(l)); :}
   | KW_TIMESTAMP STRING_LITERAL:l
-  {: RESULT = new StringLiteral(l); :}
+  {: RESULT = new CastExpr(TypeDef.create(PrimitiveType.DATETIME), new StringLiteral(l)); :}
   | KW_EXTRACT LPAREN function_name:fn_name KW_FROM func_arg_list:exprs RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, exprs); :}
   //| function_name:fn_name LPAREN RPAREN
@@ -6694,9 +6748,9 @@ literal ::=
   | KW_NULL
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | MOD 
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
     // we have an unmatched string literal.

@@ -154,10 +154,13 @@ public class EnforceMissingPropertiesHelper {
                 oldOutputProperty, newOutputProperty);
         ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
                 oldOutputProperty, newOutputProperty));
+        enforcer.setEstOutputRowCount(enforcer.getOwnerGroup().getStatistics().getRowCount());
+        Cost enforcerCost = CostCalculator.calculateCost(enforcer, Lists.newArrayList(oldOutputProperty));
+        enforcer.setCost(enforcerCost.getValue());
         curTotalCost = CostCalculator.addChildCost(enforcer.getPlan(),
-                CostCalculator.calculateCost(enforcer, Lists.newArrayList(oldOutputProperty)),
-                curTotalCost,
-                0);
+            enforcerCost,
+            curTotalCost,
+            0);
         if (enforcer.updateLowestCostTable(newOutputProperty,
                 Lists.newArrayList(oldOutputProperty), curTotalCost)) {
             enforcer.putOutputPropertiesMap(newOutputProperty, newOutputProperty);

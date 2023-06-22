@@ -63,12 +63,11 @@ suite("regression_test_dynamic_table", "dynamic_table"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
-                id bigint,
-                ...
+                id bigint
             )
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY RANDOM BUCKETS 5 
-            properties("replication_num" = "1");
+            properties("replication_num" = "1", "deprecated_dynamic_schema" = "true");
         """
 
         //stream load src_json
@@ -81,12 +80,11 @@ suite("regression_test_dynamic_table", "dynamic_table"){
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name}(
-                id bigint,
-                ...
+                id bigint
             )
             UNIQUE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 5 
-            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "deprecated_dynamic_schema" = "true");
         """
 
         //stream load src_json
@@ -105,11 +103,10 @@ suite("regression_test_dynamic_table", "dynamic_table"){
                 `title` string,
 		        INDEX creation_date_idx(`creationdate`) USING INVERTED COMMENT 'creationdate index',
  		        INDEX title_idx(`title`) USING INVERTED PROPERTIES("parser"="standard") COMMENT 'title index',
-		        ...
             )
             DUPLICATE KEY(`qid`)
             DISTRIBUTED BY RANDOM BUCKETS 5 
-            properties("replication_num" = "1");
+            properties("replication_num" = "1", "deprecated_dynamic_schema" = "true");
         """
 
         //stream load src_json
@@ -135,11 +132,10 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 qid bigint,
                 XXXX bigint,
-		        ...
             )
             DUPLICATE KEY(`qid`)
             DISTRIBUTED BY HASH(`qid`) BUCKETS 5 
-            properties("replication_num" = "1");
+            properties("replication_num" = "1", "deprecated_dynamic_schema" = "true");
     """
     load_json_data.call(table_name, 'true', 'json', 'true', "invalid_dimension.json", 'false')
     load_json_data.call(table_name, 'true', 'json', 'true', "invalid_format.json", 'false')
@@ -157,13 +153,13 @@ suite("regression_test_dynamic_table", "dynamic_table"){
             id varchar(30) default 'defualt-id' COMMENT '',
             type varchar(50) NULL COMMENT '',
             public boolean NULL COMMENT '',
-            ...
         )
         ENGINE=OLAP
         DUPLICATE KEY(created_at)
         DISTRIBUTED BY HASH(id) BUCKETS 32
         PROPERTIES (
-            'replication_allocation' = 'tag.location.default: 1'
+            'replication_allocation' = 'tag.location.default: 1',
+            "deprecated_dynamic_schema" = "true"
         ); 
         """
     def paths = [

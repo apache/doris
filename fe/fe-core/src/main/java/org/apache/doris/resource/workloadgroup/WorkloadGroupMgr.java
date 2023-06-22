@@ -102,10 +102,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
-        String groupName = context.getSessionVariable().getWorkloadGroup();
-        if (Strings.isNullOrEmpty(groupName)) {
-            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
-        }
+        String groupName = getWorkloadGroupName(context);
         List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
         readLock();
         try {
@@ -120,7 +117,8 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return workloadGroups;
     }
 
-    public QueryQueue getWorkloadGroupQueryQueue(String groupName) throws UserException {
+    public QueryQueue getWorkloadGroupQueryQueue(ConnectContext context) throws UserException {
+        String groupName = getWorkloadGroupName(context);
         readLock();
         try {
             WorkloadGroup workloadGroup = nameToWorkloadGroup.get(groupName);
@@ -131,6 +129,17 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         } finally {
             readUnlock();
         }
+    }
+
+    private String getWorkloadGroupName(ConnectContext context) {
+        String groupName = context.getSessionVariable().getWorkloadGroup();
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
+        }
+        if (Strings.isNullOrEmpty(groupName)) {
+            groupName = DEFAULT_GROUP_NAME;
+        }
+        return groupName;
     }
 
     private void checkAndCreateDefaultGroup() {

@@ -19,7 +19,6 @@ package org.apache.doris.udf;
 
 import org.apache.hadoop.hive.ql.exec.UDF;
 
-import org.apache.hadoop.hive.ql.exec.UDF;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -27,8 +26,8 @@ import java.util.List;
 
 public class DateCaseTest extends UDF {
 
-    public String evaluate(LocalDate startDate, Integer start, Integer end)  {
-        if (startDate == null || start == null || end == null){
+    public String evaluate(LocalDate startDate, Integer start, Integer end) {
+        if (startDate == null || start == null || end == null) {
             return null;
         }
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -36,7 +35,9 @@ public class DateCaseTest extends UDF {
         List<String> result = new ArrayList<>();
         for (int i = start; i <= end - 1; i++) {
             LocalDate oneDate = startDate.plusDays(i);
-            if (oneDate.isAfter(yesterday)) break;
+            if (oneDate.isAfter(yesterday)) {
+                break;
+            }
             String dateString = formatter.format(oneDate);
             result.add(dateString);
         }

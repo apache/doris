@@ -272,7 +272,6 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
-        Defer defer {[&]() { ctx->close(state); }};
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
         RETURN_IF_ERROR(ctx->open(state));
 
@@ -304,7 +303,6 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         } else if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
-            Defer defer {[&]() { ctx->close(state); }};
             RETURN_IF_ERROR(ctx->prepare(state, row_desc));
             RETURN_IF_ERROR(ctx->open(state));
 
@@ -597,6 +595,7 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet->tablet_schema();
     context.newest_write_timestamp = newest_write_timestamp;
+    context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
 
     Defer defer {[&]() {
@@ -1103,6 +1102,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.tablet_schema = new_tablet->tablet_schema();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
+        context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
         Status status = new_tablet->create_rowset_writer(context, &rowset_writer);
         if (!status.ok()) {
             res = Status::Error<ROWSET_BUILDER_INIT>();

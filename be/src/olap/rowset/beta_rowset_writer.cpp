@@ -491,8 +491,19 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     RETURN_IF_ERROR(_create_segment_writer(&writer, ctx));
-    RETURN_IF_ERROR(_add_block(block, &writer));
+    segment_v2::SegmentWriter* raw_writer = writer.get();
+    int32_t segment_id = writer->get_segment_id();
+    RETURN_IF_ERROR(_add_block(block, &writer, ctx));
+    // if segment_id is present in flush context,
+    // the entire memtable should be flushed into a single segment
+    if (ctx != nullptr && ctx->segment_id.has_value()) {
+        DCHECK_EQ(writer->get_segment_id(), segment_id);
+        DCHECK_EQ(writer.get(), raw_writer);
+    }
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    if (ctx != nullptr && ctx->generate_delete_bitmap) {
+        RETURN_IF_ERROR(ctx->generate_delete_bitmap(segment_id));
+    }
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
@@ -719,9 +730,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
-    writer_options.is_direct_write = _context.is_direct_write;
+    writer_options.write_type = _context.write_type;
     if (is_segcompaction) {
-        writer_options.is_direct_write = false;
+        writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     }
 
     if (is_segcompaction) {
@@ -798,8 +809,8 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
 
     Statistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size;
-    segstat.index_size = index_size;
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -840,8 +851,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     Statistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size;
-    segstat.index_size = index_size;
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);

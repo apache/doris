@@ -63,6 +63,7 @@ Status IndexedColumnWriter::init() {
     PageBuilder* data_page_builder = nullptr;
     PageBuilderOptions builder_option;
     builder_option.need_check_bitmap = false;
+    builder_option.data_page_size = _options.data_page_size;
     RETURN_IF_ERROR(encoding_info->create_page_builder(builder_option, &data_page_builder));
     _data_page_builder.reset(data_page_builder);
 

@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -40,6 +41,7 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/proto_util.h"
+#include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
@@ -105,6 +107,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_receiver_eof[low_id] = false;
+    _instance_to_rpc_time[low_id] = 0;
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -183,8 +186,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
+        closure->start_rpc_time = GetCurrentTimeNanos();
         closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                       const PTransmitDataResult& result) {
+                                       const PTransmitDataResult& result,
+                                       const int64_t& start_rpc_time) {
+            set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s = Status(result.status());
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -227,8 +233,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
+        closure->start_rpc_time = GetCurrentTimeNanos();
         closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                       const PTransmitDataResult& result) {
+                                       const PTransmitDataResult& result,
+                                       const int64_t& start_rpc_time) {
+            set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s = Status(result.status());
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -295,4 +304,52 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
     return _instance_to_receiver_eof[id];
 }
 
+void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
+    int64_t local_max_time = 0;
+    int64_t local_min_time = INT64_MAX;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        if (time != 0) {
+            local_max_time = std::max(local_max_time, time);
+            local_min_time = std::min(local_min_time, time);
+        }
+    }
+    *max_time = local_max_time;
+    *min_time = local_min_time;
+}
+
+int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
+    int64_t sum_time = 0;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        sum_time += time;
+    }
+    return sum_time;
+}
+
+void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
+                                      int64_t receive_rpc_time) {
+    _rpc_count++;
+    int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
+    DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
+    if (rpc_spend_time > 0) {
+        _instance_to_rpc_time[id] += rpc_spend_time;
+    }
+}
+
+void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
+    auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
+    auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
+    auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
+    auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
+    auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
+
+    int64_t max_rpc_time = 0, min_rpc_time = 0;
+    get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
+    _max_rpc_timer->set(max_rpc_time);
+    _min_rpc_timer->set(min_rpc_time);
+
+    _count_rpc->set(_rpc_count);
+    int64_t sum_time = get_sum_rpc_time();
+    _sum_rpc_timer->set(sum_time);
+    _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
+}
 } // namespace doris::pipeline

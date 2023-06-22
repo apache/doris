@@ -62,17 +62,28 @@
 // And count the memory during thread execution (is actually also the code segment that executes the function)
 // to specify MemTrackerLimiter, and expect to handle when the memory exceeds the limit, for example cancel query.
 // Usage is similar to SCOPED_CONSUME_MEM_TRACKER.
-#define SCOPED_ATTACH_TASK(arg1, ...) \
-    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, ##__VA_ARGS__)
+#define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
+
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) \
+    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, arg2, arg3)
 
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Usually used after SCOPED_ATTACH_TASK, in order to count the memory of the specified code segment into another
 // MemTrackerLimiter instead of the MemTrackerLimiter added by the attach task.
+// Note that, not use it in rpc done.run(), because bthread_setspecific may have errors when UBSAN compiles.
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) \
     auto VARNAME_LINENUM(switch_mem_tracker) = SwitchThreadMemTrackerLimiter(mem_tracker_limiter)
+
+// Usually used to exclude a part of memory in query or load mem tracker and track it to Orphan Mem Tracker.
+// Note that, not check whether it is currently a Bthread and switch Bthread Local, because this is usually meaningless,
+// if used in Bthread, and pthread switching is expected, use SwitchThreadMemTrackerLimiter.
+#define SCOPED_TRACK_MEMORY_TO_UNKNOWN() \
+    auto VARNAME_LINENUM(track_memory_to_unknown) = TrackMemoryToUnknown()
 #else
 #define SCOPED_ATTACH_TASK(arg1, ...) (void)0
+#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2, arg3) (void)0
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker_limiter) (void)0
+#define SCOPED_TRACK_MEMORY_TO_UNKNOWN() (void)0
 #endif
 
 #define SKIP_MEMORY_CHECK(...)                  \
@@ -189,51 +200,82 @@ public:
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
 
+    int switch_bthread_local_count = 0;
+
 private:
     TUniqueId _task_id;
     TUniqueId _fragment_instance_id;
 };
 
-#if defined(UNDEFINED_BEHAVIOR_SANITIZER)
-static ThreadContext* thread_context() {
-    return thread_context_ptr._ptr;
-}
-#else
+// Switch thread context from pthread local to bthread local context.
 // Cache the pointer of bthread local in pthead local,
 // Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.
-static void pthread_attach_bthread() {
-    bthread_id = bthread_self();
-    bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-    if (bthread_context == nullptr) {
-        // A new bthread starts, two scenarios:
-        // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
-        // 2. There are not enough reusable btls in btls pool.
-        // else, two scenarios:
-        // 1. A new bthread starts, but get a reuses btls.
-        // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
-        // So tracker call reset 0 like reuses btls.
-        bthread_context = new ThreadContext;
-        // The brpc server should respond as quickly as possible.
-        bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
-        // set the data so that next time bthread_getspecific in the thread returns the data.
-        CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
+class SwitchBthreadLocal {
+public:
+    static void switch_to_bthread_local() {
+        if (bthread_self() != 0) {
+            // Very frequent bthread_getspecific will slow, but switch_to_bthread_local is not expected to be much.
+            bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+            if (bthread_context == nullptr) {
+                // A new bthread starts, two scenarios:
+                // 1. First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
+                // 2. There are not enough reusable btls in btls pool.
+                // else, two scenarios:
+                // 1. A new bthread starts, but get a reuses btls.
+                // 2. A pthread switch occurs. Because the pthread switch cannot be accurately identified at the moment.
+                // So tracker call reset 0 like reuses btls.
+                // during this period, stop the use of thread_context.
+                thread_context_ptr.init = false;
+                bthread_context = new ThreadContext;
+                // The brpc server should respond as quickly as possible.
+                bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
+                // set the data so that next time bthread_getspecific in the thread returns the data.
+                CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
+                thread_context_ptr.init = true;
+            }
+            bthread_id = bthread_self();
+            bthread_context->switch_bthread_local_count++;
+        }
     }
-}
 
+    // `switch_to_bthread_local` and `switch_back_pthread_local` should be used in pairs,
+    // `switch_to_bthread_local` should only be called if `switch_to_bthread_local` returns true
+    static void switch_back_pthread_local() {
+        if (bthread_self() != 0) {
+            if (!bthread_equal(bthread_self(), bthread_id)) {
+                bthread_id = bthread_self();
+                bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+                DCHECK(bthread_context != nullptr);
+            }
+            bthread_context->switch_bthread_local_count--;
+            if (bthread_context->switch_bthread_local_count == 0) {
+                bthread_context = thread_context_ptr._ptr;
+            }
+        }
+    }
+};
+
+// Note: All use of thread_context() in bthread requires the use of SwitchBthreadLocal.
 static ThreadContext* thread_context() {
     if (bthread_self() != 0) {
-        if (bthread_self() != bthread_id) {
-            // A new bthread starts or pthread switch occurs, during this period, stop the use of thread_context.
-            thread_context_ptr.init = false;
-            pthread_attach_bthread();
-            thread_context_ptr.init = true;
+        // in bthread
+        if (!bthread_equal(bthread_self(), bthread_id)) {
+            // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
+            bthread_id = bthread_self();
+            bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
+            // if nullptr, a new bthread task start and no reusable bthread local,
+            // or bthread switch pthread but not call switch_to_bthread_local, use pthread local context
+            // else, bthread switch pthread and called switch_to_bthread_local, use bthread local context.
+            if (bthread_context == nullptr) {
+                bthread_context = thread_context_ptr._ptr;
+            }
         }
         return bthread_context;
     } else {
+        // in pthread
         return thread_context_ptr._ptr;
     }
 }
-#endif
 
 class ScopeMemCount {
 public:
@@ -264,16 +306,42 @@ public:
 class SwitchThreadMemTrackerLimiter {
 public:
     explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+        SwitchBthreadLocal::switch_to_bthread_local();
         _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
         thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker, TUniqueId());
     }
 
     ~SwitchThreadMemTrackerLimiter() {
         thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+        SwitchBthreadLocal::switch_back_pthread_local();
     }
 
 private:
     std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+};
+
+class TrackMemoryToUnknown {
+public:
+    explicit TrackMemoryToUnknown() {
+        if (bthread_self() != 0) {
+            _tid = std::this_thread::get_id(); // save pthread id
+        }
+        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
+                ExecEnv::GetInstance()->orphan_mem_tracker(), TUniqueId());
+    }
+
+    ~TrackMemoryToUnknown() {
+        if (bthread_self() != 0) {
+            // make sure pthread is not switch, if switch, mem tracker will be wrong, but not crash in release
+            DCHECK(_tid == std::this_thread::get_id());
+        }
+        thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
+    }
+
+private:
+    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+    std::thread::id _tid;
 };
 
 class AddThreadMemTrackerConsumer {

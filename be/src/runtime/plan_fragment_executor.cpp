@@ -88,7 +88,14 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
-    close();
+    if (_runtime_state != nullptr) {
+        // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
+        SCOPED_ATTACH_TASK(_runtime_state.get());
+        close();
+        _runtime_state.reset();
+    } else {
+        close();
+    }
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
 }
@@ -153,8 +160,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up plan
     DCHECK(request.__isset.fragment);
-    RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan,
-                                          *desc_tbl, &_plan));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(ExecNode::create_tree(
+            _runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
@@ -166,6 +173,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
     }
 
+    // TODO Is it exception safe?
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
     // set scan ranges
     std::vector<ExecNode*> scan_nodes;
@@ -204,10 +212,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
-                                                   request.fragment.output_exprs, params,
-                                                   row_desc(), runtime_state(), &_sink, *desc_tbl));
-        RETURN_IF_ERROR(_sink->prepare(runtime_state()));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
+                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
+                row_desc(), runtime_state(), &_sink, *desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
         if (sink_profile != nullptr) {
@@ -274,7 +282,6 @@ Status PlanFragmentExecutor::open() {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
         } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
-            // status = Status::MemoryAllocFailed(_cancel_msg);
             status = Status::MemoryLimitExceeded(_cancel_msg);
         }
     }
@@ -327,7 +334,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             }
         }
     }
-
     {
         _collect_query_statistics();
         Status status;
@@ -341,7 +347,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     // Setting to NULL ensures that the d'tor won't double-close the sink.
     _sink.reset(nullptr);
     _done = true;
-
     return Status::OK();
 }
 
@@ -384,7 +389,7 @@ void PlanFragmentExecutor::_collect_node_statistics() {
     DCHECK(_runtime_state->backend_id() != -1);
     NodeStatistics* node_statistics =
             _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
-    node_statistics->add_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
+    node_statistics->set_peak_memory(_runtime_state->query_mem_tracker()->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {

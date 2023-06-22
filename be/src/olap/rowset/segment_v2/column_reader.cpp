@@ -179,7 +179,8 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
           _opts(opts),
           _num_rows(num_rows),
           _file_reader(std::move(file_reader)),
-          _dict_encoding_type(UNKNOWN_DICT_ENCODING) {}
+          _dict_encoding_type(UNKNOWN_DICT_ENCODING),
+          _use_index_page_cache(!config::disable_storage_page_cache) {}
 
 ColumnReader::~ColumnReader() = default;
 
@@ -195,15 +196,20 @@ Status ColumnReader::init() {
         switch (index_meta.type()) {
         case ORDINAL_INDEX:
             _ordinal_index_meta = &index_meta.ordinal_index();
+            _ordinal_index.reset(
+                    new OrdinalIndexReader(_file_reader, _ordinal_index_meta, _num_rows));
             break;
         case ZONE_MAP_INDEX:
             _zone_map_index_meta = &index_meta.zone_map_index();
+            _zone_map_index.reset(new ZoneMapIndexReader(_file_reader, _zone_map_index_meta));
             break;
         case BITMAP_INDEX:
             _bitmap_index_meta = &index_meta.bitmap_index();
+            _bitmap_index.reset(new BitmapIndexReader(_file_reader, _bitmap_index_meta));
             break;
         case BLOOM_FILTER_INDEX:
             _bf_index_meta = &index_meta.bloom_filter_index();
+            _bloom_filter_index.reset(new BloomFilterIndexReader(_file_reader, _bf_index_meta));
             break;
         default:
             return Status::Corruption("Bad file {}: invalid column index type {}",
@@ -220,7 +226,7 @@ Status ColumnReader::init() {
 }
 
 Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
-    RETURN_IF_ERROR(_ensure_index_loaded());
+    RETURN_IF_ERROR(_load_bitmap_index(_use_index_page_cache, _opts.kept_in_memory));
     RETURN_IF_ERROR(_bitmap_index->new_iterator(iterator));
     return Status::OK();
 }
@@ -261,8 +267,6 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
 Status ColumnReader::get_row_ranges_by_zone_map(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<const ColumnPredicate*>* delete_predicates, RowRanges* row_ranges) {
-    RETURN_IF_ERROR(_ensure_index_loaded());
-
     std::vector<uint32_t> page_indexes;
     RETURN_IF_ERROR(_get_filtered_pages(col_predicates, delete_predicates, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
@@ -374,6 +378,8 @@ Status ColumnReader::_get_filtered_pages(
         const AndBlockColumnPredicate* col_predicates,
         const std::vector<const ColumnPredicate*>* delete_predicates,
         std::vector<uint32_t>* page_indexes) {
+    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory));
+
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
@@ -412,6 +418,7 @@ Status ColumnReader::_get_filtered_pages(
 Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes,
                                            RowRanges* row_ranges) {
     row_ranges->clear();
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory));
     for (auto i : page_indexes) {
         ordinal_t page_first_id = _ordinal_index->get_first_ordinal(i);
         ordinal_t page_last_id = _ordinal_index->get_last_ordinal(i);
@@ -423,7 +430,8 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
 
 Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                                     RowRanges* row_ranges) {
-    RETURN_IF_ERROR(_ensure_index_loaded());
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory));
+    RETURN_IF_ERROR(_load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory));
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter));
@@ -455,22 +463,25 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
 
 Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memory) {
     DCHECK(_ordinal_index_meta != nullptr);
-    _ordinal_index.reset(new OrdinalIndexReader(_file_reader, _ordinal_index_meta, _num_rows));
-    return _ordinal_index->load(use_page_cache, kept_in_memory);
+    return _load_ordinal_index_once.call([this, use_page_cache, kept_in_memory] {
+        return _ordinal_index->load(use_page_cache, kept_in_memory);
+    });
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory) {
     if (_zone_map_index_meta != nullptr) {
-        _zone_map_index.reset(new ZoneMapIndexReader(_file_reader, _zone_map_index_meta));
-        return _zone_map_index->load(use_page_cache, kept_in_memory);
+        return _load_zone_map_index_once.call([this, use_page_cache, kept_in_memory] {
+            return _zone_map_index->load(use_page_cache, kept_in_memory);
+        });
     }
     return Status::OK();
 }
 
 Status ColumnReader::_load_bitmap_index(bool use_page_cache, bool kept_in_memory) {
     if (_bitmap_index_meta != nullptr) {
-        _bitmap_index.reset(new BitmapIndexReader(_file_reader, _bitmap_index_meta));
-        return _bitmap_index->load(use_page_cache, kept_in_memory);
+        return _load_bitmap_index_once.call([this, use_page_cache, kept_in_memory] {
+            return _bitmap_index->load(use_page_cache, kept_in_memory);
+        });
     }
     return Status::OK();
 }
@@ -513,14 +524,15 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory) {
     if (_bf_index_meta != nullptr) {
-        _bloom_filter_index.reset(new BloomFilterIndexReader(_file_reader, _bf_index_meta));
-        return _bloom_filter_index->load(use_page_cache, kept_in_memory);
+        return _load_bloom_filter_index_once.call([this, use_page_cache, kept_in_memory] {
+            return _bloom_filter_index->load(use_page_cache, kept_in_memory);
+        });
     }
     return Status::OK();
 }
 
 Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(_ensure_index_loaded());
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory));
     *iter = _ordinal_index->begin();
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to first rowid");
@@ -529,7 +541,7 @@ Status ColumnReader::seek_to_first(OrdinalPageIndexIterator* iter) {
 }
 
 Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter) {
-    RETURN_IF_ERROR(_ensure_index_loaded());
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory));
     *iter = _ordinal_index->seek_at_or_before(ordinal);
     if (!iter->valid()) {
         return Status::NotFound("Failed to seek to ordinal {}, ", ordinal);

@@ -50,7 +50,6 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
@@ -206,21 +205,12 @@
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
                         "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/dlf",
                         "lakehouse/multi-catalog/faq"
-                    ]
-                },
-                {
-                    "type": "category",
-                    "label": "External Table",
-                    "items": [
-                        "lakehouse/external-table/es",
-                        "lakehouse/external-table/jdbc",
-                        "lakehouse/external-table/odbc",
-                        "lakehouse/external-table/hive"
                     ]
                 },
                 "lakehouse/file",
@@ -303,6 +293,7 @@
                                 "sql-manual/sql-functions/array-functions/array_popback",
                                 "sql-manual/sql-functions/array-functions/array_popfront",
                                 "sql-manual/sql-functions/array-functions/array_pushfront",
+                                "sql-manual/sql-functions/array-functions/array_pushback",
                                 "sql-manual/sql-functions/array-functions/array_compact",
                                 "sql-manual/sql-functions/array-functions/array_concat",
                                 "sql-manual/sql-functions/array-functions/array_zip",
@@ -311,6 +302,7 @@
                                 "sql-manual/sql-functions/array-functions/array_exists",
                                 "sql-manual/sql-functions/array-functions/array_first_index",
                                 "sql-manual/sql-functions/array-functions/array_last_index",
+                                "sql-manual/sql-functions/array-functions/array_first",
                                 "sql-manual/sql-functions/array-functions/array_last",
                                 "sql-manual/sql-functions/array-functions/arrays_overlap",
                                 "sql-manual/sql-functions/array-functions/array_count",
@@ -499,7 +491,8 @@
                             "label": "Struct Functions",
                             "items": [
                                 "sql-manual/sql-functions/struct-functions/struct",
-                                "sql-manual/sql-functions/struct-functions/named_struct"
+                                "sql-manual/sql-functions/struct-functions/named_struct",
+                                "sql-manual/sql-functions/struct-functions/struct_element"
                             ]
                         },
                         {
@@ -706,6 +699,7 @@
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/backends",
+                                "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group"
                             ]
                         },
@@ -888,7 +882,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -1099,7 +1094,8 @@
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
                         "admin-manual/maint-monitor/tablet-restore-tool",
-                        "admin-manual/maint-monitor/metadata-operation"
+                        "admin-manual/maint-monitor/metadata-operation",
+                        "admin-manual/maint-monitor/automatic-service-start"
                     ]
                 },
                 {
@@ -1249,6 +1245,7 @@
             "label": "Release notes",
             "items": [
                 "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",

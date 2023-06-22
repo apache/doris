@@ -216,7 +216,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 }
 
                 if (matchedColumn != null) {
-                    LOG.debug("trans old MV, MV: {},  DefineExpr:{}, DefineName:{}",
+                    LOG.info("trans old MV: {},  DefineExpr:{}, DefineName:{}",
                             matchedColumn.getName(), entry.getValue().toSqlWithoutTbl(), entry.getKey());
                     matchedColumn.setDefineExpr(entry.getValue());
                     matchedColumn.setDefineName(entry.getKey());

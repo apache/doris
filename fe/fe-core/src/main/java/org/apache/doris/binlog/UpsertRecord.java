@@ -31,8 +31,8 @@ import java.util.List;
 import java.util.Map;
 
 public class UpsertRecord {
-    class TableRecord {
-        class PartitionRecord {
+    public static class TableRecord {
+        public static class PartitionRecord {
             @SerializedName(value = "partitionId")
             public long partitionId;
             @SerializedName(value = "version")
@@ -51,6 +51,10 @@ public class UpsertRecord {
             partitionRecord.partitionId = partitionCommitInfo.getPartitionId();
             partitionRecord.version = partitionCommitInfo.getVersion();
             partitionRecords.add(partitionRecord);
+        }
+
+        public List<PartitionRecord> getPartitionRecords() {
+            return partitionRecords;
         }
     }
 
@@ -105,8 +109,16 @@ public class UpsertRecord {
         return new ArrayList<>(tableRecords.keySet());
     }
 
+    public Map<Long, TableRecord> getTableRecords() {
+        return tableRecords;
+    }
+
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public static UpsertRecord fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, UpsertRecord.class);
     }
 
     @Override

@@ -21,14 +21,10 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/service")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/service")
 
-add_library(Service
-    backend_options.cpp
-    backend_service.cpp
-    brpc_service.cpp
-    http_service.cpp
-    point_query_executor.cpp
-    internal_service.cpp
-)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/doris_main.cpp)
+
+add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)
 
