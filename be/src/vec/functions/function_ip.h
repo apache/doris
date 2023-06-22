@@ -99,6 +99,8 @@ public:
         ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
 
         switch (argument.type->get_type_id()) {
+        case TypeIndex::Int8:
+            return execute_type<Int8>(block, argument, result);
         case TypeIndex::Int16:
             return execute_type<Int16>(block, argument, result);
         case TypeIndex::Int32:
@@ -110,8 +112,8 @@ public:
         }
 
         return Status::RuntimeError(
-                "Illegal column {} of argument of function {}, expected Int16 or Int32 or Int64",
-                argument.name, get_name());
+                "Illegal column {} of argument of function {}, expected Int8 or Int16 or Int32 or "
+                "Int64", argument.name, get_name());
     }
 };
 } // namespace doris::vectorized
