@@ -28,8 +28,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -75,18 +77,21 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     private Map<String, Column> nameToColumn;
     private Map<String, Column> definedNameToColumn;
 
+    @SerializedName(value = "dbName")
+    private String dbName;
+
     private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
 
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
         this(indexId, schema, schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType,
-                defineStmt, null); // indexes is null by default
+                defineStmt, null, null); // indexes is null by default
     }
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt,
-            List<Index> indexes) {
+            List<Index> indexes, String dbName) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -101,6 +106,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         this.defineStmt = defineStmt;
         this.indexes = indexes != null ? indexes : Lists.newArrayList();
         initColumnNameMap();
+        this.dbName = dbName;
     }
 
     public void setWhereClause(Expr whereClause) {
@@ -286,6 +292,12 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     }
 
     public void parseStmt(Analyzer analyzer) throws IOException {
+        if (analyzer == null && dbName != null) {
+            ConnectContext connectContext = new ConnectContext();
+            connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+            connectContext.setDatabase(dbName);
+            analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
+        }
         // analyze define stmt
         if (defineStmt == null) {
             return;
@@ -297,14 +309,22 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
             if (analyzer != null) {
-                stmt.analyze(analyzer);
+                try {
+                    stmt.analyze(analyzer);
+                } catch (Exception e) {
+                    LOG.warn("CreateMaterializedViewStmt analyze failed, reason=" + e.getMessage());
+                }
             }
 
             stmt.setIsReplay(true);
             setWhereClause(stmt.getWhereClause());
             stmt.rewriteToBitmapWithCheck();
-            Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
-            setColumnsDefineExpr(columnNameToDefineExpr);
+            try {
+                Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExpr(analyzer);
+                setColumnsDefineExpr(columnNameToDefineExpr);
+            } catch (Exception e) {
+                LOG.warn("CreateMaterializedViewStmt parseDefineExpr failed, reason=" + e.getMessage());
+            }
 
         } catch (Exception e) {
             throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
