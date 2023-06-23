@@ -21,7 +21,6 @@
 #pragma once
 
 #include "io/cache/shadow_cache.h"
-
 #include "olap/bloom_filter.hpp"
 
 namespace doris {
@@ -40,7 +39,7 @@ public:
     MultiBloomFilterShadowCache(const MBFShadowCacheOption& opt);
 
     ~MultiBloomFilterShadowCache() {}
-    
+
     bool put(const std::string& key, int64_t size) override;
 
     int64_t get(const std::string& key, int64_t bytes_read) override;
@@ -68,7 +67,7 @@ public:
     std::string get_info();
 
 private:
-    void _update_bf_and_working_set(const std::string& key, int size); 
+    void _update_bf_and_working_set(const std::string& key, int size);
     void _update_avg_page_size();
 
 private:
@@ -91,7 +90,7 @@ private:
     int _cur_bf_idx = 0;
     // The current working bloom filter;
     std::unique_ptr<doris::BloomFilter> _cur_bf;
-    
+
     // Number of keys saved in all bloom filters.
     int64_t _cache_key_num = 0;
     // The average bytes size of each cache entry,

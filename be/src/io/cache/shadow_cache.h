@@ -18,13 +18,13 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <string>
 
 namespace doris::io {
 
 class ShadowCache {
 public:
-    
     virtual bool put(const std::string& key, int64_t size) = 0;
 
     virtual int64_t get(const std::string& key, int64_t bytes_read) = 0;
@@ -50,7 +50,6 @@ public:
     virtual double get_false_positive_ratio() = 0;
 
     virtual ~ShadowCache() {}
-
 };
 
 } // namespace doris::io

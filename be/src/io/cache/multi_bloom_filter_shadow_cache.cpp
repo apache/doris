@@ -28,20 +28,20 @@ MultiBloomFilterShadowCache::MultiBloomFilterShadowCache(const MBFShadowCacheOpt
     // include the 1 extra working set bloom filter
     int64_t per_bf_size = opt.shadow_cache_bytes_in_memory / (_num_bf + 1);
     // assume 3% Guava default false positive ratio
-    _bf_expected_insertions = (int64_t) ((-per_bf_size * 8 * std::log(2) * std::log(2)) / std::log(FALSE_POSITIVE_RATIO));
+    _bf_expected_insertions = (int64_t)((-per_bf_size * 8 * std::log(2) * std::log(2)) /
+                                        std::log(FALSE_POSITIVE_RATIO));
 
     for (int i = 0; i < _num_bf; ++i) {
-        _bf_insert_vec.push_back(0L);    
-        _bf_bytes_vec.push_back(0L);    
+        _bf_insert_vec.push_back(0L);
+        _bf_bytes_vec.push_back(0L);
         doris::BloomFilter* bf = new doris::BloomFilter();
         bf->init(_bf_expected_insertions, FALSE_POSITIVE_RATIO);
-        _bf_vec.emplace_back(bf);    
+        _bf_vec.emplace_back(bf);
     }
 
     _cur_bf = std::make_unique<doris::BloomFilter>();
     _cur_bf->init(_bf_expected_insertions, FALSE_POSITIVE_RATIO);
 }
-
 
 bool MultiBloomFilterShadowCache::put(const std::string& key, int64_t size) {
     _update_bf_and_working_set(key, size);
@@ -63,7 +63,7 @@ void MultiBloomFilterShadowCache::_update_bf_and_working_set(const std::string& 
 int64_t MultiBloomFilterShadowCache::get(const std::string& key, int64_t bytes_read) {
     bool seen = false;
     for (int i = 0; i < _num_bf; ++i) {
-      seen |= _bf_vec[i]->test_bytes(key.c_str(), key.length());
+        seen |= _bf_vec[i]->test_bytes(key.c_str(), key.length());
     }
     if (seen) {
         _num_hit++;
@@ -90,31 +90,28 @@ void MultiBloomFilterShadowCache::_update_avg_page_size() {
     if (num_insert == 0) {
         _avg_cache_size = 0.0;
     } else {
-        _avg_cache_size = (double) total_bytes / num_insert;
+        _avg_cache_size = (double)total_bytes / num_insert;
     }
 }
 
 void MultiBloomFilterShadowCache::aging() {
     _update_avg_page_size();
-    _cur_bf_idx = (_cur_bf_idx + 1) % _num_bf; 
+    _cur_bf_idx = (_cur_bf_idx + 1) % _num_bf;
     _bf_vec[_cur_bf_idx] = std::make_unique<doris::BloomFilter>();
     _bf_vec[_cur_bf_idx]->init(_bf_expected_insertions, FALSE_POSITIVE_RATIO);
-    
+
     _bf_insert_vec[_cur_bf_idx] = 0;
     _bf_bytes_vec[_cur_bf_idx] = 0;
 
     _cur_bf = std::make_unique<doris::BloomFilter>();
     _cur_bf->init(_bf_expected_insertions, FALSE_POSITIVE_RATIO);
 
-    
     for (int i = 0; i < _num_bf; ++i) {
         _cur_bf->merge(*_bf_vec[i]);
     }
 }
 
-void MultiBloomFilterShadowCache::stop_update() {
-
-}
+void MultiBloomFilterShadowCache::stop_update() {}
 
 int64_t MultiBloomFilterShadowCache::get_shadow_cache_key_num() {
     return _cache_key_num;
@@ -147,18 +144,12 @@ double MultiBloomFilterShadowCache::get_false_positive_ratio() {
 std::string MultiBloomFilterShadowCache::get_info() {
     std::stringstream ss;
     ss << "MultiBloomFilterShadowCache: [num bf: " << _num_bf
-        << ", expected insertion: " << _bf_expected_insertions
-        << ", current bf idx: " << _cur_bf_idx
-        << ", num of keys(est): " << _cache_key_num
-        << ", num of bytes: " << _cache_bytes_num
-        << ", avg of cache entry: " << _avg_cache_size
-        << ", num read: " << _num_read
-        << ", num hit: " << _num_hit
-        << ", read hit ratio: " << (double) _num_hit / (_num_read + 1)
-        << ", num bytes read: " << _num_bytes_read
-        << ", num bytes hit: " << _num_bytes_hit
-        << ", bytes hit ratio: " << (double) _num_bytes_hit / (_num_bytes_read + 1)
-        << "]";
+       << ", expected insertion: " << _bf_expected_insertions << ", current bf idx: " << _cur_bf_idx
+       << ", num of keys(est): " << _cache_key_num << ", num of bytes: " << _cache_bytes_num
+       << ", avg of cache entry: " << _avg_cache_size << ", num read: " << _num_read
+       << ", num hit: " << _num_hit << ", read hit ratio: " << (double)_num_hit / (_num_read + 1)
+       << ", num bytes read: " << _num_bytes_read << ", num bytes hit: " << _num_bytes_hit
+       << ", bytes hit ratio: " << (double)_num_bytes_hit / (_num_bytes_read + 1) << "]";
     return ss.str();
 }
 

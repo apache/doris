@@ -15,23 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/cache/multi_bloom_filter_shadow_cache.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/cache/multi_bloom_filter_shadow_cache.h"
 
 namespace doris::io {
 
 class ShadowCacheTest : public testing::Test {
 public:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
-    virtual void TearDown() {
-    }
+    virtual void TearDown() {}
 };
 
 TEST_F(ShadowCacheTest, TestMultiBloomFilterShadowCache) {
