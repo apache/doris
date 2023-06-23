@@ -55,7 +55,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
 
-- Hive Metastore 作为元数据服务
+#### Hive Metastore
 
     ```sql
     CREATE CATALOG iceberg PROPERTIES (
@@ -71,7 +71,7 @@ CREATE CATALOG iceberg PROPERTIES (
     );
     ```
 
-- Glue Catalog 作为元数据服务
+#### AWS Glue
 
     ```sql
     CREATE CATALOG glue PROPERTIES (
@@ -85,7 +85,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
     Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
-- REST Catalog 作为元数据服务
+#### REST Catalog
 
     该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
     
@@ -97,6 +97,25 @@ CREATE CATALOG iceberg PROPERTIES (
     );
     ```
 
+#### Google Dataproc Metastore
+
+    ```sql
+    CREATE CATALOG iceberg PROPERTIES (
+        "type"="iceberg",
+        "iceberg.catalog.type"="hms",
+        "hive.metastore.uris" = "thrift://172.21.0.1:9083",
+        "gs.endpoint" = "https://storage.googleapis.com",
+        "gs.region" = "us-east-1",
+        "gs.access_key" = "ak",
+        "gs.secret_key" = "sk",
+        "use_path_style" = "true"
+    );
+    ```
+    
+    `hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
+### Iceberg On S3
+
 若数据存放在S3上，properties中可以使用以下参数
 
 ```
@@ -105,23 +124,6 @@ CREATE CATALOG iceberg PROPERTIES (
 "s3.endpoint" = "http://endpoint-uri"
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
-
-#### Google Dataproc Metastore 作为元数据服务
-
-```sql
-CREATE CATALOG iceberg PROPERTIES (
-    "type"="iceberg",
-    "iceberg.catalog.type"="hms",
-    "hive.metastore.uris" = "thrift://172.21.0.1:9083",
-    "gs.endpoint" = "https://storage.googleapis.com",
-    "gs.region" = "us-east-1",
-    "gs.access_key" = "ak",
-    "gs.secret_key" = "sk",
-    "use_path_style" = "true"
-);
-```
-
-`hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
 
 ## 列类型映射
 

@@ -30,14 +30,16 @@ under the License.
 
 除了 Hive 外，很多其他系统也会使用 Hive Metastore 存储元数据。所以通过 Hive Catalog，我们不仅能访问 Hive，也能访问使用 Hive Metastore 作为元数据存储的系统。如 Iceberg、Hudi 等。
 
-## 使用限制
+## 使用须知
 
-1. 需将 core-site.xml，hdfs-site.xml 放到 FE 和 BE 的 conf 目录下。
+1. 需将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。
 2. hive 支持 1/2/3 版本。
-3. 支持 Managed Table 和 External Table。
+3. 支持 Managed Table 和 External Table，支持部分 Hive View。
 4. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
 
 ## 创建 Catalog
+
+### Hive On HDFS
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -188,7 +190,7 @@ CREATE CATALOG hive PROPERTIES (
 
 ## 元数据缓存设置
 
-创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置元数据 File Cache 自动失效时间，也可以将该值设置为 0 来禁用 File Cache。时间单位为：秒。示例如下：
+创建 Catalog 时可以采用参数 `file.meta.cache.ttl-second` 来设置 Hive 分区文件缓存自动失效时间，也可以将该值设置为 0 来禁用分区文件缓存。时间单位为：秒。示例如下：
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
