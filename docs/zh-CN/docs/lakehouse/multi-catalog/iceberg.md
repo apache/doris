@@ -57,62 +57,62 @@ CREATE CATALOG iceberg PROPERTIES (
 
 #### Hive Metastore
 
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        'type'='iceberg',
-        'iceberg.catalog.type'='hms',
-        'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-        'hadoop.username' = 'hive',
-        'dfs.nameservices'='your-nameservice',
-        'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-        'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-        'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-        'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
-    );
-    ```
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
 
 #### AWS Glue
 
-    ```sql
-    CREATE CATALOG glue PROPERTIES (
-        "type"="iceberg",
-        "iceberg.catalog.type" = "glue",
-        "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-        "glue.access_key" = "ak",
-        "glue.secret_key" = "sk"
-    );
-    ```
+```sql
+CREATE CATALOG glue PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
+);
+```
 
-    Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
 #### REST Catalog
 
-    该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
-    
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        'type'='iceberg',
-        'iceberg.catalog.type'='rest',
-        'uri' = 'http://172.21.0.1:8181',
-    );
-    ```
+该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181',
+);
+```
 
 #### Google Dataproc Metastore
 
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        "type"="iceberg",
-        "iceberg.catalog.type"="hms",
-        "hive.metastore.uris" = "thrift://172.21.0.1:9083",
-        "gs.endpoint" = "https://storage.googleapis.com",
-        "gs.region" = "us-east-1",
-        "gs.access_key" = "ak",
-        "gs.secret_key" = "sk",
-        "use_path_style" = "true"
-    );
-    ```
-    
-    `hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.1:9083",
+    "gs.endpoint" = "https://storage.googleapis.com",
+    "gs.region" = "us-east-1",
+    "gs.access_key" = "ak",
+    "gs.secret_key" = "sk",
+    "use_path_style" = "true"
+);
+```
+
+`hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
 
 ### Iceberg On S3
 
