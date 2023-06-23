@@ -60,6 +60,7 @@ regression-test/realdata/*
 regression-test/cacheData/*
 regression-test/conf/regression-conf-custom.groovy
 regression-test/framework/bin/*
+regression-test/framework/src/main/groovy/org/apache/doris/thrift
 regression-test/certificate.p12
 
 samples/doris-demo/remote-udf-python-demo/*_pb2.py

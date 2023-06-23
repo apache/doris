@@ -647,7 +647,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `update_replica_infos_interval_seconds`
 
 * Description: Minimal interval (s) to update peer replica infos
-* Default value: 10 (s)
+* Default value: 60 (s)
 
 #### `compaction_policy`
 
@@ -661,14 +661,14 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Type: int64
 * Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
-* Default value: 1024
+* Default value: 512
 
 #### `time_series_compaction_file_count_threshold`
 
 * Type: int64
 * Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
   - If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
-* Default value: 10000
+* Default value: 2000
 
 #### `time_series_compaction_time_threshold_seconds`
 
@@ -1410,7 +1410,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `max_runnings_transactions_per_txn_map`
 
 * Description: Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
-* Default value: 100
+* Default value: 2000
 
 #### `max_download_speed_kbps`
 

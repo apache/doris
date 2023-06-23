@@ -27,6 +27,8 @@ std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_
         return INVERTED_INDEX_PARSER_NONE;
     case InvertedIndexParserType::PARSER_STANDARD:
         return INVERTED_INDEX_PARSER_STANDARD;
+    case InvertedIndexParserType::PARSER_UNICODE:
+        return INVERTED_INDEX_PARSER_UNICODE;
     case InvertedIndexParserType::PARSER_ENGLISH:
         return INVERTED_INDEX_PARSER_ENGLISH;
     case InvertedIndexParserType::PARSER_CHINESE:
@@ -44,6 +46,8 @@ InvertedIndexParserType get_inverted_index_parser_type_from_string(const std::st
         return InvertedIndexParserType::PARSER_NONE;
     } else if (parser_str_lower == INVERTED_INDEX_PARSER_STANDARD) {
         return InvertedIndexParserType::PARSER_STANDARD;
+    } else if (parser_str_lower == INVERTED_INDEX_PARSER_UNICODE) {
+        return InvertedIndexParserType::PARSER_UNICODE;
     } else if (parser_str_lower == INVERTED_INDEX_PARSER_ENGLISH) {
         return InvertedIndexParserType::PARSER_ENGLISH;
     } else if (parser_str_lower == INVERTED_INDEX_PARSER_CHINESE) {
@@ -67,7 +71,7 @@ std::string get_parser_mode_string_from_properties(
     if (properties.find(INVERTED_INDEX_PARSER_MODE_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_MODE_KEY);
     } else {
-        return INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        return INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 }
 

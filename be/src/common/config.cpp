@@ -129,6 +129,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
+DEFINE_mInt64(pre_serialize_keys_limit_bytes, "16777216");
+
 // the port heartbeat service used
 DEFINE_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
@@ -145,6 +147,8 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// the timeout of EnginPublishVersionTask
+DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the count of thread to clear transaction task
@@ -353,7 +357,7 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
-DEFINE_mInt64(compaction_promotion_min_size_mbytes, "64");
+DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -589,7 +593,7 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "10000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
 
 // txn commit rpc timeout
 DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");
@@ -666,7 +670,7 @@ DEFINE_mBool(transfer_large_data_by_brpc, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
-DEFINE_mInt64(max_runnings_transactions_per_txn_map, "100");
+DEFINE_mInt64(max_runnings_transactions_per_txn_map, "2000");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
@@ -1000,9 +1004,9 @@ DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
     return config == "size_based" || config == "time_series";
 });
 // the size of input files for each compaction
-DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "1024");
+DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "512");
 // the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DEFINE_mInt64(time_series_compaction_file_count_threshold, "10000");
+DEFINE_mInt64(time_series_compaction_file_count_threshold, "2000");
 // if compaction has not been performed within 3600 seconds, a compaction will be triggered
 DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
 

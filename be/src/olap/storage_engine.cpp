@@ -162,6 +162,9 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    if (_calc_delete_bitmap_thread_pool) {
+        _calc_delete_bitmap_thread_pool->shutdown();
+    }
     _clear();
     _s_instance = nullptr;
 }
@@ -556,6 +559,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
+    THREAD_JOIN(_async_publish_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)            \
