@@ -182,7 +182,7 @@ PipelineTask* MultiCoreTaskQueue::_steal_take(size_t core_id) {
         DCHECK(next_id < _core_size);
         auto task = _prio_task_queue_list[next_id].try_take(true);
         if (task) {
-            task->set_core_id(next_id);
+            task->set_core_id(core_id);
             return task;
         }
     }
