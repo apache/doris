@@ -736,6 +736,8 @@ public class StmtExecutor {
                 handleLockTablesStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
+            } else if (parsedStmt instanceof AnalyzeStmt) {
+                handleAnalyzeStmt();
             } else {
                 context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
@@ -1899,6 +1901,10 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
+    private void handleAnalyzeStmt() throws DdlException {
+        context.env.getAnalysisManager().createAnalyze((AnalyzeStmt) parsedStmt, isProxy);
+    }
+
     // Process switch catalog
     private void handleSwitchStmt() throws AnalysisException {
         SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
@@ -2520,6 +2526,11 @@ public class StmtExecutor {
 
     public void setProfileType(ProfileType profileType) {
         this.profileType = profileType;
+    }
+
+
+    public void setProxyResultSet(ShowResultSet proxyResultSet) {
+        this.proxyResultSet = proxyResultSet;
     }
 }
 
