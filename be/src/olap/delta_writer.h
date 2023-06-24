@@ -128,8 +128,6 @@ public:
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
-    RowsetWriter* get_rowset_writer() { return _rowset_writer.get(); }
-
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
                 const UniqueId& load_id);

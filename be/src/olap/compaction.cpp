@@ -38,7 +38,6 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
-#include "olap/delta_writer.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
@@ -568,7 +567,6 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    DeleteBitmap commit_rowset_delete_bitmap(_tablet->tablet_id());
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
@@ -619,10 +617,6 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             for (const auto& it : txn_tablet_map) {
                 for (const auto& tablet_load_it : it.second) {
                     const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
-                    commit_rowset_delete_bitmap.merge(*tablet_txn_info.delete_bitmap);
-                    auto beta_rowset = reinterpret_cast<BetaRowset*>(tablet_txn_info.rowset.get());
-                    std::vector<segment_v2::SegmentSharedPtr> segments;
-                    RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
                     // Step3: write back updated delete bitmap and tablet info.
                     StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                             it.first.first, it.first.second, _tablet->tablet_id(),
