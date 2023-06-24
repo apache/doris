@@ -632,8 +632,8 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
     }
 }
 
-void TxnManager::get_all_tablet_txn_infos_by_tablet(const TabletSharedPtr& tablet,
-                                                    txn_tablet_map_t& txn_tablet_map) {
+void TxnManager::get_all_commit_tablet_txn_info_by_tablet(const TabletSharedPtr& tablet,
+                                                          txn_tablet_map_t& txn_tablet_map) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
         for (auto& it : _txn_tablet_maps[i]) {

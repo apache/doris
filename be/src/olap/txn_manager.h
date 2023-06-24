@@ -194,8 +194,8 @@ public:
                                        TabletUid tablet_uid, bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
-    void get_all_tablet_txn_infos_by_tablet(const TabletSharedPtr& tablet,
-                                            txn_tablet_map_t& txn_tablet_map);
+    void get_all_commit_tablet_txn_info_by_tablet(const TabletSharedPtr& tablet,
+                                                  txn_tablet_map_t& txn_tablet_map);
 
 private:
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
