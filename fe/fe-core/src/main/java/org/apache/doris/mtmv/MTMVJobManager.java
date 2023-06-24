@@ -208,7 +208,7 @@ public class MTMVJobManager {
         }
     }
 
-    public void createJobWithLock(MTMVJob job, boolean isReplay) throws DdlException {
+    private void createJobWithLock(MTMVJob job, boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (nameToJobMap.containsKey(job.getName())) {
@@ -256,7 +256,7 @@ public class MTMVJobManager {
         LOG.info("drop jobs:{}", jobIds);
     }
 
-    public void dropJob(long jobId, boolean isReplay) {
+    private void dropJob(long jobId, boolean isReplay) {
         MTMVJob job = dropJobWithLock(jobId, isReplay);
         if (!isReplay && job != null) {
             job.stop();
@@ -331,13 +331,13 @@ public class MTMVJobManager {
         taskManager.dropHistoryTasks(taskIds, true);
     }
 
-    public void removeExpiredJobs() {
+    private void removeExpiredJobs() {
         long currentTimeSeconds = MTMVUtils.getNowTimeStamp();
         List<Long> jobIdsToDelete = Lists.newArrayList();
         List<MTMVJob> jobs = getAllJobsWithLock();
         for (MTMVJob job : jobs) {
             // active job should not clean
-            if (job.getState() == MTMVUtils.JobState.ACTIVE) {
+            if (job.getState() != MTMVUtils.JobState.COMPLETE) {
                 continue;
             }
             long expireTime = job.getExpireTime();
@@ -352,7 +352,7 @@ public class MTMVJobManager {
         return nameToJobMap.get(jobName);
     }
 
-    public List<MTMVJob> getAllJobsWithLock() {
+    private List<MTMVJob> getAllJobsWithLock() {
         readLock();
         try {
             return Lists.newArrayList(nameToJobMap.values());
@@ -370,19 +370,19 @@ public class MTMVJobManager {
         return periodScheduler;
     }
 
-    public void readLock() {
+    private void readLock() {
         this.rwLock.readLock().lock();
     }
 
-    public void readUnlock() {
+    private void readUnlock() {
         this.rwLock.readLock().unlock();
     }
 
-    public void writeLock() {
+    private void writeLock() {
         this.rwLock.writeLock().lock();
     }
 
-    public void writeUnlock() {
+    private void writeUnlock() {
         this.rwLock.writeLock().unlock();
     }
 

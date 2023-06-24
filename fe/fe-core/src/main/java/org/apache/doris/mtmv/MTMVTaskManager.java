@@ -142,11 +142,11 @@ public class MTMVTaskManager {
         return submitJobTask(job, new MTMVTaskExecuteParams());
     }
 
-    public MTMVUtils.TaskSubmitStatus submitJobTask(MTMVJob job, MTMVTaskExecuteParams param) {
+    private MTMVUtils.TaskSubmitStatus submitJobTask(MTMVJob job, MTMVTaskExecuteParams param) {
         return submitTask(MTMVUtils.buildTask(job), param);
     }
 
-    public MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {
+    private MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {
         // duplicate submit
         if (taskExecutor.getTask() != null) {
             return MTMVUtils.TaskSubmitStatus.FAILED;
@@ -173,7 +173,7 @@ public class MTMVTaskManager {
         return MTMVUtils.TaskSubmitStatus.SUBMITTED;
     }
 
-    public void arrangeToPendingTask(MTMVTaskExecutor task) {
+    private void arrangeToPendingTask(MTMVTaskExecutor task) {
         writeLock();
         try {
             long jobId = task.getJobId();
@@ -193,11 +193,11 @@ public class MTMVTaskManager {
         }
     }
 
-    public void removePendingTask(Long jobId) {
+    private void removePendingTask(Long jobId) {
         pendingTaskMap.remove(jobId);
     }
 
-    public void removeRunningTask(Long jobId) {
+    private void removeRunningTask(Long jobId) {
         MTMVTaskExecutor task = runningTaskMap.remove(jobId);
         if (task != null) {
             task.stop();
@@ -281,7 +281,7 @@ public class MTMVTaskManager {
         addHistory(task);
     }
 
-    public void clearHistoryTasksByJobName(String jobName, boolean isReplay) {
+    private void clearHistoryTasksByJobName(String jobName, boolean isReplay) {
         List<String> clearTasks = Lists.newArrayList();
 
         Deque<MTMVTask> taskHistory = getHistoryTasks();
@@ -325,19 +325,19 @@ public class MTMVTaskManager {
         LOG.info("drop task history:{}", taskIds);
     }
 
-    public void readLock() {
+    private void readLock() {
         this.rwLock.readLock().lock();
     }
 
-    public void readUnlock() {
+    private void readUnlock() {
         this.rwLock.readLock().unlock();
     }
 
-    public void writeLock() {
+    private void writeLock() {
         this.rwLock.writeLock().lock();
     }
 
-    public void writeUnlock() {
+    private void writeUnlock() {
         this.rwLock.writeLock().unlock();
     }
 }

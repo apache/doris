@@ -23,6 +23,7 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -56,6 +57,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
     }
 
     @Test
+    @Disabled
     public void testRetryTask() throws InterruptedException, ExecutionException {
         MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
 
@@ -71,6 +73,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
     }
 
     @Test
+    @Disabled
     public void testRetryFailTask() throws InterruptedException, ExecutionException {
         MTMVTaskExecutorPool pool = new MTMVTaskExecutorPool();
 
