@@ -101,11 +101,10 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
-    _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
-    _construct_request(low_id);
+    _construct_request(low_id, finst_id);
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -264,9 +263,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     return Status::OK();
 }
 
-void ExchangeSinkBuffer::_construct_request(InstanceLoId id) {
+void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id) {
     _instance_to_request[id] = std::make_unique<PTransmitDataParams>();
-    _instance_to_request[id]->set_allocated_finst_id(&_instance_to_finst_id[id]);
+    _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
     _instance_to_request[id]->set_allocated_query_id(&_query_id);
 
     _instance_to_request[id]->set_node_id(_dest_node_id);
