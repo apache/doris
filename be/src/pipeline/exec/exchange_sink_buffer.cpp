@@ -59,11 +59,8 @@ ExchangeSinkBuffer::~ExchangeSinkBuffer() = default;
 
 void ExchangeSinkBuffer::close() {
     for (const auto& pair : _instance_to_request) {
-        if (pair.second) {
-            pair.second->release_finst_id();
-            pair.second->release_query_id();
-            delete pair.second;
-        }
+        pair.second->release_finst_id();
+        pair.second->release_query_id();
     }
     _instance_to_request.clear();
 }
@@ -108,6 +105,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_time[low_id] = 0;
+    _construct_request(low_id);
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -173,10 +171,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     if (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
         auto& request = q.front();
-        if (!_instance_to_request[id]) {
-            _construct_request(id);
-        }
-        auto brpc_request = _instance_to_request[id];
+        auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block) {
@@ -220,10 +215,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
-        if (!_instance_to_request[id]) {
-            _construct_request(id);
-        }
-        auto brpc_request = _instance_to_request[id];
+        auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block_holder->get_block()) {
@@ -273,7 +265,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 }
 
 void ExchangeSinkBuffer::_construct_request(InstanceLoId id) {
-    _instance_to_request[id] = new PTransmitDataParams();
+    _instance_to_request[id] = std::make_unique<PTransmitDataParams>();
     _instance_to_request[id]->set_allocated_finst_id(&_instance_to_finst_id[id]);
     _instance_to_request[id]->set_allocated_query_id(&_query_id);
 
