@@ -59,7 +59,8 @@ public class CreateTableEvent extends MetastoreTableEvent {
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
-            Env.getCurrentEnv().getCatalogMgr().createExternalTable(dbName, hmsTbl.getTableName(), catalogName, true);
+            Env.getCurrentEnv().getCatalogMgr()
+                    .createExternalTableFromEvent(dbName, hmsTbl.getTableName(), catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"));
