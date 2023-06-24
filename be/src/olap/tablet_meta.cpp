@@ -931,11 +931,6 @@ void DeleteBitmap::remove(const BitmapKey& start, const BitmapKey& end) {
     }
 }
 
-bool DeleteBitmap::empty() const {
-    std::shared_lock l(lock);
-    return delete_bitmap.empty();
-}
-
 bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {
     std::shared_lock l(lock);
     auto it = delete_bitmap.find(bmk);
