@@ -734,7 +734,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
-    public void createExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
+    public void createExternalTableFromEvent(String dbName, String tableName, String catalogName,
+            boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -763,11 +764,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableName(tableName);
         log.setTableId(Env.getCurrentEnv().getNextId());
-        replayCreateExternalTable(log);
+        replayCreateExternalTableFromEvent(log);
         Env.getCurrentEnv().getEditLog().logCreateExternalTable(log);
     }
 
-    public void replayCreateExternalTable(ExternalObjectLog log) {
+    public void replayCreateExternalTableFromEvent(ExternalObjectLog log) {
         LOG.debug("ReplayCreateExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}],tableName:[{}]", log.getCatalogId(),
                 log.getDbId(), log.getTableId(), log.getTableName());
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
@@ -782,7 +783,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         db.writeLock();
         try {
-            db.createTable(log.getTableName(), log.getTableId());
+            db.replayCreateTableFromEvent(log.getTableName(), log.getTableId());
         } finally {
             db.writeUnlock();
         }
