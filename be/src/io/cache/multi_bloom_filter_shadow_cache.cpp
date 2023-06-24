@@ -26,7 +26,7 @@ double MultiBloomFilterShadowCache::FALSE_POSITIVE_RATIO = 0.03;
 MultiBloomFilterShadowCache::MultiBloomFilterShadowCache(const MBFShadowCacheOption& opt) {
     _num_bf = opt.num_bf;
     // include the 1 extra working set bloom filter
-    int64_t per_bf_size = opt.shadow_cache_bytes_in_memory / (_num_bf + 1);
+    int64_t per_bf_size = opt.bytes_in_memory / (_num_bf + 1);
     // assume 3% Guava default false positive ratio
     _bf_expected_insertions = (int64_t)((-per_bf_size * 8 * std::log(2) * std::log(2)) /
                                         std::log(FALSE_POSITIVE_RATIO));
@@ -41,6 +41,8 @@ MultiBloomFilterShadowCache::MultiBloomFilterShadowCache(const MBFShadowCacheOpt
 
     _cur_bf = std::make_unique<doris::BloomFilter>();
     _cur_bf->init(_bf_expected_insertions, FALSE_POSITIVE_RATIO);
+
+    _aging_interval_seconds = opt.window_seconds / _num_bf;
 }
 
 bool MultiBloomFilterShadowCache::put(const std::string& key, int64_t size) {
@@ -74,13 +76,20 @@ int64_t MultiBloomFilterShadowCache::get(const std::string& key, int64_t bytes_r
     return seen ? bytes_read : 0;
 }
 
+void MultiBloomFilterShadowCache::get_or_set(const std::string& key, int64_t bytes_read) {
+    int64_t size = get(key, bytes_read);
+    if (size <= 0) {
+        put(key, bytes_read);
+    }
+}
+
 void MultiBloomFilterShadowCache::update_working_set_size() {
-    _update_avg_page_size();
+    _update_avg_cache_size();
     _cache_key_num = _cur_bf->approximate_count();
     _cache_bytes_num = _cache_key_num * _avg_cache_size;
 }
 
-void MultiBloomFilterShadowCache::_update_avg_page_size() {
+void MultiBloomFilterShadowCache::_update_avg_cache_size() {
     int64_t num_insert = 0;
     int64_t total_bytes = 0;
     for (int i = 0; i < _num_bf; ++i) {
@@ -95,7 +104,7 @@ void MultiBloomFilterShadowCache::_update_avg_page_size() {
 }
 
 void MultiBloomFilterShadowCache::aging() {
-    _update_avg_page_size();
+    _update_avg_cache_size();
     _cur_bf_idx = (_cur_bf_idx + 1) % _num_bf;
     _bf_vec[_cur_bf_idx] = std::make_unique<doris::BloomFilter>();
     _bf_vec[_cur_bf_idx]->init(_bf_expected_insertions, FALSE_POSITIVE_RATIO);

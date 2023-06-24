@@ -40,6 +40,11 @@ struct FileCacheSettings {
     size_t query_queue_elements {0};
     size_t max_file_segment_size {0};
     size_t max_query_cache_size {0};
+
+    bool enable_shadow_cache = false;
+    int shadow_cache_num_bf = 4;
+    size_t shadow_cache_bytes_in_memory = 125 * 1024 * 1024L;
+    int64_t shadow_cache_window_seconds = 86400;
 };
 
 } // namespace io

@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "io/cache/shadow_cache.h"
 #include "olap/bloom_filter.hpp"
 
 namespace doris {
@@ -31,44 +30,53 @@ namespace io {
 
 struct MBFShadowCacheOption {
     int num_bf;
-    int64_t shadow_cache_bytes_in_memory;
+    int64_t bytes_in_memory;
+    int64_t window_seconds;
 };
 
-class MultiBloomFilterShadowCache : public ShadowCache {
+class MultiBloomFilterShadowCache {
 public:
     MultiBloomFilterShadowCache(const MBFShadowCacheOption& opt);
 
     ~MultiBloomFilterShadowCache() {}
 
-    bool put(const std::string& key, int64_t size) override;
+    bool put(const std::string& key, int64_t size);
 
-    int64_t get(const std::string& key, int64_t bytes_read) override;
+    int64_t get(const std::string& key, int64_t bytes_read);
 
-    void aging() override;
+    void get_or_set(const std::string& key, int64_t bytes_read);
 
-    void update_working_set_size() override;
+    void aging();
 
-    void stop_update() override;
+    void update_working_set_size();
 
-    int64_t get_shadow_cache_key_num() override;
+    void stop_update();
 
-    int64_t get_shadow_cache_bytes() override;
+    int64_t get_shadow_cache_key_num();
 
-    int64_t get_shadow_cache_read() override;
+    int64_t get_shadow_cache_bytes();
 
-    int64_t get_shadow_cache_hit() override;
+    int64_t get_shadow_cache_read();
 
-    int64_t get_shadow_cache_bytes_read() override;
+    int64_t get_shadow_cache_hit();
 
-    int64_t get_shadow_cache_bytes_hit() override;
+    int64_t get_shadow_cache_bytes_read();
 
-    double get_false_positive_ratio() override;
+    int64_t get_shadow_cache_bytes_hit();
+
+    double get_false_positive_ratio();
+
+    int64_t get_cache_key_num() { return _cache_key_num; }
+
+    int64_t get_cache_bytes() { return _cache_bytes_num; }
+
+    int64_t get_aging_interval_seconds() { return _aging_interval_seconds; }
 
     std::string get_info();
 
 private:
     void _update_bf_and_working_set(const std::string& key, int size);
-    void _update_avg_page_size();
+    void _update_avg_cache_size();
 
 private:
     static double FALSE_POSITIVE_RATIO;
@@ -77,6 +85,8 @@ private:
     // The expected max number of elements in bloom filter
     // Calculated by memory size and expected false positive ratio
     int64_t _bf_expected_insertions;
+    // the interval time of calling aging() method.
+    int64_t _aging_interval_seconds;
     // bloom filters
     std::vector<std::unique_ptr<doris::BloomFilter>> _bf_vec;
     // Each elment corresponds to a bloom filter in _bf_vec,

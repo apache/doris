@@ -43,6 +43,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_fwd.h"
+#include "io/cache/multi_bloom_filter_shadow_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
@@ -104,6 +105,14 @@ LRUFileCache::LRUFileCache(const std::string& cache_base_path,
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_size);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_max_elements);
     INT_UGAUGE_METRIC_REGISTER(_entity, file_cache_disposable_queue_curr_elements);
+
+    _enable_shadow_cache = cache_settings.enable_shadow_cache;
+    if (_enable_shadow_cache) {
+        MBFShadowCacheOption opt;
+        opt.num_bf = cache_settings.shadow_cache_num_bf;
+        opt.bytes_in_memory = cache_settings.shadow_cache_bytes_in_memory;
+        _shadow_cache = std::make_unique<MultiBloomFilterShadowCache>(opt);
+    }
 
     LOG(INFO) << fmt::format(
             "file cache path={}, disposable queue size={} elements={}, index queue size={} "
@@ -375,6 +384,10 @@ FileBlocksHolder LRUFileCache::get_or_set(const Key& key, size_t offset, size_t 
     FileBlock::Range range(offset, offset + size - 1);
 
     std::lock_guard cache_lock(_mutex);
+
+    if (_enable_shadow_cache) {
+        _shadow_cache->get_or_set(key.to_string(), size);
+    }
 
     /// Get all segments which intersect with the given range.
     auto file_blocks = get_impl(key, context, range, cache_lock);
@@ -1084,11 +1097,33 @@ std::string LRUFileCache::dump_structure_unlocked(const Key& key, std::lock_guar
 }
 
 void LRUFileCache::run_background_operation() {
-    int64_t interval_time_seconds = 20;
+    int64_t metric_report_interval_seconds = 15;
+    int64_t shadow_cache_aging_interval_seconds = std::numeric_limits<int64_t>::max();
+    if (_enable_shadow_cache) {
+        shadow_cache_aging_interval_seconds = _shadow_cache->get_aging_interval_seconds();
+    }
+    int64_t sleep_interval =
+            std::min(metric_report_interval_seconds, shadow_cache_aging_interval_seconds);
+
+    int64_t report_left = metric_report_interval_seconds;
+    int64_t aging_left = shadow_cache_aging_interval_seconds;
+
     while (!_close) {
-        std::this_thread::sleep_for(std::chrono::seconds(interval_time_seconds));
-        // report
-        _cur_size_metrics->set_value(_cur_cache_size);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_interval));
+        report_left -= sleep_interval;
+        aging_left -= sleep_interval;
+
+        if (report_left <= 0) {
+            _cur_size_metrics->set_value(_cur_cache_size);
+            report_left = metric_report_interval_seconds;
+        }
+
+        if (aging_left <= 0) {
+            LOG(INFO) << _shadow_cache->get_info();
+            std::lock_guard<std::mutex> l(_mutex);
+            _shadow_cache->aging();
+            aging_left = shadow_cache_aging_interval_seconds;
+        }
     }
 }
 

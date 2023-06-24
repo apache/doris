@@ -1043,6 +1043,11 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 
+DEFINE_Bool(enable_shadow_cache, "true");
+DEFINE_Int32(shadow_cache_bloom_filter_num, "4");
+DEFINE_Int64(shadow_cache_mbytes_in_memory, "125"); // 125 MB
+DEFINE_Int64(shadow_cache_window_seconds, "86400"); // 1 day
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_segment.h"
+#include "io/cache/multi_bloom_filter_shadow_cache.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -221,6 +222,9 @@ private:
     UIntGauge* file_cache_disposable_queue_curr_size = nullptr;
     UIntGauge* file_cache_disposable_queue_max_elements = nullptr;
     UIntGauge* file_cache_disposable_queue_curr_elements = nullptr;
+
+    bool _enable_shadow_cache = false;
+    std::unique_ptr<MultiBloomFilterShadowCache> _shadow_cache;
 };
 
 } // namespace io

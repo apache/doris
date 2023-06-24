@@ -234,6 +234,10 @@ io::FileCacheSettings CachePath::init_settings() const {
     settings.query_queue_elements =
             std::max(settings.query_queue_size / settings.max_file_segment_size,
                      io::REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
+    settings.enable_shadow_cache = config::enable_shadow_cache;
+    settings.shadow_cache_num_bf = config::shadow_cache_bloom_filter_num;
+    settings.shadow_cache_bytes_in_memory = config::shadow_cache_mbytes_in_memory * 1024 * 1024;
+    settings.shadow_cache_window_seconds = config::shadow_cache_window_seconds;
     return settings;
 }
 

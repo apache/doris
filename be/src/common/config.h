@@ -1059,6 +1059,15 @@ DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
 
+DECLARE_Bool(enable_shadow_cache);
+// If enable_shadow_cache is true, this is the number of bloom filter
+// in multi bloom filter shadow cache
+DECLARE_Int32(shadow_cache_bloom_filter_num);
+// The expected bytes of shadow cahce in memory, in MB.
+DECLARE_Int64(shadow_cache_mbytes_in_memory);
+// The window of the shadow cache
+DECLARE_Int64(shadow_cache_window_seconds);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
