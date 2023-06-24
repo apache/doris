@@ -335,6 +335,13 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
 
+        for (ColumnDef columnDef : columnDefs) {
+            PrimitiveType t = columnDef.getType().getPrimitiveType();
+            if (!t.isAvailableInDdl()) {
+                throw new AnalysisException("The" + t.toString() + "type is not available for create table");
+            }
+        }
+
         boolean enableUniqueKeyMergeOnWrite = false;
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
