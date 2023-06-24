@@ -27,7 +27,9 @@
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/io/reader_buffer.h"
 
 namespace arrow {
 class ArrayBuilder;
@@ -58,8 +60,19 @@ class IDataType;
 
 class DataTypeSerDe {
 public:
+    struct FormatOptions {
+        bool use_lib_format = false;
+    };
+
+public:
     DataTypeSerDe();
     virtual ~DataTypeSerDe();
+    // Text serializer and deserializer with formatOptions to handle different text format
+    virtual void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                            const FormatOptions& options) const = 0;
+
+    virtual Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                                  const FormatOptions& options) const = 0;
 
     // Protobuf serializer and deserializer
     virtual Status write_column_to_pb(const IColumn& column, PValues& result, int start,

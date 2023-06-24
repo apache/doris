@@ -47,9 +47,16 @@ class DataTypeDecimalSerDe : public DataTypeSerDe {
     static_assert(IsDecimalNumber<T>);
 
 public:
-    DataTypeDecimalSerDe(int scale_)
+    DataTypeDecimalSerDe(int scale_, int precision_)
             : scale(scale_),
+              precision(precision_),
               scale_multiplier(decimal_scale_multiplier<typename T::NativeType>(scale)) {}
+
+    void serialize_one_cell_to_text(const IColumn& column, int row_num, BufferWritable& bw,
+                                    const FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
+                                          const FormatOptions& options) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
@@ -76,7 +83,8 @@ private:
                                   int row_idx, bool col_const) const;
 
     int scale;
-    const T::NativeType scale_multiplier;
+    int precision;
+    const typename T::NativeType scale_multiplier;
     mutable char buf[T::max_string_length()];
 };
 
