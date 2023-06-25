@@ -412,6 +412,7 @@ public class AnalysisManager extends Daemon implements Writable {
         taskInfoBuilder.setSamplingPartition(isSamplingPartition);
         taskInfoBuilder.setJobType(JobType.MANUAL);
         taskInfoBuilder.setState(AnalysisState.PENDING);
+        taskInfoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
         taskInfoBuilder.setAnalysisType(analysisType);
         taskInfoBuilder.setAnalysisMode(analysisMode);
         taskInfoBuilder.setAnalysisMethod(analysisMethod);
@@ -450,6 +451,7 @@ public class AnalysisManager extends Daemon implements Writable {
         taskInfoBuilder.setTblName(jobInfo.tblName);
         taskInfoBuilder.setJobType(JobType.SYSTEM);
         taskInfoBuilder.setState(AnalysisState.PENDING);
+        taskInfoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
         taskInfoBuilder.setAnalysisType(jobInfo.analysisType);
         taskInfoBuilder.setAnalysisMode(jobInfo.analysisMode);
         taskInfoBuilder.setAnalysisMethod(jobInfo.analysisMethod);
