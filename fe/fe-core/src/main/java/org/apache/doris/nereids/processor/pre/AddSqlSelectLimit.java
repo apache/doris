@@ -18,24 +18,18 @@
 package org.apache.doris.nereids.processor.pre;
 
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 /**
  * handle sql_select_limit and default_order_by_limit
  */
-public class AddSqlSelectLimit extends PlanPreprocessor implements CustomRewriter {
-
-    @Override
-    public Plan rewriteRoot(Plan plan, JobContext context) {
-        return null;
-    }
+public class AddSqlSelectLimit extends PlanPreprocessor {
 
     @Override
     public Plan visit(Plan plan, StatementContext context) {
@@ -53,6 +47,12 @@ public class AddSqlSelectLimit extends PlanPreprocessor implements CustomRewrite
     @Override
     public LogicalPlan visitLogicalLimit(LogicalLimit<? extends Plan> limit, StatementContext context) {
         return limit;
+    }
+
+    @Override
+    public LogicalPlan visitUnboundOlapTableSink(UnboundOlapTableSink<? extends Plan> sink, StatementContext context) {
+        Plan child = sink.child().accept(this, context);
+        return ((LogicalPlan) sink.withChildren(child));
     }
 
     @Override
