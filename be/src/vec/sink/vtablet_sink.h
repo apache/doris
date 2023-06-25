@@ -234,6 +234,8 @@ public:
 
     void open_partition_wait();
 
+    bool open_partition_finished() const;
+
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
@@ -246,7 +248,7 @@ public:
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    Status mark_close();
+    void mark_close();
 
     bool is_pending_finish() const;
 
@@ -485,7 +487,7 @@ public:
     Status open(RuntimeState* state) override;
 
     void try_close(RuntimeState* state, Status exec_status) override;
-    bool is_pending_finish() override;
+    bool is_pending_finish() override { return _pending_finish; }
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
@@ -646,8 +648,6 @@ private:
     Status _close_status;
     // Use in pipeline, if false, all node channels are done or canceled, can start close().
     bool _pending_finish = true;
-    // Use in pipeline, try_close may be called multiple times.
-    bool _try_closed = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
