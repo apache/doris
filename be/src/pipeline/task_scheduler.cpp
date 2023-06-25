@@ -112,6 +112,7 @@ void BlockedTaskScheduler::_schedule() {
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
+                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     iter++;
                 } else {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks,
@@ -278,8 +279,11 @@ void TaskScheduler::_do_work(size_t index) {
 
         task->set_previous_core_id(index);
         if (!status.ok()) {
-            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}, task: \n{}",
-                                        status.to_string(), task->debug_string());
+            LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}", status.to_string());
+            // Print detail informations below when you debugging here.
+            //
+            // LOG(WARNING)<< "task:\n"<<task->debug_string();
+
             // exec failed，cancel all fragment instance
             fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, status.to_string());
             fragment_ctx->send_report(true);
@@ -356,11 +360,6 @@ void TaskScheduler::shutdown() {
             _fix_thread_pool->wait();
         }
     }
-}
-
-void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                        taskgroup::TaskGroupPtr task_group) {
-    _task_queue->update_tg_cpu_share(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline

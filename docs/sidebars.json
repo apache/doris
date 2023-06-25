@@ -50,7 +50,6 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
@@ -1095,7 +1094,8 @@
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
                         "admin-manual/maint-monitor/tablet-restore-tool",
-                        "admin-manual/maint-monitor/metadata-operation"
+                        "admin-manual/maint-monitor/metadata-operation",
+                        "admin-manual/maint-monitor/automatic-service-start"
                     ]
                 },
                 {

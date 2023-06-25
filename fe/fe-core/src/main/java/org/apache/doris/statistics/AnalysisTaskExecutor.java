@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThreadPoolManager.BlockedPolicy;
-import org.apache.doris.statistics.util.BlockingCounter;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,9 +44,6 @@ public class AnalysisTaskExecutor extends Thread {
             "Analysis Job Executor", true);
 
     private final AnalysisTaskScheduler taskScheduler;
-
-    private final BlockingCounter blockingCounter =
-            new BlockingCounter(Config.statistics_simultaneously_running_task_num);
 
     private final BlockingQueue<AnalysisTaskWrapper> taskQueue =
             new PriorityBlockingQueue<AnalysisTaskWrapper>(20,
@@ -75,7 +71,8 @@ public class AnalysisTaskExecutor extends Thread {
             try {
                 AnalysisTaskWrapper taskWrapper = taskQueue.take();
                 try {
-                    long timeout = TimeUnit.MINUTES.toMillis(Config.analyze_task_timeout_in_minutes);
+                    long timeout = TimeUnit.MINUTES.toMillis(Config.analyze_task_timeout_in_minutes)
+                            - (System.currentTimeMillis() - taskWrapper.getStartTime());
                     taskWrapper.get(timeout < 0 ? 0 : timeout, TimeUnit.MILLISECONDS);
                 } catch (Exception e) {
                     taskWrapper.cancel(e.getMessage());

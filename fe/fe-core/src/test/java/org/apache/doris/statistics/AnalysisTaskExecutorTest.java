@@ -24,7 +24,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.BlockingCounter;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -33,7 +32,6 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
@@ -86,13 +84,6 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
         b.put(analysisTaskWrapper);
         analysisTaskExecutor.start();
-        BlockingCounter counter = Deencapsulation.getField(analysisTaskExecutor, "blockingCounter");
-        int sleepTime = 500;
-        while (counter.getVal() != 0 && sleepTime > 0) {
-            sleepTime -= 100;
-            Thread.sleep(100);
-        }
-        Assertions.assertEquals(0, counter.getVal());
     }
 
     @Test

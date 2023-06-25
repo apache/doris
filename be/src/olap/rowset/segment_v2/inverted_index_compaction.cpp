@@ -41,6 +41,16 @@ void compact_column(int32_t index_id, int src_segment_num, int dest_segment_num,
         // format: rowsetId_segmentId_indexId.idx
         std::string src_idx_full_name =
                 src_index_files[i] + "_" + std::to_string(index_id) + ".idx";
+        bool exists = false;
+        auto st = fs->exists(src_idx_full_name, &exists);
+        if (!st.ok()) {
+            LOG(ERROR) << src_idx_full_name << " fs->exists error:" << st;
+            return;
+        }
+        if (!exists) {
+            LOG(WARNING) << src_idx_full_name << " is not exists, will stop index compaction ";
+            return;
+        }
         DorisCompoundReader* reader = new DorisCompoundReader(
                 DorisCompoundDirectory::getDirectory(fs, tablet_path.c_str()),
                 src_idx_full_name.c_str());

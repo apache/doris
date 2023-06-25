@@ -68,5 +68,6 @@ suite("load_three_step") {
             logger.info("select ${tableName} numbers: ${loadRowCount[0][0]}".toString())
             assertTrue(loadRowCount[0][0] == 0)
         }
+        sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 }

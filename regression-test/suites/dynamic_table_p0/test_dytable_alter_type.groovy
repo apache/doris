@@ -130,12 +130,11 @@ suite("test_dynamic_table", "dynamic_table"){
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 name char(50),
-                `${colume_name}` ${src_type},
-                ...
+                `${colume_name}` ${src_type}
             )
             DUPLICATE KEY(`name`)
             DISTRIBUTED BY HASH(`name`) BUCKETS 10
-            properties("replication_num" = "1");
+            properties("replication_num" = "1", "deprecated_dynamic_schema" = "true");
         """
 
         //stream load src_json
