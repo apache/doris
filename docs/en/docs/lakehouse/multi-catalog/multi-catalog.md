@@ -89,7 +89,8 @@ For more information about Hive, please see [Hive](./hive.md).
 	```sql
 	CREATE CATALOG hive PROPERTIES (
 	    'type'='hms',
-	    'hive.metastore.uris' = 'thrift://172.21.0.1:7004'
+	    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+	    'hive.version' = 'your hive version'
 	);
 	```
 	
