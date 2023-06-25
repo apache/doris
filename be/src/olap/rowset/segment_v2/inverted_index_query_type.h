@@ -37,34 +37,34 @@ enum class InvertedIndexQueryType {
 inline std::string InvertedIndexQueryType_toString(InvertedIndexQueryType query_type) {
     switch (query_type) {
     case InvertedIndexQueryType::UNKNOWN_QUERY: {
-        return "UNKNOWN_QUERY";
+        return "UNKNOWN";
     }
     case InvertedIndexQueryType::EQUAL_QUERY: {
-        return "EQUAL_QUERY";
+        return "EQ";
     }
     case InvertedIndexQueryType::LESS_THAN_QUERY: {
-        return "LESS_THAN_QUERY";
+        return "LT";
     }
     case InvertedIndexQueryType::LESS_EQUAL_QUERY: {
-        return "LESS_EQUAL_QUERY";
+        return "LE";
     }
     case InvertedIndexQueryType::GREATER_THAN_QUERY: {
-        return "GREATER_THAN_QUERY";
+        return "GT";
     }
     case InvertedIndexQueryType::GREATER_EQUAL_QUERY: {
-        return "GREATER_EQUAL_QUERY";
+        return "GE";
     }
     case InvertedIndexQueryType::MATCH_ANY_QUERY: {
-        return "MATCH_ANY_QUERY";
+        return "MANY";
     }
     case InvertedIndexQueryType::MATCH_ALL_QUERY: {
-        return "MATCH_ALL_QUERY";
+        return "MALL";
     }
     case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
-        return "MATCH_PHRASE_QUERY";
+        return "MPHRASE";
     }
     default:
-        return "Invalid query type";
+        return "";
     }
 }
 } // namespace segment_v2
