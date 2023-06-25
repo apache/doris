@@ -18,8 +18,8 @@
 #pragma once
 
 #include <CLucene.h> // IWYU pragma: keep
-#include <CLucene/util/Misc.h>
 #include <CLucene/config/repl_wchar.h>
+#include <CLucene/util/Misc.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
 #include <stddef.h>
