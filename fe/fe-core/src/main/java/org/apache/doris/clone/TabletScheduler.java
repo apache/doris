@@ -968,16 +968,6 @@ public class TabletScheduler extends MasterDaemon {
         if (chosenReplica == null) {
             return false;
         }
-        List<Replica> replicas = tabletCtx.getTablet().getReplicas();
-        int eqOrNewVersionCount = 0;
-        for (Replica replica : replicas) {
-            if (replica.getVersion() >= chosenReplica.getVersion()) {
-                eqOrNewVersionCount++;
-            }
-        }
-        if (eqOrNewVersionCount == 1) {
-            return false;
-        }
         deleteReplicaInternal(tabletCtx, chosenReplica, "src replica of rebalance", force);
 
         return true;
@@ -1078,6 +1068,22 @@ public class TabletScheduler extends MasterDaemon {
 
     private void deleteReplicaInternal(TabletSchedCtx tabletCtx,
             Replica replica, String reason, boolean force) throws SchedException {
+
+        List<Replica> replicas = tabletCtx.getTablet().getReplicas();
+        int matchupReplicaCount = 0;
+        for (Replica tmpReplica : replicas) {
+            if (tmpReplica.getVersion() >= replica.getVersion()) {
+                matchupReplicaCount++;
+            }
+        }
+
+        if (matchupReplicaCount <= 1) {
+            LOG.info("can not delete only one replica, tabletId = {} replicaId = {}", tabletCtx.getTabletId(),
+                     replica.getId());
+            throw new SchedException(Status.FINISHED, "the only one latest replia can not be dropped, tabletId = "
+                                        + tabletCtx.getTabletId() + ", replicaId = " + replica.getId());
+        }
+
         /*
          * Before deleting a replica, we should make sure that
          * there is no running txn on it and no more txns will be on it.
@@ -1097,8 +1103,8 @@ public class TabletScheduler extends MasterDaemon {
             replica.setState(ReplicaState.DECOMMISSION);
             // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
             tabletCtx.setOrigPriority(Priority.NORMAL);
-            LOG.debug("set replica {} on backend {} of tablet {} state to DECOMMISSION",
-                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId());
+            LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
+                    replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();

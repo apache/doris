@@ -72,7 +72,6 @@ TEST(TEST_VEXPR, ABSTEST) {
     ASSERT_TRUE(state.ok());
     state = context->open(&runtime_stat);
     ASSERT_TRUE(state.ok());
-    context->close(&runtime_stat);
 }
 
 // Only the unit test depend on this, but it is wrong, should not use TTupleDesc to create tuple desc, not
@@ -168,7 +167,6 @@ TEST(TEST_VEXPR, ABSTEST2) {
     ASSERT_TRUE(state.ok());
     state = context->open(&runtime_stat);
     ASSERT_TRUE(state.ok());
-    context->close(&runtime_stat);
 }
 
 namespace doris {

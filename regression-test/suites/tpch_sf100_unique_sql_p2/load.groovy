@@ -67,6 +67,6 @@ suite("load") {
                 sleep(5000)
             }
         }
-
+        sql """ ANALYZE TABLE $table WITH SYNC """
     }
 }

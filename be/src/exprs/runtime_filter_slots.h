@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "exprs/runtime_filter.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
@@ -50,18 +51,20 @@ public:
         std::map<int, bool> has_in_filter;
 
         auto ignore_local_filter = [state](int filter_id) {
-            IRuntimeFilter* consumer_filter = nullptr;
-            state->runtime_filter_mgr()->get_consume_filter(filter_id, &consumer_filter);
-            DCHECK(consumer_filter != nullptr);
-            consumer_filter->set_ignored();
-            consumer_filter->signal();
+            std::vector<IRuntimeFilter*> filters;
+            state->runtime_filter_mgr()->get_consume_filters(filter_id, filters);
+            DCHECK(!filters.empty());
+            for (auto filter : filters) {
+                filter->set_ignored();
+                filter->signal();
+            }
         };
 
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
             runtime_filter->set_ignored();
             runtime_filter->set_ignored_msg(msg);
-            runtime_filter->publish();
-            runtime_filter->publish_finally();
+            RETURN_IF_ERROR(runtime_filter->publish());
+            return Status::OK();
         };
 
         // ordered vector: IN, IN_OR_BLOOM, others.
@@ -136,16 +139,12 @@ public:
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
-#ifdef VLOG_DEBUG_IS_ON
                 std::string msg = fmt::format(
                         "fragment instance {} ignore runtime filter(in filter id {}) because: "
                         "in_num({}) >= max_in_num({})",
                         print_id(state->fragment_instance_id()), filter_desc.filter_id,
                         hash_table_size, max_in_num);
-                ignore_remote_filter(runtime_filter, msg);
-#else
-                ignore_remote_filter(runtime_filter, "ignored");
-#endif
+                RETURN_IF_ERROR(ignore_remote_filter(runtime_filter, msg));
                 continue;
             }
 
@@ -196,29 +195,33 @@ public:
         }
     }
 
-    // should call this method after insert
-    void ready_for_publish() {
+    bool ready_finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->ready_for_publish();
-            }
-        }
-    }
-    // publish runtime filter
-    void publish() {
-        for (int i = 0; i < _probe_expr_context.size(); ++i) {
-            auto iter = _runtime_filters.find(i);
-            if (iter != _runtime_filters.end()) {
-                for (auto filter : iter->second) {
-                    filter->publish();
+                if (!filter->is_finish_rpc()) {
+                    return false;
                 }
             }
         }
+        return true;
+    }
+
+    void finish_publish() {
         for (auto& pair : _runtime_filters) {
             for (auto filter : pair.second) {
-                filter->publish_finally();
+                filter->join_rpc();
             }
         }
+    }
+
+    // publish runtime filter
+    Status publish() {
+        for (auto& pair : _runtime_filters) {
+            for (auto filter : pair.second) {
+                RETURN_IF_ERROR(filter->publish());
+            }
+        }
+        return Status::OK();
     }
 
     void copy_to_shared_context(vectorized::SharedHashTableContextPtr& context) {

@@ -31,37 +31,15 @@ namespace vectorized {
 class Arena;
 
 class DataTypeTimeSerDe : public DataTypeNumberSerDe<Float64> {
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<false>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_date_time_column_to_mysql(column, return_object_data_as_binary, result,
-                                                row_idx, start, end, col_const);
-    }
-    Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                 std::vector<MysqlRowBuffer<true>>& result, int row_idx, int start,
-                                 int end, bool col_const) const override {
-        return _write_date_time_column_to_mysql(column, return_object_data_as_binary, result,
-                                                row_idx, start, end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
 private:
     template <bool is_binary_format>
-    Status _write_date_time_column_to_mysql(const IColumn& column,
-                                            bool return_object_data_as_binary,
-                                            std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                            int row_idx, int start, int end, bool col_const) const {
-        int buf_ret = 0;
-        auto& data = assert_cast<const ColumnVector<Float64>&>(column).get_data();
-        for (int i = start; i < end; ++i) {
-            if (0 != buf_ret) {
-                return Status::InternalError("pack mysql buffer failed.");
-            }
-            const auto col_index = index_check_const(i, col_const);
-            buf_ret = result[row_idx].push_time(data[col_index]);
-            ++row_idx;
-        }
-        return Status::OK();
-    }
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

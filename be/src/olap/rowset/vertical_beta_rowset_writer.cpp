@@ -137,7 +137,8 @@ Status VerticalBetaRowsetWriter::_flush_columns(
         _segment_num_rows.resize(_cur_writer_idx + 1);
         _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
-    _total_index_size += static_cast<int64_t>(index_size);
+    _total_index_size +=
+            static_cast<int64_t>(index_size) + (*segment_writer)->get_inverted_index_file_size();
     return Status::OK();
 }
 
@@ -155,6 +156,11 @@ Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
 Status VerticalBetaRowsetWriter::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    // TODO: just for pass DCHECK now, we should align the meaning
+    // of _num_segment and _next_segment_id with BetaRowsetWriter.
+    // i.e. _next_segment_id means next available segment id,
+    // and _num_segment means num of flushed segments.
+    allocate_segment_id();
     auto path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
@@ -198,7 +204,7 @@ Status VerticalBetaRowsetWriter::final_flush() {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
-        _total_data_size += segment_size;
+        _total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
         segment_writer.reset();
     }
     return Status::OK();

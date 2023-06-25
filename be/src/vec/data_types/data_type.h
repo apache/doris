@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/common/cow.h"
@@ -236,6 +237,13 @@ public:
 
     static PGenericType_TypeId get_pdata_type(const IDataType* data_type);
 
+    [[nodiscard]] virtual UInt32 get_precision() const {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_precision", get_name());
+    }
+    [[nodiscard]] virtual UInt32 get_scale() const {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "type {} not support get_scale", get_name());
+    }
+
 private:
     friend class DataTypeFactory;
 };
@@ -343,6 +351,9 @@ inline bool is_array(const DataTypePtr& data_type) {
 }
 inline bool is_map(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_map();
+}
+inline bool is_struct(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_struct();
 }
 inline bool is_nothing(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_nothing();

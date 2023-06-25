@@ -56,13 +56,10 @@ class IColumn;
 namespace doris::vectorized {
 
 template <class FunctionType>
-AggregateFunctionPtr get_agg_state_function(const std::string& name,
-                                            const DataTypes& argument_types,
+AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
                                             DataTypePtr return_type) {
     return FunctionType::create(
-            AggregateFunctionSimpleFactory::instance().get(
-                    name, ((DataTypeAggState*)argument_types[0].get())->get_sub_types(),
-                    return_type->is_nullable()),
+            assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_nested_function(),
             argument_types, return_type);
 }
 
@@ -159,21 +156,40 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
         _function = AggregateRpcUdaf::create(_fn, argument_types, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::AGG_STATE) {
+        if (argument_types.size() != 1) {
+            return Status::InternalError("Agg state Function must input 1 argument but get {}",
+                                         argument_types.size());
+        }
+        if (argument_types[0]->is_nullable()) {
+            return Status::InternalError("Agg state function input type must be not nullable");
+        }
+        if (argument_types[0]->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+            return Status::InternalError(
+                    "Agg state function input type must be agg_state but get {}",
+                    argument_types[0]->get_family_name());
+        }
         if (match_suffix(_fn.name.function_name, AGG_UNION_SUFFIX)) {
-            _function = get_agg_state_function<AggregateStateUnion>(
-                    remove_suffix(_fn.name.function_name, AGG_UNION_SUFFIX), argument_types,
-                    _data_type);
+            if (_data_type->is_nullable()) {
+                return Status::InternalError(
+                        "Union function return type must be not nullable, real={}",
+                        _data_type->get_name());
+            }
+            if (_data_type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+                return Status::InternalError(
+                        "Union function return type must be AGG_STATE, real={}",
+                        _data_type->get_name());
+            }
+            _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
         } else if (match_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX)) {
-            _function = get_agg_state_function<AggregateStateMerge>(
-                    remove_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX), argument_types,
-                    _data_type);
+            _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
         } else {
             return Status::InternalError(
                     "Aggregate Function {} is not endwith '_merge' or '_union'", _fn.signature);
         }
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(
-                _fn.name.function_name, argument_types, _data_type->is_nullable());
+                _fn.name.function_name, argument_types, _data_type->is_nullable(),
+                state->be_exec_version());
     }
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);
@@ -191,12 +207,12 @@ Status AggFnEvaluator::open(RuntimeState* state) {
     return VExpr::open(_input_exprs_ctxs, state);
 }
 
-void AggFnEvaluator::close(RuntimeState* state) {
-    VExpr::close(_input_exprs_ctxs, state);
-}
+void AggFnEvaluator::close(RuntimeState* state) {}
+
 void AggFnEvaluator::create(AggregateDataPtr place) {
     _function->create(place);
 }
+
 void AggFnEvaluator::destroy(AggregateDataPtr place) {
     _function->destroy(place);
 }
@@ -268,6 +284,7 @@ std::string AggFnEvaluator::debug_string(const std::vector<AggFnEvaluator*>& exp
 std::string AggFnEvaluator::debug_string() const {
     std::stringstream out;
     out << "AggFnEvaluator(";
+    out << _fn.signature;
     out << ")";
     return out.str();
 }

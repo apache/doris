@@ -323,11 +323,11 @@ void AggregationNode::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
 }
 
 Status AggregationNode::prepare_profile(RuntimeState* state) {
-    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
-    runtime_profile()->add_child(memory_usage, false, nullptr);
-    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
-    _serialize_key_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _hash_table_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _serialize_key_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
@@ -601,7 +601,6 @@ Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_b
 
 void AggregationNode::release_resource(RuntimeState* state) {
     for (auto* aggregate_evaluator : _aggregate_evaluators) aggregate_evaluator->close(state);
-    VExpr::close(_probe_expr_ctxs, state);
     if (_executor.close) _executor.close();
 
     /// _hash_table_size_counter may be null if prepare failed.
@@ -668,13 +667,12 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
         const auto column_type = block_schema[i].type;
         if (!column_type->equals(*data_types[i])) {
             if (!is_array(remove_nullable(column_type))) {
-                DCHECK(column_type->is_nullable());
-                DCHECK(!data_types[i]->is_nullable())
-                        << " column type: " << column_type->get_name()
-                        << ", data type: " << data_types[i]->get_name();
-                DCHECK(remove_nullable(column_type)->equals(*data_types[i]))
-                        << " column type: " << remove_nullable(column_type)->get_name()
-                        << ", data type: " << data_types[i]->get_name();
+                if (!column_type->is_nullable() || data_types[i]->is_nullable() ||
+                    !remove_nullable(column_type)->equals(*data_types[i])) {
+                    return Status::InternalError(
+                            "column_type not match data_types, column_type={}, data_types={}",
+                            column_type->get_name(), data_types[i]->get_name());
+                }
             }
 
             ColumnPtr ptr = std::move(columns[i]);

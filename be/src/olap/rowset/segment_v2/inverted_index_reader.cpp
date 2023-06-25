@@ -73,6 +73,13 @@
 namespace doris {
 namespace segment_v2 {
 
+bool InvertedIndexReader::_is_range_query(InvertedIndexQueryType query_type) {
+    return (query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
+            query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY);
+}
+
 bool InvertedIndexReader::_is_match_query(InvertedIndexQueryType query_type) {
     return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
@@ -87,7 +94,7 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
 
 std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         const std::string& field_name, const std::string& value, InvertedIndexQueryType query_type,
-        InvertedIndexCtx* inverted_index_ctx) {
+        InvertedIndexCtx* inverted_index_ctx, bool drop_duplicates) {
     std::vector<std::wstring> analyse_result;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     std::unique_ptr<lucene::util::Reader> reader;
@@ -96,6 +103,11 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
         reader.reset(
                 (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
+    } else if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
+        reader.reset(new lucene::util::SimpleInputStreamReader(
+                new lucene::util::AStringReader(value.c_str()),
+                lucene::util::SimpleInputStreamReader::UTF8));
     } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
         auto chinese_analyzer =
                 std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
@@ -136,8 +148,8 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         token_stream->close();
     }
 
-    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-        query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+    if (drop_duplicates && (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+                            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY)) {
         std::set<std::wstring> unrepeated_result(analyse_result.begin(), analyse_result.end());
         analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
     }
@@ -491,8 +503,15 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
                                     result.add(docid);
                                 });
     } catch (const CLuceneError& e) {
-        LOG(WARNING) << "CLuceneError occured, error msg: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        if (_is_range_query(query_type) && e.number() == CL_ERR_TooManyClauses) {
+            LOG(WARNING) << "range query term exceeds limits, try to downgrade from inverted index,"
+                         << "column name:" << column_name << " search_str:" << search_str;
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>();
+        } else {
+            LOG(WARNING) << "CLuceneError occured, error msg: " << e.what()
+                         << "column name:" << column_name << " search_str:" << search_str;
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        }
     }
 
     // add to cache
@@ -875,7 +894,7 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
         if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
             LOG(INFO) << "hit count: " << hit_count << ", bkd inverted reached limit "
                       << query_bkd_limit_percent << "%, segment num rows: " << segment_num_rows;
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT>();
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>();
         }
     }
 

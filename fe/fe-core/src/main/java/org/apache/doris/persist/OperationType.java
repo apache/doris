@@ -266,6 +266,7 @@ public class OperationType {
 
     public static final short OP_CREATE_MTMV_TASK = 340;
     public static final short OP_DROP_MTMV_TASK = 341;
+    @Deprecated
     public static final short OP_CHANGE_MTMV_TASK = 342;
 
     public static final short OP_ALTER_MTMV_STMT = 345;
@@ -294,6 +295,19 @@ public class OperationType {
 
     // update binlog config
     public static final short OP_UPDATE_BINLOG_CONFIG = 425;
+
+    public static final short OP_CREATE_ANALYSIS_TASK = 430;
+
+    public static final short OP_DELETE_ANALYSIS_TASK = 431;
+
+    public static final short OP_CREATE_ANALYSIS_JOB = 432;
+
+    public static final short OP_DELETE_ANALYSIS_JOB = 433;
+
+    public static final short OP_ALTER_DATABASE_PROPERTY = 434;
+
+    public static final short OP_GC_BINLOG = 435;
+
 
     /**
      * Get opcode name by op code.

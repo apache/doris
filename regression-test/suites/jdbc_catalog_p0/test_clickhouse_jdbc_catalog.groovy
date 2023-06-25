@@ -54,6 +54,7 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         order_qt_arr  """ select * from arr order by id; """
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
         order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
+        order_qt_system  """ show tables from `system`; """
 
         sql """ drop catalog if exists ${catalog_name} """
     }

@@ -139,7 +139,7 @@ A few suggested rules for defining columns include:
 
 ### Partitioning and Bucketing
 
-Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), which only supports hash partitioning.
+Doris supports two layers of data partitioning. The first level is Partition, including range partitioning and list partitioning. The second is Bucket (Tablet), including hash and random partitioning.
 
 It is also possible to use one layer of data partitioning, If you do not write the partition statement when creating the table, Doris will generate a default partition at this time, which is transparent to the user. In this case, it only supports data bucketing.
 
@@ -154,6 +154,8 @@ It is also possible to use one layer of data partitioning, If you do not write t
    #### Range Partitioning
 
    * Partitioning columns are usually time columns for easy management of old and new data.
+
+   * Range partitioning support column type: [DATE,DATETIME,TINYINT,SMALLINT,INT,BIGINT,LARGEINT]
 
    * Range partitioning supports specifying only the upper bound by `VALUES LESS THAN (...)`. The system will use the upper bound of the previous partition as the lower bound of the next partition, and generate a left-closed right-open interval. It also supports specifying both the upper and lower bounds by `VALUES [...)`, and generate a left-closed right-open interval.
 
@@ -230,26 +232,27 @@ It is also possible to use one layer of data partitioning, If you do not write t
 
     In the above example, we specify `date` (DATE type) and `id` (INT type) as the partitioning columns, so the resulting partitions will be as follows:
 
-    ```
-   *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
-   *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
-   *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
+    ``` text
+        *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
+        *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
+        *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
     ```
 
    Note that in the last partition, the user only specifies the partition value of the `date` column, so the system fills in `MIN_VALUE` as the partition value of the `id` column by default. When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
 
+    ``` text
+       * Data --> Partition
+       * 2017-01-01, 200   --> p201701_1000
+       * 2017-01-01, 2000  --> p201701_1000
+       * 2017-02-01, 100   --> p201701_1000
+       * 2017-02-01, 2000  --> p201702_2000
+       * 2017-02-15, 5000  --> p201702_2000
+       * 2017-03-01, 2000  --> p201703_all
+       * 2017-03-10, 1     --> p201703_all
+       * 2017-04-01, 1000  --> Unable to import
+       * 2017-05-01, 1000  --> Unable to import
     ```
-   * Data --> Partition
-   * 2017-01-01, 200   --> p201701_1000
-   * 2017-01-01, 2000  --> p201701_1000
-   * 2017-02-01, 100   --> p201701_1000
-   * 2017-02-01, 2000  --> p201702_2000
-   * 2017-02-15, 5000  --> p201702_2000
-   * 2017-03-01, 2000  --> p201703_all
-   * 2017-03-10, 1     --> p201703_all
-   * 2017-04-01, 1000  --> Unable to import
-   * 2017-05-01, 1000  --> Unable to import
-    ```
+
 
 <version since="1.2.0">
     
@@ -273,7 +276,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * As in the `example_list_tbl` example above, when the table is created, the following three partitions are automatically created.
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -282,7 +285,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * If we add Partition p_uk VALUES IN ("London"), the results will be as follows:
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_jp: ("Tokyo")
@@ -291,7 +294,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   * Now we delete Partition p_jp, the results will be as follows:
 
-    ```
+    ```text
     p_cn: ("Beijing", "Shanghai", "Hong Kong")
     p_usa: ("New York", "San Francisco")
     p_uk: ("London")
@@ -299,7 +302,7 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   List partitioning also supports **multi-column partitioning**. Examples are as follows:
 
-  ```
+  ```text
   PARTITION BY LIST(`id`, `city`)
   (
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
@@ -310,14 +313,14 @@ Range partitioning also supports batch partitioning. For example, you can create
 
   In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns, so the resulting partitions will be as follows:
 
-  ```
-  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
-  * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
-  * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+  ```text
+    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```
 
   When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
-  ```
+  ```text
   Data ---> Partition
   1, Beijing  ---> p1_city
   1, Shanghai ---> p1_city

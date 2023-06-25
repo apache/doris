@@ -150,7 +150,7 @@ public class StmtRewriterTest {
     @Test
     public void testRewriteHavingClauseSubqueries() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME;
-        String query = "select empid, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > ("
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ empid, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > ("
                 + subquery + ");";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("CROSS JOIN");
@@ -260,7 +260,7 @@ public class StmtRewriterTest {
     @Test
     public void testRewriteHavingClauseWithOrderBy() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME;
-        String query = "select empid a, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > ("
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ empid a, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > ("
                 + subquery + ") order by a;";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("CROSS JOIN",
@@ -371,7 +371,7 @@ public class StmtRewriterTest {
     @Test
     public void testRewriteHavingClauseMissingAggregationColumn() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME;
-        String query = "select empid a from " + TABLE_NAME + " group by empid having sum(salary) > ("
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ empid a from " + TABLE_NAME + " group by empid having sum(salary) > ("
                 + subquery + ") order by sum(salary);";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
@@ -485,7 +485,7 @@ public class StmtRewriterTest {
     @Test
     public void testRewriteHavingClauseWithAlias() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME;
-        String query = "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > ("
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > ("
                 + subquery + ") order by b;";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
@@ -598,7 +598,7 @@ public class StmtRewriterTest {
     @Test
     public void testRewriteHavingClausewWithLimit() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME;
-        String query = "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > ("
+        String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > ("
                 + subquery + ") order by b limit 100;";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query).explainContains("group by: `empid`",
@@ -614,7 +614,7 @@ public class StmtRewriterTest {
     public void testRewriteHavingClauseWithBetweenAndInSubquery() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME + " where empid between 1 and 2";
         String query =
-                "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > (" + subquery + ");";
+                "select /*+ SET_VAR(enable_nereids_planner=false) */ empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > (" + subquery + ");";
         LOG.info("EXPLAIN:{}", dorisAssert.query(query).explainQuery());
         dorisAssert.query(query)
                 .explainContains("CROSS JOIN");

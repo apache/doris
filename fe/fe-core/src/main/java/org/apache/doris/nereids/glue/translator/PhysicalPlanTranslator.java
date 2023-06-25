@@ -28,13 +28,11 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -42,7 +40,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -50,6 +47,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.IcebergExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalTable;
+import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -158,8 +157,9 @@ import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
-import org.apache.doris.planner.external.HudiScanNode;
+import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
+import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TFetchOption;
@@ -288,11 +288,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
+
         if (!(physicalPlan instanceof PhysicalOlapTableSink) && isFragmentPartitioned(rootFragment)) {
             rootFragment = exchangeToMergeFragment(rootFragment, context);
         }
 
-        if (!(physicalPlan instanceof PhysicalOlapTableSink)) {
+        if (rootFragment.getOutputExprs() == null) {
             List<Expr> outputExprs = Lists.newArrayList();
             physicalPlan.getOutput().stream().map(Slot::getExprId)
                     .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
@@ -313,7 +314,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment rootFragment = olapTableSink.child().accept(this, context);
 
         TupleDescriptor olapTuple = context.generateTupleDesc();
-        for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
+        List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
+        for (Column column : targetTableColumns) {
             SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(column.getType());
@@ -324,60 +326,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTableSink sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
                 olapTuple,
-                olapTableSink.getPartitionIds(),
+                olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
-
-        Map<Column, Slot> columnToSlots = Maps.newHashMap();
-        Preconditions.checkArgument(olapTableSink.getOutput().size() == olapTableSink.getCols().size(),
-                "this is a bug in insert into command");
-        for (int i = 0; i < olapTableSink.getCols().size(); ++i) {
-            columnToSlots.put(olapTableSink.getCols().get(i), olapTableSink.getOutput().get(i));
-        }
-        List<Expr> outputExprs = Lists.newArrayList();
-        try {
-            for (Column column : olapTableSink.getTargetTable().getFullSchema()) {
-                if (columnToSlots.containsKey(column)) {
-                    ExprId exprId = columnToSlots.get(column).getExprId();
-                    outputExprs.add(context.findSlotRef(exprId).checkTypeCompatibility(column.getType()));
-                } else if (column.getDefaultValue() == null) {
-                    outputExprs.add(NullLiteral.create(column.getType()));
-                } else {
-                    if (column.getDefaultValueExprDef() != null) {
-                        outputExprs.add(column.getDefaultValueExpr());
-                    } else {
-                        StringLiteral defaultValueExpr = new StringLiteral(column.getDefaultValue());
-                        outputExprs.add(defaultValueExpr.checkTypeCompatibility(column.getType()));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
-        }
-
-        HashDistributionInfo distributionInfo = ((HashDistributionInfo) olapTableSink.getTargetTable()
-                .getDefaultDistributionInfo());
-        List<Expr> partitionExprs = distributionInfo.getDistributionColumns().stream()
-                .map(column -> context.findSlotRef(columnToSlots.get(column).getExprId()))
-                .collect(Collectors.toList());
 
         if (rootFragment.getPlanRoot() instanceof ExchangeNode) {
             ExchangeNode exchangeNode = ((ExchangeNode) rootFragment.getPlanRoot());
             PlanFragment currentFragment = new PlanFragment(
                     context.nextFragmentId(),
                     exchangeNode,
-                    rootFragment.getDataPartition());
+                    rootFragment.getOutputPartition());
 
             rootFragment.setPlanRoot(exchangeNode.getChild(0));
             rootFragment.setDestination(exchangeNode);
             context.addPlanFragment(currentFragment);
             rootFragment = currentFragment;
         }
-        rootFragment.setDataPartition(DataPartition.hashPartitioned(partitionExprs));
+
         rootFragment.setSink(sink);
 
-        rootFragment.finalize(null);
-        rootFragment.setOutputExprs(outputExprs);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+
         return rootFragment;
     }
 
@@ -486,7 +455,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode && aggregate.getAggregateParam().needColocateScan) {
+        if (leftMostNode instanceof OlapScanNode
+                && currentFragment.getDataPartition().getType() != TPartitionType.RANDOM) {
             currentFragment.setHasColocatePlanNode(true);
         }
         setPlanRoot(currentFragment, aggregationNode, aggregate);
@@ -751,6 +721,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         } else if (table instanceof IcebergExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
+        } else if (table instanceof PaimonExternalTable) {
+            scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         }
         Preconditions.checkNotNull(scanNode);
         fileScan.getConjuncts().stream()
@@ -785,6 +757,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        Utils.execWithUncheckedException(scanNode::init);
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(tvfRelation.getId()).forEach(
                     expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
@@ -808,10 +781,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanTranslatorContext context) {
         List<Slot> slotList = jdbcScan.getOutput();
-        ExternalTable table = jdbcScan.getTable();
+        TableIf table = jdbcScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
-        JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor, true);
+        JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                table instanceof JdbcExternalTable);
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
@@ -1467,7 +1441,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             // translate runtime filter
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                List<RuntimeFilter> filters = runtimeFilterTranslator
+                Set<RuntimeFilter> filters = runtimeFilterTranslator
                         .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
@@ -1822,7 +1796,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        ExchangeNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+        ExchangeNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
         exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.setPlanRoot(exchange);
         updateLegacyPlanIdToPhysicalPlan(childFragment.getPlanRoot(), distribute);
@@ -1985,8 +1959,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalCTEProducer cteProducer = context.getCteProduceMap().get(cteId);
         Preconditions.checkState(cteProducer != null, "invalid cteProducer");
 
-        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(),
-                multCastFragment.getPlanRoot(), false);
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), multCastFragment.getPlanRoot());
 
         DataStreamSink streamSink = new DataStreamSink(exchangeNode.getId());
         streamSink.setPartition(DataPartition.RANDOM);
@@ -2205,8 +2178,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private PlanFragment createParentFragment(PlanFragment childFragment, DataPartition parentPartition,
             PlanTranslatorContext context) {
-        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(),
-                childFragment.getPlanRoot(), false);
+        ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, parentPartition);
         childFragment.setDestination(exchangeNode);
@@ -2220,7 +2192,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         PlanNode exchange = parent.getChild(childIdx);
         if (!(exchange instanceof ExchangeNode)) {
-            exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+            exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
             exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         }
         childFragment.setPlanRoot(exchange.getChild(0));
@@ -2232,8 +2204,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     private void connectChildFragmentNotCheckExchangeNode(PlanNode parent, int childIdx,
             PlanFragment parentFragment, PlanFragment childFragment,
             PlanTranslatorContext context) {
-        PlanNode exchange = new ExchangeNode(
-                context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
+        PlanNode exchange = new ExchangeNode(context.nextPlanNodeId(), childFragment.getPlanRoot());
         exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.setPlanRoot(exchange.getChild(0));
         exchange.setFragment(parentFragment);
@@ -2252,8 +2223,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // exchange node clones the behavior of its input, aside from the conjuncts
-        ExchangeNode mergePlan = new ExchangeNode(context.nextPlanNodeId(),
-                inputFragment.getPlanRoot(), false);
+        ExchangeNode mergePlan = new ExchangeNode(context.nextPlanNodeId(), inputFragment.getPlanRoot());
         DataPartition dataPartition = DataPartition.UNPARTITIONED;
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         PlanFragment fragment = new PlanFragment(context.nextFragmentId(), mergePlan, dataPartition);
@@ -2403,14 +2373,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private boolean isFragmentPartitioned(PlanFragment fragment) {
         return fragment.isPartitioned() && fragment.getPlanRoot().getNumInstances() > 1;
-    }
-
-    private boolean projectOnAgg(PhysicalProject project) {
-        PhysicalPlan child = (PhysicalPlan) project.child(0);
-        while (child instanceof PhysicalFilter || child instanceof PhysicalDistribute) {
-            child = (PhysicalPlan) child.child(0);
-        }
-        return child instanceof PhysicalHashAggregate;
     }
 
     private boolean hasExprCalc(PhysicalProject<? extends Plan> project) {

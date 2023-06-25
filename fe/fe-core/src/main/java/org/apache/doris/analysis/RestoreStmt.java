@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -45,10 +46,20 @@ public class RestoreStmt extends AbstractBackupStmt {
     private int metaVersion = -1;
     private boolean reserveReplica = false;
     private boolean reserveDynamicPartitionEnable = false;
+    private boolean isLocal = false;
+    private byte[] meta = null;
+    private byte[] jobInfo = null;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
                        Map<String, String> properties) {
         super(labelName, repoName, restoreTableRefClause, properties);
+    }
+
+    public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
+                       Map<String, String> properties, byte[] meta, byte[] jobInfo) {
+        super(labelName, repoName, restoreTableRefClause, properties);
+        this.meta = meta;
+        this.jobInfo = jobInfo;
     }
 
     public boolean allowLoad() {
@@ -75,8 +86,23 @@ public class RestoreStmt extends AbstractBackupStmt {
         return reserveDynamicPartitionEnable;
     }
 
+    public boolean isLocal() {
+        return isLocal;
+    }
+
+    public byte[] getMeta() {
+        return meta;
+    }
+
+    public byte[] getJobInfo() {
+        return jobInfo;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {
+            isLocal = true;
+        }
         super.analyze(analyzer);
     }
 
@@ -148,8 +174,10 @@ public class RestoreStmt extends AbstractBackupStmt {
             backupTimestamp = copiedProperties.get(PROP_BACKUP_TIMESTAMP);
             copiedProperties.remove(PROP_BACKUP_TIMESTAMP);
         } else {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                    "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+            if (!isLocal) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                        "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+            }
         }
 
         // meta version

@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -30,7 +33,9 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
@@ -104,9 +109,11 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
@@ -115,6 +122,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collections;
@@ -131,6 +140,8 @@ import java.util.stream.Collectors;
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
+
+    private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     private final GroupExpression groupExpression;
 
     private boolean forbidUnknownColStats = false;
@@ -522,7 +533,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else if (isPlayNereidsDump) {
             return ColumnStatistic.UNKNOWN;
         } else {
-            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+            long catalogId;
+            long dbId;
+            try {
+                catalogId = table.getDatabase().getCatalog().getId();
+                dbId = table.getDatabase().getId();
+            } catch (Exception e) {
+                // Use -1 for catalog id and db id when failed to get them from metadata.
+                // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
+                // and the table id is globally unique.
+                LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
+                catalogId = -1;
+                dbId = -1;
+            }
+            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                catalogId, dbId, table.getId(), colName);
         }
     }
 
@@ -551,12 +576,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache = Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
-            if (cache == ColumnStatistic.UNKNOWN && !colName.equals("__DORIS_DELETE_SIGN__")) {
-                if (forbidUnknownColStats) {
+            if (cache.avgSizeByte <= 0) {
+                cache = new ColumnStatisticBuilder(cache)
+                        .setAvgSizeByte(slotReference.getColumn().get().getType().getSlotSize())
+                        .build();
+            }
+            if (cache.isUnKnown) {
+                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference.getColumn().get())) {
                     if (StatisticsUtil.statsTblAvailable()) {
-                        throw new AnalysisException("column stats for " + colName
-                                + " is unknown,"
-                                + " `set forbid_unknown_col_stats = false` to execute sql with unknown stats");
+                        throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
+                                + "It may caused by:\n"
+                                + "\n"
+                                + "1. This column never got analyzed\n"
+                                + "2. This table is empty\n"
+                                + "3. Stats load failed caused by unstable of backends,"
+                                + "and FE cached the unknown stats by default in this scenario\n"
+                                + "4. There is a bug, please report it to Doris community\n"
+                                + "\n"
+                                + "If an unknown stats for this column is tolerable,"
+                                + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
+                                + " ignore this error and keep planning.", table.getName(), colName));
                     } else {
                         throw new AnalysisException("BE is not available!");
                     }
@@ -571,11 +610,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         new ColumnStatisticBuilder(cache).setHistogram(histogram);
                 columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
                 cache = columnStatisticBuilder.build();
-                totalHistogramMap.put(table.getName() + ":" + colName, histogram);
+                if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                        && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                    totalHistogramMap.put(table.getName() + ":" + colName, histogram);
+                }
             }
             columnStatisticMap.put(slotReference, cache);
-            totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
-            totalHistogramMap.put(table.getName() + colName, histogram);
+            if (ConnectContext.get().getSessionVariable().isEnableMinidump()
+                    && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+                totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
+                totalHistogramMap.put(table.getName() + colName, histogram);
+            }
         }
         return new Statistics(rowCount, columnStatisticMap);
     }
@@ -830,6 +875,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Map<Expression, ColumnStatistic> childColumnStats = stats.columnStatistics();
         Map<Expression, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
                 .map(expr -> {
+                    //estimate rank()
+                    if (expr instanceof Alias && expr.child(0) instanceof WindowExpression
+                            && ((WindowExpression) expr.child(0)).getFunction() instanceof Rank) {
+                        ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder();
+                        colBuilder.setNdv(stats.getRowCount())
+                                .setOriginal(null)
+                                .setCount(stats.getRowCount())
+                                .setMinValue(0)
+                                .setMaxValue(stats.getRowCount());
+                        return Pair.of(expr.toSlot(), colBuilder.build());
+                    }
+                    //estimate other expressions
                     ColumnStatistic value = null;
                     Set<Slot> slots = expr.getInputSlots();
                     if (slots.isEmpty()) {
@@ -947,5 +1004,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public Statistics visitPhysicalCTEAnchor(
             PhysicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, Void context) {
         return groupExpression.childStatistics(1);
+    }
+
+    private boolean ignoreUnknownColStatsCheck(TableIf tableIf, Column c) {
+        if (tableIf instanceof SchemaTable) {
+            return true;
+        }
+        if (tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(olapTable.getQualifiedDbName())) {
+                return true;
+            }
+        }
+        return !c.isVisible();
     }
 }

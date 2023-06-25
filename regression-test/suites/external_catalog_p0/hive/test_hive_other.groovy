@@ -47,6 +47,7 @@ suite("test_hive_other", "p0") {
         qt_q48 """ select k2, k5 from table_with_x01 where dt in ('2022-11-25') order by k2 desc limit 10;"""
         qt_q49 """ select k2, k5 from table_with_x01 where dt in ('2022-11-10', '2022-11-10') order by k2 desc limit 10;"""
         qt_q50 """ select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
+        qt_q51 """ select col_2 from test1;"""
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

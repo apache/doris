@@ -69,6 +69,8 @@ using FunctionDateTimeV2Minute =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToMinuteImpl<UInt64>>;
 using FunctionDateTimeV2Second =
         FunctionDateOrDateTimeToSomething<DataTypeInt8, ToSecondImpl<UInt64>>;
+using FunctionDateTimeV2MicroSecond =
+        FunctionDateOrDateTimeToSomething<DataTypeInt32, ToMicroSecondImpl<UInt64>>;
 using FunctionDateTimeV2ToDays =
         FunctionDateOrDateTimeToSomething<DataTypeInt32, ToDaysImpl<UInt64>>;
 using FunctionDateTimeV2ToDate =
@@ -140,6 +142,7 @@ void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToDaysV2>();
     factory.register_function<FunctionToDateV2>();
     factory.register_function<FunctionDateV2>();
+    factory.register_function<FunctionDateTimeV2MicroSecond>();
     factory.register_function<FunctionDateTimeV2Second>();
     factory.register_function<FunctionDateTimeV2Minute>();
     factory.register_function<FunctionDateTimeV2Hour>();

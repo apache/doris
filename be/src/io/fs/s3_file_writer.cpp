@@ -18,6 +18,7 @@
 #include "io/fs/s3_file_writer.h"
 
 #include <aws/core/http/HttpResponse.h>
+#include <aws/core/http/URI.h>
 #include <aws/core/utils/Array.h>
 #include <aws/core/utils/HashingUtils.h>
 #include <aws/core/utils/Outcome.h>
@@ -85,6 +86,8 @@ S3FileWriter::S3FileWriter(Path path, std::shared_ptr<S3Client> client, const S3
           _client(std::move(client)) {
     s3_file_writer_total << 1;
     s3_file_being_written << 1;
+
+    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 S3FileWriter::~S3FileWriter() {

@@ -17,6 +17,7 @@
 
 #include "io/fs/s3_file_reader.h"
 
+#include <aws/core/http/URI.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/S3Errors.h>
@@ -52,6 +53,8 @@ S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::st
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     s3_file_reader_total << 1;
     s3_file_being_read << 1;
+
+    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 S3FileReader::~S3FileReader() {

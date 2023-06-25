@@ -17,9 +17,16 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.SysVariableDesc;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -52,6 +59,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.Lock;
@@ -115,6 +123,8 @@ public class VariableMgr {
     // If a session variable "foo" is an experimental variable,
     // its display name is "experimental_foo"
     private static ImmutableMap<String, VarContext> ctxByDisplayVarName;
+
+    private static Map<String, LiteralExpr> userVars = new HashMap<String, LiteralExpr>();
 
     // This variable is equivalent to the default value of session variables.
     // Whenever a new session is established, the value in this object is copied to the session-level variable.
@@ -258,6 +268,10 @@ public class VariableMgr {
         }
     }
 
+    public static void setUserVar(SetVar setVar) {
+        userVars.put(setVar.getVariable(), setVar.getResult());
+    }
+
     // Entry of handling SetVarStmt
     // Input:
     //      sessionVariable: the variable of current session
@@ -314,8 +328,8 @@ public class VariableMgr {
         VarAttr attr = ctx.getField().getAnnotation(VarAttr.class);
         String value;
         // If value is null, this is `set variable = DEFAULT`
-        if (setVar.getValue() != null) {
-            value = setVar.getValue().getStringValue();
+        if (setVar.getResult() != null) {
+            value = setVar.getResult().getStringValue();
         } else {
             value = ctx.getDefaultValue();
             if (value == null) {
@@ -416,7 +430,7 @@ public class VariableMgr {
     }
 
     // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
-    public static void fillValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
+    public static void fillValue(SessionVariable var, VariableExpr desc) throws AnalysisException {
         VarContext ctx = ctxByVarName.get(desc.getName());
         if (ctx == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, desc.getName());
@@ -434,7 +448,7 @@ public class VariableMgr {
         }
     }
 
-    private static void fillValue(Object obj, Field field, SysVariableDesc desc) {
+    private static void fillValue(Object obj, Field field, VariableExpr desc) {
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
@@ -479,6 +493,36 @@ public class VariableMgr {
         }
     }
 
+    // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
+    public static void fillValueForUserDefinedVar(VariableExpr desc) {
+        String varName = desc.getName();
+        if (userVars.containsKey(varName)) {
+            LiteralExpr literalExpr = userVars.get(varName);
+            desc.setType(literalExpr.getType());
+            if (literalExpr instanceof BoolLiteral) {
+                desc.setBoolValue(((BoolLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof IntLiteral) {
+                desc.setIntValue(((IntLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof FloatLiteral) {
+                desc.setFloatValue(((FloatLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof DecimalLiteral) {
+                desc.setDecimalValue(((DecimalLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof StringLiteral) {
+                desc.setStringValue(((StringLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof NullLiteral) {
+                desc.setType(Type.NULL);
+                desc.setIsNull();
+            } else {
+                desc.setType(Type.VARCHAR);
+                desc.setStringValue("");
+            }
+        } else {
+            // If there are no such user defined var, just fill the NULL value.
+            desc.setType(Type.NULL);
+            desc.setIsNull();
+        }
+    }
+
     private static String getValue(SessionVariable var, String name, SetType setType) throws AnalysisException {
         VarContext ctx = ctxByVarName.get(name);
         if (ctx == null) {
@@ -499,7 +543,7 @@ public class VariableMgr {
 
     // Get variable value through variable name, used to satisfy statement like `SELECT @@comment_version`
     // For test only
-    public static String getValue(SessionVariable var, SysVariableDesc desc) throws AnalysisException {
+    public static String getValue(SessionVariable var, VariableExpr desc) throws AnalysisException {
         return getValue(var, desc.getName(), desc.getSetType());
     }
 
@@ -548,6 +592,30 @@ public class VariableMgr {
             LOG.warn("Access failed.", e);
         }
         return Literal.of("");
+    }
+
+    public static @Nullable Literal getLiteralForUserVar(String varName) {
+        if (userVars.containsKey(varName)) {
+            LiteralExpr literalExpr = userVars.get(varName);
+            if (literalExpr instanceof BoolLiteral) {
+                return Literal.of(((BoolLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof IntLiteral) {
+                return Literal.of(((IntLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof FloatLiteral) {
+                return Literal.of(((FloatLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof DecimalLiteral) {
+                return Literal.of(((DecimalLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof StringLiteral) {
+                return Literal.of(((StringLiteral) literalExpr).getValue());
+            } else if (literalExpr instanceof NullLiteral) {
+                return Literal.of(null);
+            } else {
+                return Literal.of("");
+            }
+        } else {
+            // If there are no such user defined var, just return the NULL value.
+            return Literal.of(null);
+        }
     }
 
     private static String getValue(Object obj, Field field) {

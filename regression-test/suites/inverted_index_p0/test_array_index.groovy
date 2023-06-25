@@ -64,4 +64,10 @@ suite("test_array_index"){
     qt_sql "SELECT * FROM $indexTblName WHERE int_array element_eq 40 ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName WHERE int_array element_eq 50 ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName WHERE int_array element_eq 60 ORDER BY id;"
+
+    sql " ALTER TABLE $indexTblName drop index c_array_idx; "
+    qt_sql "SELECT * FROM $indexTblName WHERE c_array MATCH 'china' ORDER BY id;"
+    qt_sql "SELECT * FROM $indexTblName WHERE c_array MATCH 'love' ORDER BY id;"
+    qt_sql "SELECT * FROM $indexTblName WHERE c_array MATCH 'north' ORDER BY id;"
+    qt_sql "SELECT * FROM $indexTblName WHERE c_array MATCH 'korea' ORDER BY id;"
 }

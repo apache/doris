@@ -143,11 +143,14 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
-    auto it = _load_channels.find(load_id);
-    if (it != _load_channels.end()) {
-        channel = it->second;
-    } else {
-        return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _load_channels.find(load_id);
+        if (it != _load_channels.end()) {
+            channel = it->second;
+        } else {
+            return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+        }
     }
     RETURN_IF_ERROR(channel->open_partition(params));
     return Status::OK();
@@ -303,6 +306,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
+    // Record current memory status.
     int64_t process_soft_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
     // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
@@ -355,12 +359,12 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
                 // do not select high priority channel to reduce memory
-                // to avoid blocking them.
+                // to avoid blocking the.
                 continue;
             }
             std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>
                     writers_mem_snap;
-            kv.second->get_writers_mem_consumption_snapshot(&writers_mem_snap);
+            kv.second->get_active_memtable_mem_consumption(&writers_mem_snap);
             for (auto item : writers_mem_snap) {
                 // multimap is empty
                 if (item.second.empty()) {
@@ -407,8 +411,9 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             << " delta writers (total mem: "
             << PrettyPrinter::print_bytes(mem_consumption_in_picked_writer) << ", max mem: "
             << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.front()))
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.front())
             << ", min mem:" << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.back()))
-            << "), ";
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.back()) << "), ";
         if (proc_mem_no_allocator_cache < process_soft_mem_limit) {
             oss << "because total load mem consumption "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption()) << " has exceeded";
@@ -429,8 +434,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                 << PrettyPrinter::print_bytes(process_soft_mem_limit)
                 << ", total load mem consumption: "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                << ", vm_rss: " << PerfCounters::get_vm_rss_str()
-                << ", tc/jemalloc allocator cache: " << MemInfo::allocator_cache_mem_str();
+                << ", vm_rss: " << PerfCounters::get_vm_rss_str();
         }
         LOG(INFO) << oss.str();
     }

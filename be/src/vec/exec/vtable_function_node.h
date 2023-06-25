@@ -56,14 +56,13 @@ public:
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(alloc_resource(state));
+        RETURN_IF_ERROR(VExpr::open(_vfn_ctxs, state));
         return _children[0]->open(state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
-        VExpr::close(_vfn_ctxs, state);
-
         if (_num_rows_filtered_counter != nullptr) {
             COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
         }

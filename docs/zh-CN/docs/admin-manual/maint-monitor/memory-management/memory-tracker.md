@@ -40,7 +40,7 @@ https://shimo.im/docs/DT6JXDRkdTvdyV3G
 
 ## 查看统计结果
 
-实时的内存统计结果通过 Doris BE 的 Web 页面查看 http://ip:http_port/mem_tracker。
+实时的内存统计结果通过 Doris BE 的 Web 页面查看 http://ip:webserver_port/mem_tracker。（webserver_port默认8040）
 历史查询的内存统计结果可以查看`fe/log/fe.audit.log`中每个查询的`peakMemoryBytes`，或者在`be/log/be.INFO`中搜索`Deregister query/load memory tracker, queryId`查看单个BE上每个查询的内存峰值。
 
 ### 首页 `/mem_tracker`
@@ -51,7 +51,7 @@ https://shimo.im/docs/DT6JXDRkdTvdyV3G
 - global: 生命周期和进程相同的全局 Memory Tracker，例如各个Cache、Tablet Manager、Storage Engine等。
 - query: 所有查询的内存总和。
 - load: 所有导入的内存总和。
-- tc/jemalloc_cache: 通用内存分配器 TCMalloc 或 Jemalloc 的缓存，在 http://ip:http_port/memz 可以实时查看到内存分配器原始的profile。
+- tc/jemalloc_cache: 通用内存分配器 TCMalloc 或 Jemalloc 的缓存，在 http://ip:webserver_port/memz 可以实时查看到内存分配器原始的profile。
 - compaction、schema_change、consistency、batch_load、clone: 分别对应所有Compaction、Schema Change、Consistency、Batch Load、Clone任务的内存总和。
 
 2. Current Consumption(Bytes): 当前内存值，单位B。

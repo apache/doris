@@ -20,6 +20,9 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <functional>
+#include <optional>
+
 #include "common/factory_creator.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
@@ -37,6 +40,8 @@ struct FlushContext {
     ENABLE_FACTORY_CREATOR(FlushContext);
     TabletSchemaSPtr flush_schema = nullptr;
     const vectorized::Block* block = nullptr;
+    std::optional<int32_t> segment_id = std::nullopt;
+    std::function<Status(int32_t)> generate_delete_bitmap;
 };
 
 class RowsetWriter {
@@ -97,7 +102,7 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
-    virtual int32_t get_atomic_num_segment() const = 0;
+    virtual int32_t allocate_segment_id() = 0;
 
     virtual bool is_doing_segcompaction() const = 0;
 

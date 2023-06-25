@@ -47,9 +47,10 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisTaskInfo;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticConstants;
@@ -105,22 +106,23 @@ public class StatisticsUtil {
         }
     }
 
-    public static void execUpdate(String sql) throws Exception {
+    public static QueryState execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
+            return r.connectContext.getState();
         }
     }
 
-    public static List<AnalysisTaskInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
+    public static List<AnalysisInfo> deserializeToAnalysisJob(List<ResultRow> resultBatches)
             throws TException {
         if (CollectionUtils.isEmpty(resultBatches)) {
             return Collections.emptyList();
         }
         return resultBatches.stream()
-                .map(AnalysisTaskInfo::fromResultRow)
+                .map(AnalysisInfo::fromResultRow)
                 .collect(Collectors.toList());
     }
 
@@ -144,6 +146,7 @@ public class StatisticsUtil {
         sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
+        sessionVariable.parallelPipelineTaskNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
         sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
@@ -202,6 +205,7 @@ public class StatisticsUtil {
                 return new DateLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
+            case STRING:
                 return new StringLiteral(columnValue);
             case HLL:
             case BITMAP:
@@ -316,10 +320,14 @@ public class StatisticsUtil {
      * Throw RuntimeException if table not exists.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public static TableIf findTable(String catalogName, String dbName, String tblName) throws Throwable {
-        DatabaseIf db = findDatabase(catalogName, dbName);
-        return db.getTableOrException(tblName,
-                t -> new RuntimeException("Table: " + t + " not exists"));
+    public static TableIf findTable(String catalogName, String dbName, String tblName) {
+        try {
+            DatabaseIf db = findDatabase(catalogName, dbName);
+            return db.getTableOrException(tblName,
+                    t -> new RuntimeException("Table: " + t + " not exists"));
+        } catch (Throwable t) {
+            throw new RuntimeException("Table: `" + catalogName + "." + dbName + "." + tblName + "` not exists");
+        }
     }
 
     /**
@@ -363,9 +371,6 @@ public class StatisticsUtil {
                             .findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                                     dbName,
                                     StatisticConstants.HISTOGRAM_TBL_NAME));
-            statsTbls.add((OlapTable) StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
-                    dbName,
-                    StatisticConstants.ANALYSIS_JOB_TABLE));
         } catch (Throwable t) {
             return false;
         }

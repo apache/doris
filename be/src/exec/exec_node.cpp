@@ -42,10 +42,8 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h"
-#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/exec/join/vnested_loop_join_node.h"
 #include "vec/exec/scan/new_es_scan_node.h"
@@ -72,7 +70,6 @@
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
@@ -148,7 +145,6 @@ Status ExecNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state));
     }
-
     return Status::OK();
 }
 
@@ -185,12 +181,6 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
         if (_rows_returned_counter != nullptr) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
-
-        for (auto& conjunct : _conjuncts) {
-            conjunct->close(state);
-        }
-
-        vectorized::VExpr::close(_projections, state);
 
         runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
