@@ -191,7 +191,7 @@ public class LoadScanProvider {
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
-                true, fileGroupInfo.isPartialUpdate());
+                fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {
