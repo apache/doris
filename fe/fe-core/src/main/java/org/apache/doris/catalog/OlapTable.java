@@ -355,8 +355,8 @@ public class OlapTable extends Table {
             Preconditions.checkState(storageType == TStorageType.COLUMN);
         }
 
-        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
-                schemaHash, shortKeyColumnCount, storageType, keysType, origStmt, indexes);
+        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion, schemaHash,
+                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName());
         try {
             indexMeta.parseStmt(analyzer);
         } catch (Exception e) {

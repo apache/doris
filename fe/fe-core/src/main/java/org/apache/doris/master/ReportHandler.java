@@ -853,13 +853,12 @@ public class ReportHandler extends Daemon {
             TTablet backendTablet = backendTablets.get(tabletId);
             TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
             boolean needDelete = false;
-            TabletMeta tabletMeta = null;
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
             LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
             if (!tabletFoundInMeta.contains(tabletId)) {
                 if (isBackendReplicaHealthy(backendTabletInfo)) {
                     // if this tablet meta is still in invertedIndex. try to add it.
                     // if add failed. delete this tablet from backend.
-                    tabletMeta = invertedIndex.getTabletMeta(tabletId);
                     if (tabletMeta != null && addReplica(tabletId, tabletMeta, backendTabletInfo, backendId)) {
                         // update counter
                         ++addToMetaCounter;
@@ -876,6 +875,7 @@ public class ReportHandler extends Daemon {
             if (needDelete) {
                 // drop replica
                 long replicaId = backendTabletInfo.getReplicaId();
+                // If no such tablet meta, this indicates that the tablet belongs to a dropped table or partition
                 boolean isDropTableOrPartition = tabletMeta == null;
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, replicaId,
                         backendTabletInfo.getSchemaHash(), isDropTableOrPartition);

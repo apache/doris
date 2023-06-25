@@ -348,13 +348,12 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
-        // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
+        // remove nullable here, let the get_function decide whether nullable
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                remove_nullable(return_type)->get_type_id());
         ColumnsWithTypeAndName arguments {
-                arg,
-                {DataTypeString().create_column_const(
-                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
-                 std::make_shared<DataTypeString>(), ""}};
+                arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast =
                 SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
         idx = _src_block_name_to_idx[slot_desc->col_name()];

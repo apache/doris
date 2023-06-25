@@ -21,23 +21,43 @@
 #include <string>
 #include <vector>
 
+#include "io/fs/benchmark/hdfs_benchmark.hpp"
 #include "io/fs/benchmark/s3_benchmark.hpp"
 
 namespace doris::io {
 
 class BenchmarkFactory {
 public:
-    static Status getBm(const std::string fs_type, const std::string op_type, int64_t iterations,
+    static Status getBm(const std::string fs_type, const std::string op_type, int64_t threads,
+                        int64_t iterations, size_t file_size,
                         const std::map<std::string, std::string>& conf_map, BaseBenchmark** bm);
 };
 
 Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_type,
-                               int64_t iterations,
+                               int64_t threads, int64_t iterations, size_t file_size,
                                const std::map<std::string, std::string>& conf_map,
                                BaseBenchmark** bm) {
     if (fs_type == "s3") {
         if (op_type == "read") {
-            *bm = new S3ReadBenchmark(iterations, conf_map);
+            *bm = new S3ReadBenchmark(threads, iterations, file_size, conf_map);
+        } else {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "unknown params: fs_type: {}, op_type: {}, iterations: {}", fs_type, op_type,
+                    iterations);
+        }
+    } else if (fs_type == "hdfs") {
+        if (op_type == "create_write") {
+            *bm = new HdfsCreateWriteBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "open_read") {
+            *bm = new HdfsOpenReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "open") {
+            *bm = new HdfsOpenBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "rename") {
+            *bm = new HdfsRenameBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "delete") {
+            *bm = new HdfsDeleteBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "exists") {
+            *bm = new HdfsExistsBenchmark(threads, iterations, file_size, conf_map);
         } else {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "unknown params: fs_type: {}, op_type: {}, iterations: {}", fs_type, op_type,
@@ -49,9 +69,15 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
 
 class MultiBenchmark {
 public:
-    MultiBenchmark(const std::string& type, const std::string& operation, int64_t iterations,
+    MultiBenchmark(const std::string& type, const std::string& operation, int64_t threads,
+                   int64_t iterations, size_t file_size,
                    const std::map<std::string, std::string>& conf_map)
-            : _type(type), _operation(operation), _iterations(iterations), _conf_map(conf_map) {}
+            : _type(type),
+              _operation(operation),
+              _threads(threads),
+              _iterations(iterations),
+              _file_size(file_size),
+              _conf_map(conf_map) {}
 
     ~MultiBenchmark() {
         for (auto bm : benchmarks) {
@@ -59,11 +85,30 @@ public:
         }
     }
 
-    Status init_env() { return Status::OK(); }
+    Status init_env() {
+        std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+        if (!doris::config::init(conffile.c_str(), true, true, true)) {
+            fprintf(stderr, "error read config file. \n");
+            return Status::Error<INTERNAL_ERROR>();
+        }
+        doris::CpuInfo::init();
+        Status status = Status::OK();
+        if (doris::config::enable_java_support) {
+            // Init jni
+            status = doris::JniUtil::Init();
+            if (!status.ok()) {
+                LOG(WARNING) << "Failed to initialize JNI: " << status;
+                exit(1);
+            }
+        }
+
+        return Status::OK();
+    }
 
     Status init_bms() {
         BaseBenchmark* bm;
-        Status st = BenchmarkFactory::getBm(_type, _operation, _iterations, _conf_map, &bm);
+        Status st = BenchmarkFactory::getBm(_type, _operation, _threads, _iterations, _file_size,
+                                            _conf_map, &bm);
         if (!st) {
             return st;
         }
@@ -76,7 +121,9 @@ private:
     std::vector<BaseBenchmark*> benchmarks;
     std::string _type;
     std::string _operation;
+    int64_t _threads;
     int64_t _iterations;
+    size_t _file_size;
     std::map<std::string, std::string> _conf_map;
 };
 
