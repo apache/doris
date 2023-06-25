@@ -22,8 +22,11 @@
 #include "io/fs/benchmark/benchmark_factory.hpp"
 
 DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs, local");
-DEFINE_string(operation, "read", "Supported Operations: read, write, open, size, list, connect");
+DEFINE_string(operation, "create_write",
+              "Supported Operations: create_write, open_read, open, rename, delete, exists");
+DEFINE_string(threads, "10", "Number of threads");
 DEFINE_string(iterations, "10", "Number of runs");
+DEFINE_string(file_size, "104857600", "File size");
 DEFINE_string(conf, "", "config file");
 
 std::string get_usage(const std::string& progname) {
@@ -31,17 +34,25 @@ std::string get_usage(const std::string& progname) {
     ss << progname << " is the Doris BE benchmark tool for testing file system.\n";
 
     ss << "Usage:\n";
-    ss << progname << " --fs_type=[fs_type] --operation=[op_type] --iterations=10\n";
+    ss << progname
+       << " --fs_type=[fs_type] --operation=[op_type] --threads=10 --iterations=10 "
+          "--file_size=104857600\n";
     ss << "\nfs_type:\n";
     ss << "     hdfs\n";
     ss << "     s3\n";
     ss << "\nop_type:\n";
     ss << "     read\n";
     ss << "     write\n";
+    ss << "\nthreads:\n";
+    ss << "     num of threads\n";
     ss << "\niterations:\n";
     ss << "     num of run\n";
+    ss << "\nfile_size:\n";
+    ss << "     file size\n";
     ss << "\nExample:\n";
-    ss << progname << " --conf my.conf --fs_type=s3 --operation=read --iterations=100\n";
+    ss << progname
+       << " --conf my.conf --fs_type=s3 --operation=read --threads=10 --iterations=100 "
+          "--file_size=104857600\n";
     return ss.str();
 }
 
@@ -93,8 +104,9 @@ int main(int argc, char** argv) {
     }
 
     try {
-        doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation,
-                                           std::stoi(FLAGS_iterations), conf_map);
+        doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),
+                                           std::stoi(FLAGS_iterations), std::stol(FLAGS_file_size),
+                                           conf_map);
         doris::Status st = multi_bm.init_env();
         if (!st) {
             std::cout << "init env failed: " << st << std::endl;
