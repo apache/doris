@@ -341,9 +341,9 @@ void ExecEnv::init_mem_tracker() {
     _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
     _page_no_cache_mem_tracker =
-            std::make_unique<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("PageNoCache", _orphan_mem_tracker_raw);
     _brpc_iobuf_block_memory_tracker =
-            std::make_unique<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
+            std::make_shared<MemTracker>("IOBufBlockMemory", _orphan_mem_tracker_raw);
 }
 
 void ExecEnv::init_download_cache_buf() {
@@ -426,8 +426,8 @@ void ExecEnv::_destroy() {
     _download_cache_thread_pool.reset(nullptr);
     _orphan_mem_tracker.reset();
     _experimental_mem_tracker.reset();
-    _page_no_cache_mem_tracker.reset(nullptr);
-    _brpc_iobuf_block_memory_tracker.reset(nullptr);
+    _page_no_cache_mem_tracker.reset();
+    _brpc_iobuf_block_memory_tracker.reset();
 
     _is_init = false;
 }
