@@ -89,7 +89,8 @@ under the License.
 	```sql
 	CREATE CATALOG hive PROPERTIES (
 	    'type'='hms',
-	    'hive.metastore.uris' = 'thrift://172.21.0.1:7004'
+	    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+	    'hive.version' = 'your hive version'
 	);
 	```
 	
