@@ -34,7 +34,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "inverted_index_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
