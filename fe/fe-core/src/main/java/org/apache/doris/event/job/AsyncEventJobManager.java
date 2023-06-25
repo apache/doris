@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-public class EventJobManager implements Closeable {
+public class AsyncEventJobManager implements Closeable {
 
     private final ConcurrentHashMap<Long, EventJob> eventJobMap = new ConcurrentHashMap<>(128);
 
@@ -69,7 +69,7 @@ public class EventJobManager implements Closeable {
      */
     private final EventTaskDisruptor disruptor;
 
-    public EventJobManager() {
+    public AsyncEventJobManager() {
         dorisTimer.start();
         this.disruptor = new EventTaskDisruptor(this);
         batchSchedulerTasks();

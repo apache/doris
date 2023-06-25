@@ -18,8 +18,8 @@
 package org.apache.doris.event.disruptor;
 
 import org.apache.doris.event.constants.SystemEventJob;
+import org.apache.doris.event.job.AsyncEventJobManager;
 import org.apache.doris.event.job.EventJob;
-import org.apache.doris.event.job.EventJobManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -39,15 +39,15 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
     /**
      * The event job manager used to retrieve and execute event jobs.
      */
-    private EventJobManager eventJobManager;
+    private AsyncEventJobManager asyncEventJobManager;
 
     /**
      * Constructs a new {@link EventTaskWorkHandler} instance with the specified event job manager.
      *
-     * @param eventJobManager The event job manager used to retrieve and execute event jobs.
+     * @param asyncEventJobManager The event job manager used to retrieve and execute event jobs.
      */
-    public EventTaskWorkHandler(EventJobManager eventJobManager) {
-        this.eventJobManager = eventJobManager;
+    public EventTaskWorkHandler(AsyncEventJobManager asyncEventJobManager) {
+        this.asyncEventJobManager = asyncEventJobManager;
     }
 
     /**
@@ -74,7 +74,7 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
     public void onEventTask(EventTask eventTask) {
         long eventJobId = eventTask.getEventJobId();
-        EventJob eventJob = eventJobManager.getEventJob(eventJobId);
+        EventJob eventJob = asyncEventJobManager.getEventJob(eventJobId);
         if (eventJob == null) {
             log.info("Event job is null, eventJobId: {}", eventJobId);
             return;
@@ -99,7 +99,7 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
      */
     private void onSystemEvent() {
         try {
-            eventJobManager.batchSchedulerTasks();
+            asyncEventJobManager.batchSchedulerTasks();
         } catch (Exception e) {
             log.error("System batch scheduler execute failed", e);
         }

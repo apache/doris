@@ -17,7 +17,7 @@
 
 package org.apache.doris.event.disruptor;
 
-import org.apache.doris.event.job.EventJobManager;
+import org.apache.doris.event.job.AsyncEventJobManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorTwoArg;
@@ -75,13 +75,13 @@ public class EventTaskDisruptor implements Closeable {
                 event.setEventTaskId(eventTaskId);
             };
 
-    public EventTaskDisruptor(EventJobManager eventJobManager) {
+    public EventTaskDisruptor(AsyncEventJobManager asyncEventJobManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
         disruptor = new Disruptor<>(EventTask.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
         WorkHandler<EventTask>[] workers = new EventTaskWorkHandler[DEFAULT_CONSUMER_COUNT];
         for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new EventTaskWorkHandler(eventJobManager);
+            workers[i] = new EventTaskWorkHandler(asyncEventJobManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();

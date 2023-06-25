@@ -19,6 +19,8 @@ package org.apache.doris.event.registry;
 
 import org.apache.doris.event.executor.EventJobExecutor;
 
+import java.io.IOException;
+
 /**
  * This interface provides a contract for registering timed scheduling events.
  * The implementation should trigger events in a timely manner using a specific algorithm.
@@ -97,5 +99,13 @@ public interface EventJobSchedulerRegister {
      * @return true if resume success, false if resume failed
      */
     Boolean resumeEventJob(Long eventId);
+
+    /**
+     * close event job scheduler register
+     * close means event job scheduler register will not accept new event job
+     * Jobs that have not reached the trigger time will not be executed. Jobs that have reached the trigger time will
+     * have an execution time of 5 seconds, and will not be executed if the time exceeds
+     */
+    void close() throws IOException;
 
 }

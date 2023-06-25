@@ -18,11 +18,13 @@
 package org.apache.doris.event;
 
 import org.apache.doris.event.executor.EventJobExecutor;
+import org.apache.doris.event.job.AsyncEventJobManager;
 import org.apache.doris.event.job.EventJob;
-import org.apache.doris.event.job.EventJobManager;
 import org.apache.doris.event.registry.EventJobSchedulerRegister;
 
 import lombok.extern.slf4j.Slf4j;
+
+import java.io.IOException;
 
 /**
  * This class registers timed scheduling events using the Netty time wheel algorithm to trigger events in a timely
@@ -34,10 +36,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class AsyncEventJobSchedulerRegister implements EventJobSchedulerRegister {
 
-    private final EventJobManager eventJobManager;
+    private final AsyncEventJobManager asyncEventJobManager;
 
     public AsyncEventJobSchedulerRegister() {
-        this.eventJobManager = new EventJobManager();
+        this.asyncEventJobManager = new AsyncEventJobManager();
     }
 
     @Override
@@ -55,21 +57,26 @@ public class AsyncEventJobSchedulerRegister implements EventJobSchedulerRegister
                                  EventJobExecutor executor) {
 
         EventJob eventJob = new EventJob(name, intervalMs, startTimeStamp, endTimeStamp, executor);
-        return eventJobManager.registerEventJob(eventJob);
+        return asyncEventJobManager.registerEventJob(eventJob);
     }
 
     @Override
     public Boolean pauseEventJob(Long eventId) {
-        return eventJobManager.pauseEventJob(eventId);
+        return asyncEventJobManager.pauseEventJob(eventId);
     }
 
     @Override
     public Boolean stopEventJob(Long eventId) {
-        return eventJobManager.stopEventJob(eventId);
+        return asyncEventJobManager.stopEventJob(eventId);
     }
 
     @Override
     public Boolean resumeEventJob(Long eventId) {
-        return eventJobManager.resumeEventJob(eventId);
+        return asyncEventJobManager.resumeEventJob(eventId);
+    }
+
+    @Override
+    public void close() throws IOException {
+        asyncEventJobManager.close();
     }
 }

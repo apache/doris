@@ -28,9 +28,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class EventJobRegisterFactory {
     private static final AtomicReference<EventJobSchedulerRegister> INSTANCE = new AtomicReference<>();
 
-    private EventJobRegisterFactory() {
-    }
-
     public static EventJobSchedulerRegister getInstance() {
         EventJobSchedulerRegister instance = INSTANCE.get();
         if (instance == null) {
