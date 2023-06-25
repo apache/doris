@@ -495,12 +495,12 @@ under the License.
             <artifactId>grpc-stub</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.apache.doris</groupId>
-            <artifactId>hive-catalog-shade</artifactId>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
         </dependency>
         <dependency>
-           <groupId>org.apache.httpcomponents</groupId>
-           <artifactId>httpclient</artifactId>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.velocity</groupId>
