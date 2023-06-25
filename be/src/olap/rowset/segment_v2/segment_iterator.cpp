@@ -194,9 +194,13 @@ Status SegmentIterator::_init(bool is_vec) {
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
+        SCOPED_RAW_TIMER(&_opts.stats->block_init_get_row_range_by_keys_ns);
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
     }
-    RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->block_init_get_row_range_by_conditions_ns);
+        RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
+    }
     if (is_vec) {
         _vec_init_lazy_materialization();
         _vec_init_char_column_id();
