@@ -904,7 +904,7 @@ void MutableBlock::add_row(const Block* block, int row) {
 }
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
-    DCHECK_EQ(columns(), block->columns());
+    DCHECK_LE(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
@@ -915,7 +915,7 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
 }
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
-    DCHECK_EQ(columns(), block->columns());
+    DCHECK_LE(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
