@@ -48,7 +48,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM `${dbName}`.`${tblName}`) t2\n";
+            + "     FROM `${dbName}`.`${tblName}` ${sampleExpr}) t2\n";
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -93,7 +93,6 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         execSQLs(partitionAnalysisSQLs);
         params.remove("partId");
-        params.remove("sampleExpr");
         params.put("type", col.getType().toString());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
