@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySe
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -38,6 +39,8 @@ import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.rules.rewrite.HideOneRowRelationUnderUnion;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
@@ -45,12 +48,45 @@ import java.util.List;
  */
 public class Analyzer extends AbstractBatchJobExecutor {
 
-    public static final List<RewriteJob> ANALYZE_JOBS = jobs(
+    public static final List<RewriteJob> DEFAULT_ANALYZE_JOBS = buildAnalyzeJobs(Optional.empty());
+
+    private Optional<CustomTableResolver> customTableResolver;
+
+    private List<RewriteJob> jobs;
+
+    /**
+     * Execute the analysis job with scope.
+     * @param cascadesContext planner context for execute job
+     */
+    public Analyzer(CascadesContext cascadesContext) {
+        this(cascadesContext, Optional.empty());
+    }
+
+    public Analyzer(CascadesContext cascadesContext, Optional<CustomTableResolver> customTableResolver) {
+        super(cascadesContext);
+        this.customTableResolver = Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
+        this.jobs = !customTableResolver.isPresent() ? DEFAULT_ANALYZE_JOBS : buildAnalyzeJobs(customTableResolver);
+    }
+
+    @Override
+    public List<RewriteJob> getJobs() {
+        return jobs;
+    }
+
+    /**
+     * nereids analyze sql.
+     */
+    public void analyze() {
+        execute();
+    }
+
+    private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
+        return jobs(
             topDown(
                 new RegisterCTE()
             ),
             bottomUp(
-                new BindRelation(),
+                new BindRelation(customTableResolver.orElse(null)),
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
@@ -83,25 +119,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
             bottomUp(new CheckAnalysis())
-    );
-
-    /**
-     * Execute the analysis job with scope.
-     * @param cascadesContext planner context for execute job
-     */
-    public Analyzer(CascadesContext cascadesContext) {
-        super(cascadesContext);
-    }
-
-    @Override
-    public List<RewriteJob> getJobs() {
-        return ANALYZE_JOBS;
-    }
-
-    /**
-     * nereids analyze sql.
-     */
-    public void analyze() {
-        execute();
+        );
     }
 }
