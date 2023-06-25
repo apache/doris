@@ -36,7 +36,8 @@ std::string get_usage(const std::string& progname) {
 
     ss << "Usage:\n";
     ss << progname
-       << " --fs_type=[fs_type] --operation=[op_type] --threads=[num] --iterations=[num] --repetitions=[num] "
+       << " --fs_type=[fs_type] --operation=[op_type] --threads=[num] --iterations=[num] "
+          "--repetitions=[num] "
           "--file_size=[num]\n";
     ss << "\nfs_type:\n";
     ss << "     hdfs\n";

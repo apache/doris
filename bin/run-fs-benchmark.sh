@@ -266,4 +266,3 @@ export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:au
 
 echo "$@"
 ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/fs_benchmark_tool" "$@" 2>&1 | tee "${LOG_DIR}/fs_benchmark_tool.log"
-

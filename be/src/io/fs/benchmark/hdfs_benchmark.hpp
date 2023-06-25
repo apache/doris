@@ -36,9 +36,7 @@ public:
             : BaseBenchmark("HdfsReadBenchmark", threads, iterations, file_size, 3, conf_map) {}
     virtual ~HdfsOpenReadBenchmark() = default;
 
-    Status init() override {
-        return Status::OK();
-    }
+    Status init() override { return Status::OK(); }
 
     virtual std::string get_file_path(benchmark::State& state) {
         std::string base_dir = _conf_map["base_dir"];
@@ -55,7 +53,7 @@ public:
                 _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        
+
         auto file_path = get_file_path(state);
         RETURN_IF_ERROR(
                 FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader, reader_opts));
@@ -111,7 +109,7 @@ public:
 class HdfsSingleReadBenchmark : public HdfsOpenReadBenchmark {
 public:
     HdfsSingleReadBenchmark(int threads, int iterations, size_t file_size,
-                          const std::map<std::string, std::string>& conf_map)
+                            const std::map<std::string, std::string>& conf_map)
             : HdfsOpenReadBenchmark(threads, iterations, file_size, conf_map) {}
     virtual ~HdfsSingleReadBenchmark() = default;
 
@@ -130,9 +128,7 @@ public:
                             conf_map) {}
     virtual ~HdfsCreateWriteBenchmark() = default;
 
-    Status init() override {
-        return Status::OK();
-    }
+    Status init() override { return Status::OK(); }
 
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
@@ -211,7 +207,8 @@ public:
         state.SetIterationTime(elapsed_seconds.count());
         bm_log("finish to run {}", _name);
 
-        state.counters["RenameCost"] = benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+        state.counters["RenameCost"] =
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
 
         if (writer != nullptr) {
             writer->close();
@@ -251,7 +248,8 @@ public:
         state.SetIterationTime(elapsed_seconds.count());
         bm_log("finish to run {}", _name);
 
-        state.counters["ExistsCost"] = benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+        state.counters["ExistsCost"] =
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
         return Status::OK();
     }
 };
