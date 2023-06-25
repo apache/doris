@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Map;
 import java.util.Objects;
@@ -40,6 +41,11 @@ public class SelectIntoOutfileCommand extends Command implements ForwardWithSync
         this.logicalQuery = Objects.requireNonNull(logicalQuery);
         this.format = format != null ? format : "csv";
         this.properties = properties;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        
     }
 
     @Override

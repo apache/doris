@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -63,6 +64,18 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
         this.properties = properties;
     }
 
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     @Override
     public Plan withChildren(List<Plan> children) {
         return null;
@@ -76,6 +89,25 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PhysicalFileSink<?> that = (PhysicalFileSink<?>) o;
+        return Objects.equals(filePath, that.filePath)
+                && Objects.equals(format, that.format)
+                && Objects.equals(properties, that.properties);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(filePath, format, properties);
     }
 
     @Override

@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -67,6 +68,25 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public List<? extends Expression> getExpressions() {
         return ImmutableList.of();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        LogicalFileSink<?> that = (LogicalFileSink<?>) o;
+        return Objects.equals(filePath, that.filePath)
+                && Objects.equals(format, that.format)
+                && Objects.equals(properties, that.properties);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(filePath, format, properties);
     }
 
     @Override
