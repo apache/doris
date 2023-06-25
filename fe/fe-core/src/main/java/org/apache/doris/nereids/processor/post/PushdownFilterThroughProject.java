@@ -30,17 +30,18 @@ public class PushdownFilterThroughProject extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         Plan child = filter.child();
-        Plan newChild = child.accept(this, context);
-        if (!(newChild instanceof PhysicalProject)) {
+        if (!(child instanceof PhysicalProject)) {
             return filter;
         }
-        PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) newChild;
-        return project.withChildren(
-                new PhysicalFilter<>(
-                        ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                        filter.getLogicalProperties(),
-                        project.child()
-                )
+
+        PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
+
+        PhysicalFilter<? extends Plan> newFilter = new PhysicalFilter<>(
+                ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
+                filter.getLogicalProperties(),
+                project.child()
         );
+
+        return project.withChildren(newFilter.accept(this, context));
     }
 }
