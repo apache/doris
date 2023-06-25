@@ -113,13 +113,13 @@ Example:
 
 ```
 s3 (
-    'uri' = 'https://bucket1/inventory.dat',
+    "uri" = "https://bucket1/inventory.dat",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
-    'format' = 'csv',
-    'column_separator' = '|',
-    'csv_schema' = 'k1:int;k2:int;k3:int;k4:decimal(38,10)',
-    'use_path_style'='true'
+    "format" = "csv",
+    "column_separator" = "|",
+    "csv_schema" = "k1:int;k2:int;k3:int;k4:decimal(38,10)",
+    "use_path_style"="true"
 )
 ```
 
