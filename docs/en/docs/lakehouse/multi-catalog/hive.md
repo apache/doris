@@ -95,16 +95,6 @@ Please place the `krb5.conf` file and `keytab` authentication file under all `BE
 
 The value of `hive.metastore.kerberos.principal` needs to be consistent with the property of the same name of the connected hive metastore, which can be obtained from `hive-site.xml`.
 
-Provide Hadoop KMS encrypted transmission information, examples are as follows:
-
-```sql
-CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
-);
-```
-
 ### Hive On JuiceFS
 
 Data is stored in JuiceFS, examples are as follows:
