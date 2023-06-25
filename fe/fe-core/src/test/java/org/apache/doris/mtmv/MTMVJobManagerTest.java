@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricRepo;
@@ -56,8 +57,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
 
     @Test
     public void testSchedulerJob() throws DdlException, InterruptedException {
-        MTMVJobManager jobManager = new MTMVJobManager();
-        jobManager.start();
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
         Assertions.assertTrue(jobManager.getTaskManager().getHistoryTasks().isEmpty());
         MTMVJob job = MTMVUtilsTest.createSchedulerJob();
         jobManager.createJob(job, false);
