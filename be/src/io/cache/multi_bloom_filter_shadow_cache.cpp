@@ -158,7 +158,24 @@ std::string MultiBloomFilterShadowCache::get_info() {
        << ", avg of cache entry: " << _avg_cache_size << ", num read: " << _num_read
        << ", num hit: " << _num_hit << ", read hit ratio: " << (double)_num_hit / (_num_read + 1)
        << ", num bytes read: " << _num_bytes_read << ", num bytes hit: " << _num_bytes_hit
-       << ", bytes hit ratio: " << (double)_num_bytes_hit / (_num_bytes_read + 1) << "]";
+       << ", bytes hit ratio: " << (double)_num_bytes_hit / (_num_bytes_read + 1);
+
+    ss << ", insert vec[";
+    for (int i = 0; i < _num_bf; ++i) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        ss << _bf_insert_vec[i];
+    }
+
+    ss  << "], bytes vec[";
+    for (int i = 0; i < _num_bf; ++i) {
+        if (i != 0) {
+            ss << ", ";
+        }
+        ss << _bf_bytes_vec[i];
+    }
+    ss << "]]";
     return ss.str();
 }
 

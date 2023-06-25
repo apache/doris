@@ -34,6 +34,11 @@ struct MBFShadowCacheOption {
     int64_t window_seconds;
 };
 
+// This shadow cache is used for evaluating the hit ratio of file cache.
+// It acts like an ulimited cache, using bloom filter the record the cache key
+// and the cache size, so that it can use a fix memory to record a large number
+// of cache entries.
+// This class is not thread safe, need external lock protection.
 class MultiBloomFilterShadowCache {
 public:
     MultiBloomFilterShadowCache(const MBFShadowCacheOption& opt);
