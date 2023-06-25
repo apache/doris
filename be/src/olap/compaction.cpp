@@ -608,20 +608,25 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // All rowsets which need to recalculate have been published so we don't need to acquire lock.
             // Step1: collect this tablet's all committed rowsets' delete bitmaps
             TxnManager::txn_tablet_map_t txn_tablet_map {};
-            StorageEngine::instance()->txn_manager()->get_all_tablet_txn_infos_by_tablet(
+            StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
                     _tablet, txn_tablet_map);
+
 
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
             // This part is to calculate 7-7's delete bitmap.
             int64_t cur_max_version = _tablet->max_version().second;
+            RowsetIdUnorderedSet rowset_ids = _tablet->all_rs_id(cur_max_version);
+            rowset_ids.insert(_output_rowset->rowset_id());
             for (const auto& it : txn_tablet_map) {
                 for (const auto& tablet_load_it : it.second) {
                     const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
+                    DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
+                    tablet_txn_info.delete_bitmap->merge(output_delete_bitmap);
                     // Step3: write back updated delete bitmap and tablet info.
                     StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                             it.first.first, it.first.second, _tablet->tablet_id(),
                             _tablet->schema_hash(), _tablet->tablet_uid(), true,
-                            tablet_txn_info.delete_bitmap, _tablet->all_rs_id(cur_max_version));
+                            tablet_txn_info.delete_bitmap, rowset_ids);
                 }
             }
             //
