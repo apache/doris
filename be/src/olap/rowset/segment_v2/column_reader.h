@@ -90,6 +90,7 @@ struct ColumnIteratorOptions {
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
     io::IOContext io_ctx;
+    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
