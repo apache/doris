@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeDBStmt;
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropStatsStmt;
@@ -151,7 +152,15 @@ public class AnalysisManager extends Daemon implements Writable {
         return statisticsCache;
     }
 
-    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt) throws DdlException {
+    public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException {
+        if (analyzeStmt instanceof AnalyzeDBStmt) {
+            createAnalysisJobs((AnalyzeDBStmt) analyzeStmt, proxy);
+        } else if (analyzeStmt instanceof AnalyzeTblStmt) {
+            createAnalysisJob((AnalyzeTblStmt) analyzeStmt, proxy);
+        }
+    }
+
+    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
@@ -179,7 +188,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
             if (!analyzeDBStmt.isSync()) {
-                sendJobId(analysisInfos);
+                sendJobId(analysisInfos, proxy);
             }
         } finally {
             db.readUnlock();
@@ -188,12 +197,12 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     // Each analyze stmt corresponding to an analysis job.
-    public void createAnalysisJob(AnalyzeTblStmt stmt) throws DdlException {
+    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
         if (jobInfo == null) {
             return;
         }
-        sendJobId(ImmutableList.of(jobInfo));
+        sendJobId(ImmutableList.of(jobInfo), proxy);
     }
 
     @Nullable
@@ -259,7 +268,7 @@ public class AnalysisManager extends Daemon implements Writable {
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
 
-    private void sendJobId(List<AnalysisInfo> analysisInfos) {
+    private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("Catalog_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("DB_Name", ScalarType.createVarchar(1024)));
@@ -279,7 +288,11 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
         try {
-            ConnectContext.get().getExecutor().sendResultSet(commonResultSet);
+            if (!proxy) {
+                ConnectContext.get().getExecutor().sendResultSet(commonResultSet);
+            } else {
+                ConnectContext.get().getExecutor().setProxyResultSet(commonResultSet);
+            }
         } catch (Throwable t) {
             LOG.warn("Failed to send job id to user", t);
         }
