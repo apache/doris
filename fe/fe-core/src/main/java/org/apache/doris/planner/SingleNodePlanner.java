@@ -305,7 +305,7 @@ public class SingleNodePlanner {
             root = new SortNode(ctx.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN);
             ((SortNode) root).setDefaultLimit(limit == -1);
-            ((SortNode) root).setOffset(stmt.getOffset());
+            root.setOffset(stmt.getOffset());
             if (useTopN) {
                 if (sqlSelectLimit >= 0) {
                     newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
@@ -320,7 +320,7 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            if (!stmt.hasLimit()) {
+            if (!stmt.hasLimit() && sqlSelectLimit >= 0) {
                 root.setLimitAndOffset(sqlSelectLimit, stmt.getOffset());
             } else {
                 root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
