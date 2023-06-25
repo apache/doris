@@ -395,6 +395,22 @@ Status SegmentIterator::_init_return_column_iterators() {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
+    std::set<ColumnId> del_cond_id_set;
+    _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+    std::vector<bool> tmp_is_pred_column;
+    tmp_is_pred_column.resize(_schema.columns().size(), false);
+    if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        if (!del_cond_id_set.empty()) {
+            for (auto cid : del_cond_id_set) {
+                tmp_is_pred_column[cid] = true;
+            }
+        }
+    }
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
@@ -405,6 +421,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
+            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
