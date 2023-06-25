@@ -224,6 +224,11 @@ public class MTMVTaskManager {
         return historyTasks;
     }
 
+    public List<MTMVTask> getHistoryTasksByJobName(String jobName) {
+        return getHistoryTasks().stream().filter(u -> u.getJobName().equals(jobName))
+                .collect(Collectors.toList());
+    }
+
     public List<MTMVTask> showAllTasks() {
         return showTasksWithLock(null);
     }
