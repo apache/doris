@@ -75,7 +75,6 @@ import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -365,14 +364,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
-        List<Expression> nereidsArguments = adaptFunctionArgumentsForBackends(function);
-
-        List<Expr> arguments = nereidsArguments
-                .stream()
+        List<Expr> arguments = function.getArguments().stream()
                 .map(arg -> arg.accept(this, context))
                 .collect(Collectors.toList());
 
-        List<Type> argTypes = nereidsArguments.stream()
+        List<Type> argTypes = function.getArguments().stream()
                 .map(Expression::getDataType)
                 .map(AbstractDataType::toCatalogDataType)
                 .collect(Collectors.toList());
@@ -593,13 +589,5 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             default:
                 throw new AnalysisException("UnSupported type: " + assertion);
         }
-    }
-
-    /**
-     * some special arguments not need exists in the nereids, and backends need it, so we must add the
-     * special arguments for backends, e.g. the json data type string in the json_object function.
-     */
-    private List<Expression> adaptFunctionArgumentsForBackends(BoundFunction function) {
-        return function.getArguments();
     }
 }

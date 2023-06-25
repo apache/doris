@@ -42,22 +42,18 @@ import java.util.Optional;
 public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelation {
 
     private final List<NamedExpression> projects;
-    private final boolean buildUnionNode;
 
-    public PhysicalOneRowRelation(List<NamedExpression> projects, boolean buildUnionNode,
-            LogicalProperties logicalProperties) {
-        this(projects, buildUnionNode, Optional.empty(), logicalProperties, null, null);
+    public PhysicalOneRowRelation(List<NamedExpression> projects, LogicalProperties logicalProperties) {
+        this(projects, Optional.empty(), logicalProperties, null, null);
     }
 
     private PhysicalOneRowRelation(List<NamedExpression> projects,
-            boolean buildUnionNode,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics) {
         super(PlanType.PHYSICAL_ONE_ROW_RELATION, groupExpression, logicalProperties, physicalProperties,
                 statistics);
         this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
-        this.buildUnionNode = buildUnionNode;
     }
 
     @Override
@@ -77,21 +73,20 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOneRowRelation(projects, buildUnionNode, groupExpression,
+        return new PhysicalOneRowRelation(projects, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOneRowRelation(projects, buildUnionNode, Optional.empty(),
+        return new PhysicalOneRowRelation(projects, Optional.empty(),
                 logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalOneRowRelation[" + id.asInt() + "]" + getGroupIdAsString(),
-                "expressions", projects,
-                "buildUnionNode", buildUnionNode
+                "expressions", projects
         );
     }
 
@@ -104,23 +99,18 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
             return false;
         }
         PhysicalOneRowRelation that = (PhysicalOneRowRelation) o;
-        return Objects.equals(projects, that.projects)
-                && buildUnionNode == that.buildUnionNode;
+        return Objects.equals(projects, that.projects);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects, buildUnionNode);
+        return Objects.hash(projects);
     }
 
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalOneRowRelation(projects, buildUnionNode, groupExpression,
+        return new PhysicalOneRowRelation(projects, groupExpression,
                 logicalPropertiesSupplier.get(), physicalProperties, statistics);
-    }
-
-    public boolean notBuildUnionNode() {
-        return !buildUnionNode;
     }
 }
