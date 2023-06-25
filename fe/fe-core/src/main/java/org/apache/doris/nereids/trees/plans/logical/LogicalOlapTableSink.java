@@ -51,14 +51,15 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
         this(database, targetTable, cols, partitionIds, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols, List<Long> partitionIds,
-            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
+    public LogicalOlapTableSink(Database database, OlapTable targetTable, List<Column> cols,
+            List<Long> partitionIds, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalOlapTableSink");
-        this.cols = Utils.copyIfNotNull(cols);
-        this.partitionIds = Utils.copyIfNotNull(partitionIds);
+        this.cols = Utils.copyRequiredList(cols);
+        this.partitionIds = Utils.copyRequiredList(partitionIds);
     }
 
     @Override
