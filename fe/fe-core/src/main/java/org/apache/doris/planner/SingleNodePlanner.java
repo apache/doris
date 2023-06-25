@@ -2716,6 +2716,12 @@ public class SingleNodePlanner {
                         }
                     }
                 }
+                GroupByClause groupByClause = stmt.getGroupByClause();
+                List<Expr> exprs = groupByClause.getGroupingExprs();
+                if (!exprs.contains(sourceExpr)) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
+                }
             }
 
             if (isAllSlotReferToGroupBys) {
