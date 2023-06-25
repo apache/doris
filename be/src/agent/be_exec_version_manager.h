@@ -54,6 +54,8 @@ private:
  *    b. runtime filter use new hash method.
  * 2: start from doris 2.0
  *    a. function month/day/hour/minute/second's return type is changed to smaller type.
+ *    b. in order to solve agg of sum/count is not compatibility during the upgrade process
+ *
 */
 inline const int BeExecVersionManager::max_be_exec_version = 2;
 inline const int BeExecVersionManager::min_be_exec_version = 0;

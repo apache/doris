@@ -52,7 +52,7 @@ The features for inverted index is as follows:
 - add fulltext search on text(string, varchar, char) field
   - MATCH_ALL matches all keywords, MATCH_ANY matches any keywords
   - support fulltext on array of text field
-  - support english and chinese word parser
+  - support english, chinese and mixed unicode word parser
 - accelerate normal equal, range query, replacing bitmap index in the future
   - suport =, !=, >, >=, <, <= on text, numeric, datetime types
   - suport =, !=, >, >=, <, <= on array of text, numeric, datetime types
@@ -74,10 +74,12 @@ The features for inverted index is as follows:
       - missing stands for no parser, the whole field is considered to be a term
       - "english" stands for english parser
       - "chinese" stands for chinese parser
+      - "unicode" stands for mixed-type word segmentation suitable for situations with a mix of Chinese and English. It can segment email prefixes and suffixes, IP addresses, and mixed characters and numbers, and can also segment Chinese characters into 1-gram.
+
     - "parser_mode" is utilized to set the tokenizer/parser type for Chinese word segmentation.
       - in "fine_grained" mode, the system will meticulously tokenize each possible segment.
       - in "coarse_grained" mode, the system follows the maximization principle, performing accurate and comprehensive tokenization.
-      - default mode is "fine_grained".
+      - default mode is "coarse_grained".
     - "support_phrase" is utilized to specify if the index requires support for phrase mode. 
       - "true" indicates that support is needed.
       - "false" indicates that support is not needed.
@@ -88,10 +90,10 @@ The features for inverted index is as follows:
 CREATE TABLE table_name
 (
   columns_difinition,
-  INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
-  INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
+  INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment']
+  INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
-  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```
@@ -99,9 +101,9 @@ table_properties;
 - add an inverted index to existed table
 ```sql
 -- syntax 1
-CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
+CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment'];
 -- syntax 2
-ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
+ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese|unicode")] [COMMENT 'your comment'];
 ```
 
 - drop an inverted index

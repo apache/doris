@@ -109,7 +109,8 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     @Override
     protected void unprotectedExecuteJob() {
-        LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc);
+        LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
+                brokerDesc, getPriority());
         idToTasks.put(task.getSignature(), task);
         Env.getCurrentEnv().getPendingLoadTaskScheduler().submit(task);
     }
@@ -209,7 +210,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                         isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                        useNewLoadScanNode());
+                        useNewLoadScanNode(), getPriority());
 
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

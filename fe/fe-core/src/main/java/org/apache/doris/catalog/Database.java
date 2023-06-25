@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -433,6 +434,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
             this.lowerCaseToTableName.remove(tableName.toLowerCase());
             table.markDropped();
         }
+    }
+
+    @Override
+    public CatalogIf getCatalog() {
+        return Env.getCurrentInternalCatalog();
     }
 
     public List<Table> getTables() {

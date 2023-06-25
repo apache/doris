@@ -51,6 +51,7 @@ public class StatisticsCache {
 
     private final ColumnStatisticsCacheLoader columnStatisticsCacheLoader = new ColumnStatisticsCacheLoader();
     private final HistogramCacheLoader histogramCacheLoader = new HistogramCacheLoader();
+    private final TableStatisticsCacheLoader tableStatisticsCacheLoader = new TableStatisticsCacheLoader();
 
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
             Caffeine.newBuilder()
@@ -68,12 +69,20 @@ public class StatisticsCache {
                     .executor(threadPool)
                     .buildAsync(histogramCacheLoader);
 
+    private final AsyncLoadingCache<StatisticsCacheKey, Optional<TableStatistic>> tableStatisticsCache =
+            Caffeine.newBuilder()
+                    .maximumSize(Config.stats_cache_size)
+                    .expireAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
+                    .executor(threadPool)
+                    .buildAsync(tableStatisticsCacheLoader);
+
     {
         threadPool.submit(() -> {
             while (true) {
                 try {
                     columnStatisticsCacheLoader.removeExpiredInProgressing();
                     histogramCacheLoader.removeExpiredInProgressing();
+                    tableStatisticsCacheLoader.removeExpiredInProgressing();
                 } catch (Throwable t) {
                     // IGNORE
                 }
@@ -83,16 +92,17 @@ public class StatisticsCache {
         });
     }
 
-    public ColumnStatistic getColumnStatistics(long tblId, String colName) {
-        return getColumnStatistics(tblId, -1, colName).orElse(ColumnStatistic.UNKNOWN);
+    public ColumnStatistic getColumnStatistics(long catalogId, long dbId, long tblId, String colName) {
+        return getColumnStatistics(catalogId, dbId, tblId, -1, colName).orElse(ColumnStatistic.UNKNOWN);
     }
 
-    public Optional<ColumnStatistic> getColumnStatistics(long tblId, long idxId, String colName) {
+    public Optional<ColumnStatistic> getColumnStatistics(long catalogId, long dbId,
+                                                         long tblId, long idxId, String colName) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getSessionVariable().internalSession) {
             return Optional.empty();
         }
-        StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colName);
+        StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName);
         try {
             CompletableFuture<Optional<ColumnStatistic>> f = columnStatisticsCache.get(k);
             if (f.isDone()) {
@@ -125,7 +135,23 @@ public class StatisticsCache {
         return Optional.empty();
     }
 
-    public void invidate(long tblId, long idxId, String colName) {
+    public Optional<TableStatistic> getTableStatistics(long catalogId, long dbId, long tableId) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().internalSession) {
+            return Optional.empty();
+        }
+        StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tableId);
+        try {
+            CompletableFuture<Optional<TableStatistic>> f = tableStatisticsCache.get(k);
+            // Synchronous return the cache value for table row count.
+            return f.get();
+        } catch (Exception e) {
+            LOG.warn("Unexpected exception while returning Histogram", e);
+        }
+        return Optional.empty();
+    }
+
+    public void invalidate(long tblId, long idxId, String colName) {
         columnStatisticsCache.synchronous().invalidate(new StatisticsCacheKey(tblId, idxId, colName));
     }
 

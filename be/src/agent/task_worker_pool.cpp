@@ -90,11 +90,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
-const int64_t PUBLISH_TIMEOUT_SEC = 10;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
+
+static bvar::LatencyRecorder g_publish_version_latency("doris_pk", "publish_version");
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
@@ -212,6 +213,10 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::PUSH_COOLDOWN_CONF:
         _worker_count = 1;
         _cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
+        break;
+    case TaskWorkerType::GC_BINLOG:
+        _worker_count = 1;
+        _cb = std::bind<void>(&TaskWorkerPool::_gc_binlog_worker_thread_callback, this);
         break;
     default:
         // pass
@@ -1436,25 +1441,28 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
+
         const TPublishVersionRequest& publish_version_req = agent_task_req.publish_version_req;
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task. signature=" << agent_task_req.signature;
 
         std::vector<TTabletId> error_tablet_ids;
         std::vector<TTabletId> succ_tablet_ids;
+        // partition_id, tablet_id, publish_version
+        std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablet_ids);
+                                                 &succ_tablet_ids, &discontinuous_version_tablets);
             status = _env->storage_engine()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
-                if (time_elapsed > PUBLISH_TIMEOUT_SEC) {
+                if (time_elapsed > config::publish_version_task_timeout_s) {
                     LOG(INFO) << "task elapsed " << time_elapsed
                               << " seconds since it is inserted to queue, it is timeout";
                     is_task_timeout = true;
@@ -1465,7 +1473,7 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     _tasks.push_back(agent_task_req);
                     _worker_thread_condition_variable.notify_one();
                 }
-                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done"
+                LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
                                        << "transaction_id: " << publish_version_req.transaction_id;
                 break;
             } else {
@@ -1482,6 +1490,11 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             continue;
         }
 
+        for (auto& item : discontinuous_version_tablets) {
+            StorageEngine::instance()->add_async_publish_task(
+                    std::get<0>(item), std::get<1>(item), std::get<2>(item),
+                    publish_version_req.transaction_id, false);
+        }
         TFinishTaskRequest finish_task_request;
         if (!status) {
             DorisMetrics::instance()->publish_task_failed_total->increment(1);
@@ -1514,10 +1527,13 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     }
                 }
             }
+            uint32_t cost_second = time(nullptr) - agent_task_req.recv_time;
+            g_publish_version_latency << cost_second;
             LOG_INFO("successfully publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
-                    .tag("tablets_num", succ_tablet_ids.size());
+                    .tag("tablets_num", succ_tablet_ids.size())
+                    .tag("cost(s)", cost_second);
         }
 
         status.to_thrift(&finish_task_request.task_status);
@@ -1703,6 +1719,41 @@ void AlterTableTaskPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, 
                 .tag("new_tablet_id", new_tablet_id);
     }
     finish_task_request->__set_task_status(status.to_thrift());
+}
+
+void TaskWorkerPool::_gc_binlog_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            _worker_thread_condition_variable.wait(
+                    worker_thread_lock, [this]() { return !_is_work || !_tasks.empty(); });
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+
+        std::unordered_map<int64_t, int64_t> gc_tablet_infos;
+        if (!agent_task_req.__isset.gc_binlog_req) {
+            LOG(WARNING) << "gc binlog task is not valid";
+            return;
+        }
+        if (!agent_task_req.gc_binlog_req.__isset.tablet_gc_binlog_infos) {
+            LOG(WARNING) << "gc binlog task tablet_gc_binlog_infos is not valid";
+            return;
+        }
+
+        auto& tablet_gc_binlog_infos = agent_task_req.gc_binlog_req.tablet_gc_binlog_infos;
+        for (auto& tablet_info : tablet_gc_binlog_infos) {
+            // gc_tablet_infos.emplace(tablet_info.tablet_id, tablet_info.schema_hash);
+            gc_tablet_infos.emplace(tablet_info.tablet_id, tablet_info.version);
+        }
+
+        StorageEngine::instance()->gc_binlogs(gc_tablet_infos);
+    }
 }
 
 CloneTaskPool::CloneTaskPool(ExecEnv* env, ThreadModel thread_model)

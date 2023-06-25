@@ -61,13 +61,14 @@ public:
     ScannerContext(RuntimeState* state_, VScanNode* parent, const TupleDescriptor* input_tuple_desc,
                    const TupleDescriptor* output_tuple_desc,
                    const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_);
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances = 0);
 
     virtual ~ScannerContext() = default;
-    Status init();
+    virtual Status init();
 
-    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
-    void return_free_block(std::unique_ptr<vectorized::Block> block);
+    virtual vectorized::BlockUPtr get_free_block(bool* has_free_block,
+                                                 bool get_not_empty_block = false);
+    virtual void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
     virtual void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);
@@ -126,17 +127,27 @@ public:
     RuntimeState* state() { return _state; }
 
     void incr_num_ctx_scheduling(int64_t num) { _scanner_ctx_sched_counter->update(num); }
+    void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
     void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
     VScanNode* parent() { return _parent; }
 
     virtual bool empty_in_queue(int id);
 
-    virtual void set_max_queue_size(int max_queue_size) {};
-
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     virtual inline bool has_enough_space_in_blocks_queue() const {
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
+    }
+
+    virtual int cal_thread_slot_num_by_free_block_num() {
+        int thread_slot_num = 0;
+        std::lock_guard f(_free_blocks_lock);
+        thread_slot_num = (_free_blocks_capacity + _block_per_scanner - 1) / _block_per_scanner;
+        thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
+        if (thread_slot_num <= 0) {
+            thread_slot_num = 1;
+        }
+        return thread_slot_num;
     }
 
     void reschedule_scanner_ctx();
@@ -152,6 +163,8 @@ private:
 
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
+
+    virtual void _init_free_block(int pre_alloc_block_count, int real_block_size);
 
     RuntimeState* _state;
     VScanNode* _parent;
@@ -215,7 +228,7 @@ protected:
     // Here we record the number of ctx in the scheduling  queue to clean up at the end.
     std::atomic_int32_t _num_scheduling_ctx = 0;
     // Num of unfinished scanners. Should be set in init()
-    int32_t _num_unfinished_scanners = 0;
+    std::atomic_int32_t _num_unfinished_scanners = 0;
     // Max number of scan thread for this scanner context.
     int32_t _max_thread_num = 0;
     // How many blocks a scanner can use in one task.
@@ -224,7 +237,7 @@ protected:
     // The current bytes of blocks in blocks queue
     int64_t _cur_bytes_in_queue = 0;
     // The max limit bytes of blocks in blocks queue
-    int64_t _max_bytes_in_queue;
+    const int64_t _max_bytes_in_queue;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
     // List "scanners" saves all "unfinished" scanners.
@@ -236,9 +249,12 @@ protected:
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
 
+    const int _num_parallel_instances;
+
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
+    RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;

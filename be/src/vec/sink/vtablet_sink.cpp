@@ -36,9 +36,11 @@
 
 #include <algorithm>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -101,10 +103,10 @@ public:
               index_channel(index_channel),
               partition_id(partition_id) {};
 
-    ~OpenPartitionClosure() = default;
+    ~OpenPartitionClosure() override = default;
 
     void Run() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         if (cntl.Failed()) {
             std::stringstream ss;
             ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
@@ -174,8 +176,8 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
-    VLOG_PROGRESS << "mark node_id:" << node_id << " tablet_id: " << tablet_id
-                  << " as failed, err: " << err;
+    LOG(INFO) << "mark node_id:" << node_id << " tablet_id: " << tablet_id
+              << " as failed, err: " << err;
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
@@ -409,13 +411,13 @@ Status VNodeChannel::open_wait() {
     // add block closure
     _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
     _add_block_closure->addFailedHandler([this](bool is_last_rpc) {
-        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call `mark_as_failed`,
             // and notice that _index_channel may already be destroyed.
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(),
                                        fmt::format("rpc failed, error coed:{}, error text:{}",
@@ -434,13 +436,13 @@ Status VNodeChannel::open_wait() {
 
     _add_block_closure->addSuccessHandler([this](const PTabletWriterAddBlockResult& result,
                                                  bool is_last_rpc) {
-        SCOPED_ATTACH_TASK(_state);
         std::lock_guard<std::mutex> l(this->_closed_lock);
         if (this->_is_closed) {
             // if the node channel is closed, no need to call the following logic,
             // and notice that _index_channel may already be destroyed.
             return;
         }
+        SCOPED_ATTACH_TASK(_state);
         Status status(result.status());
         if (status.ok()) {
             // if has error tablet, handle them first
@@ -1145,7 +1147,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
             MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
-    if (bthread_start_background(&_sender_thread, NULL, periodic_send_batch, (void*)this) != 0) {
+    if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
         return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
 
@@ -1276,6 +1278,56 @@ void VOlapTableSink::_generate_row_distribution_payload(
     }
 }
 
+Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorized::Block* block,
+                                                  ChannelDistributionPayload& channel_to_payload,
+                                                  size_t num_rows, int32_t filtered_rows) {
+    const VOlapTablePartition* partition = nullptr;
+    uint32_t tablet_index = 0;
+    bool stop_processing = false;
+    for (int32_t i = 0; i < num_rows; ++i) {
+        if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
+            continue;
+        }
+        bool is_continue = false;
+        RETURN_IF_ERROR(find_tablet(state, block, i, &partition, tablet_index, stop_processing,
+                                    is_continue));
+        if (is_continue) {
+            continue;
+        }
+        if (config::enable_lazy_open_partition) {
+            _open_partition(partition);
+        }
+        break;
+    }
+    for (int j = 0; j < partition->indexes.size(); ++j) {
+        auto tid = partition->indexes[j].tablets[tablet_index];
+        auto it = _channels[j]->_channels_by_tablet.find(tid);
+        DCHECK(it != _channels[j]->_channels_by_tablet.end())
+                << "unknown tablet, tablet_id=" << tablet_index;
+        int64_t row_cnt = 0;
+        for (const auto& channel : it->second) {
+            if (channel_to_payload[j].count(channel.get()) < 1) {
+                channel_to_payload[j].insert(
+                        {channel.get(), Payload {std::unique_ptr<vectorized::IColumn::Selector>(
+                                                         new vectorized::IColumn::Selector()),
+                                                 std::vector<int64_t>()}});
+            }
+            auto& selector = channel_to_payload[j][channel.get()].first;
+            auto& tablet_ids = channel_to_payload[j][channel.get()].second;
+            for (int32_t i = 0; i < num_rows; ++i) {
+                if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
+                    continue;
+                }
+                selector->push_back(i);
+            }
+            tablet_ids.resize(selector->size(), tid);
+            row_cnt = selector->size();
+        }
+        _number_output_rows += row_cnt;
+    }
+    return Status::OK();
+}
+
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
@@ -1328,24 +1380,30 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         _partition_to_tablet_map.clear();
     }
     _row_distribution_watch.start();
-    for (int i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
-            continue;
-        }
-        const VOlapTablePartition* partition = nullptr;
-        bool is_continue = false;
-        uint32_t tablet_index = 0;
-        RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
-                                    is_continue));
-        if (is_continue) {
-            continue;
-        }
-        // each row
-        _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
-        // open partition
-        if (config::enable_lazy_open_partition) {
-            // aysnc open operation,don't block send operation
-            _open_partition(partition);
+    size_t partition_num = _vpartition->get_partitions().size();
+    if (partition_num == 1 && findTabletMode == FindTabletMode::FIND_TABLET_EVERY_SINK) {
+        RETURN_IF_ERROR(_single_partition_generate(state, &block, channel_to_payload, num_rows,
+                                                   filtered_rows));
+    } else {
+        for (int i = 0; i < num_rows; ++i) {
+            if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
+                continue;
+            }
+            const VOlapTablePartition* partition = nullptr;
+            bool is_continue = false;
+            uint32_t tablet_index = 0;
+            RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
+                                        is_continue));
+            if (is_continue) {
+                continue;
+            }
+            // each row
+            _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
+            // open partition
+            if (config::enable_lazy_open_partition) {
+                // aysnc open operation,don't block send operation
+                _open_partition(partition);
+            }
         }
     }
     _row_distribution_watch.stop();

@@ -122,6 +122,11 @@ public class InternalQueryResult {
             return values.get(index);
         }
 
+        public String getColumnValueWithDefault(String columnName, String defaultVal) throws DdlException {
+            String val = getColumnValue(columnName);
+            return val == null ? defaultVal : val;
+        }
+
         public Object getColumnValue(int index) throws DdlException {
             List<String> columns = getColumns();
             if (index >= 0 && index < columns.size()) {

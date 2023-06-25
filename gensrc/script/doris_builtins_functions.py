@@ -1012,6 +1012,7 @@ visible_functions = {
         [['hour'], 'TINYINT', ['DATETIMEV2'], ''],
         [['minute'], 'TINYINT', ['DATETIMEV2'], ''],
         [['second'], 'TINYINT', ['DATETIMEV2'], ''],
+        [['microsecond'], 'INT', ['DATETIMEV2'], ''],
 
         [['year'], 'SMALLINT', ['DATEV2'], ''],
         [['month'], 'TINYINT', ['DATEV2'], ''],
@@ -1753,6 +1754,7 @@ visible_functions = {
         [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
         [['json_quote'], 'VARCHAR', ['VARCHAR'], ''],
         [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['json_contains'], 'INT', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_unquote'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_extract'], 'VARCHAR', ['VARCHAR', 'VARCHAR', '...'], '']
     ],
@@ -2043,5 +2045,5 @@ null_result_with_one_null_param_functions = [
     'ST_Contains'
 ]
 
-invisible_functions = {
-}
+invisible_functions = [
+]

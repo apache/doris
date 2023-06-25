@@ -29,6 +29,7 @@ enum class InvertedIndexParserType {
     PARSER_STANDARD = 2,
     PARSER_ENGLISH = 3,
     PARSER_CHINESE = 4,
+    PARSER_UNICODE = 5,
 };
 
 struct InvertedIndexCtx {
@@ -46,6 +47,7 @@ const std::string INVERTED_INDEX_PARSER_KEY = "parser";
 const std::string INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
 const std::string INVERTED_INDEX_PARSER_NONE = "none";
 const std::string INVERTED_INDEX_PARSER_STANDARD = "standard";
+const std::string INVERTED_INDEX_PARSER_UNICODE = "unicode";
 const std::string INVERTED_INDEX_PARSER_ENGLISH = "english";
 const std::string INVERTED_INDEX_PARSER_CHINESE = "chinese";
 

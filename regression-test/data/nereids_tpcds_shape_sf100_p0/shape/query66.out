@@ -21,7 +21,7 @@ PhysicalTopN
 ------------------------------------PhysicalOlapScan[web_sales]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter(((ship_mode.sm_carrier = 'GREAT EASTERN') OR (ship_mode.sm_carrier = 'LATVIAN')))
+--------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
@@ -48,7 +48,7 @@ PhysicalTopN
 ------------------------------------PhysicalOlapScan[catalog_sales]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter(((ship_mode.sm_carrier = 'GREAT EASTERN') OR (ship_mode.sm_carrier = 'LATVIAN')))
+--------------------------------------filter(sm_carrier IN ('GREAT EASTERN', 'LATVIAN'))
 ----------------------------------------PhysicalOlapScan[ship_mode]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject

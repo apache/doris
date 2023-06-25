@@ -94,7 +94,7 @@ bool InvertedIndexReader::indexExists(io::Path& index_file_path) {
 
 std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         const std::string& field_name, const std::string& value, InvertedIndexQueryType query_type,
-        InvertedIndexCtx* inverted_index_ctx) {
+        InvertedIndexCtx* inverted_index_ctx, bool drop_duplicates) {
     std::vector<std::wstring> analyse_result;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     std::unique_ptr<lucene::util::Reader> reader;
@@ -103,6 +103,11 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
         reader.reset(
                 (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
+    } else if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
+        reader.reset(new lucene::util::SimpleInputStreamReader(
+                new lucene::util::AStringReader(value.c_str()),
+                lucene::util::SimpleInputStreamReader::UTF8));
     } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
         auto chinese_analyzer =
                 std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
@@ -143,8 +148,8 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         token_stream->close();
     }
 
-    if (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-        query_type == InvertedIndexQueryType::MATCH_ALL_QUERY) {
+    if (drop_duplicates && (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
+                            query_type == InvertedIndexQueryType::MATCH_ALL_QUERY)) {
         std::set<std::wstring> unrepeated_result(analyse_result.begin(), analyse_result.end());
         analyse_result.assign(unrepeated_result.begin(), unrepeated_result.end());
     }
