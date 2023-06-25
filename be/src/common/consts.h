@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <regex>
 #include <string>
 
 namespace doris {
@@ -29,6 +30,8 @@ const std::string BLOCK_TEMP_COLUMN_SCANNER_FILTERED = "__TEMP__scanner_filtered
 const std::string ROWID_COL = "__DORIS_ROWID_COL__";
 const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
 const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
+const std::regex COLUMN_NAME_REGEX(
+        "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,():]{0,255}$");
 
 constexpr int MAX_DECIMAL32_PRECISION = 9;
 constexpr int MAX_DECIMAL64_PRECISION = 18;

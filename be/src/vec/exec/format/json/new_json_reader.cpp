@@ -467,7 +467,13 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     _bytes_read_counter += size;
     auto& dynamic_column = block.get_columns().back()->assume_mutable_ref();
     auto& column_object = assert_cast<vectorized::ColumnObject&>(dynamic_column);
+    bool filter_this_line = false;
     auto finalize_column = [&]() -> Status {
+        // Revise column object
+        if (filter_this_line) {
+            _counter->num_rows_filtered++;
+            column_object.revise_to(_cur_parsed_variant_rows);
+        }
         size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
         if (column_object.size() >= batch_size || _reader_eof) {
             column_object.finalize();
@@ -478,6 +484,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
             // fill default values missing in static columns
             RETURN_IF_ERROR(schema_util::unfold_object(block.columns() - 1, block,
                                                        true /*cast to original column type*/));
+            _cur_parsed_variant_rows = 0;
         }
         return Status::OK();
     };
@@ -488,10 +495,23 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
         return Status::OK();
     }
 
-    RETURN_IF_CATCH_EXCEPTION(doris::vectorized::parse_json_to_variant(
-            column_object, StringRef {json_str, size}, _json_parser.get()));
+    try {
+        doris::vectorized::parse_json_to_variant(column_object, StringRef {json_str, size},
+                                                 _json_parser.get());
+        ++_cur_parsed_variant_rows;
+    } catch (const doris::Exception& e) {
+        if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+            return Status::MemoryLimitExceeded(fmt::format(
+                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
+                    e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+        } else {
+            filter_this_line = true;
+        }
+    }
+
     // TODO correctly handle data quality error
     RETURN_IF_ERROR(finalize_column());
+
     return Status::OK();
 }
 

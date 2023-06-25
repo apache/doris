@@ -865,8 +865,10 @@ void ColumnObject::finalize() {
         if (is_nothing(getBaseTypeOfArray(least_common_type))) {
             continue;
         }
-        entry->data.finalize();
-        new_subcolumns.add(entry->path, entry->data);
+        if (!entry->data.data.empty()) {
+            entry->data.finalize();
+            new_subcolumns.add(entry->path, entry->data);
+        }
     }
     /// If all subcolumns were skipped add a dummy subcolumn,
     /// because Tuple type must have at least one element.
@@ -925,6 +927,15 @@ size_t ColumnObject::filter(const Filter& filter) {
         num_rows = entry->data.get_finalized_column().filter(filter);
     }
     return num_rows;
+}
+
+void ColumnObject::revise_to(int target_num_rows) {
+    for (auto&& entry : subcolumns) {
+        if (entry->data.size() > target_num_rows) {
+            entry->data.pop_back(entry->data.size() - target_num_rows);
+        }
+    }
+    num_rows = target_num_rows;
 }
 
 template <typename ColumnInserterFn>

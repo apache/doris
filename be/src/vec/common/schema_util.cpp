@@ -241,7 +241,18 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     // TODO(lhy) more configurable
     req.__set_allow_type_conflict(true);
     req.__set_addColumns({});
+    // Deduplicate Column like `Level` and `level`
+    // TODO we will implement new version of dynamic column soon to handle this issue,
+    // also ignore column missmatch with regex
+    std::set<std::string> dedup;
     for (const auto& column_type_name : column_type_names) {
+        if (dedup.contains(to_lower(column_type_name.name))) {
+            continue;
+        }
+        if (!std::regex_match(column_type_name.name, BeConsts::COLUMN_NAME_REGEX)) {
+            continue;
+        }
+        dedup.insert(to_lower(column_type_name.name));
         TColumnDef col;
         get_column_def(column_type_name.type, column_type_name.name, &col);
         req.addColumns.push_back(col);
@@ -262,7 +273,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
                 fmt::format("Failed to do schema change, {}", res.status.error_msgs[0]));
     }
     size_t sz = res.allColumns.size();
-    if (sz < column_type_names.size()) {
+    if (sz < dedup.size()) {
         return Status::InternalError(
                 fmt::format("Unexpected result columns {}, expected at least {}",
                             res.allColumns.size(), column_type_names.size()));
