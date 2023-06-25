@@ -287,6 +287,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     memoryLimitString.length() - 1));
         } else {
             this.memoryLimitPercent = 100;
+            this.properties.put(MEMORY_LIMIT, "100");
         }
         this.initQueryQueue();
     }
