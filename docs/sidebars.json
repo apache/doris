@@ -499,9 +499,9 @@
                             "type": "category",
                             "label": "Combinators",
                             "items": [
-                                "sql-manual/sql-functions/combinators/state.md",
-                                "sql-manual/sql-functions/combinators/merge.md",
-                                "sql-manual/sql-functions/combinators/union.md"
+                                "sql-manual/sql-functions/combinators/state",
+                                "sql-manual/sql-functions/combinators/merge",
+                                "sql-manual/sql-functions/combinators/union"
                             ]
                         },
                         {
