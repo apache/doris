@@ -907,9 +907,7 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
     DCHECK_EQ(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
-        // DCHECK(_columns[i]->get_data_type() == block_data[i].column->get_data_type());
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        DCHECK_EQ(_names[i], block_data[i].name);
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_indices_from(src, row_begin, row_end);
@@ -920,9 +918,7 @@ void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length)
     DCHECK_EQ(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
-        // DCHECK(_columns[i]->get_data_type() == block_data[i].column->get_data_type());
         DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
-        DCHECK_EQ(_names[i], block_data[i].name);
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_range_from(src, row_begin, length);
