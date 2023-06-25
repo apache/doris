@@ -74,11 +74,6 @@ protected:
     Status _process_conjuncts() override;
     bool _is_key_column(const std::string& col_name) override;
 
-    Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
-                                             StringRef* constant_str,
-                                             doris::FunctionContext** fn_ctx,
-                                             PushDownType& pdt) override;
-
     PushDownType _should_push_down_bloom_filter() override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_bitmap_filter() override { return PushDownType::ACCEPTABLE; }

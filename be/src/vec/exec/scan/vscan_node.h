@@ -213,15 +213,6 @@ protected:
     virtual PushDownType _should_push_down_in_predicate(VInPredicate* in_pred,
                                                         VExprContext* expr_ctx, bool is_not_in);
 
-    virtual Status _should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                     VExprContext* expr_ctx,
-                                                     StringRef* constant_str,
-                                                     doris::FunctionContext** fn_ctx,
-                                                     PushDownType& pdt) {
-        pdt = PushDownType::UNACCEPTABLE;
-        return Status::OK();
-    }
-
     virtual bool _should_push_down_common_expr() { return false; }
 
     virtual PushDownType _should_push_down_bloom_filter() { return PushDownType::UNACCEPTABLE; }
@@ -361,9 +352,6 @@ private:
 
     Status _normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
                                     PushDownType* pdt);
-
-    Status _normalize_function_filters(VExpr* expr, VExprContext* expr_ctx, SlotDescriptor* slot,
-                                       PushDownType* pdt);
 
     bool _is_predicate_acting_on_slot(
             VExpr* expr,

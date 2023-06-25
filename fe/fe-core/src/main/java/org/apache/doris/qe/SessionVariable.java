@@ -251,6 +251,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SINGLE_REPLICA_INSERT = "enable_single_replica_insert";
 
+    public static final String ENABLE_FUNCTION_PUSHDOWN = "enable_function_pushdown";
+
     public static final String ENABLE_COMMON_EXPR_PUSHDOWN = "enable_common_expr_pushdown";
 
     public static final String FRAGMENT_TRANSMISSION_COMPRESSION_CODEC = "fragment_transmission_compression_codec";
@@ -757,8 +759,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
-    public boolean enableFunctionPushdown = false;
+    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
+    public boolean enableFunctionPushdown = true;
 
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
@@ -993,10 +995,8 @@ public class SessionVariable implements Serializable, Writable {
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
-            this.enableFunctionPushdown = false;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
-            this.enableFunctionPushdown = true;
         }
         this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {

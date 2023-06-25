@@ -341,48 +341,6 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     return Status::OK();
 }
 
-Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_call,
-                                                          VExprContext* expr_ctx,
-                                                          StringRef* constant_str,
-                                                          doris::FunctionContext** fn_ctx,
-                                                          VScanNode::PushDownType& pdt) {
-    // Now only `like` function filters is supported to push down
-    if (fn_call->fn().name.function_name != "like") {
-        pdt = PushDownType::UNACCEPTABLE;
-        return Status::OK();
-    }
-
-    const auto& children = fn_call->children();
-    doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
-    DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
-    for (size_t i = 0; i < children.size(); i++) {
-        if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
-            // not a slot ref(column)
-            continue;
-        }
-        if (!children[1 - i]->is_constant()) {
-            // only handle constant value
-            pdt = PushDownType::UNACCEPTABLE;
-            return Status::OK();
-        } else {
-            DCHECK(children[1 - i]->type().is_string_type());
-            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-            RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const ColumnConst* const_column =
-                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
-                *constant_str = const_column->get_data_at(0);
-            } else {
-                pdt = PushDownType::UNACCEPTABLE;
-                return Status::OK();
-            }
-        }
-    }
-    *fn_ctx = func_cxt;
-    pdt = PushDownType::ACCEPTABLE;
-    return Status::OK();
-}
-
 bool NewOlapScanNode::_should_push_down_common_expr() {
     return _state->enable_common_expr_pushdown() &&
            (_olap_scan_node.keyType == TKeysType::DUP_KEYS ||

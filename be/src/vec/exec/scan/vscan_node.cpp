@@ -496,9 +496,6 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt));
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bloom_filter(cur_expr, context, slot, &pdt));
-
-                                RETURN_IF_PUSH_DOWN(
-                                        _normalize_function_filters(cur_expr, context, slot, &pdt));
                             }
                         },
                         *range);
@@ -585,31 +582,6 @@ Status VScanNode::_normalize_bitmap_filter(VExpr* expr, VExprContext* expr_ctx,
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             _filter_predicates.bitmap_filters.emplace_back(slot->col_name(),
                                                            expr->get_bitmap_filter_func());
-            *pdt = temp_pdt;
-        }
-    }
-    return Status::OK();
-}
-
-Status VScanNode::_normalize_function_filters(VExpr* expr, VExprContext* expr_ctx,
-                                              SlotDescriptor* slot, PushDownType* pdt) {
-    bool opposite = false;
-    VExpr* fn_expr = expr;
-    if (TExprNodeType::COMPOUND_PRED == expr->node_type() &&
-        expr->fn().name.function_name == "not") {
-        fn_expr = fn_expr->children()[0].get();
-        opposite = true;
-    }
-
-    if (TExprNodeType::FUNCTION_CALL == fn_expr->node_type()) {
-        doris::FunctionContext* fn_ctx = nullptr;
-        StringRef val;
-        PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_function_filter(
-                reinterpret_cast<VectorizedFnCall*>(fn_expr), expr_ctx, &val, &fn_ctx, temp_pdt));
-        if (temp_pdt != PushDownType::UNACCEPTABLE) {
-            std::string col = slot->col_name();
-            _push_down_functions.emplace_back(opposite, col, fn_ctx, val);
             *pdt = temp_pdt;
         }
     }
