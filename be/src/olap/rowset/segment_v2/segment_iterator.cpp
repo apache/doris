@@ -986,7 +986,7 @@ Status SegmentIterator::_init_return_column_iterators() {
         std::set<ColumnId> del_cond_id_set;
         _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
         std::vector<bool> tmp_is_pred_column;
-        tmp_is_pred_column.resize(_schema.columns().size(), false);
+        tmp_is_pred_column.resize(_schema->columns().size(), false);
         if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
             for (auto predicate : _col_predicates) {
                 auto cid = predicate->column_id();
