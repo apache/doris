@@ -180,8 +180,12 @@ public class SingleNodePlanner {
         if (LOG.isTraceEnabled()) {
             LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
         }
+        long sqlSelectLimit = -1;
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null) {
+            sqlSelectLimit = ConnectContext.get().getSessionVariable().sqlSelectLimit;
+        }
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
-                ctx.getQueryOptions().getDefaultOrderByLimit());
+                ctx.getQueryOptions().getDefaultOrderByLimit(), sqlSelectLimit);
         Preconditions.checkNotNull(singleNodePlan);
         analyzer.getDescTbl().materializeIntermediateSlots();
         return singleNodePlan;
@@ -275,7 +279,7 @@ public class SingleNodePlanner {
             }
         } else {
             Preconditions.checkState(stmt instanceof SetOperationStmt);
-            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit);
+            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit, sqlSelectLimit);
         }
 
         // Avoid adding a sort node if the sort tuple has no materialized slots.
