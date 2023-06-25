@@ -533,8 +533,11 @@ public abstract class ScanNode extends PlanNode {
             // this happens if the olap table is in the most inner sub-query block in the cascades sub-queries
             // create a tmpSmap for the later setOutputSmap call
             ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(
-                    Lists.newArrayList(outputTupleDesc.getSlots().stream().map(slot -> new SlotRef(slot)).collect(
-                    Collectors.toList())), Lists.newArrayList(projectList));
+                    Lists.newArrayList(outputTupleDesc.getSlots().stream()
+                            .filter(slot -> slot.isMaterialized())
+                            .map(slot -> new SlotRef(slot))
+                            .collect(Collectors.toList())),
+                    Lists.newArrayList(projectList));
             Set<SlotId> allOutputSlotIds = outputTupleDesc.getSlots().stream().map(slot -> slot.getId())
                     .collect(Collectors.toSet());
             List<Expr> newRhs = Lists.newArrayList();
