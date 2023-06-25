@@ -30,9 +30,10 @@ AvroJNIReader::AvroJNIReader(RuntimeState* state, RuntimeProfile* profile,
                              const std::vector<SlotDescriptor*>& file_slot_descs)
         : _file_slot_descs(file_slot_descs), _state(state), _profile(profile), _params(params) {}
 
-AvroJNIReader::AvroJNIReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
+AvroJNIReader::AvroJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                             const TFileRangeDesc& range,
                              const std::vector<SlotDescriptor*>& file_slot_descs)
-        : _file_slot_descs(file_slot_descs), _params(params), _range(range) {}
+        : _file_slot_descs(file_slot_descs), _profile(profile), _params(params), _range(range) {}
 
 AvroJNIReader::~AvroJNIReader() = default;
 
@@ -103,7 +104,7 @@ Status AvroJNIReader::init_fetch_table_schema_reader() {
     required_param.insert(_params.properties.begin(), _params.properties.end());
     _jni_connector =
             std::make_unique<JniConnector>("org/apache/doris/avro/AvroJNIScanner", required_param);
-    return _jni_connector->open(nullptr, nullptr);
+    return _jni_connector->open(nullptr, _profile);
 }
 
 Status AvroJNIReader::get_parsed_schema(std::vector<std::string>* col_names,

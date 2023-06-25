@@ -74,7 +74,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     JNIEnv* env = nullptr;
     int batch_size = 0;
     if (!_is_table_schema) {
-        batch_size = state->batch_size();
+        batch_size = _state->batch_size();
     }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {

@@ -592,7 +592,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         case TFileFormatType::FORMAT_AVRO: {
             // file_slots is no use
             std::vector<SlotDescriptor*> file_slots;
-            reader = vectorized::AvroJNIReader::create_unique(params, range, file_slots);
+            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
+                                                              file_slots);
             ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }

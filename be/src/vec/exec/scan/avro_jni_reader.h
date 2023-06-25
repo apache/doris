@@ -60,8 +60,8 @@ public:
     /**
      * Call java side by jni to get table schema.
      */
-    AvroJNIReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  const std::vector<SlotDescriptor*>& file_slot_descs);
+    AvroJNIReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
+                  const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs);
 
     ~AvroJNIReader() override;
 
