@@ -992,11 +992,10 @@ Status SegmentIterator::_init_return_column_iterators() {
             tmp_is_pred_column[cid] = true;
         }
         // handle delete_condition
-        if (!del_cond_id_set.empty()) {
-            for (auto cid : del_cond_id_set) {
-                tmp_is_pred_column[cid] = true;
-            }
+        for (auto cid : del_cond_id_set) {
+            tmp_is_pred_column[cid] = true;
         }
+
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
