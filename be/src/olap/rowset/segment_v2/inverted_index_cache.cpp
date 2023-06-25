@@ -238,6 +238,9 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
 InvertedIndexQueryCache* InvertedIndexQueryCache::_s_instance = nullptr;
 
 bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
+    if (key.encode() == "Invalid key") {
+        return false;
+    }
     auto lru_handle = _cache->lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
@@ -257,6 +260,9 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
     cache_value_ptr->last_visit_time = UnixMillis();
     cache_value_ptr->bitmap = bitmap;
     cache_value_ptr->size = bitmap->getSizeInBytes();
+    if (key.encode() == "Invalid key") {
+        return;
+    }
 
     auto lru_handle = _cache->insert(key.encode(), (void*)cache_value_ptr.release(),
                                      bitmap->getSizeInBytes(), deleter, CachePriority::NORMAL);

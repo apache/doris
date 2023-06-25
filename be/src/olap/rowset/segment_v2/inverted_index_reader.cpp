@@ -342,8 +342,8 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 auto cache = InvertedIndexQueryCache::instance();
                 // use EQUAL_QUERY type here since cache is for each term/token
                 InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name,
-                                                             InvertedIndexQueryType::EQUAL_QUERY,
-                                                             token_ws};
+                                                             query_type, token_ws};
+                VLOG_DEBUG << "cache_key:" << cache_key.encode();
                 InvertedIndexQueryCacheHandle cache_handle;
                 if (cache->lookup(cache_key, &cache_handle)) {
                     stats->inverted_index_query_cache_hit++;

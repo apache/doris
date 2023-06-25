@@ -25,6 +25,8 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <codecvt>
+#include <locale>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
@@ -32,9 +34,11 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "inverted_index_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -183,7 +187,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexCacheHandle);
 };
 
-enum class InvertedIndexQueryType;
 class InvertedIndexQueryCacheHandle;
 
 class InvertedIndexQueryCache {
@@ -201,9 +204,15 @@ public:
             key_buf.append("/");
             key_buf.append(column_name);
             key_buf.append("/");
-            key_buf.append(1, static_cast<char>(query_type));
+            auto query_type_str = InvertedIndexQueryType_toString(query_type);
+            if (query_type_str == "Invalid query type") {
+                return "Invalid key";
+            }
+            key_buf.append(query_type_str);
             key_buf.append("/");
-            key_buf.append(lucene::util::Misc::toString(value.c_str()));
+            std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+            auto str = converter.to_bytes(value);
+            key_buf.append(str);
             return key_buf;
         }
     };
