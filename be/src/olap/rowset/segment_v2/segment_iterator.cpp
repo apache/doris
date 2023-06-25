@@ -987,16 +987,14 @@ Status SegmentIterator::_init_return_column_iterators() {
         _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
         std::vector<bool> tmp_is_pred_column;
         tmp_is_pred_column.resize(_schema->columns().size(), false);
-        if (!_col_predicates.empty() || !del_cond_id_set.empty()) {
-            for (auto predicate : _col_predicates) {
-                auto cid = predicate->column_id();
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        if (!del_cond_id_set.empty()) {
+            for (auto cid : del_cond_id_set) {
                 tmp_is_pred_column[cid] = true;
-            }
-            // handle delete_condition
-            if (!del_cond_id_set.empty()) {
-                for (auto cid : del_cond_id_set) {
-                    tmp_is_pred_column[cid] = true;
-                }
             }
         }
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
