@@ -2089,7 +2089,7 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
             if (num_read == batch_size && num_read != remaining) {
                 num_read -= 1;
             }
-            for (size_t i = 0; i < num_read; i++) {
+            for (size_t i = 0; i < num_read; i++, row_id++) {
                 Slice key =
                         Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
                 RowLocation loc;
@@ -2099,16 +2099,16 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                                                         &loc);
                     if (st.ok()) {
                         delete_bitmap->add({rowset_id, loc.segment_id, 0}, loc.row_id);
+                        continue;
                     } else if (st.is<ALREADY_EXIST>()) {
                         delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
+                        continue;
                     } else if (!st.is<NOT_FOUND>()) {
                         // some unexpected error
                         LOG(WARNING) << "some unexpected error happen while looking up keys "
                                      << "in pre segments: " << st;
                         return st;
                     }
-                    ++row_id;
-                    continue;
                 }
 
                 if (specified_rowset_ids != nullptr && !specified_rowset_ids->empty()) {
@@ -2120,7 +2120,6 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                         return st;
                     }
                     if (st.is<NOT_FOUND>()) {
-                        ++row_id;
                         continue;
                     }
 
@@ -2141,7 +2140,6 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                     // the real version number later.
                     delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
                 }
-                ++row_id;
             }
             remaining -= num_read;
         }
