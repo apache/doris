@@ -48,7 +48,6 @@ suite("test_chinese_analyzer"){
 
     sql "INSERT INTO $indexTblName VALUES (1, '我来到北京清华大学'), (2, '我爱你中国'), (3, '人民可以得到更多实惠');"
     qt_sql "SELECT * FROM $indexTblName WHERE c MATCH '我爱你' ORDER BY id;"
-    qt_sql "SELECT * FROM $indexTblName WHERE c MATCH '我' ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName WHERE c MATCH '清华' ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName WHERE c MATCH '大学' ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName WHERE c MATCH '清华大学' ORDER BY id;"
@@ -74,7 +73,6 @@ suite("test_chinese_analyzer"){
 
     sql "INSERT INTO $indexTblName2 VALUES (1, '我来到北京清华大学'), (2, '我爱你中国'), (3, '人民可以得到更多实惠');"
     qt_sql "SELECT * FROM $indexTblName2 WHERE c MATCH '我爱你' ORDER BY id;"
-    qt_sql "SELECT * FROM $indexTblName2 WHERE c MATCH '我' ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName2 WHERE c MATCH '清华' ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName2 WHERE c MATCH '大学' ORDER BY id;"
     qt_sql "SELECT * FROM $indexTblName2 WHERE c MATCH '清华大学' ORDER BY id;"

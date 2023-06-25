@@ -166,8 +166,8 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions) {
-        return partitions == null
-                ? null
+        return partitions.isEmpty()
+                ? ImmutableList.of()
                 : partitions.stream().map(pn -> {
                     Partition partition = table.getPartition(pn);
                     if (partition == null) {
@@ -179,7 +179,7 @@ public class BindInsertTargetTable extends OneAnalysisRuleFactory {
     }
 
     private List<Column> bindTargetColumns(OlapTable table, List<String> colsName) {
-        return colsName == null
+        return colsName.isEmpty()
                 ? table.getFullSchema().stream().filter(column -> column.isVisible()
                         && !column.isMaterializedViewColumn())
                 .collect(Collectors.toList())

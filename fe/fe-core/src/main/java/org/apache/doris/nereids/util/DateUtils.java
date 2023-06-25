@@ -158,7 +158,7 @@ public class DateUtils {
                 getOrDefault(accessor, ChronoField.HOUR_OF_DAY),
                 getOrDefault(accessor, ChronoField.MINUTE_OF_HOUR),
                 getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE),
-                1000 * getOrDefault(accessor, ChronoField.MICRO_OF_SECOND));
+                getOrDefault(accessor, ChronoField.NANO_OF_SECOND));
     }
 
     public static int getOrDefault(final TemporalAccessor accessor, final ChronoField field) {
