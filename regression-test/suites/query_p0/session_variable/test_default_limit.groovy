@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_dafault_limit') {
-    sql 'use nereids_insert_into_table_test'
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
+suite('test_default_limit') {
+    sql 'use test_query_db'
 
     def res = sql 'select * from baseall'
     assertTrue(res.size() == 16)
@@ -26,56 +24,57 @@ suite('test_dafault_limit') {
     sql 'set default_order_by_limit = 10'
     sql 'set sql_select_limit = 5'
 
-    res = 'select * from baseall'
+    res = sql 'select * from baseall'
     assertTrue(res.size() == 5)
-    res = 'select * from baseall order by k1'
+    res = sql 'select * from baseall order by k1'
     assertTrue(res.size() == 5)
-    res = 'select * from baseall limit 7'
+    res = sql 'select * from baseall limit 7'
     assertTrue(res.size() == 7)
 
     sql 'set default_order_by_limit = 5'
     sql 'set sql_select_limit = 10'
 
-    res = 'select * from baseall'
+    res = sql 'select * from baseall'
     assertTrue(res.size() == 10)
-    res = 'select * from baseall order by k1'
+    res = sql 'select * from baseall order by k1'
     assertTrue(res.size() == 5)
-    res = 'select * from baseall limit 7'
+    res = sql 'select * from baseall limit 7'
     assertTrue(res.size() == 7)
 
     sql 'set sql_select_limit = -1'
 
-    res = 'select * from baseall'
+    res = sql 'select * from baseall'
     assertTrue(res.size() == 16)
-    res = 'select * from baseall limit 7'
+    res = sql 'select * from baseall limit 7'
     assertTrue(res.size() == 7)
 
     sql 'set sql_select_limit = -10'
 
-    res = 'select * from baseall'
+    res = sql 'select * from baseall'
     assertTrue(res.size() == 16)
-    res = 'select * from baseall limit 7'
+    res = sql 'select * from baseall limit 7'
     assertTrue(res.size() == 7)
 
     sql 'set sql_select_limit = 0'
 
-    res = 'select * from baseall'
+    res = sql 'select * from baseall'
     assertTrue(res.size() == 0)
-    res = 'select * from baseall limit 7'
+    res = sql 'select * from baseall limit 7'
     assertTrue(res.size() == 7)
 
+    sql 'set sql_select_limit = 5'
     sql 'set default_order_by_limit = -1'
 
-    res = 'select * from baseall order by k1'
-    assertTrue(res.size() == 10)
+    res = sql 'select * from baseall order by k1'
+    assertEquals(res.size(), 5)
 
     sql 'set default_order_by_limit = -10'
 
-    res = 'select * from baseall order by k1'
-    assertTrue(res.size() == 10)
+    res = sql 'select * from baseall order by k1'
+    assertTrue(res.size() == 5)
 
     sql 'set default_order_by_limit = 0'
 
-    res = 'select * from baseall order by k1'
+    res = sql 'select * from baseall order by k1'
     assertTrue(res.size() == 0)
 }
