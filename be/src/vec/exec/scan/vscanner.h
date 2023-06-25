@@ -108,6 +108,8 @@ public:
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
+    int64_t get_scanner_wait_worker_timer() { return _scanner_wait_worker_timer; }
+
     void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 
     RuntimeState* runtime_state() { return _state; }
