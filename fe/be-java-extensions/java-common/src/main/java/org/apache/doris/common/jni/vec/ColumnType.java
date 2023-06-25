@@ -258,6 +258,9 @@ public class ColumnType {
             case "largeint":
                 type = Type.LARGEINT;
                 break;
+            case "long":
+                type = Type.BIGINT;
+                break;
             case "float":
                 type = Type.FLOAT;
                 break;

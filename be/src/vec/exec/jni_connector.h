@@ -168,6 +168,17 @@ public:
         _connector_name = split(_connector_class, "/").back();
     }
 
+    /**
+     * Just use to get the table schema.
+     * @param connector_class Java scanner class
+     * @param scanner_params Provided configuration map
+     */
+    JniConnector(std::string connector_class, std::map<std::string, std::string> scanner_params)
+            : _connector_class(std::move(connector_class)),
+              _scanner_params(std::move(scanner_params)) {
+        _is_table_schema = true;
+    }
+
     /// Should release jni resources if other functions are failed.
     ~JniConnector();
 
@@ -206,6 +217,17 @@ public:
     std::map<std::string, std::string> get_statistics(JNIEnv* env);
 
     /**
+     * Call java side function JniScanner.getTableSchema.
+     *
+     * The schema information are stored as a string.
+     * Use # between column names and column types.
+     *
+     * like: col_name1,col_name2,col_name3#col_type1,col_type2.col_type3
+     *
+     */
+    Status get_table_schema(std::string& table_schema_str);
+
+    /**
      * Close scanner and release jni resources.
      */
     Status close();
@@ -222,6 +244,7 @@ private:
     std::string _connector_class;
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
+    bool _is_table_schema = false;
 
     RuntimeState* _state;
     RuntimeProfile* _profile;
@@ -237,6 +260,7 @@ private:
     jobject _jni_scanner_obj;
     jmethodID _jni_scanner_open;
     jmethodID _jni_scanner_get_next_batch;
+    jmethodID _jni_scanner_get_table_schema;
     jmethodID _jni_scanner_close;
     jmethodID _jni_scanner_release_column;
     jmethodID _jni_scanner_release_table;
