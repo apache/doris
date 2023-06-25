@@ -289,7 +289,7 @@ public:
         return Status::OK();
     }
 
-    bool is_pending_finish() const override { return _sink->is_pending_finish(); }
+    bool is_pending_finish() const override { return !_sink->is_close_done(); }
 
     Status close(RuntimeState* state) override {
         if (is_closed()) {

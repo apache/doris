@@ -69,7 +69,7 @@ public:
 
     virtual void try_close(RuntimeState* state, Status exec_status) {}
 
-    virtual bool is_pending_finish() { return false; }
+    virtual bool is_close_done() { return true; }
 
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().

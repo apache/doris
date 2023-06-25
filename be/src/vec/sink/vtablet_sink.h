@@ -250,7 +250,7 @@ public:
     // 2. just cancel()
     void mark_close();
 
-    bool is_pending_finish() const;
+    bool is_close_done() const;
 
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
@@ -269,7 +269,6 @@ public:
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    // if is_pending_finish() return false, close_wait() will not block, otherwise close_wait() will block
     Status close_wait(RuntimeState* state);
 
     void cancel(const std::string& cancel_msg);
@@ -487,7 +486,7 @@ public:
     Status open(RuntimeState* state) override;
 
     void try_close(RuntimeState* state, Status exec_status) override;
-    bool is_pending_finish() override { return _pending_finish; }
+    bool is_close_done() override { return _close_done; }
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
@@ -646,8 +645,8 @@ private:
     int32_t _send_batch_parallelism = 1;
     // Save the status of try_close() and close() method
     Status _close_status;
-    // Use in pipeline, if false, all node channels are done or canceled, can start close().
-    bool _pending_finish = true;
+    // Use in pipeline, if true, all node channels are done or canceled, can start close().
+    bool _close_done = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;

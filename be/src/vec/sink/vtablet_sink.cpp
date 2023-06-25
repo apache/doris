@@ -903,8 +903,8 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     request.release_id();
 }
 
-bool VNodeChannel::is_pending_finish() const {
-    return (!_add_batches_finished && !_cancelled) || !open_partition_finished();
+bool VNodeChannel::is_close_done() const {
+    return (_add_batches_finished || _cancelled) && open_partition_finished();
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
@@ -927,7 +927,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    // In pipeline, is_pending_finish() is false at this time, will not bock.
+    // In pipeline, is_close_done() is false at this time, will not bock.
     while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
         // std::this_thread::sleep_for(std::chrono::milliseconds(1));
         bthread_usleep(1000);
@@ -1495,7 +1495,7 @@ void VOlapTableSink::_cancel_all_channel(Status status) {
 }
 
 void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
-    if (!_pending_finish) {
+    if (_close_done) {
         return;
     }
     SCOPED_TIMER(_close_timer);
@@ -1528,16 +1528,16 @@ void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
-        _pending_finish = false;
+        _close_done = true;
     } else {
-        bool pending_finish = false;
+        bool close_done = true;
         for (const auto& index_channel : _channels) {
             index_channel->for_each_node_channel(
-                    [&pending_finish](const std::shared_ptr<VNodeChannel>& ch) {
-                        pending_finish |= ch->is_pending_finish();
+                    [&close_done](const std::shared_ptr<VNodeChannel>& ch) {
+                        close_done &= ch->is_close_done();
                     });
         }
-        _pending_finish = pending_finish;
+        _close_done = close_done;
     }
 }
 
