@@ -203,8 +203,8 @@ public:
             key_buf.append(column_name);
             key_buf.append("/");
             auto query_type_str = InvertedIndexQueryType_toString(query_type);
-            if (query_type_str == "Invalid query type") {
-                return "Invalid key";
+            if (query_type_str.empty()) {
+                return "";
             }
             key_buf.append(query_type_str);
             key_buf.append("/");
