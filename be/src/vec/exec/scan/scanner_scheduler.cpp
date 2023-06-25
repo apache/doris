@@ -36,6 +36,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "scan_task_queue.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/blocking_queue.hpp"
 #include "util/cpu_info.h"
@@ -80,6 +81,7 @@ ScannerScheduler::~ScannerScheduler() {
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
     _limited_scan_thread_pool->shutdown();
+    _group_local_scan_thread_pool->shutdown();
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
@@ -88,6 +90,9 @@ ScannerScheduler::~ScannerScheduler() {
         delete _pending_queues[i];
     }
     delete[] _pending_queues;
+
+    _task_group_local_scan_queue->close();
+    _group_local_scan_thread_pool->wait();
 }
 
 Status ScannerScheduler::init(ExecEnv* env) {
@@ -126,6 +131,19 @@ Status ScannerScheduler::init(ExecEnv* env) {
             .build(&_limited_scan_thread_pool);
 
     _register_metrics();
+
+    // 5. task group local scan
+    _task_group_local_scan_queue = std::make_unique<taskgroup::ScanTaskTaskGroupQueue>(
+            config::doris_scanner_thread_pool_thread_num);
+    ThreadPoolBuilder("local_scan_group")
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+            .build(&_group_local_scan_thread_pool);
+    for (int i = 0; i < config::doris_scanner_thread_pool_thread_num; i++) {
+        _group_local_scan_thread_pool->submit_func([this] {
+            this->_task_group_scanner_scan(this, _task_group_local_scan_queue.get());
+        });
+    }
 
     _is_init = true;
     return Status::OK();
@@ -219,12 +237,20 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                    PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
-                    };
-                    task.priority = nice;
-                    ret = _local_scan_thread_pool->offer(task);
+                    if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
+                        auto work_func = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        taskgroup::ScanTask scan_task = {work_func, ctx, nice};
+                        ret = _task_group_local_scan_queue->push_back(scan_task);
+                    } else {
+                        PriorityThreadPool::Task task;
+                        task.work_function = [this, scanner = *iter, ctx] {
+                            this->_scanner_scan(this, ctx, scanner);
+                        };
+                        task.priority = nice;
+                        ret = _local_scan_thread_pool->offer(task);
+                    }
                 } else {
                     ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
@@ -436,6 +462,22 @@ void ScannerScheduler::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num);
     DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num);
+}
+
+void ScannerScheduler::_task_group_scanner_scan(ScannerScheduler* scheduler,
+                                                taskgroup::ScanTaskTaskGroupQueue* scan_queue) {
+    while (!_is_closed) {
+        taskgroup::ScanTask scan_task;
+        auto success = scan_queue->take(&scan_task);
+        if (success) {
+            int64_t time_spent = 0;
+            {
+                SCOPED_RAW_TIMER(&time_spent);
+                scan_task.scan_func();
+            }
+            scan_queue->update_statistics(scan_task, time_spent);
+        }
+    }
 }
 
 } // namespace doris::vectorized
