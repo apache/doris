@@ -19,14 +19,13 @@
 
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/util/Misc.h>
+#include <CLucene/config/repl_wchar.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <atomic>
-#include <codecvt>
-#include <locale>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
@@ -204,13 +203,12 @@ public:
             key_buf.append(column_name);
             key_buf.append("/");
             auto query_type_str = InvertedIndexQueryType_toString(query_type);
-            if (query_type_str.empty()) {
-                return "";
+            if (query_type_str == "Invalid query type") {
+                return "Invalid key";
             }
             key_buf.append(query_type_str);
             key_buf.append("/");
-            std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
-            auto str = converter.to_bytes(value);
+            auto str = lucene_wcstoutf8string(value.c_str(), value.length());
             key_buf.append(str);
             return key_buf;
         }
