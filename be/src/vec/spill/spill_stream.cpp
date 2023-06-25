@@ -19,6 +19,8 @@
 
 #include <glog/logging.h>
 
+#include <chrono>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 
@@ -97,18 +99,50 @@ void SpillStream::unpin() {
     in_mem_blocks_.clear();
 }
 
-Status SpillStream::spill() {
+void SpillStream::spill() {
+    DCHECK(!spill_promise_);
     spilled_ = true;
+    spill_promise_ = std::make_unique<std::promise<Status>>();
     std::lock_guard l(lock_);
     for (auto& block : dirty_blocks_) {
         block->spilled_ = true;
         block->fd_ = fd_;
         block->offset_ = writer_->get_written_bytes();
-        RETURN_IF_ERROR(writer_->write(block->block_, block->spill_data_size_));
+        auto st = writer_->write(block->block_, block->spill_data_size_);
+        if (!st.ok()) {
+            spill_promise_->set_value(st);
+            return;
+        }
         block->block_.swap(Block());
         spilled_blocks_.emplace_back(block);
     }
-    return Status::OK();
+    spill_promise_->set_value(Status::OK());
+}
+
+bool SpillStream::is_spilling() {
+    if (spill_promise_) {
+        auto future = spill_promise_->get_future();
+        auto status = future.wait_for(std::chrono::milliseconds(10));
+        if (status == std::future_status::ready) {
+            spill_status_ = future.get();
+            spill_promise_ = nullptr;
+            return true;
+        } else {
+            return false;
+        }
+    }
+    return false;
+}
+size_t SpillStream::spillable_data_size() {
+    size_t size = 0;
+    std::lock_guard l(lock_);
+    for (const auto& block : in_mem_blocks_) {
+        size += block->block_.allocated_bytes();
+    }
+    for (const auto& block : dirty_blocks_) {
+        size += block->block_.allocated_bytes();
+    }
+    return size;
 }
 
 Status SpillStream::get_next(Block* block, bool* eos) {

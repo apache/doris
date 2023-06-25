@@ -42,7 +42,9 @@ namespace vectorized {
 static const std::string SPILL_DIR = "spill";
 static const std::string SPILL_GC_DIR = "spill_gc";
 
-SpillStreamManager::SpillStreamManager(const std::vector<StorePath>& paths) : _store_paths(paths) {}
+SpillStreamManager::SpillStreamManager(const std::vector<StorePath>& paths) : _store_paths(paths) {
+    io_thread_pool_ = ExecEnv::GetInstance()->spill_io_pool();
+}
 
 Status SpillStreamManager::init() {
     for (const auto& path : _store_paths) {
@@ -66,11 +68,25 @@ Status SpillStreamManager::init() {
     }
     return Status::OK();
 }
-Status SpillStreamManager::gc() {
-    // pick streams to spill
-    for (auto& stream : id_to_spill_streams_) {
-        RETURN_IF_ERROR(stream.second->spill());
+
+/*
+Status SpillStreamManager::spill_thread() {
+    while (true) {
+        std::lock_guard<std::mutex> l(lock_);
+        if (!spill_streams_.empty()) {
+            auto stream = spill_streams_.begin();
+            RETURN_IF_ERROR(stream->second->spill());
+            spill_streams_.erase(stream);
+        }
     }
+    return Status::OK();
+}
+*/
+
+Status SpillStreamManager::spill_stream(SpillStreamSPtr spill_stream) {
+    auto status = io_thread_pool_->submit_func([spill_stream] {
+        spill_stream->spill();
+    });
     return Status::OK();
 }
 

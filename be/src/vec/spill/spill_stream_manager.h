@@ -45,13 +45,19 @@ public:
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
-    Status gc();
+    Status spill_stream(SpillStreamSPtr spill_stream);
+
+    Status spill_thread();
 
 private:
     std::vector<StorePath> _store_paths;
+    ThreadPool* io_thread_pool_;
     std::mutex lock_;
     int64_t id_ = 0;
+    // all the stream
     std::unordered_map<int64_t, SpillStreamSPtr> id_to_spill_streams_;
+    // streams that need to spill
+    std::unordered_map<int64_t, SpillStreamSPtr> spill_streams_;
 };
 } // namespace vectorized
 } // namespace doris

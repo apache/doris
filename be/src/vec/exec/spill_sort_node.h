@@ -51,6 +51,10 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override;
 
+    size_t revokable_mem_size() const override;
+
+    Status revoke_memory() override;
+
     bool io_task_finished();
 
 private:
@@ -61,17 +65,22 @@ private:
     void update_spill_block_batch_size(const Block* block);
     Status _prepare_for_pull(RuntimeState* state);
     Status _create_intermediate_merger(int num_blocks, const SortDescription& sort_description);
+    Status _release_in_mem_sorted_blocks();
 
     RuntimeState* state_;
+    ThreadPool* io_thread_pool_;
+    Status status_;
+    std::unique_ptr<std::promise<Status>> spill_merge_promise_;
+    bool sink_eos_ = false;
     int64_t _offset;
     TPlanNode t_plan_node_;
     DescriptorTbl desc_tbl_;
     InMemorySortNodeUPtr in_memory_sort_node_;
+    SpillStreamSPtr spilling_stream_;
     std::deque<SpillStreamSPtr> sorted_streams_;
     std::vector<SpillStreamSPtr> current_merging_streams_;
     size_t avg_row_bytes_ = 0;
     int spill_block_batch_size_;
-    bool ready_for_pull_ = false;
     Block merge_sorted_block_;
     std::unique_ptr<VSortedRunMerger> merger_;
 };

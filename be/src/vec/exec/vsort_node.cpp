@@ -23,6 +23,7 @@
 #include <opentelemetry/nostd/shared_ptr.h>
 
 #include <atomic>
+#include <cstddef>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -132,6 +133,10 @@ Status VSortNode::alloc_resource(doris::RuntimeState* state) {
     return Status::OK();
 }
 
+size_t VSortNode::revokable_mem_size() const {
+    return _sorter->data_size();
+}
+
 Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool eos) {
     if (input_block->rows() > 0) {
         RETURN_IF_ERROR(_sorter->append_block(input_block));
@@ -171,7 +176,6 @@ Status VSortNode::release_sorted_blocks(RuntimeState* state, Blocks& blocks, int
     RETURN_IF_ERROR(_sorter->prepare_for_read());
 
     bool eos = false;
-    // merge blocks in memory and write merge result to disk
     while (!eos) {
         Block block;
         RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(state, &block, batch_size, &eos));

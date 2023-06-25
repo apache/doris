@@ -82,6 +82,8 @@ public:
 
     const SortDescription& get_sort_description() { return _sorter->get_sort_description(); }
 
+    size_t revokable_mem_size() const override;
+
 protected:
     void debug_string(int indentation_level, std::stringstream* out) const override;
 

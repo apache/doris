@@ -246,6 +246,10 @@ public:
 
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
+    virtual size_t revokable_mem_size() const { return 0; }
+
+    virtual Status revoke_memory() { return Status::OK(); };
+
 protected:
     OperatorBuilderBase* _operator_builder;
     OperatorPtr _child;
@@ -298,6 +302,10 @@ public:
     Status finalize(RuntimeState* state) override { return Status::OK(); }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
+
+    size_t revokable_mem_size() const override { return _sink->revokable_mem_size(); }
+
+    Status revoke_memory() override { return Status::OK(); };
 
 protected:
     NodeType* _sink;
@@ -365,6 +373,10 @@ public:
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         return _node->runtime_profile();
     }
+
+    size_t revokable_mem_size() const override { return _node->revokable_mem_size(); }
+
+    Status revoke_memory() override { return _node->revoke_memory(); };
 
 protected:
     NodeType* _node;

@@ -98,6 +98,10 @@ public:
         _query_statistics = statistics;
     }
 
+    virtual size_t revokable_mem_size() const { return 0; }
+
+    virtual Status revoke_memory() { return Status::OK(); }
+
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().

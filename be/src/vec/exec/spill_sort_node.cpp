@@ -29,7 +29,9 @@ SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const Des
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
           t_plan_node_(tnode),
-          desc_tbl_(descs) {}
+          desc_tbl_(descs) {
+    io_thread_pool_ = ExecEnv::GetInstance()->spill_io_pool();
+}
 
 Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     state_ = state;
@@ -82,33 +84,64 @@ void SpillSortNode::update_spill_block_batch_size(const Block* block) {
                 (SORT_BLOCK_SPILL_BATCH_BYTES + avg_row_bytes_ - 1) / avg_row_bytes_;
     }
 }
+
+size_t SpillSortNode::revokable_mem_size() const {
+    size_t size = in_memory_sort_node_->revokable_mem_size();
+    return size;
+}
+
+Status SpillSortNode::_release_in_mem_sorted_blocks() {
+    Blocks blocks;
+    RETURN_IF_ERROR(
+            in_memory_sort_node_->release_sorted_blocks(state_, blocks, spill_block_batch_size_));
+
+    SpillStreamSPtr stream;
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
+            stream, print_id(state_->query_id()), "sort", id(), spill_block_batch_size_,
+            SORT_BLOCK_SPILL_BATCH_BYTES, runtime_profile()));
+    RETURN_IF_ERROR(stream->add_blocks(std::move(blocks), false));
+    sorted_streams_.emplace_back(stream);
+    return Status::OK();
+}
+
+Status SpillSortNode::revoke_memory() {
+    RETURN_IF_ERROR(_release_in_mem_sorted_blocks());
+    spilling_stream_ = sorted_streams_.back();
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->spill_stream(spilling_stream_));
+    return Status::WaitForIO("Spilling");
+}
+
+bool SpillSortNode::io_task_finished() {
+    if (spilling_stream_) {
+        if (spilling_stream_->is_spilling()) {
+            return false;
+        } else {
+            spilling_stream_.reset();
+            return true;
+        }
+    } else if (sink_eos_) {
+        if (spill_merge_promise_) {
+            auto future = spill_merge_promise_->get_future();
+            auto status = future.wait_for(std::chrono::milliseconds(10));
+            if (status == std::future_status::ready) {
+                spill_merge_promise_ = nullptr;
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return true;
+        }
+    } else {
+        return true;
+    }
+}
 Status SpillSortNode::sink(RuntimeState* state, Block* input_block, bool eos) {
+    sink_eos_ = eos;
     Status st;
     if (input_block->rows() > 0) {
         update_spill_block_batch_size(input_block);
-        st = in_memory_sort_node_->sink(state, input_block, false);
-        if (!st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-            RETURN_IF_ERROR(st);
-        }
-    }
-    if (eos || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-        SpillStreamSPtr stream;
-        RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                stream, print_id(state->query_id()), "sort", id(), spill_block_batch_size_,
-                SORT_BLOCK_SPILL_BATCH_BYTES, runtime_profile()));
-        Blocks blocks;
-        st = in_memory_sort_node_->release_sorted_blocks(state, blocks, spill_block_batch_size_);
-
-        if (in_memory_sort_node_->is_append_block_oom()) {
-            Block sorted_block;
-            SortDescription sort_description;
-            RETURN_IF_ERROR(
-                    in_memory_sort_node_->sort_block(*input_block, sorted_block, sort_description));
-            blocks.emplace_back(std::move(sorted_block));
-        }
-
-        RETURN_IF_ERROR(stream->add_blocks(std::move(blocks), false));
-        sorted_streams_.emplace_back(stream);
+        RETURN_IF_ERROR(in_memory_sort_node_->sink(state, input_block, false));
     }
     if (eos) {
         LOG(WARNING) << "spill sort eos";
@@ -118,37 +151,56 @@ Status SpillSortNode::sink(RuntimeState* state, Block* input_block, bool eos) {
 }
 
 Status SpillSortNode::_prepare_for_pull(RuntimeState* state) {
+    RETURN_IF_ERROR(_release_in_mem_sorted_blocks());
+
     if (sorted_streams_.size() < 2) {
-        ready_for_pull_ = true;
         LOG(WARNING) << "spill sort one stream";
         return Status::OK();
     }
-    auto sort_description = in_memory_sort_node_->get_sort_description();
-    while (true) {
-        int max_stream_count = (sorted_streams_.size() + 1) / 2;
-        max_stream_count = std::max(2, max_stream_count);
-        RETURN_IF_ERROR(_create_intermediate_merger(max_stream_count, sort_description));
-        // all the remaining streams can be merged in a run
-        if (sorted_streams_.empty()) {
-            LOG(WARNING) << "spill sort final merge";
-            break;
-        }
+    spill_merge_promise_ = std::make_unique<std::promise<Status>>();
+    auto status = io_thread_pool_->submit_func([this, state] {
+        Defer defer {[&]() { spill_merge_promise_->set_value(status_); }};
+        auto sort_description = in_memory_sort_node_->get_sort_description();
+        while (true) {
+            int max_stream_count = (sorted_streams_.size() + 1) / 2;
+            max_stream_count = std::max(2, max_stream_count);
+            max_stream_count = std::min(32, max_stream_count);
+            status_ = _create_intermediate_merger(max_stream_count, sort_description);
+            if (!status_.ok()) {
+                return;
+            }
+            // all the remaining streams can be merged in a run
+            if (sorted_streams_.empty()) {
+                LOG(WARNING) << "spill sort final merge";
+                break;
+            }
 
-        LOG(WARNING) << "spill sort merge intermediate streams";
-        SpillStreamSPtr stream;
-        RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                stream, print_id(state->query_id()), "sort", id(), spill_block_batch_size_,
-                SORT_BLOCK_SPILL_BATCH_BYTES, runtime_profile()));
+            LOG(WARNING) << "spill sort merge intermediate streams";
+            SpillStreamSPtr stream;
+            status_ = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
+                    stream, print_id(state->query_id()), "sort", id(), spill_block_batch_size_,
+                    SORT_BLOCK_SPILL_BATCH_BYTES, runtime_profile());
+            if (!status_.ok()) {
+                return;
+            }
 
-        bool eos = false;
-        while (!eos) {
-            merge_sorted_block_.clear_column_data();
-            RETURN_IF_ERROR(merger_->get_next(&merge_sorted_block_, &eos));
-            RETURN_IF_ERROR(stream->add_blocks({merge_sorted_block_}, false));
+            bool eos = false;
+            while (!eos) {
+                merge_sorted_block_.clear_column_data();
+                status_ = merger_->get_next(&merge_sorted_block_, &eos);
+                if (!status_.ok()) {
+                    return;
+                }
+                status_ = stream->add_blocks({merge_sorted_block_}, false);
+                if (!status_.ok()) {
+                    return;
+                }
+            }
+            sorted_streams_.emplace_back(stream);
         }
-        sorted_streams_.emplace_back(stream);
-    }
-    return Status::OK();
+    });
+    RETURN_IF_ERROR(status);
+    return Status::WaitForIO("merging spilled blocks");
 }
 
 Status SpillSortNode::_create_intermediate_merger(int num_blocks,
@@ -171,13 +223,10 @@ Status SpillSortNode::_create_intermediate_merger(int num_blocks,
     return Status::OK();
 }
 
-bool SpillSortNode::io_task_finished() {
-    return true;
-}
 Status SpillSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    if (!ready_for_pull_) {
+    if (!io_task_finished()) {
         LOG(WARNING) << "spill sort pull, not ready";
-        return Status::OK();
+        return Status::WaitForIO("merging spilled blocks");
     }
     if (sorted_streams_.size() < 2) {
         LOG(WARNING) << "spill sort pull, one stream";

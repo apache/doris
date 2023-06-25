@@ -475,7 +475,7 @@ Status GraceHashJoinNode::_prepare_spilled_probe(RuntimeState* state, bool* eos)
 #define CHECK_STATUS(st)    \
     do {                    \
         _update_status(st); \
-        if (!st.ok()) {     \
+        if (!status_.ok()) {     \
             return;         \
         }                   \
     } while (0)

@@ -94,15 +94,19 @@ public:
     // write blocks_ to disk asynchronously
     // Status flush(const flush_stream_callback& cb);
 
-    Status spill();
+    void spill();
 
     Status restore();
+
+    bool is_spilling();
 
     bool is_spilled() const { return spilled_; }
 
     int64_t id() const { return stream_id_; }
 
     int64_t total_bytes() const { return total_bytes_; }
+
+    size_t spillable_data_size();
 
     bool has_in_memory_blocks();
 
@@ -142,6 +146,8 @@ private:
 
     // protect in_mem_blocks_, dirty_blocks_ and write_in_flight_blocks_
     std::mutex lock_;
+    std::unique_ptr<std::promise<Status>> spill_promise_;
+    Status spill_status_;
     std::condition_variable write_complete_cv_;
     std::deque<SpillableBlockSPtr> in_mem_blocks_;
     std::deque<SpillableBlockSPtr> dirty_blocks_;

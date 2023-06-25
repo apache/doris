@@ -197,6 +197,10 @@ public:
 
     virtual void prepare_for_next() {}
 
+    virtual size_t revokable_mem_size() const { return 0; }
+
+    virtual Status revoke_memory() { return Status::OK(); }
+
     // When the agg node is the scan node direct parent,
     // we directly return agg object from scan node to agg node,
     // and don't serialize the agg object.

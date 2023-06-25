@@ -82,6 +82,10 @@ public:
         return _exec_node->runtime_profile();
     }
 
+    size_t revokable_mem_size() const override { return 0; }
+
+    Status revoke_memory() override { return Status::OK(); };
+
 private:
     ExecNode* _exec_node = nullptr;
 };
