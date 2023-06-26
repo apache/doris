@@ -994,7 +994,7 @@ DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "true");
+DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
 // In the case of time series compaction, the execution of compaction is adjusted
