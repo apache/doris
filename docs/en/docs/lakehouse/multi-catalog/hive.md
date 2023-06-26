@@ -30,14 +30,16 @@ By connecting to Hive Metastore, or a metadata service compatible with Hive Meta
 
 In addition to Hive, many other systems also use the Hive Metastore to store metadata. So through Hive Catalog, we can not only access Hive, but also access systems that use Hive Metastore as metadata storage. Such as Iceberg, Hudi, etc.
 
-## Limitations
+## Terms and Conditions
 
-1. Need to put core-site.xml, hdfs-site.xml in the conf directory of FE and BE.
+1. Need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE.
 2. hive supports version 1/2/3.
-3. Support Managed Table and External Table.
+3. Support Managed Table and External Table and part of Hive View.
 4. Can identify hive, iceberg, hudi metadata stored in Hive Metastore.
 
 ## Create Catalog
+
+### Hive On HDFS
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -92,16 +94,6 @@ CREATE CATALOG hive PROPERTIES (
 Please place the `krb5.conf` file and `keytab` authentication file under all `BE` and `FE` nodes. The path of the `keytab` authentication file is consistent with the configuration. The `krb5.conf` file is placed in `/etc by default /krb5.conf` path.
 
 The value of `hive.metastore.kerberos.principal` needs to be consistent with the property of the same name of the connected hive metastore, which can be obtained from `hive-site.xml`.
-
-Provide Hadoop KMS encrypted transmission information, examples are as follows:
-
-```sql
-CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
-);
-```
 
 ### Hive On JuiceFS
 
@@ -189,7 +181,7 @@ CREATE CATALOG hive PROPERTIES (
 
 ## Metadata cache settings
 
-When creating a Catalog, you can use the parameter `file.meta.cache.ttl-second` to set the metadata File Cache automatic expiration time, or set this value to 0 to disable File Cache. The time unit is: second. Examples are as follows:
+When creating a Catalog, you can use the parameter `file.meta.cache.ttl-second` to set the automatic expiration time of the Hive partition file cache, or set this value to 0 to disable the partition file cache. The time unit is: second. Examples are as follows:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (

@@ -27,23 +27,20 @@ under the License.
 
 # Multi Catalog
 
-<version since="1.2.0">
-
-Multi-Catalog is a newly added feature in Doris 1.2.0. It allows Doris to interface with external catalogs more conveniently and thus increases the data lake analysis and federated query capabilities of Doris.
+Multi-Catalog is designed to make it easier to connect to external data catalogs to enhance Doris's data lake analysis and federated data query capabilities.
 
 In older versions of Doris, user data is in a two-tiered structure: database and table. Thus, connections to external catalogs could only be done at the database or table level. For example, users could create a mapping to a table in an external catalog via `create external table`, or to a database via `create external database` . If there were large amounts of databases or tables in the external catalog, users would need to create mappings to them one by one, which could be a heavy workload.
 
 With the advent of Multi-Catalog, Doris now has a new three-tiered metadata hierarchy (catalog -> database -> table), which means users can connect to external data at the catalog level. The currently supported external catalogs include:
 
-1. Hive
-2. Iceberg
-3. Hudi
+1. Apache Hive
+2. Apache Iceberg
+3. Apache Hudi
 4. Elasticsearch
 5. JDBC
+6. Apache Paimon(Incubating)
 
 Multi-Catalog works as an additional and enhanced external table connection method. It helps users conduct multi-catalog federated queries quickly. 
-
-</version>
 
 ## Basic Concepts
 
@@ -247,27 +244,9 @@ For more information about Hive, please see [Hive](./hive.md).
 	{'label':'insert_212f67420c6444d5_9bfc184bf2e7edb8', 'status':'VISIBLE', 'txnId':'4'}
 	```
 
-### Connect to Iceberg
-
-See [Iceberg](./iceberg.md)
-
-### Connect to Hudi
-
-See [Hudi](./hudi.md)
-
-### Connect to Elasticsearch
-
-See [Elasticsearch](./es.md)
-
-### Connect to JDBC
-
-See [JDBC](./jdbc.md)
-
 ## Column Type Mapping
 
 After you create a Catalog, Doris will automatically synchronize the databases and tables from the corresponding external catalog to it. The following shows how Doris maps different types of catalogs and tables.
-
-<version since="1.2.2">
 
 As for types that cannot be mapped to a Doris column type, such as `UNION` and `INTERVAL` , Doris will map them to an UNSUPPORTED type. Here are examples of queries in a table containing UNSUPPORTED types:
 
@@ -287,39 +266,41 @@ select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE
 select k1, k4 from table;           // Query OK.
 ```
 
-</version>
-
 You can find more details of the mapping of various data sources (Hive, Iceberg, Hudi, Elasticsearch, and JDBC) in the corresponding pages.
 
 ## Privilege Management
 
-Access from Doris to databases and tables in an External Catalog is not under the privilege control of the external catalog itself, but is authorized by Doris.
+When using Doris to access the data in the External Catalog, by default, it relies on Doris's own permission access management function.
 
 Along with the new Multi-Catalog feature, we also added privilege management at the Catalog level (See [Privilege Management](https://doris.apache.org/docs/dev/admin-manual/privilege-ldap/user-privilege/) for details).
+
+Users can also specify a custom authentication class through the `access_controller.class` attribute. As specified by:
+
+`"access_controller.class" = "org.apache.doris.catalog.authorizer.RangerHiveAccessControllerFactory"`
+
+Then you can use Apache Range to perform authentication management on Hive Catalog. For more information see: [Hive Catalog](./hive.md)
 
 ## Database synchronizing management
 
 Setting `include_database_list` and `exclude_database_list` in Catalog properties to specify databases to synchronize.
 
-`include_database_list`: Only synchronize the specified databases. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+`include_database_list`: Only synchronize the specified databases. split with `,`, default is to synchronize all databases. db name is case sensitive.
 
-`exclude_database_list`: Specify databases that do not need to synchronize. split with ',', default value is '', means no filter takes effect, synchronizes all databases. db name is case sensitive.
+`exclude_database_list`: Specify databases that do not need to synchronize. split with `,`, default is to synchronize all databases. db name is case sensitive.
 
 > When `include_database_list` and `exclude_database_list` specify overlapping databases, `exclude_database_list` would take effect with higher privilege over `include_database_list`.
 >
 > To connect JDBC, these two properties should work with `only_specified_database`, see [JDBC](./jdbc.md) for more detail.
 
-## Metadata Update
+## Metadata Refresh
 
-### Manual Update
+### Manual Refresh
 
 By default, changes in metadata of external data sources, including addition or deletion of tables and columns, will not be synchronized into Doris.
 
 Users need to manually update the metadata using the  [REFRESH CATALOG](https://doris.apache.org/docs/dev/sql-manual/sql-reference/Utility-Statements/REFRESH/) command.
 
-### Automatic Update
-
-<version since="1.2.2"></version>
+### Automatic Refresh
 
 #### Hive Metastore
 
@@ -394,9 +375,7 @@ We need to change to
 
 > Note: To enable automatic update, whether for existing Catalogs or newly created Catalogs, all you need is to set `enable_hms_events_incremental_sync` to `true`, and then restart the FE node. You don't need to manually update the metadata before or after the restart.
 
-<version since="dev">
-
-#### Timing Refresh
+#### Timed Refresh
 
 When creating a catalog, specify the refresh time parameter `metadata_refresh_interval_sec` in the properties, in seconds. If this parameter is set when creating a catalog, the master node of FE will refresh the catalog regularly according to the parameter value. Three types are currently supported
 
@@ -415,4 +394,3 @@ CREATE CATALOG es PROPERTIES (
 );
 ```
 
-</version>
