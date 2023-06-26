@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs.executor;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
-import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
@@ -90,8 +89,6 @@ import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApp
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.List;
 
 /**
@@ -120,8 +117,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     topDown(
                             // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
-                            // in the ExpressionNormalization, so must invoke in another job, or else run into
-                            // dead loop
+                            // in the ExpressionNormalization, so must invoke in another job, otherwise dead loop.
                             new ExtractSingleTableExpressionFromDisjunction()
                     )
             ),
@@ -146,9 +142,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new ApplyToJoin()
                     )
             ),
-            // we should eliminate hint again because some hint maybe exist in the CTE or subquery.
-            // so this rule should invoke after "Subquery unnesting"
+            // we should eliminate hint after "Subquery unnesting" because some hint maybe exist in the CTE or subquery.
             custom(RuleType.ELIMINATE_HINT, EliminateLogicalSelectHint::new),
+            topic("Eliminate optimization",
+                    bottomUp(
+                            new EliminateLimit(),
+                            new EliminateFilter(),
+                            new EliminateAggregate()
+                    )
+            ),
             // please note: this rule must run before NormalizeAggregate
             topDown(new AdjustAggregateNullableForEmptySet()),
             // The rule modification needs to be done after the subquery is unnested,
@@ -197,7 +199,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     topDown(
                             new EliminateDedupJoinCondition()
-                    )
+                    ),
+                    // eliminate useless not null or inferred not null
+                    // TODO: wait InferPredicates to infer more not null.
+                    bottomUp(new EliminateNotNull())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -217,22 +222,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
-
-            topic("Others optimization",
-                    bottomUp(ImmutableList.<RuleFactory>builder()
-                            .addAll(ImmutableList.of(
-                                    new EliminateNotNull(),
-                                    new EliminateLimit(),
-                                    new EliminateFilter(),
-                                    new EliminateAggregate(),
-                                    new PushdownLimit()
-                            ))
-                            // after eliminate some plan, we maybe can push down some plan again, so add push down rules
-                            .add(new PushdownLimit())
-                            .addAll(RuleSet.PUSH_DOWN_FILTERS)
-                            .build()
-                    )
-            ),
 
             topic("Intersection optimization",
                     // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
