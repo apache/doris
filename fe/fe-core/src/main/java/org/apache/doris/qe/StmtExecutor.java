@@ -542,7 +542,6 @@ public class StmtExecutor {
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
-            syncJournalIfNeeded();
             handleQueryWithRetry(queryId);
         }
     }
@@ -689,7 +688,6 @@ public class StmtExecutor {
 
             // sql/sqlHash block
             checkBlockRules();
-            syncJournalIfNeeded();
             if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {
@@ -789,11 +787,11 @@ public class StmtExecutor {
     }
 
     private void syncJournalIfNeeded() throws Exception {
-        if (!context.getSessionVariable().enableStrongConsistencyRead) {
+        final Env env = context.getEnv();
+        if (!context.getSessionVariable().enableStrongConsistencyRead || env.isMaster()) {
             return;
         }
         // fetch master's max journal id and wait for replay
-        final Env env = context.getEnv();
         String masterHost = env.getMasterHost();
         int masterRpcPort = env.getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
