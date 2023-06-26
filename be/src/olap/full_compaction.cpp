@@ -96,34 +96,11 @@ Status FullCompaction::execute_compact_impl() {
     return Status::OK();
 }
 
-void FullCompaction::_filter_input_rowset() {
-    // if dup_key and no delete predicate
-    // we skip big files too save resources
-    if (_tablet->keys_type() != KeysType::DUP_KEYS) {
-        return;
-    }
-    for (auto& rs : _input_rowsets) {
-        if (rs->rowset_meta()->has_delete_predicate()) {
-            return;
-        }
-    }
-    int64_t max_size = config::full_compaction_dup_key_max_file_size_mbytes * 1024 * 1024;
-    // first find a proper rowset for start
-    auto rs_iter = _input_rowsets.begin();
-    while (rs_iter != _input_rowsets.end()) {
-        if ((*rs_iter)->rowset_meta()->total_disk_size() >= max_size) {
-            rs_iter = _input_rowsets.erase(rs_iter);
-        } else {
-            break;
-        }
-    }
-}
 
 Status FullCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_full_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
     RETURN_IF_ERROR(_check_rowset_overlapping(_input_rowsets));
-    _filter_input_rowset();
     if (_input_rowsets.size() <= 1) {
         return Status::Error<BE_NO_SUITABLE_VERSION>();
     }

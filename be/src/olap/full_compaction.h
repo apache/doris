@@ -50,8 +50,6 @@ protected:
 private:
     Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
 
-    void _filter_input_rowset();
-
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 
