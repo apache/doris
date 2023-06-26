@@ -53,7 +53,6 @@ import java.util.Objects;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
-    private static final int MAX_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
@@ -156,7 +155,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             }
         }
 
-        client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
+        client = new PooledHiveMetaStoreClient(hiveConf, Config.max_hms_client_pool_size);
     }
 
     @Override

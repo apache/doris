@@ -49,11 +49,13 @@ public class ExternalMetaCacheMgr {
     private ThreadPoolExecutor fileCacheLoader;
 
     public ExternalMetaCacheMgr() {
-        cacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(
+        cacheLoader = ThreadPoolManager.newDaemonFixedThreadPool(
                     Config.max_external_cache_loader_thread_pool_size,
+                    Integer.MAX_VALUE,
                 "ExternalCacheLoader", true);
-        fileCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(
+        fileCacheLoader = ThreadPoolManager.newDaemonFixedThreadPool(
                     Config.max_file_cache_loader_thread_pool_size,
+                    Integer.MAX_VALUE,
                 "FileCacheLoader", true);
     }
 
