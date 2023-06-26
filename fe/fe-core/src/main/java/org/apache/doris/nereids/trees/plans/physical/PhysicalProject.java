@@ -103,7 +103,13 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public PhysicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalProject<>(projects, getLogicalProperties(), children.get(0));
+        return new PhysicalProject<Plan>(projects,
+                groupExpression,
+                getLogicalProperties(),
+                physicalProperties,
+                statistics,
+                children.get(0)
+        );
     }
 
     @Override
