@@ -30,7 +30,6 @@
 
 namespace doris {
 
-
 class FullCompaction : public Compaction {
 public:
     FullCompaction(const TabletSharedPtr& tablet);
@@ -55,5 +54,3 @@ private:
 };
 
 } // namespace doris
-
-

@@ -86,7 +86,6 @@ Status FullCompaction::execute_compact_impl() {
     return Status::OK();
 }
 
-
 Status FullCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_full_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
