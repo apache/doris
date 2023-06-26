@@ -492,7 +492,7 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                             << inverted_index_src_file_path << " fs->exists error";
                                     return false;
                                 }
-                                if (exists) {
+                                if (!exists) {
                                     LOG(WARNING) << inverted_index_src_file_path
                                                  << " is not exists, will skip index compaction";
                                     return false;
