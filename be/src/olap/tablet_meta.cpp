@@ -266,10 +266,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                 tablet_schema.enable_single_replica_compaction);
     }
 
-    if (tablet_schema.__isset.is_dynamic_schema) {
-        schema->set_is_dynamic_schema(tablet_schema.is_dynamic_schema);
-    }
-
     if (tablet_schema.__isset.delete_sign_idx) {
         schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
@@ -368,7 +364,8 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     }
     for (size_t i = 0; i < tcolumn.children_column.size(); i++) {
         ColumnPB* children_column = column->add_children_columns();
-        init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
+        init_column_from_tcolumn(tcolumn.children_column[i].col_unique_id,
+                                 tcolumn.children_column[i], children_column);
     }
 }
 

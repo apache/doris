@@ -57,6 +57,9 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::TIME;
     }
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_TIMEV2;
+    }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 

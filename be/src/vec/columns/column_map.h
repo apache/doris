@@ -77,7 +77,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Map"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Map; }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(keys_column);

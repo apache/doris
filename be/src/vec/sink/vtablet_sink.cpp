@@ -1270,8 +1270,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     _row_distribution_watch.stop();
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
-    bool load_block_to_single_tablet =
-            !_schema->is_dynamic_schema() && _tablet_finder->is_single_tablet();
+    bool load_block_to_single_tablet = _tablet_finder->is_single_tablet();
+    ;
     if (load_block_to_single_tablet) {
         SCOPED_RAW_TIMER(&_filter_ns);
         // Filter block

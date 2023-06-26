@@ -79,9 +79,7 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        LOG(FATAL) << "Not support write object column to mysql";
-    }
+                                 int row_idx, bool col_const) const override;
 };
 } // namespace vectorized
 } // namespace doris

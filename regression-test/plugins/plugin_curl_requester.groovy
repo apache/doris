@@ -67,3 +67,8 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
+Suite.metaClass.update_be_config = { String ip, String port, String key, String value /*param */ ->
+    return curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value))
+}
+
+logger.info("Added 'update_be_config' function to Suite")
