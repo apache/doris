@@ -67,6 +67,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
@@ -542,6 +543,7 @@ public class StmtExecutor {
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
+            syncJournalIfNeeded();
             handleQueryWithRetry(queryId);
         }
     }
@@ -688,6 +690,7 @@ public class StmtExecutor {
 
             // sql/sqlHash block
             checkBlockRules();
+            syncJournalIfNeeded();
             if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {

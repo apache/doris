@@ -349,7 +349,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
-
+    
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
@@ -981,7 +981,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean ignoreColumnWithComplexType = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY)
+<<<<<<< HEAD
     public boolean enableStrongConsistencyRead = false;
+=======
+    public boolean enableStrongConsistency = false;
+>>>>>>> b1955895e5... enable strong consistency by syncing max journal id from master
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
