@@ -1041,6 +1041,10 @@ struct TGetMasterTokenResult {
     2: optional string token
 }
 
+struct TGetMasterMaxJournalIdReply {
+    1: i64 maxJournalId
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1103,4 +1107,6 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
+
+    TGetMasterMaxJournalIdReply getMasterMaxJournalId()
 }
