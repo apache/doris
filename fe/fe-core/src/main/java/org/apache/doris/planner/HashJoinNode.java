@@ -37,7 +37,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
