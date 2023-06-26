@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <mutex>
 #include <ostream>
 
 #include "common/logging.h"
@@ -36,7 +37,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
-#include <mutex>
 
 namespace doris {
 
