@@ -831,19 +831,19 @@
                                     "type": "category",
                                     "label": "Drop",
                                     "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-POLICY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-POLICY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE"
                                     ]
                                 }
                             ]
