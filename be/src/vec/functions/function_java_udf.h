@@ -36,6 +36,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
+#include <mutex>
 
 namespace doris {
 
@@ -89,6 +90,7 @@ private:
     jmethodID executor_ctor_id_;
     jmethodID executor_evaluate_id_;
     jmethodID executor_close_id_;
+    std::mutex _lock;
 
     struct IntermediateState {
         size_t buffer_size;

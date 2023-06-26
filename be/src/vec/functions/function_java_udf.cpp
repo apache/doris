@@ -49,6 +49,7 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
         : fn_(fn), _argument_types(argument_types), _return_type(return_type) {}
 
 Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    std::lock_guard<std::mutex> lock(_lock);
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {
