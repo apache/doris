@@ -38,6 +38,7 @@ public:
 
     Status prepare_compact() override;
     Status execute_compact_impl() override;
+    Status modify_rowsets(const Merger::Statistics* stats = nullptr) override;
 
     std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
 

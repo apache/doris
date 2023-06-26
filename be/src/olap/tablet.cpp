@@ -1303,18 +1303,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction()
 }
 
     std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction() {
-        std::vector<RowsetSharedPtr> candidate_rowsets;
-        {
-            std::shared_lock rlock(_meta_lock);
-            for (const auto& [version, rs] : _rs_version_map) {
-                // Do compaction on local rowsets only.
-                if (version.first < _cumulative_point && rs->is_local()) {
-                    candidate_rowsets.push_back(rs);
-                }
-            }
-        }
-        std::sort(candidate_rowsets.begin(), candidate_rowsets.end(), Rowset::comparator);
-        return candidate_rowsets;
+        return pick_candidate_rowsets_to_single_replica_compaction();
     }
 
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(

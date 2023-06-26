@@ -17,20 +17,14 @@
 
 #include "olap/full_compaction.h"
 
-#include <gen_cpp/olap_file.pb.h>
-#include <stdint.h>
 #include <time.h>
 
-#include <memory>
 #include <mutex>
 #include <ostream>
 
 #include "common/config.h"
-#include "common/logging.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/rowset_meta.h"
 #include "runtime/thread_context.h"
-#include "util/doris_metrics.h"
 #include "util/thread.h"
 #include "util/trace.h"
 
@@ -89,10 +83,6 @@ Status FullCompaction::execute_compact_impl() {
     // 3. set state to success
     _state = CompactionState::SUCCESS;
 
-    // 4. add metric to base compaction
-    DorisMetrics::instance()->full_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->full_compaction_bytes_total->increment(_input_rowsets_size);
-
     return Status::OK();
 }
 
@@ -131,57 +121,7 @@ Status FullCompaction::pick_rowsets_to_compact() {
         return Status::Error<BE_NO_SUITABLE_VERSION>();
     }
 
-    // 1. cumulative rowset must reach full_compaction_num_cumulative_deltas threshold
-    if (_input_rowsets.size() > config::full_compaction_min_rowset_num) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                    << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
-                    << ", full_compaction_num_cumulative_rowsets="
-                    << config::full_compaction_min_rowset_num;
-        return Status::OK();
-    }
-
-    // 2. the ratio between base rowset and all input cumulative rowsets reaches the threshold
-    // `_input_rowsets` has been sorted by end version, so we consider `_input_rowsets[0]` is the base rowset.
-    int64_t base_size = _input_rowsets.front()->data_disk_size();
-    int64_t cumulative_total_size = 0;
-    for (auto it = _input_rowsets.begin() + 1; it != _input_rowsets.end(); ++it) {
-        cumulative_total_size += (*it)->data_disk_size();
-    }
-
-    double min_data_ratio = config::full_compaction_min_data_ratio;
-    if (base_size == 0) {
-        // base_size == 0 means this may be a base version [0-1], which has no data.
-        // set to 1 to void divide by zero
-        base_size = 1;
-    }
-    double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
-
-    if (cumulative_base_ratio > min_data_ratio) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                    << ", cumulative_total_size=" << cumulative_total_size
-                    << ", base_size=" << base_size
-                    << ", cumulative_base_ratio=" << cumulative_base_ratio
-                    << ", policy_min_data_ratio=" << min_data_ratio;
-        return Status::OK();
-    }
-
-    // 3. the interval since last base compaction reaches the threshold
-    int64_t base_creation_time = _input_rowsets[0]->creation_time();
-    int64_t interval_threshold = 86400;
-    int64_t interval_since_last_full_compaction = time(nullptr) - base_creation_time;
-    if (interval_since_last_full_compaction > interval_threshold) {
-        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                    << ", interval_since_last_full_compaction="
-                    << interval_since_last_full_compaction
-                    << ", interval_threshold=" << interval_threshold;
-        return Status::OK();
-    }
-
-    VLOG_NOTICE << "don't satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
-                << ", cumulative_base_ratio=" << cumulative_base_ratio
-                << ", interval_since_last_full_compaction=" << interval_since_last_full_compaction;
-    return Status::Error<BE_NO_SUITABLE_VERSION>();
+    return Status::OK();
 }
 
 Status FullCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedPtr>& rowsets) {
@@ -194,6 +134,12 @@ Status FullCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedP
             return Status::Error<BE_SEGMENTS_OVERLAPPING>();
         }
     }
+    return Status::OK();
+}
+
+Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
+    std::shared_lock rlock(_tablet->get_header_lock());
+    _tablet->save_meta();
     return Status::OK();
 }
 
