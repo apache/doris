@@ -45,14 +45,15 @@ public class ExternalMetaCacheMgr {
     private Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
-    private Executor partitionCacheLoader;
+    private Executor cacheLoader;
     private ThreadPoolExecutor fileCacheLoader;
 
     public ExternalMetaCacheMgr() {
-        partitionCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(
-                    Config.max_partition_cache_loader_thread_pool_size,
-                "PartitionCacheLoader", true);
-        fileCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_file_cache_loader_thread_pool_size,
+        cacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(
+                    Config.max_external_cache_loader_thread_pool_size,
+                "ExternalCacheLoader", true);
+        fileCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(
+                    Config.max_file_cache_loader_thread_pool_size,
                 "FileCacheLoader", true);
     }
 
@@ -62,7 +63,7 @@ public class ExternalMetaCacheMgr {
             synchronized (cacheMap) {
                 if (!cacheMap.containsKey(catalog.getId())) {
                     cacheMap.put(catalog.getId(),
-                                new HiveMetaStoreCache(catalog, partitionCacheLoader, fileCacheLoader));
+                                new HiveMetaStoreCache(catalog, cacheLoader, fileCacheLoader));
                 }
                 cache = cacheMap.get(catalog.getId());
             }
@@ -75,7 +76,7 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (schemaCacheMap) {
                 if (!schemaCacheMap.containsKey(catalog.getId())) {
-                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog, partitionCacheLoader));
+                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog, cacheLoader));
                 }
                 cache = schemaCacheMap.get(catalog.getId());
             }
