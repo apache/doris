@@ -49,7 +49,8 @@ public class ExternalMetaCacheMgr {
     private ThreadPoolExecutor fileCacheLoader;
 
     public ExternalMetaCacheMgr() {
-        partitionCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_partition_cache_loader_thread_pool_size,
+        partitionCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(
+                    Config.max_partition_cache_loader_thread_pool_size,
                 "PartitionCacheLoader", true);
         fileCacheLoader = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_file_cache_loader_thread_pool_size,
                 "FileCacheLoader", true);
@@ -60,7 +61,8 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (cacheMap) {
                 if (!cacheMap.containsKey(catalog.getId())) {
-                    cacheMap.put(catalog.getId(), new HiveMetaStoreCache(catalog, partitionCacheLoader, fileCacheLoader));
+                    cacheMap.put(catalog.getId(),
+                                new HiveMetaStoreCache(catalog, partitionCacheLoader, fileCacheLoader));
                 }
                 cache = cacheMap.get(catalog.getId());
             }
