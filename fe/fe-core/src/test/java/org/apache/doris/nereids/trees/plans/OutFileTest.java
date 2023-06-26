@@ -24,7 +24,6 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
@@ -71,7 +70,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 + " format as csv\n"
                 + " properties (\n"
                 + "    \"column_separator\" = \",\",\n"
-                + "    \"line_delimiter\" = \"\\n\",\n" 
+                + "    \"line_delimiter\" = \"\\n\",\n"
                 + "    \"broker.name\" = \"my_broker\",\n"
                 + "    \"max_file_size\" = \"100MB\"\n"
                 + ")";
