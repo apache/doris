@@ -396,7 +396,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                   << ", destination index size=" << dest_segment_num << ".";
         std::for_each(
                 ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
-                [&ctx, &src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
+                [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
                  &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
                  this](int32_t column_uniq_id) {
                     auto st = compact_column(
@@ -404,7 +404,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                             src_segment_num, dest_segment_num, src_index_files, dest_index_files,
                             fs, index_writer_path, tablet_path, trans_vec, dest_segment_num_rows);
                     if (!st.ok()) {
-                        ctx.skip_inverted_index.erase(column_uniq_id);
+                        LOG(ERROR) << "failed to do index compaction"
+                                   << ". tablet=" << _tablet->full_name()
+                                   << ". column uniq id=" << column_uniq_id << ". index_id= "
+                                   << _cur_tablet_schema->get_inverted_index(column_uniq_id)
+                                              ->index_id();
                     }
                 });
 
