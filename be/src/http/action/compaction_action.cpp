@@ -89,7 +89,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     // check compaction_type equals 'base' or 'cumulative'
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     if (compaction_type != PARAM_COMPACTION_BASE &&
-        compaction_type != PARAM_COMPACTION_CUMULATIVE) {
+        compaction_type != PARAM_COMPACTION_CUMULATIVE &&
+        compaction_type != PARAM_COMPACTION_FULL) {
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
 
@@ -228,6 +229,12 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                              << ", table=" << tablet->full_name();
             }
+        }
+    } else if(compaction_type == PARAM_COMPACTION_FULL){
+        FullCompaction full_compaction(tablet);
+        res = full_compaction.compact();
+        if (!res) {
+            // todo
         }
     }
 
