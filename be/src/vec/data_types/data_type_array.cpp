@@ -148,9 +148,9 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
         }
         WhichDataType which(remove_nullable(nested));
         if (which.is_string_or_fixed_string()) {
-            ostr.write("'", 1);
+            ostr.write("\"", 1);
             nested->to_string(nested_column, i, ostr);
-            ostr.write("'", 1);
+            ostr.write("\"", 1);
         } else {
             nested->to_string(nested_column, i, ostr);
         }

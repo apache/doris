@@ -663,39 +663,6 @@ public:
 
     bool operator!=(const Field& rhs) const { return !(*this == rhs); }
 
-private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, AggregateFunctionStateData>
-            storage;
-
-    Types::Which which;
-
-    /// Assuming there was no allocated state or it was deallocated (see destroy).
-    template <typename T>
-    void create_concrete(T&& x) {
-        using UnqualifiedType = std::decay_t<T>;
-
-        // In both Field and PODArray, small types may be stored as wider types,
-        // e.g. char is stored as UInt64. Field can return this extended value
-        // with get<StorageType>(). To avoid uninitialized results from get(),
-        // we must initialize the entire wide stored type, and not just the
-        // nominal type.
-        using StorageType = NearestFieldType<UnqualifiedType>;
-        new (&storage) StorageType(std::forward<T>(x));
-        which = TypeToEnum<UnqualifiedType>::value;
-    }
-
-    /// Assuming same types.
-    template <typename T>
-    void assign_concrete(T&& x) {
-        using JustT = std::decay_t<T>;
-        assert(which == TypeToEnum<JustT>::value);
-        JustT* MAY_ALIAS ptr = reinterpret_cast<JustT*>(&storage);
-        *ptr = std::forward<T>(x);
-    }
-
     template <typename F,
               typename Field> /// Field template parameter may be const or non-const Field.
     static void dispatch(F&& f, Field& field) {
@@ -755,6 +722,39 @@ private:
             f(field.template get<VariantMap>());
             return;
         }
+    }
+
+private:
+    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
+                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
+                         DecimalField<Decimal128I>, AggregateFunctionStateData>
+            storage;
+
+    Types::Which which;
+
+    /// Assuming there was no allocated state or it was deallocated (see destroy).
+    template <typename T>
+    void create_concrete(T&& x) {
+        using UnqualifiedType = std::decay_t<T>;
+
+        // In both Field and PODArray, small types may be stored as wider types,
+        // e.g. char is stored as UInt64. Field can return this extended value
+        // with get<StorageType>(). To avoid uninitialized results from get(),
+        // we must initialize the entire wide stored type, and not just the
+        // nominal type.
+        using StorageType = NearestFieldType<UnqualifiedType>;
+        new (&storage) StorageType(std::forward<T>(x));
+        which = TypeToEnum<UnqualifiedType>::value;
+    }
+
+    /// Assuming same types.
+    template <typename T>
+    void assign_concrete(T&& x) {
+        using JustT = std::decay_t<T>;
+        assert(which == TypeToEnum<JustT>::value);
+        JustT* MAY_ALIAS ptr = reinterpret_cast<JustT*>(&storage);
+        *ptr = std::forward<T>(x);
     }
 
     void create(const Field& x) {

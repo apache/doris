@@ -41,8 +41,6 @@ public:
     bool structure_equals(const IColumn& rhs) const override {
         return typeid(rhs) == typeid(ColumnNothing);
     }
-
-    TypeIndex get_data_type() const override { return TypeIndex::Nothing; }
 };
 
 } // namespace doris::vectorized

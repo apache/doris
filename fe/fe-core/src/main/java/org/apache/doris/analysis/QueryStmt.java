@@ -587,6 +587,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     public abstract ArrayList<String> getColLabels();
 
+    public abstract ArrayList<List<String>> getSubColLabels();
+
     /**
      * Returns the materialized tuple ids of the output of this stmt.
      * Used in case this stmt is part of an @InlineViewRef,

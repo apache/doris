@@ -69,7 +69,15 @@ public class DescriptorTable {
         return d;
     }
 
+    public static void printStackTrace() {
+        StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+        for (StackTraceElement element : stackTrace) {
+            System.out.println(element.toString());
+        }
+    }
+
     public SlotDescriptor addSlotDescriptor(TupleDescriptor d) {
+        printStackTrace();
         SlotDescriptor result = new SlotDescriptor(slotIdGenerator.getNextId(), d);
         d.addSlot(result);
         slotDescs.put(result.getId(), result);
@@ -80,6 +88,7 @@ public class DescriptorTable {
      * Used by new optimizer.
      */
     public SlotDescriptor addSlotDescriptor(TupleDescriptor d, int id) {
+        printStackTrace();
         SlotDescriptor result = new SlotDescriptor(new SlotId(id), d);
         d.addSlot(result);
         slotDescs.put(result.getId(), result);
