@@ -44,6 +44,14 @@ public:
 
     Status append(const Slice& data) { return appendv(&data, 1); }
 
+    virtual Status appendv(const OwnedSlice* data, size_t data_cnt) {
+        std::vector<Slice> slices;
+        for (int i = 0; i < data_cnt; i++) {
+            slices.emplace_back(data[i].slice());
+        }
+        return appendv(&slices[0], data_cnt);
+    }
+
     virtual Status appendv(const Slice* data, size_t data_cnt) = 0;
 
     virtual Status write_at(size_t offset, const Slice& data) = 0;

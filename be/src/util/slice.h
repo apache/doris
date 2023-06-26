@@ -279,9 +279,30 @@ public:
         return *this;
     }
 
+
+
     ~OwnedSlice() { Allocator::free_no_munmap(_slice.data); }
 
     const Slice& slice() const { return _slice; }
+
+    void release() {
+        _slice.data = nullptr;
+        _slice.size = 0;
+    }
+
+    static size_t compute_total_size(const std::vector<OwnedSlice>& slices) {
+        size_t total_size = 0;
+        for (auto& slice : slices) {
+            total_size += slice.slice().size;
+        }
+        return total_size;
+    }
+
+    static void to_slices(const std::vector<OwnedSlice>& owned_slices, std::vector<Slice>& slices) {
+        for (auto& owned_slice : owned_slices) {
+            slices.emplace_back(owned_slice.slice());
+        }
+    }
 
 private:
     // faststring also inherits Allocator and disables mmap.

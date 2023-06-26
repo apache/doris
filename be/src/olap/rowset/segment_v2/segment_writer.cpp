@@ -867,7 +867,7 @@ Status SegmentWriter::_write_bloom_filter_index() {
 }
 
 Status SegmentWriter::_write_short_key_index() {
-    std::vector<Slice> body;
+    std::vector<OwnedSlice> body;
     PageFooterPB footer;
     RETURN_IF_ERROR(_short_key_index_builder->finalize(_row_count, &body, &footer));
     PagePointer pp;
@@ -901,11 +901,15 @@ Status SegmentWriter::_write_footer() {
     // that will need an extra seek when reading
     fixed_buf.append(k_segment_magic, k_segment_magic_length);
 
-    std::vector<Slice> slices {footer_buf, fixed_buf};
+    faststring new_footer_buf;
+    new_footer_buf.assign_copy(footer_buf);
+    std::vector<OwnedSlice> slices;
+    slices.emplace_back(new_footer_buf.build());
+    slices.emplace_back(fixed_buf.build());
     return _write_raw_data(slices);
 }
 
-Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
+Status SegmentWriter::_write_raw_data(const std::vector<OwnedSlice>& slices) {
     RETURN_IF_ERROR(_file_writer->appendv(&slices[0], slices.size()));
     return Status::OK();
 }

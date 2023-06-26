@@ -67,7 +67,7 @@ Status PageIO::compress_page_body(BlockCompressionCodec* codec, double min_space
     return Status::OK();
 }
 
-Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body,
+Status PageIO::write_page(io::FileWriter* writer, std::vector<OwnedSlice>& body,
                           const PageFooterPB& footer, PagePointer* result) {
     // sanity check of page footer
     CHECK(footer.has_type()) << "type must be set";
@@ -94,14 +94,17 @@ Status PageIO::write_page(io::FileWriter* writer, const std::vector<Slice>& body
     footer.SerializeToString(&footer_buf);
     put_fixed32_le(&footer_buf, static_cast<uint32_t>(footer_buf.size()));
 
-    std::vector<Slice> page = body;
-    page.emplace_back(footer_buf);
+    std::vector<OwnedSlice> &page = body;
+    faststring footer_and_checksum;
+    footer_and_checksum.assign_copy(footer_buf);
+    
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
     uint32_t checksum = crc32c::Value(page);
     encode_fixed32_le(checksum_buf, checksum);
-    page.emplace_back(checksum_buf, sizeof(uint32_t));
+    footer_and_checksum.append(checksum_buf, sizeof(uint32_t));
+    page.emplace_back(footer_and_checksum.build());
 
     uint64_t offset = writer->bytes_appended();
     RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));

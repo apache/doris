@@ -609,9 +609,11 @@ Status ScalarColumnWriter::write_data() {
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
 
         PagePointer dict_pp;
+        std::vector<OwnedSlice> slices;
+        slices.emplace_back(std::move(dict_body));
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
                 _compress_codec, _opts.compression_min_space_saving, _file_writer,
-                {dict_body.slice()}, footer, &dict_pp));
+                slices, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
     return Status::OK();
@@ -660,9 +662,9 @@ Status ScalarColumnWriter::write_bloom_filter_index() {
 // write a data page into file and update ordinal index
 Status ScalarColumnWriter::_write_data_page(Page* page) {
     PagePointer pp;
-    std::vector<Slice> compressed_body;
+    std::vector<OwnedSlice> compressed_body;
     for (auto& data : page->data) {
-        compressed_body.push_back(data.slice());
+        compressed_body.emplace_back(std::move(data));
     }
     RETURN_IF_ERROR(PageIO::write_page(_file_writer, compressed_body, page->footer, &pp));
     _ordinal_index_builder->append_entry(page->footer.data_page_footer().first_ordinal(), pp);
@@ -685,16 +687,16 @@ Status ScalarColumnWriter::finish_current_page() {
     }
 
     // build data page body : encoded values + [nullmap]
-    std::vector<Slice> body;
+    std::vector<OwnedSlice> body;
     OwnedSlice encoded_values = _page_builder->finish();
     _page_builder->reset();
-    body.push_back(encoded_values.slice());
+    body.emplace_back(std::move(encoded_values));
 
     OwnedSlice nullmap;
     if (_null_bitmap_builder != nullptr) {
         if (is_nullable() && _null_bitmap_builder->has_null()) {
             nullmap = _null_bitmap_builder->finish();
-            body.push_back(nullmap.slice());
+            body.emplace_back(std::move(nullmap));
         }
         _null_bitmap_builder->reset();
     }
@@ -702,7 +704,7 @@ Status ScalarColumnWriter::finish_current_page() {
     // prepare data page footer
     std::unique_ptr<Page> page(new Page());
     page->footer.set_type(DATA_PAGE);
-    page->footer.set_uncompressed_size(Slice::compute_total_size(body));
+    page->footer.set_uncompressed_size(OwnedSlice::compute_total_size(body));
     auto data_page_footer = page->footer.mutable_data_page_footer();
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
@@ -712,8 +714,10 @@ Status ScalarColumnWriter::finish_current_page() {
     }
     // trying to compress page body
     OwnedSlice compressed_body;
+    std::vector<Slice> body_slices;
+    OwnedSlice::to_slices(body, body_slices);
     RETURN_IF_ERROR(PageIO::compress_page_body(_compress_codec, _opts.compression_min_space_saving,
-                                               body, &compressed_body));
+                                               body_slices, &compressed_body));
     if (compressed_body.slice().empty()) {
         // page body is uncompressed
         page->data.emplace_back(std::move(encoded_values));

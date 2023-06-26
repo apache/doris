@@ -116,9 +116,12 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
 
+    std::vector<OwnedSlice> slices;
+    slices.emplace_back(std::move(page_body));
+    
     RETURN_IF_ERROR(PageIO::compress_and_write_page(
             _compress_codec, _options.compression_min_space_saving, _file_writer,
-            {page_body.slice()}, footer, &_last_data_page));
+            slices, footer, &_last_data_page));
     _num_data_pages++;
 
     if (_options.write_ordinal_index) {
@@ -171,9 +174,11 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
         index_builder->finish(&page_body, &page_footer);
 
         PagePointer pp;
+        std::vector<OwnedSlice> owned_slices;
+        owned_slices.emplace_back(std::move(page_body));
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
                 _compress_codec, _options.compression_min_space_saving, _file_writer,
-                {page_body.slice()}, page_footer, &pp));
+                owned_slices, page_footer, &pp));
 
         meta->set_is_root_data_page(false);
         pp.to_proto(meta->mutable_root_page());

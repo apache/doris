@@ -94,20 +94,24 @@ public:
     // Encode page from `body' and `footer' and write to `file'.
     // `body' could be either uncompressed or compressed.
     // On success, the file pointer to the written page is stored in `result'.
-    static Status write_page(io::FileWriter* writer, const std::vector<Slice>& body,
+    static Status write_page(io::FileWriter* writer, std::vector<OwnedSlice>& body,
                              const PageFooterPB& footer, PagePointer* result);
 
     // Convenient function to compress page body and write page in one go.
     static Status compress_and_write_page(BlockCompressionCodec* codec, double min_space_saving,
-                                          io::FileWriter* writer, const std::vector<Slice>& body,
+                                          io::FileWriter* writer, std::vector<OwnedSlice>& body,
                                           const PageFooterPB& footer, PagePointer* result) {
-        DCHECK_EQ(footer.uncompressed_size(), Slice::compute_total_size(body));
+        DCHECK_EQ(footer.uncompressed_size(), OwnedSlice::compute_total_size(body));
         OwnedSlice compressed_body;
-        RETURN_IF_ERROR(compress_page_body(codec, min_space_saving, body, &compressed_body));
+        std::vector<Slice> slices;
+        OwnedSlice::to_slices(body, slices);
+        RETURN_IF_ERROR(compress_page_body(codec, min_space_saving, slices, &compressed_body));
         if (compressed_body.slice().empty()) { // uncompressed
             return write_page(writer, body, footer, result);
         }
-        return write_page(writer, {compressed_body.slice()}, footer, result);
+        std::vector<OwnedSlice> owned_slices;
+        owned_slices.emplace_back(std::move(compressed_body));
+        return write_page(writer, owned_slices, footer, result);
     }
 
     // Read and parse a page according to `opts'.
