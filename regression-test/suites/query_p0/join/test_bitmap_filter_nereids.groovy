@@ -78,7 +78,7 @@ suite("test_bitmap_filter_nereids") {
 
     test {
         sql "select k1, count(*) from ${tbl1} b1 group by k1 having k1 in (select k2 from ${tbl2} b2) order by k1;"
-        exception "errCode = 2, detailMessage = Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb column must use with specific function, and don't support filter"
+        exception "errCode = 2, detailMessage = Unexpected exception: Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter"
     }
 
     explain{

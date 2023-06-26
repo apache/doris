@@ -102,6 +102,7 @@ public:
     bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
+    bool is_default_at(size_t n) const override { return is_null_at(n); }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -114,8 +115,6 @@ public:
     }
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
-
-    TypeIndex get_data_type() const override { return TypeIndex::Nullable; }
 
     /// Will insert null value if pos=nullptr
     void insert_data(const char* pos, size_t length) override;
@@ -355,6 +354,10 @@ public:
         return get_ptr();
     }
 
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return get_ratio_of_default_rows_impl<ColumnNullable>(sample_ratio);
+    }
+
     void convert_dict_codes_if_necessary() override {
         get_nested_column().convert_dict_codes_if_necessary();
     }
@@ -379,6 +382,8 @@ public:
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
+    bool is_predicate_column() const override { return nested_column->is_predicate_column(); }
 
 private:
     // the two functions will not update `_need_update_has_null`

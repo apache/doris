@@ -162,7 +162,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    static RowsetMetaSharedPtr rowset_meta_with_max_schema_version(
+    static TabletSchemaSPtr tablet_schema_with_max_schema_version(
             const std::vector<RowsetMetaSharedPtr>& rowset_metas);
 
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
@@ -505,6 +505,8 @@ public:
     bool check_all_rowset_segment();
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
+
+    void update_by_least_common_schema(const TabletSchemaSPtr& least_common_schema);
 
     void set_skip_compaction(bool skip,
                              CompactionType compaction_type = CompactionType::CUMULATIVE_COMPACTION,

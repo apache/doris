@@ -194,6 +194,19 @@ public:
         __builtin_unreachable();
     }
 
+    doris::FieldType get_type_as_field_type() const override {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal32>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL64;
+        }
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
+        }
+        __builtin_unreachable();
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;

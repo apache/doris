@@ -82,7 +82,6 @@ public:
 
     std::string get_name() const override;
     const char* get_family_name() const override { return "Struct"; }
-    TypeIndex get_data_type() const override { return TypeIndex::Struct; }
     bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;

@@ -46,6 +46,7 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -326,6 +327,16 @@ private:
         return 0;
     }
 
+    Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
+
+    Status _init_variant_substreams();
+    void _reset_stream_cache();
+    void _clear_stream_cache();
+    Status _filter_stream_cache(uint16_t* sel_rowid_idx, uint16_t selected_size,
+                                const std::vector<ColumnId>& filtered_cids,
+                                vectorized::Block* block);
+    Status _finalize_stream_cache(const std::vector<ColumnId>& column_ids);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -334,6 +345,7 @@ private:
     // _column_iterators_map.size() == _schema.num_columns()
     // map<unique_id, ColumnIterator*> _column_iterators_map/_bitmap_index_iterators;
     // can use _schema get unique_id by cid
+    // column_id -> iter
     std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators;
     std::map<int32_t, std::unique_ptr<BitmapIndexIterator>> _bitmap_index_iterators;
     std::map<int32_t, std::unique_ptr<InvertedIndexIterator>> _inverted_index_iterators;
@@ -380,6 +392,7 @@ private:
     std::vector<ColumnId> _first_read_column_ids;
     std::vector<ColumnId> _second_read_column_ids;
     std::vector<ColumnId> _columns_to_filter;
+    std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
@@ -433,6 +446,9 @@ private:
     bool _record_rowids = false;
     int32_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
+
+    SubstreamCache _substream_cache;
+    std::vector<bool> _is_finalized;
 };
 
 } // namespace segment_v2

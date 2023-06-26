@@ -34,6 +34,7 @@
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
@@ -60,6 +61,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -132,6 +134,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             continue;
         }
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
+            is_same_file_col_type_with_expected(column_id, *schema) &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
             iter->reset(new EmptySegmentIterator(*schema));
@@ -149,7 +152,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
+            if (is_same_file_col_type_with_expected(runtime_predicate->column_id(), *schema) &&
+                !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(*schema));
                 read_options.stats->filtered_segment_number++;
@@ -275,12 +279,45 @@ Status Segment::load_index() {
     });
 }
 
+static vectorized::DataTypePtr get_data_type_from_column_meta(
+        const segment_v2::ColumnMetaPB& column) {
+    return vectorized::DataTypeFactory::instance().create_data_type(column);
+}
+
+vectorized::DataTypePtr Segment::get_data_type_of(const Field& field) const {
+    // Path has higher priority
+    if (!field.path().empty()) {
+        auto node = _sub_column_tree.find_leaf(field.path());
+        if (node) {
+            return node->data.file_column_type;
+        }
+    }
+    if (field.unique_id() >= 0) {
+        auto it = _file_column_types.find(field.unique_id());
+        if (it != _file_column_types.end()) {
+            return it->second;
+        }
+    }
+    return nullptr;
+}
 Status Segment::_create_column_readers() {
     for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
         auto& column_pb = _footer.columns(ordinal);
-        _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
+        if (column_pb.has_type() && column_pb.has_column_id() && column_pb.has_default_value() &&
+            column_pb.has_frac() && column_pb.has_precision()) {
+            _file_column_types.emplace(column_pb.unique_id(),
+                                       get_data_type_from_column_meta(column_pb));
+        }
+        if (column_pb.has_column_path_info()) {
+            vectorized::PathInData path;
+            path.from_protobuf(column_pb.column_path_info());
+            _column_path_to_footer_ordinal.emplace(path, ordinal);
+        }
+        if (column_pb.unique_id() >= 0) {
+            _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
+        }
     }
-
+    // init by unique_id
     for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         auto& column = _tablet_schema->column(ordinal);
         auto iter = _column_id_to_footer_ordinal.find(column.unique_id());
@@ -295,6 +332,125 @@ Status Segment::_create_column_readers() {
                                              _footer.num_rows(), _file_reader, &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
     }
+
+    // init by column path
+    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
+        auto& column = _tablet_schema->column(ordinal);
+        auto iter = _column_path_to_footer_ordinal.find(column.path_info());
+        if (iter == _column_path_to_footer_ordinal.end()) {
+            continue;
+        }
+        ColumnReaderOptions opts;
+        opts.kept_in_memory = _tablet_schema->is_in_memory();
+        std::unique_ptr<ColumnReader> reader;
+        RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
+                                             _footer.num_rows(), _file_reader, &reader));
+        _sub_column_tree.add(
+                iter->first,
+                SubcolumnReader {std::move(reader),
+                                 get_data_type_from_column_meta(_footer.columns(iter->second))});
+    }
+    return Status::OK();
+}
+
+static Status new_default_iterator(const TabletColumn& tablet_column,
+                                   std::unique_ptr<ColumnIterator>* iter) {
+    if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+        return Status::InternalError("invalid nonexistent column without default value.");
+    }
+    auto type_info = get_type_info(&tablet_column);
+    std::unique_ptr<DefaultValueColumnIterator> default_value_iter(new DefaultValueColumnIterator(
+            tablet_column.has_default_value(), tablet_column.default_value(),
+            tablet_column.is_nullable(), std::move(type_info), tablet_column.precision(),
+            tablet_column.frac()));
+    ColumnIteratorOptions iter_opts;
+
+    RETURN_IF_ERROR(default_value_iter->init(iter_opts));
+    *iter = std::move(default_value_iter);
+    return Status::OK();
+}
+
+Status Segment::new_iterator_with_path(const TabletColumn& tablet_column,
+                                       std::unique_ptr<ColumnIterator>* iter,
+                                       SubstreamCache* stream_cache) {
+    if (!stream_cache) {
+        // Could be compaction ..etc and read flat leaves nodes data
+        auto node = _sub_column_tree.find_leaf(tablet_column.path_info());
+        if (!node) {
+            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+            return Status::OK();
+        }
+        ColumnIterator* it;
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        iter->reset(it);
+        return Status::OK();
+    }
+    // Need read hierarchy data
+    auto add_stream = [&](CachedStreamIterator* iter,
+                          const SubcolumnColumnReaders::Node* node) -> Status {
+        if (stream_cache->find_leaf(node->path)) {
+            iter->attatch_node(stream_cache->find_leaf(node->path));
+            return Status::OK();
+        }
+        CHECK(node);
+        ColumnIterator* it;
+        RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
+        std::unique_ptr<ColumnIterator> it_ptr;
+        it_ptr.reset(it);
+        bool added = stream_cache->add(
+                node->path,
+                StreamReader {nullptr, std::move(it_ptr), node->data.file_column_type, false});
+        if (!added) {
+            return Status::InternalError("Failed to add node path {}", node->path.get_path());
+        }
+        iter->attatch_node(stream_cache->find_leaf(node->path));
+        return Status::OK();
+    };
+    vectorized::PathInData root_path({tablet_column.path_info().get_parts()[0]});
+    // Init iterators with extra path info.
+    // TODO If this segment does not contain any data correspond to the relatate path,
+    // then we could optimize to generate a default iterator
+    // This file doest not contain this column, so only read from sparse column
+    // to avoid read amplification
+
+    auto node = _sub_column_tree.find_exact(tablet_column.path_info());
+    if (node != nullptr && node->is_scalar() && node->children.empty()) {
+        // Direct read extracted columns
+        const auto* node = _sub_column_tree.find_leaf(tablet_column.path_info());
+        auto cache_iter = new CachedStreamIterator(stream_cache, tablet_column.path_info());
+        RETURN_IF_ERROR(add_stream(cache_iter, node));
+        iter->reset(cache_iter);
+    } else if (node != nullptr && !node->children.empty()) {
+        // None leave node need merge with root
+        auto* stream_iter = new CachedStreamIterator(stream_cache, tablet_column.path_info());
+        std::vector<const SubcolumnColumnReaders::Node*> leaves;
+        vectorized::PathsInData leaves_paths;
+        SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
+        for (size_t i = 0; i < leaves_paths.size(); ++i) {
+            RETURN_IF_ERROR(add_stream(stream_iter, leaves[i]));
+        }
+        // Make sure the root node is in stream_cache, so that child can merge data with root
+        // Eg. {"a" : "b" : {"c" : 1}}, access the `a.b` path and merge with root path so that
+        // we could make sure the data could be fully merged, since some column may not be extracted but remains in root
+        // like {"a" : "b" : {"e" : 1.1}} in jsonb format
+        if (node->path != root_path) {
+            auto root = _sub_column_tree.find_leaf(root_path);
+            CHECK(root);
+            RETURN_IF_ERROR(add_stream(stream_iter, root));
+        }
+        iter->reset(stream_iter);
+    } else {
+        // If file only exist column `v.a` and `v` but target path is `v.b`, read only read and parse root column
+        const auto* node = _sub_column_tree.find_leaf(root_path);
+        if (node == nullptr) {
+            // No such variant column in this segment, get a default one
+            RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
+            return Status::OK();
+        }
+        auto cache_iter = new CachedStreamIterator(stream_cache, tablet_column.path_info());
+        RETURN_IF_ERROR(add_stream(cache_iter, node));
+        iter->reset(cache_iter);
+    }
     return Status::OK();
 }
 
@@ -306,25 +462,27 @@ Status Segment::_create_column_readers() {
 // but in the old schema column b's cid == 2
 // but they are not the same column
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
-                                    std::unique_ptr<ColumnIterator>* iter) {
+                                    std::unique_ptr<ColumnIterator>* iter,
+                                    SubstreamCache* stream_cache) {
+    // init column iterator by path info
+    if (!tablet_column.path_info().empty()) {
+        return new_iterator_with_path(tablet_column, iter, stream_cache);
+    }
+    // init default iterator
     if (_column_readers.count(tablet_column.unique_id()) < 1) {
-        if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
-            return Status::InternalError("invalid nonexistent column without default value.");
-        }
-        auto type_info = get_type_info(&tablet_column);
-        std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
-                new DefaultValueColumnIterator(tablet_column.has_default_value(),
-                                               tablet_column.default_value(),
-                                               tablet_column.is_nullable(), std::move(type_info),
-                                               tablet_column.precision(), tablet_column.frac()));
-        ColumnIteratorOptions iter_opts;
-
-        RETURN_IF_ERROR(default_value_iter->init(iter_opts));
-        *iter = std::move(default_value_iter);
+        RETURN_IF_ERROR(new_default_iterator(tablet_column, iter));
         return Status::OK();
     }
+    // init iterator by unique id
     ColumnIterator* it;
     RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
+    iter->reset(it);
+    return Status::OK();
+}
+
+Status Segment::new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter) {
+    ColumnIterator* it;
+    RETURN_IF_ERROR(_column_readers.at(unique_id)->new_iterator(&it));
     iter->reset(it);
     return Status::OK();
 }
@@ -435,6 +593,25 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     CHECK(num_read == 1);
     *key = index_column->get_data_at(0).to_string();
     return Status::OK();
+}
+
+bool Segment::is_same_file_col_type_with_expected(int32_t cid, const Schema& schema) const {
+    auto file_column_type = get_data_type_of(*schema.column(cid));
+    auto expected_type = Schema::get_data_type_ptr(*schema.column(cid));
+    // ignore struct and map now
+    auto type_without_nullable = vectorized::remove_nullable(expected_type);
+    if (vectorized::WhichDataType(type_without_nullable).is_struct() ||
+        vectorized::WhichDataType(type_without_nullable).is_map()) {
+        return true;
+    }
+#ifndef NDEBUG
+    if (file_column_type && !file_column_type->equals(*expected_type)) {
+        VLOG_DEBUG << fmt::format("Get column {}, file column type {}, exepected type {}",
+                                  schema.column(cid)->name(), file_column_type->get_name(),
+                                  expected_type->get_name());
+    }
+#endif
+    return (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
 }
 
 } // namespace segment_v2

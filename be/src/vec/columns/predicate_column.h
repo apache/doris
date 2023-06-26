@@ -178,8 +178,52 @@ public:
         LOG(FATAL) << "insert_from not supported in PredicateColumnType";
     }
 
+    template <typename T>
+    void insert_copy_container(const IColumn& src, size_t start, size_t length) {
+        const auto& from_data =
+                reinterpret_cast<const vectorized::ColumnVector<T>*>(&src)->get_data();
+        size_t old_size = data.size();
+        data.resize(old_size + length);
+        memcpy(data.data() + old_size, &from_data[start], length * sizeof(data[0]));
+    }
+
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
-        LOG(FATAL) << "insert_range_from not supported in PredicateColumnType";
+        if constexpr (std::is_same_v<T, StringRef>) {
+            // TODO
+        } else if constexpr (std::is_same_v<T, decimal12_t>) {
+            // TODO
+        } else if constexpr (std::is_same_v<T, doris::vectorized::Int8> ||
+                             std::is_same_v<T, doris::vectorized::Int16> ||
+                             std::is_same_v<T, doris::vectorized::Int32> ||
+                             std::is_same_v<T, doris::vectorized::Int64> ||
+                             std::is_same_v<T, doris::vectorized::Float32> ||
+                             std::is_same_v<T, doris::vectorized::Float64> ||
+                             std::is_same_v<T, doris::vectorized::Int32> ||
+                             std::is_same_v<T, doris::vectorized::Int32> ||
+                             std::is_same_v<T, doris::vectorized::Int128>) {
+            insert_copy_container<T>(src, start, length);
+        } else if constexpr (std::is_same_v<T, uint64_t>) {
+            if (const vectorized::ColumnVector<UInt64>* date_col =
+                        check_and_get_column<vectorized::ColumnVector<UInt64>>(
+                                const_cast<const IColumn*>(&src))) {
+                insert_copy_container<uint64_t>(src, start, length);
+            } else {
+                insert_copy_container<int64_t>(src, start, length);
+            }
+        } else if constexpr (std::is_same_v<T, uint24_t>) {
+            insert_copy_container<Int64>(src, start, length);
+        } else if constexpr (std::is_same_v<T, uint32_t>) {
+            if (const vectorized::ColumnVector<Int64>* date_col =
+                        check_and_get_column<vectorized::ColumnVector<Int64>>(
+                                const_cast<const IColumn*>(&src))) {
+                // a trick type judge, need refactor it.
+                insert_copy_container<Int64>(src, start, length);
+            } else {
+                insert_copy_container<UInt32>(src, start, length);
+            }
+        } else {
+            LOG(FATAL) << "not supported output type in predicate_column";
+        }
     }
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
@@ -369,8 +413,9 @@ public:
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in PredicateColumnType";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -470,10 +515,6 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
-    }
-
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {

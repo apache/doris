@@ -101,6 +101,8 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
+    RowsetWriterContext& mutable_context() override { return _context; }
+
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
@@ -110,11 +112,6 @@ public:
     }
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
-
-    // Maybe modified by local schema change
-    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
-        return _context.schema_change_recorder.get();
-    }
 
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 

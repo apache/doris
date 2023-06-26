@@ -1,0 +1,10 @@
+diff a/be/src/vec/core/block.h b/be/src/vec/core/block.h	(rejected hunks)
+@@ -92,6 +92,8 @@ public:
+           bool ignore_trivial_slot = false);
+ 
+     void reserve(size_t count);
++    // Make sure the nammes is useless when use block
++    void clear_names();
+ 
+     /// insert the column at the specified position
+     void insert(size_t position, const ColumnWithTypeAndName& elem);

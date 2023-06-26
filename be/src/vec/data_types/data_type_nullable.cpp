@@ -168,7 +168,7 @@ bool DataTypeNullable::equals(const IDataType& rhs) const {
 }
 
 DataTypePtr make_nullable(const DataTypePtr& type) {
-    if (type->is_nullable()) {
+    if (type->is_nullable() || !type->can_be_inside_nullable()) {
         return type;
     }
     return std::make_shared<DataTypeNullable>(type);

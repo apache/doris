@@ -137,6 +137,20 @@ message ZoneMapPB {
     optional bool pass_all = 5 [default = false];
 }
 
+// For semi-structure column info, perisist info for PathInData
+message ColumnPathPartInfo {
+    optional string key = 1;
+    optional bool is_nested = 2;
+    optional uint32 anonymous_array_level = 3;
+}
+
+message ColumnPathInfo {
+    optional string path = 1;
+    repeated ColumnPathPartInfo path_part_infos = 2;
+    optional bool has_nested = 3;
+    optional uint32 parrent_column_unique_id = 4;
+}
+
 message ColumnMetaPB {
     // column id in table schema
     optional uint32 column_id = 1;
@@ -161,7 +175,12 @@ message ColumnMetaPB {
     // required by array/struct/map reader to create child reader.
     optional uint64 num_rows = 11;
     repeated string children_column_names = 12;
+    // persist info for PathInData that represents path in document, e.g. JSON.
+    optional ColumnPathInfo column_path_info = 13;
 
+    optional bytes default_value = 14; // ColumnMessage.default_value ?
+    optional int32 precision = 15; // ColumnMessage.precision
+    optional int32 frac = 16; // ColumnMessag
 }
 
 message PrimaryKeyIndexMetaPB {

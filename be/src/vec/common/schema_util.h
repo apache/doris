@@ -30,12 +30,14 @@
 #include "olap/tablet_schema.h"
 #include "udf/udf.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_object.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
-class LocalSchemaChangeRecorder;
 enum class FieldType;
 
 namespace vectorized {
@@ -59,16 +61,7 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 Array create_empty_array_field(size_t num_dimensions);
 
 // Cast column to dst type
-Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result,
-                   RuntimeState* = nullptr);
-
-// Object column will be unfolded and if  cast_to_original_type
-// the original column in the block will be replaced with the subcolumn
-// from object column and casted to the new type from slot_descs.
-// Also if column in block is empty, it will be filled
-// with num_rows of default values
-Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type,
-                     RuntimeState* = nullptr);
+Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result);
 
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,
@@ -76,48 +69,69 @@ Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_ori
 bool is_conversion_required_between_integers(const IDataType& lhs, const IDataType& rhs);
 bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs);
 
-// Align block schema with tablet schema
+struct ExtraInfo {
+    // -1 indicates it's not a Frontend generated column
+    int32_t unique_id = -1;
+    int32_t parent_unique_id = -1;
+    vectorized::PathInData path_info;
+};
+void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+                        TabletColumn& column, const ExtraInfo& ext_info);
+
+TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
+                                   const ExtraInfo& ext_info, bool* changed);
+
+// Two steps to parse variant columns into flatterned columns
+// 1. parse variant from raw json string
+// 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
+// 2. encode sparse sub columns
+void parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
+void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
+                              bool ignore_sparse = true);
+void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
+
+// Pick the tablet schema with the highest schema version as the reference.
+// Then update all variant columns to there least common types.
+// Return the final merged schema as common schema
+void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                             TabletSchemaSPtr& common_schema);
+
+// Get least common types for extracted columns which has Path info,
+// with a speicified variant column's unique id
+void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id);
+
+// Modify column type or add new columns
+struct UpdateSchemaRequest {
+    TabletSchemaSPtr from_schema;
+    std::vector<int> new_columns_pos;
+    std::vector<int> modifying_columns;
+    int32_t tablet_id;
+    int index_id;
+    int schema_version;
+    bool need_backoff = false;
+    int max_try = 10;
+};
+Status update_front_end_schema(UpdateSchemaRequest& request);
+
+// Encodes multiple sub columns into a single json column
 // eg.
-// Block:   col1(int), col2(string)
-// Schema:  col1(double), col3(date)
-// 1. col1(int) in block which type missmatch with schema col1 will be converted to double
-// 2. col2 in block which missing in current schema will launch a schema change rpc
-// 3. col3 in schema which missing in block will be ignored
-// After schema changed, schame change history will add new columns
-Status align_block_with_schema(const TabletSchema& schema, int64_t table_id /*for schema change*/,
-                               Block& block, LocalSchemaChangeRecorder* history);
-// record base schema column infos
-// maybe use col_unique_id as key in the future
-// but for dynamic table, column name if ok
-struct FullBaseSchemaView {
-    ENABLE_FACTORY_CREATOR(FullBaseSchemaView);
-    phmap::flat_hash_map<std::string, TColumn> column_name_to_column;
-    int32_t schema_version = -1;
-    int32_t table_id = 0;
-    std::string table_name;
-    std::string db_name;
-
-    bool empty() { return column_name_to_column.empty() && schema_version == -1; }
+// a.b : 10
+// a.c : 12
+// -> {"a" : {"b" : 10, "c" : 12}}
+enum class MergeMode {
+    // input is string format output string format
+    MERGE_NORMAL = 0,
+    // input is jsonb format output is jsonb format
+    REPLACE_IF_NULL_OUTPUT_JSONB = 1,
 };
 
-Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
-                            FullBaseSchemaView* schema_view);
+template <MergeMode mode>
+void merge_multi_subcolumns(const ColumnObject::Subcolumns& subcolumns, ColumnPtr src,
+                            MutableColumnPtr& result, const DataTypePtr& result_type, int start,
+                            int size, PathInData target_path = {});
 
-Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view);
-
-// For tracking local schema change during load procedure
-class LocalSchemaChangeRecorder {
-public:
-    void add_extended_columns(const TabletColumn& new_column, int32_t schema_version);
-    bool has_extended_columns();
-    std::map<std::string, TabletColumn> copy_extended_columns();
-    const TabletColumn& column(const std::string& col_name);
-    int32_t schema_version();
-
-private:
-    std::mutex _lock;
-    int32_t _schema_version = -1;
-    std::map<std::string, TabletColumn> _extended_columns;
-};
+// Extract json data from source with path
+Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
 } // namespace  doris::vectorized::schema_util

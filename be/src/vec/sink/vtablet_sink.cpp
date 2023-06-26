@@ -1375,8 +1375,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     _row_distribution_watch.stop();
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
-    bool load_block_to_single_tablet =
-            !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
+    bool load_block_to_single_tablet = _partition_to_tablet_map.size() == 1;
     if (load_block_to_single_tablet) {
         SCOPED_RAW_TIMER(&_filter_ns);
         // clear and release the references of columns

@@ -108,6 +108,7 @@ public:
 
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
+    const std::vector<std::string>& column_paths() const { return _column_paths; };
 
 private:
     friend class DescriptorTbl;
@@ -141,6 +142,7 @@ private:
 
     const bool _is_key;
     const bool _need_materialize;
+    const std::vector<std::string> _column_paths;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

@@ -197,27 +197,33 @@ public:
 
 public:
     bool operator==(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator!=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
 private:

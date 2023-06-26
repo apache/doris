@@ -317,10 +317,12 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<
-                        PredicateEvaluateType<Type>>&>(nested_column)
-                                           .get_data()
-                                           .data();
+                auto* data_array =
+                        vectorized::check_and_get_column<
+                                const vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(
+                                nested_column)
+                                ->get_data()
+                                .data();
 
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }

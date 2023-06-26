@@ -21,6 +21,8 @@
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/rapidjson.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <re2/re2.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
@@ -313,6 +315,43 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
     std::swap(*value, tvalue);
 
     return Status::OK();
+}
+
+std::string JsonFunctions::print_json_value(const rapidjson::Value& value) {
+    rapidjson::StringBuffer buffer;
+    buffer.Clear();
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    value.Accept(writer);
+    return std::string(buffer.GetString());
+}
+
+void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value& src_object,
+                                  rapidjson::Document::AllocatorType& allocator) {
+    if (!src_object.IsObject()) {
+        return;
+    }
+    for (auto src_it = src_object.MemberBegin(); src_it != src_object.MemberEnd(); ++src_it) {
+        auto dst_it = dst_object.FindMember(src_it->name);
+        if (dst_it != dst_object.MemberEnd()) {
+            // CHECK_EQ(src_it->value.GetType(), dst_it->value.GetType())
+            //             << "src type:" << src_it->value.GetType()
+            //             << ", dst type:" << dst_it->value.GetType();
+            if (src_it->value.IsArray()) {
+                for (auto arrayIt = src_it->value.Begin(); arrayIt != src_it->value.End();
+                     ++arrayIt) {
+                    dst_it->value.PushBack(*arrayIt, allocator);
+                }
+            } else if (src_it->value.IsObject()) {
+                merge_objects(dst_it->value, src_it->value, allocator);
+            } else {
+                if (dst_it->value.IsNull()) {
+                    dst_it->value = src_it->value;
+                }
+            }
+        } else {
+            dst_object.AddMember(src_it->name, src_it->value, allocator);
+        }
+    }
 }
 
 } // namespace doris

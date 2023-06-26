@@ -57,6 +57,9 @@ struct TSlotDescriptor {
   // If set to false, then such slots will be ignored during
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
+  14: optional bool is_auto_increment = false;
+  // `$.a.b.c` => ['$', 'a', 'b', 'c']
+  15: optional list<string> column_paths
 }
 
 struct TTupleDescriptor {
@@ -218,7 +221,7 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
-    7: optional bool is_dynamic_schema
+    7: optional bool is_dynamic_schema // deprecated
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false;

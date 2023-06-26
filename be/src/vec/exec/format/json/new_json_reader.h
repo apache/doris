@@ -79,7 +79,7 @@ public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
                   const std::vector<SlotDescriptor*>& file_slot_descs, bool* scanner_eof,
-                  io::IOContext* io_ctx, bool is_dynamic_schema = false);
+                  io::IOContext* io_ctx);
 
     NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                   const TFileRangeDesc& range, const std::vector<SlotDescriptor*>& file_slot_descs,
@@ -110,12 +110,6 @@ private:
                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                                 bool* eof);
 
-    Status _parse_dynamic_json(RuntimeState* state, bool* is_empty_row, bool* eof, Block& block,
-                               const std::vector<SlotDescriptor*>& slot_descs);
-    Status _vhandle_dynamic_json(RuntimeState* /*state*/, Block& block,
-                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                 bool* eof);
-
     Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
                                             const std::vector<SlotDescriptor*>& slot_descs,
                                             bool* is_empty_row, bool* eof);
@@ -141,7 +135,7 @@ private:
     Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
                              std::string col_name, bool* valid);
 
-    std::string _print_json_value(const rapidjson::Value& value);
+    static std::string _print_json_value(const rapidjson::Value& value);
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
@@ -242,8 +236,6 @@ private:
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _file_read_timer;
 
-    bool _is_dynamic_schema = false;
-
     // ======SIMD JSON======
     // name mapping
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
@@ -266,11 +258,9 @@ private:
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;
     simdjson::ondemand::array _array;
-    std::unique_ptr<JSONDataParser<SimdJSONParser>> _json_parser;
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
-    int32_t _cur_parsed_variant_rows = 0;
 };
 
 } // namespace vectorized

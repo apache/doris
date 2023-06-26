@@ -62,6 +62,10 @@ public:
         return TPrimitiveType::OBJECT;
     }
 
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_OBJECT;
+    }
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
