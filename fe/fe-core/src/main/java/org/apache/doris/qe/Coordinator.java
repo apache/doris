@@ -2787,9 +2787,13 @@ public class Coordinator {
                             this.initiated, this.done, this.hasCanceled, backend.getId(),
                             DebugUtil.printId(localParam.fragment_instance_id), cancelReason.name());
                 }
-                if (fragmentInstancesMap.get(localParam.fragment_instance_id).getIsCancel()) {
+
+                RuntimeProfile profile = fragmentInstancesMap.get(localParam.fragment_instance_id);
+                if (profile.getIsDone() || profile.getIsCancel()) {
                     continue;
                 }
+
+                this.hasCanceled = true;
                 try {
                     Span span = ConnectContext.get() != null
                             ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
@@ -2811,7 +2815,10 @@ public class Coordinator {
                     return false;
                 }
             }
-            this.hasCanceled = true;
+            if (!this.hasCanceled) {
+                return false;
+            }
+
             for (int i = 0; i < this.numInstances; i++) {
                 fragmentInstancesMap.get(rpcParams.local_params.get(i).fragment_instance_id).setIsCancel(true);
             }
