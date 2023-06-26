@@ -147,8 +147,8 @@ public:
 
     bool is_dummy() const override { return true; }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "IColumnDummy get_data_type not implemeted";
+    [[noreturn]] TypeIndex get_underlying_data_type() const override {
+        LOG(FATAL) << "IColumnDummy get_underlying_data_type not implemeted";
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {

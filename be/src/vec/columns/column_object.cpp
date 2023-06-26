@@ -40,6 +40,7 @@
 #include "vec/data_types/convert_field_to_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/get_least_supertype.h"
 
@@ -59,6 +60,11 @@ namespace doris::vectorized {
 namespace {
 
 DataTypePtr create_array_of_type(DataTypePtr type, size_t num_dimensions) {
+    if (remove_nullable(type)->get_type_id() == TypeIndex::JSONB) {
+        // JSONB type MUST NOT wrapped in ARRAY column, it should be top level.
+        // So we ignored num_dimensions.
+        return type;
+    }
     for (size_t i = 0; i < num_dimensions; ++i) {
         type = std::make_shared<DataTypeArray>(std::move(type));
     }
@@ -84,7 +90,7 @@ size_t getNumberOfDimensions(const IDataType& type) {
 }
 
 DataTypePtr get_data_type_by_column(const IColumn& column) {
-    auto idx = column.get_data_type();
+    auto idx = column.get_underlying_data_type();
     if (WhichDataType(idx).is_simple()) {
         return DataTypeFactory::instance().create_data_type(idx);
     }
@@ -239,7 +245,7 @@ public:
         return 0;
     }
     void get_scalar_type(DataTypePtr* type) const {
-        get_least_supertype(type_indexes, type, true /*compatible with string type*/);
+        get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, type);
     }
     bool contain_nulls() const { return have_nulls; }
     bool need_convert_field() const { return field_types.size() > 1; }
@@ -265,15 +271,18 @@ void get_field_info(const Field& field, FieldInfo* info) {
     };
 }
 
-ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, bool is_nullable_)
-        : least_common_type(get_data_type_by_column(*data_)), is_nullable(is_nullable_) {
+ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, bool is_nullable_, bool is_root_)
+        : least_common_type(get_data_type_by_column(*data_)),
+          is_nullable(is_nullable_),
+          is_root(is_root_) {
     data.push_back(std::move(data_));
 }
 
-ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_)
+ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
         : least_common_type(std::make_shared<DataTypeNothing>()),
           is_nullable(is_nullable_),
-          num_of_defaults_in_prefix(size_) {}
+          num_of_defaults_in_prefix(size_),
+          is_root(is_root_) {}
 
 size_t ColumnObject::Subcolumn::Subcolumn::size() const {
     size_t res = num_of_defaults_in_prefix;
@@ -324,37 +333,39 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     if (is_nothing(base_type)) {
         value_dim = column_dim;
     }
-    if (value_dim != column_dim) {
-        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                               "Dimension of types mismatched between inserted value and column, "
-                               "expected:{}, but meet:{} for type:{}",
-                               column_dim, value_dim, least_common_type.get()->get_name());
+    bool type_changed = false;
+    if (value_dim != column_dim || info.num_dimensions >= 2) {
+        // Deduce to JSONB
+        LOG(INFO) << fmt::format(
+                "Dimension of types mismatched between inserted value and column, "
+                "expected:{}, but meet:{} for type:{}",
+                column_dim, value_dim, least_common_type.get()->get_name());
+        base_type = std::make_shared<DataTypeJsonb>();
+        value_dim = 0;
+        type_changed = true;
     }
     if (is_nullable && !is_nothing(base_type)) {
         base_type = make_nullable(base_type);
     }
-    // alawys nullable at present
-    if (!is_nullable && info.have_nulls) {
-        field = apply_visitor(FieldVisitorReplaceNull(base_type->get_default(), value_dim),
-                              std::move(field));
-    }
-    // need replace muli dimensions array which contains null. eg. [[1, 2, 3], null] -> [[1, 2, 3], []]
-    // since column array doesnt known null's dimension
-    if (info.num_dimensions >= 2 && info.have_nulls) {
-        field = apply_visitor(FieldVisitorReplaceNull(base_type->get_default(), value_dim),
-                              std::move(field));
-    }
+    // // need replace muli dimensions array which contains null. eg. [[1, 2, 3], null] -> [[1, 2, 3], []]
+    // // since column array doesnt known null's dimension
+    // if (info.num_dimensions >= 2 && info.have_nulls) {
+    //     field = apply_visitor(FieldVisitorReplaceNull(base_type->get_default(), value_dim),
+    //                           std::move(field));
+    // }
 
-    bool type_changed = false;
     const auto& least_common_base_type = least_common_type.getBase();
     if (data.empty()) {
         add_new_column_part(create_array_of_type(std::move(base_type), value_dim));
     } else if (!least_common_base_type->equals(*base_type) && !is_nothing(base_type)) {
         if (!schema_util::is_conversion_required_between_integers(*base_type,
                                                                   *least_common_base_type)) {
-            get_least_supertype(DataTypes {std::move(base_type), least_common_base_type},
-                                &base_type, true /*compatible with string type*/);
+            get_least_supertype<LeastSupertypeOnError::Jsonb>(
+                    DataTypes {std::move(base_type), least_common_base_type}, &base_type);
             type_changed = true;
+            if (is_nullable) {
+                base_type = make_nullable(base_type);
+            }
             if (!least_common_base_type->equals(*base_type)) {
                 add_new_column_part(create_array_of_type(std::move(base_type), value_dim));
             }
@@ -381,8 +392,11 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
         data.back()->insert_range_from(*src_column, start, length);
     } else {
         DataTypePtr new_least_common_type = nullptr;
-        get_least_supertype(DataTypes {least_common_type.get(), src_type}, &new_least_common_type,
-                            true /*compatible with string type*/);
+        get_least_supertype<LeastSupertypeOnError::Jsonb>(
+                DataTypes {least_common_type.get(), src_type}, &new_least_common_type);
+        if (is_nullable) {
+            new_least_common_type = make_nullable(new_least_common_type);
+        }
         ColumnPtr casted_column;
         Status st = schema_util::cast_column({src_column, src_type, ""}, new_least_common_type,
                                              &casted_column);
@@ -398,7 +412,7 @@ void ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t start
 }
 
 bool ColumnObject::Subcolumn::is_finalized() const {
-    return data.empty() || (data.size() == 1 && num_of_defaults_in_prefix == 0);
+    return num_of_defaults_in_prefix == 0 && (data.empty() || (data.size() == 1));
 }
 
 template <typename Func>
@@ -428,7 +442,13 @@ void ColumnObject::Subcolumn::finalize() {
         data[0] = data[0]->convert_to_full_column_if_const();
         return;
     }
-    const auto& to_type = least_common_type.get();
+    DataTypePtr to_type = least_common_type.get();
+    if (is_root) {
+        // Root always JSONB type
+        to_type = is_nullable ? make_nullable(std::make_shared<DataTypeJsonb>())
+                              : std::make_shared<DataTypeJsonb>();
+        least_common_type = LeastCommonType {to_type};
+    }
     auto result_column = to_type->create_column();
     if (num_of_defaults_in_prefix) {
         result_column->insert_many_defaults(num_of_defaults_in_prefix);
@@ -438,22 +458,9 @@ void ColumnObject::Subcolumn::finalize() {
         auto from_type = get_data_type_by_column(*part);
         size_t part_size = part->size();
         if (!from_type->equals(*to_type)) {
-            auto offsets = ColumnUInt64::create();
-            auto& offsets_data = offsets->get_data();
-            /// We need to convert only non-default values and then recreate column
-            /// with default value of new type, because default values (which represents misses in data)
-            /// may be inconsistent between types (e.g "0" in UInt64 and empty string in String).
-            part->get_indices_of_non_default_rows(offsets_data, 0, part_size);
-            if (offsets->size() == part_size) {
-                ColumnPtr ptr;
-                schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
-                part = ptr;
-            } else {
-                auto values = part->index(*offsets, offsets->size());
-                schema_util::cast_column({values, from_type, ""}, to_type, &values);
-                part = values->create_with_offsets(offsets_data, to_type->get_default(), part_size,
-                                                   /*shift=*/0);
-            }
+            ColumnPtr ptr;
+            schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
+            part = ptr;
         }
         result_column->insert_range_from(*part, 0, part_size);
     }
@@ -551,12 +558,15 @@ ColumnObject::Subcolumn::LeastCommonType::LeastCommonType(DataTypePtr type_)
           base_type(getBaseTypeOfArray(type)),
           num_dimensions(getNumberOfDimensions(*type)) {}
 
-ColumnObject::ColumnObject(bool is_nullable_) : is_nullable(is_nullable_), num_rows(0) {}
+ColumnObject::ColumnObject(bool is_nullable_) : is_nullable(is_nullable_), num_rows(0) {
+    subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
+}
 
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
         : is_nullable(is_nullable_),
           subcolumns(std::move(subcolumns_)),
           num_rows(subcolumns.empty() ? 0 : (*subcolumns.begin())->data.size()) {
+    subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     check_consistency();
 }
 
@@ -859,9 +869,15 @@ bool ColumnObject::is_finalized() const {
 
 void ColumnObject::finalize() {
     Subcolumns new_subcolumns;
+    // finalize root first
+    new_subcolumns.create_root(subcolumns.get_root()->data);
+    new_subcolumns.get_mutable_root()->data.finalize();
     for (auto&& entry : subcolumns) {
+        if (entry->data.is_root) {
+            continue;
+        }
         const auto& least_common_type = entry->data.get_least_common_type();
-        /// Do not add subcolumns, which consists only from NULLs.
+        /// Do not add subcolumns, which consists only from NULLs
         if (is_nothing(getBaseTypeOfArray(least_common_type))) {
             continue;
         }

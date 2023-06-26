@@ -31,11 +31,7 @@ template <typename NodeData>
 class SubcolumnsTree {
 public:
     struct Node {
-        enum Kind {
-            TUPLE,
-            NESTED,
-            SCALAR,
-        };
+        enum Kind { TUPLE, NESTED, SCALAR };
 
         explicit Node(Kind kind_) : kind(kind_) {}
         Node(Kind kind_, const NodeData& data_) : kind(kind_), data(data_) {}
@@ -53,6 +49,13 @@ public:
 
         bool is_nested() const { return kind == NESTED; }
         bool is_scalar() const { return kind == SCALAR; }
+
+        // Only modify data and kind
+        void modify(std::shared_ptr<Node> other) {
+            data = other->data;
+            kind = other->kind;
+            path = other->path;
+        }
 
         void add_child(std::string_view key, std::shared_ptr<Node> next_node) {
             next_node->parent = this;
@@ -83,6 +86,12 @@ public:
     /// flag, which is true if node already exists.
     using NodeCreator = std::function<NodePtr(NodeKind, bool)>;
 
+    // create root as SCALAR node
+    void create_root(const NodeData& leaf_data) {
+        root = std::make_shared<Node>(Node::SCALAR, leaf_data);
+        leaves.push_back(root);
+    }
+
     bool add(const PathInData& path, const NodeCreator& node_creator) {
         const auto& parts = path.get_parts();
 
@@ -96,8 +105,6 @@ public:
 
         Node* current_node = root.get();
         for (size_t i = 0; i < parts.size() - 1; ++i) {
-            assert(current_node->kind != Node::SCALAR);
-
             auto it = current_node->children.find(
                     StringRef {parts[i].key.data(), parts[i].key.size()});
             if (it != current_node->children.end()) {
@@ -118,7 +125,11 @@ public:
         auto it = current_node->children.find(
                 StringRef {parts.back().key.data(), parts.back().key.size()});
         if (it != current_node->children.end()) {
-            return false;
+            // Modify this node to Node::SCALAR
+            auto new_node = node_creator(Node::SCALAR, false);
+            it->get_second()->modify(new_node);
+            leaves.push_back(it->get_second());
+            return true;
         }
 
         auto next_node = node_creator(Node::SCALAR, false);
@@ -183,6 +194,7 @@ public:
 
     const Nodes& get_leaves() const { return leaves; }
     const Node* get_root() const { return root.get(); }
+    Node* get_mutable_root() { return root.get(); }
 
     using iterator = typename Nodes::iterator;
     using const_iterator = typename Nodes::const_iterator;

@@ -38,6 +38,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -67,16 +68,28 @@ String get_exception_message_prefix(const DataTypes& types) {
     return res.str();
 }
 
+template <LeastSupertypeOnError on_error, typename DataTypes>
+void throw_or_return(const DataTypes& types, int error_code, std::string_view message_suffix,
+                     DataTypePtr* expected) {
+    if constexpr (on_error == LeastSupertypeOnError::String) {
+        *expected = std::make_shared<DataTypeString>();
+        return;
+    }
+    if constexpr (on_error == LeastSupertypeOnError::Jsonb) {
+        *expected = std::make_shared<DataTypeJsonb>();
+        return;
+    }
+    if constexpr (on_error == LeastSupertypeOnError::Null) {
+        *expected = nullptr;
+    }
+    throw doris::Exception(error_code, "There is no supertype for types {} {}",
+                           get_exception_message_prefix(types), message_suffix);
+}
+
 } // namespace
 
-void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compatible_with_string) {
-    auto throw_or_return = [&](std::string_view message, int error_code) {
-        if (compatible_with_string) {
-            *type = std::make_shared<DataTypeString>();
-            return;
-        }
-        throw doris::Exception(error_code, message);
-    };
+template <LeastSupertypeOnError on_error>
+void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
     bool all_numbers = true;
 
     size_t max_bits_of_signed_integer = 0;
@@ -120,10 +133,7 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compati
         max_mantissa_bits_of_floating) {
         if (!all_numbers) {
             *type = nullptr;
-            return throw_or_return(
-                    get_exception_message_prefix(types) +
-                            " because some of them are numbers and some of them are not",
-                    doris::ErrorCode::INVALID_ARGUMENT);
+            return throw_or_return<on_error>(types, doris::ErrorCode::INVALID_ARGUMENT, "", type);
         }
 
         /// If there are signed and unsigned types of same bit-width, the result must be signed number with at least one more bit.
@@ -153,12 +163,12 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compati
                              "but there is no floating point type, that can exactly represent "
                              "all required integers";
                 *type = nullptr;
-                return throw_or_return(
-                        get_exception_message_prefix(types) +
-                                " because some of them are integers and some are floating point "
-                                "but there is no floating point type, that can exactly represent "
-                                "all required integers",
-                        doris::ErrorCode::INVALID_ARGUMENT);
+                return throw_or_return<on_error>(
+                        types, doris::ErrorCode::INVALID_ARGUMENT,
+                        " because some of them are integers and some are floating point "
+                        "but there is no floating point type, that can exactly represent "
+                        "all required integers",
+                        type);
             }
         }
 
@@ -180,11 +190,12 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compati
                 LOG(INFO) << " because some of them are signed integers and some are unsigned "
                              "integers, but there is no signed integer type, that can exactly "
                              "represent all required unsigned integer values";
-                return throw_or_return(
+                return throw_or_return<on_error>(
+                        types, doris::ErrorCode::INVALID_ARGUMENT,
                         " because some of them are signed integers and some are unsigned "
                         "integers, but there is no signed integer type, that can exactly "
                         "represent all required unsigned integer values",
-                        doris::ErrorCode::INVALID_ARGUMENT);
+                        type);
             }
         }
 
@@ -207,27 +218,20 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type, bool compati
                              << "but as all data types are unsigned integers, we must have found "
                                 "maximum unsigned integer type";
                 *type = nullptr;
-                return throw_or_return(
-                        "Logical error: " + get_exception_message_prefix(types) +
-                                " but as all data types are unsigned integers, we must have found "
-                                "maximum unsigned integer type",
-                        doris::ErrorCode::INVALID_ARGUMENT);
+                return throw_or_return<on_error>(
+                        types, doris::ErrorCode::INVALID_ARGUMENT,
+                        " but as all data types are unsigned integers, we must have found "
+                        "maximum unsigned integer type",
+                        type);
             }
         }
     }
     *type = nullptr;
 }
 
-// TODO conflict type resolve
-void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compatible_with_string) {
+template <LeastSupertypeOnError on_error>
+void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
     /// Trivial cases
-    auto throw_or_return = [&](std::string_view message, int error_code) {
-        if (compatible_with_string) {
-            *type = std::make_shared<DataTypeString>();
-            return;
-        }
-        throw doris::Exception(error_code, String(message));
-    };
     if (types.empty()) {
         *type = std::make_shared<DataTypeNothing>();
         return;
@@ -268,7 +272,7 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
         }
 
         if (non_nothing_types.size() < types.size()) {
-            get_least_supertype(non_nothing_types, type, compatible_with_string);
+            get_least_supertype<on_error>(non_nothing_types, type);
             return;
         }
     }
@@ -295,7 +299,7 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
 
         if (have_nullable) {
             DataTypePtr nested_type;
-            get_least_supertype(nested_types, &nested_type, compatible_with_string);
+            get_least_supertype<on_error>(nested_types, &nested_type);
             *type = std::make_shared<DataTypeNullable>(nested_type);
             return;
         }
@@ -316,14 +320,14 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
 
         if (have_string || have_fixed_string) {
             bool all_strings = type_ids.size() == (have_string + have_fixed_string);
-            if (!all_strings && !compatible_with_string) {
+            if (!all_strings) {
                 LOG(INFO)
                         << get_exception_message_prefix(types)
                         << " because some of them are String/FixedString and some of them are not";
-                return throw_or_return(get_exception_message_prefix(types) +
-                                               " because some of them are String/FixedString and "
-                                               "some of them are not",
-                                       doris::ErrorCode::INVALID_ARGUMENT);
+                return throw_or_return<on_error>(types, doris::ErrorCode::INVALID_ARGUMENT,
+                                                 " because some of them are String/FixedString and "
+                                                 "some of them are not",
+                                                 type);
             }
 
             *type = std::make_shared<DataTypeString>();
@@ -341,10 +345,9 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
             if (!all_date_or_datetime) {
                 LOG(INFO) << get_exception_message_prefix(types)
                           << " because some of them are Date/DateTime and some of them are not";
-                return throw_or_return(
-                        get_exception_message_prefix(types) +
-                                " because some of them are Date/DateTime and some of them are not",
-                        doris::ErrorCode::INVALID_ARGUMENT);
+                return throw_or_return<on_error>(
+                        types, doris::ErrorCode::INVALID_ARGUMENT,
+                        " because some of them are Date/DateTime and some of them are not", type);
             }
 
             *type = std::make_shared<DataTypeDateTime>();
@@ -379,10 +382,9 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
             if (num_supported != type_ids.size()) {
                 LOG(INFO) << get_exception_message_prefix(types)
                           << " because some of them have no lossless convertion to Decimal";
-                return throw_or_return(
-                        get_exception_message_prefix(types) +
-                                " because some of them have no lossless convertion to Decimal",
-                        doris::ErrorCode::INVALID_ARGUMENT);
+                return throw_or_return<on_error>(
+                        types, doris::ErrorCode::INVALID_ARGUMENT,
+                        " because some of them have no lossless convertion to Decimal", type);
             }
 
             UInt32 max_scale = 0;
@@ -405,11 +407,12 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
                 LOG(INFO) << fmt::format("{} because the least supertype is Decimal({},{})",
                                          get_exception_message_prefix(types), min_precision,
                                          max_scale);
-                return throw_or_return(get_exception_message_prefix(types) +
-                                               fmt::format(" because some of them have no lossless "
-                                                           "convertion to Decimal({},{})",
-                                                           min_precision, max_scale),
-                                       doris::ErrorCode::INVALID_ARGUMENT);
+                return throw_or_return<on_error>(
+                        types, doris::ErrorCode::INVALID_ARGUMENT,
+                        fmt::format(" because some of them have no lossless "
+                                    "convertion to Decimal({},{})",
+                                    min_precision, max_scale),
+                        type);
             }
 
             if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
@@ -436,7 +439,7 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
     /// For numeric types, the most complicated part.
     {
         DataTypePtr numeric_type = nullptr;
-        get_numeric_type(type_ids, &numeric_type, compatible_with_string);
+        get_numeric_type<on_error>(type_ids, &numeric_type);
         if (numeric_type) {
             *type = numeric_type;
             return;
@@ -445,18 +448,11 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type, bool compati
 
     /// All other data types (UUID, AggregateFunction, Enum...) are compatible only if they are the same (checked in trivial cases).
     *type = nullptr;
-    return throw_or_return(get_exception_message_prefix(types), ErrorCode::INVALID_ARGUMENT);
+    return throw_or_return<on_error>(types, ErrorCode::INVALID_ARGUMENT, "", type);
 }
 
-void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type,
-                         bool compatible_with_string) {
-    auto throw_or_return = [&](std::string_view message, int error_code) {
-        if (compatible_with_string) {
-            *type = std::make_shared<DataTypeString>();
-            return;
-        }
-        throw doris::Exception(error_code, String(message));
-    };
+template <LeastSupertypeOnError on_error>
+void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type) {
     TypeIndexSet types_set;
     for (const auto& t : types) {
         if (WhichDataType(t).is_nothing()) continue;
@@ -482,10 +478,9 @@ void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type,
         if (types.size() != 1) {
             LOG(INFO) << " because some of them are String and some of them are not";
             *type = nullptr;
-            return throw_or_return(
-                    get_exception_message_prefix(types) +
-                            " because some of them are String and some of them are not",
-                    ErrorCode::INVALID_ARGUMENT);
+            return throw_or_return<on_error>(
+                    types, ErrorCode::INVALID_ARGUMENT,
+                    " because some of them are String and some of them are not", type);
         }
 
         *type = std::make_shared<DataTypeString>();
@@ -494,14 +489,29 @@ void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type,
 
     /// For numeric types, the most complicated part.
     DataTypePtr numeric_type = nullptr;
-    get_numeric_type(types, &numeric_type, compatible_with_string);
+    get_numeric_type<on_error>(types, &numeric_type);
     if (numeric_type) {
         *type = numeric_type;
         return;
     }
     /// All other data types (UUID, AggregateFunction, Enum...) are compatible only if they are the same (checked in trivial cases).
     *type = nullptr;
-    return throw_or_return(get_exception_message_prefix(types), ErrorCode::INVALID_ARGUMENT);
+    return throw_or_return<on_error>(types, ErrorCode::INVALID_ARGUMENT, "", type);
 }
+
+template void get_least_supertype<LeastSupertypeOnError::Throw>(const DataTypes& types,
+                                                                DataTypePtr* type);
+template void get_least_supertype<LeastSupertypeOnError::Throw>(const TypeIndexSet& types,
+                                                                DataTypePtr* type);
+
+template void get_least_supertype<LeastSupertypeOnError::String>(const DataTypes& types,
+                                                                 DataTypePtr* type);
+template void get_least_supertype<LeastSupertypeOnError::String>(const TypeIndexSet& types,
+                                                                 DataTypePtr* type);
+
+template void get_least_supertype<LeastSupertypeOnError::Jsonb>(const DataTypes& types,
+                                                                DataTypePtr* type);
+template void get_least_supertype<LeastSupertypeOnError::Jsonb>(const TypeIndexSet& types,
+                                                                DataTypePtr* type);
 
 } // namespace doris::vectorized

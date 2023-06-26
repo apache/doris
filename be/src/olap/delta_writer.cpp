@@ -62,6 +62,7 @@
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -458,6 +459,19 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
                 _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
                 _rowset_writer.get()));
     }
+
+    if (_tablet->tablet_schema()->num_variant_columns() > 0) {
+        // update tablet schema when meet variant columns
+        // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
+        // _tabelt->tablet_schema:  A(bigint), B(double)
+        //  => update_schema:       A(bigint), B(double), C(int), D(int)
+        RowsetWriterContext& rw_ctx = _rowset_writer->mutable_context();
+        TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
+        vectorized::schema_util::get_least_common_schema(
+                {_tablet->tablet_schema(), rw_ctx.tablet_schema}, update_schema);
+        _tablet->update_by_least_common_schema(update_schema);
+    }
+
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
                                                             _req.load_id, _cur_rowset, false);
 

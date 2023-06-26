@@ -36,7 +36,7 @@ class JSONDataParser;
 namespace doris::vectorized {
 
 // parse a batch of json strings into column object, throws doris::Execption when failed
-void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
+void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column);
 
 // parse a single json, throws doris::Execption when failed
 void parse_json_to_variant(IColumn& column, const StringRef& jsons,

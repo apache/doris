@@ -53,9 +53,14 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_object.h"
+#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/parse2column.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
@@ -128,14 +133,8 @@ bool is_conversion_required_between_integers(FieldType lhs, FieldType rhs) {
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
-    ColumnsWithTypeAndName arguments;
-    if (WhichDataType(type->get_type_id()).is_string()) {
-        // Special handle ColumnString, since the original cast logic use ColumnString's first item
-        // as the name of the dest type
-        arguments = {arg, {type->create_column_const(1, type->get_name()), type, ""}};
-    } else {
-        arguments = {arg, {type->create_column_const_with_default_value(1), type, ""}};
-    }
+    ColumnsWithTypeAndName arguments {
+            arg, {type->create_column_const_with_default_value(1), type, type->get_name()}};
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     Block tmp_block {arguments};
     // the 0 position is input argument, the 1 position is to type argument, the 2 position is result argument
@@ -150,226 +149,145 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     return Status::OK();
 }
 
-static void get_column_def(const vectorized::DataTypePtr& data_type, const std::string& name,
-                           TColumnDef* column) {
-    if (!name.empty()) {
-        column->columnDesc.__set_columnName(name);
-    }
+void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+                        TabletColumn& column) {
+    column.set_name(name);
+    column.set_type(data_type->get_type_as_field_type());
+    // -1 indicates it's not a Frontend generated column
+    column.set_unique_id(-1);
     if (data_type->is_nullable()) {
         const auto& real_type = static_cast<const DataTypeNullable&>(*data_type);
-        column->columnDesc.__set_isAllowNull(true);
-        get_column_def(real_type.get_nested_type(), "", column);
+        column.set_is_nullable(true);
+        get_column_by_type(real_type.get_nested_type(), name, column);
         return;
     }
-    column->columnDesc.__set_columnType(data_type->get_type_as_tprimitive_type());
     if (data_type->get_type_id() == TypeIndex::Array) {
-        TColumnDef child;
-        column->columnDesc.__set_children({});
-        get_column_def(assert_cast<const DataTypeArray*>(data_type.get())->get_nested_type(), "",
-                       &child);
-        column->columnDesc.columnLength =
-                TabletColumn::get_field_length_by_type(column->columnDesc.columnType, 0);
-        column->columnDesc.children.push_back(child.columnDesc);
+        TabletColumn child;
+        get_column_by_type(assert_cast<const DataTypeArray*>(data_type.get())->get_nested_type(),
+                           "", child);
+        column.set_length(TabletColumn::get_field_length_by_type(
+                data_type->get_type_as_tprimitive_type(), 0));
+        column.set_default_value("[]");
+        column.add_sub_column(child);
         return;
     }
-    if (data_type->get_type_id() == TypeIndex::Tuple) {
-        // TODO
-        // auto tuple_type = assert_cast<const DataTypeTuple*>(data_type.get());
-        // DCHECK_EQ(tuple_type->get_elements().size(), tuple_type->get_element_names().size());
-        // for (size_t i = 0; i < tuple_type->get_elements().size(); ++i) {
-        //     TColumnDef child;
-        //     get_column_def(tuple_type->get_element(i), tuple_type->get_element_names()[i], &child);
-        //     column->columnDesc.children.push_back(child.columnDesc);
-        // }
-        // return;
-    }
-    if (data_type->get_type_id() == TypeIndex::String) {
+    if (WhichDataType(*data_type).is_string()) {
         return;
     }
     if (WhichDataType(*data_type).is_simple()) {
-        column->columnDesc.__set_columnLength(data_type->get_size_of_value_in_memory());
+        column.set_length(data_type->get_size_of_value_in_memory());
         return;
     }
+    // TODO handle more types like struct/date/datetime/decimal...
+    __builtin_unreachable();
 }
 
-// send an empty add columns rpc, the rpc response will fill with base schema info
-// maybe we could seperate this rpc from add columns rpc
-Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
-    TAddColumnsRequest req;
-    TAddColumnsResult res;
-    TTabletInfo tablet_info;
-    req.__set_table_name(schema_view->table_name);
-    req.__set_db_name(schema_view->db_name);
-    req.__set_table_id(schema_view->table_id);
-    // Set empty columns
-    req.__set_addColumns({});
-    auto master_addr = ExecEnv::GetInstance()->master_info()->network_address;
-    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&req, &res](FrontendServiceConnection& client) { client->addColumns(res, req); },
-            config::txn_commit_rpc_timeout_ms);
-    if (!rpc_st.ok()) {
-        return Status::InternalError("Failed to fetch schema info, encounter rpc failure");
-    }
-    // TODO(lhy) handle more status code
-    if (res.status.status_code != TStatusCode::OK) {
-        LOG(WARNING) << "failed to fetch schema info, code:" << res.status.status_code
-                     << ", msg:" << res.status.error_msgs[0];
-        return Status::InvalidArgument(
-                fmt::format("Failed to fetch schema info, {}", res.status.error_msgs[0]));
-    }
-    for (const auto& column : res.allColumns) {
-        schema_view->column_name_to_column[column.column_name] = column;
-    }
-    schema_view->schema_version = res.schema_version;
-    return Status::OK();
-}
-
-// Do batch add columns schema change
-// only the base table supported
-Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
-                            FullBaseSchemaView* schema_view) {
-    if (column_type_names.empty()) {
-        return Status::OK();
-    }
-    TAddColumnsRequest req;
-    TAddColumnsResult res;
-    TTabletInfo tablet_info;
-    req.__set_table_name(schema_view->table_name);
-    req.__set_db_name(schema_view->db_name);
-    req.__set_table_id(schema_view->table_id);
-    // TODO(lhy) more configurable
-    req.__set_allow_type_conflict(true);
-    req.__set_addColumns({});
-    for (const auto& column_type_name : column_type_names) {
-        TColumnDef col;
-        get_column_def(column_type_name.type, column_type_name.name, &col);
-        req.addColumns.push_back(col);
-    }
-    auto master_addr = ExecEnv::GetInstance()->master_info()->network_address;
-    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&req, &res](FrontendServiceConnection& client) { client->addColumns(res, req); },
-            config::txn_commit_rpc_timeout_ms);
-    if (!rpc_st.ok()) {
-        return Status::InternalError("Failed to do schema change, rpc error");
-    }
-    // TODO(lhy) handle more status code
-    if (res.status.status_code != TStatusCode::OK) {
-        LOG(WARNING) << "failed to do schema change, code:" << res.status.status_code
-                     << ", msg:" << res.status.error_msgs[0];
-        return Status::InvalidArgument(
-                fmt::format("Failed to do schema change, {}", res.status.error_msgs[0]));
-    }
-    size_t sz = res.allColumns.size();
-    if (sz < column_type_names.size()) {
-        return Status::InternalError(
-                fmt::format("Unexpected result columns {}, expected at least {}",
-                            res.allColumns.size(), column_type_names.size()));
-    }
-    for (const auto& column : res.allColumns) {
-        schema_view->column_name_to_column[column.column_name] = column;
-    }
-    schema_view->schema_version = res.schema_version;
-    return Status::OK();
-}
-
-Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
-    auto dynamic_col = block.get_by_position(dynamic_col_position).column->assume_mutable();
-    auto* column_object_ptr = assert_cast<ColumnObject*>(dynamic_col.get());
-    if (column_object_ptr->empty()) {
-        return Status::OK();
-    }
-    size_t num_rows = column_object_ptr->size();
-    CHECK(block.rows() <= num_rows);
-    CHECK(column_object_ptr->is_finalized());
-    Columns subcolumns;
-    DataTypes types;
-    Names names;
-    std::unordered_set<std::string> static_column_names;
-
-    // extract columns from dynamic column
-    for (auto& subcolumn : column_object_ptr->get_subcolumns()) {
-        subcolumns.push_back(subcolumn->data.get_finalized_column().get_ptr());
-        types.push_back(subcolumn->data.get_least_common_type());
-        names.push_back(subcolumn->path.get_path());
-    }
-    for (size_t i = 0; i < subcolumns.size(); ++i) {
-        // Block may already contains this column, eg. key columns, we should ignore
-        // or replcace the same column from object subcolumn
-        ColumnWithTypeAndName* column_type_name = block.try_get_by_name(names[i]);
-        if (column_type_name) {
-            ColumnPtr column = subcolumns[i];
-            DataTypePtr dst_type = column_type_name->type;
-            // Make it nullable when src is nullable but dst is not
-            // since we should filter some data when slot type is not null
-            // but column contains nulls
-            if (!dst_type->is_nullable() && column->is_nullable()) {
-                dst_type = make_nullable(dst_type);
+void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                                TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id) {
+    const TabletColumn& variant = common_schema->column_by_uid(variant_col_unique_id);
+    // Types of subcolumns by path from all tuples.
+    std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
+    for (const TabletSchemaSPtr& schema : schemas) {
+        for (const TabletColumn& col : schema->columns()) {
+            // Get subcolumns of this variant
+            if (!col.path_info().empty() && col.parent_unique_d() > 0 &&
+                col.parent_unique_d() == variant_col_unique_id) {
+                subcolumns_types[col.path_info()].push_back(
+                        DataTypeFactory::instance().create_data_type(col, col.is_nullable()));
             }
-            if (cast_to_original_type && !dst_type->equals(*types[i])) {
-                // Cast static columns to original slot type
-                RETURN_IF_ERROR(
-                        schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column));
+        }
+    }
+    PathsInData tuple_paths;
+    DataTypes tuple_types;
+    // Get the least common type for all paths.
+    for (const auto& [key, subtypes] : subcolumns_types) {
+        assert(!subtypes.empty());
+        if (key.get_path() == ColumnObject::COLUMN_NAME_DUMMY) {
+            continue;
+        }
+        size_t first_dim = get_number_of_dimensions(*subtypes[0]);
+        tuple_paths.emplace_back(key);
+        for (size_t i = 1; i < subtypes.size(); ++i) {
+            if (first_dim != get_number_of_dimensions(*subtypes[i])) {
+                tuple_types.emplace_back(make_nullable(std::make_shared<DataTypeJsonb>()));
+                LOG(INFO) << fmt::format(
+                        "Uncompatible types of subcolumn '{}': {} and {}, cast to JSONB",
+                        key.get_path(), subtypes[0]->get_name(), subtypes[i]->get_name());
+                break;
             }
-            // replace original column
-            column_type_name->column = column;
-            column_type_name->type = dst_type;
-            static_column_names.emplace(names[i]);
+        }
+        if (tuple_paths.size() == tuple_types.size()) {
+            continue;
+        }
+        DataTypePtr common_type;
+        get_least_supertype<LeastSupertypeOnError::Jsonb>(subtypes, &common_type);
+        // Array Column is not nullable at present, but other types should all be nullable
+        if (common_type->get_type_id() != TypeIndex::Array && !common_type->is_nullable()) {
+            common_type = make_nullable(common_type);
+        }
+        tuple_types.emplace_back(common_type);
+    }
+    CHECK_EQ(tuple_paths.size(), tuple_types.size());
+
+    // TODO handle ambiguos path and deduce to JSONB type
+
+    // Append all common type columns of this variant
+    for (int i = 0; i < tuple_paths.size(); ++i) {
+        TabletColumn common_column;
+        const std::string& column_name = variant.name() + "." + tuple_paths[i].get_path();
+        get_column_by_type(tuple_types[i], column_name, common_column);
+        common_column.set_parent_unique_id(variant_col_unique_id);
+        common_column.set_path_info(tuple_paths[i]);
+        common_schema->append_column(common_column);
+    }
+}
+
+void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                             TabletSchemaSPtr& common_schema) {
+    // Pick tablet schema with max schema version
+    const TabletSchemaSPtr base_schema =
+            *std::max_element(schemas.cbegin(), schemas.cend(),
+                              [](const TabletSchemaSPtr a, const TabletSchemaSPtr b) {
+                                  return a->schema_version() < b->schema_version();
+                              });
+    CHECK(base_schema);
+    CHECK(common_schema);
+    std::vector<int32_t> variant_column_unique_id;
+    // Get all columns without extracted columns and collect variant col unique id
+    for (const TabletColumn& col : base_schema->columns()) {
+        if (col.is_variant_type()) {
+            variant_column_unique_id.push_back(col.unique_id());
+        }
+        if (!col.is_extracted_column()) {
+            common_schema->append_column(col);
         }
     }
-
-    // Remove static ones remain extra dynamic columns
-    column_object_ptr->remove_subcolumns(static_column_names);
-
-    // Fill default value
-    for (auto& entry : block) {
-        if (entry.column->size() < num_rows) {
-            entry.column->assume_mutable()->insert_many_defaults(num_rows - entry.column->size());
-        }
+    for (int32_t unique_id : variant_column_unique_id) {
+        update_least_common_schema(schemas, common_schema, unique_id);
     }
-#ifndef NDEBUG
-    for (const auto& column_type_name : block) {
-        if (column_type_name.column->size() != num_rows) {
-            LOG(FATAL) << "unmatched column:" << column_type_name.name
-                       << ", expeted rows:" << num_rows
-                       << ", but meet:" << column_type_name.column->size();
-        }
+}
+
+void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+    for (int i = 0; i < variant_pos.size(); ++i) {
+        auto& column = block.get_by_position(variant_pos[i]).column;
+        const ColumnString& raw_json_column =
+                column->is_nullable() ? assert_cast<const ColumnString&>(
+                                                assert_cast<const ColumnNullable&>(*column.get())
+                                                        .get_nested_column())
+                                      : assert_cast<const ColumnString&>(*column.get());
+        MutableColumnPtr variant_column = ColumnObject::create(true);
+        parse_json_to_variant(*variant_column.get(), raw_json_column);
+        block.get_by_position(variant_pos[i]).column = variant_column->get_ptr();
+        block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
-#endif
-    return Status::OK();
 }
 
-void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,
-                                                     int32_t schema_version) {
-    std::lock_guard<std::mutex> lock(_lock);
-    _schema_version = std::max(_schema_version, schema_version);
-    auto it = _extended_columns.find(new_column.name());
-    if (it != _extended_columns.end()) {
-        return;
+void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+    for (int i = 0; i < variant_pos.size(); ++i) {
+        auto& column = assert_cast<ColumnObject&>(
+                block.get_by_position(variant_pos[i]).column->assume_mutable_ref());
+        column.finalize();
     }
-    _extended_columns.emplace_hint(it, new_column.name(), new_column);
-}
-
-bool LocalSchemaChangeRecorder::has_extended_columns() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return !_extended_columns.empty();
-}
-
-std::map<std::string, TabletColumn> LocalSchemaChangeRecorder::copy_extended_columns() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return _extended_columns;
-}
-
-const TabletColumn& LocalSchemaChangeRecorder::column(const std::string& col_name) {
-    std::lock_guard<std::mutex> lock(_lock);
-    assert(_extended_columns.find(col_name) != _extended_columns.end());
-    return _extended_columns[col_name];
-}
-
-int32_t LocalSchemaChangeRecorder::schema_version() {
-    std::lock_guard<std::mutex> lock(_lock);
-    return _schema_version;
 }
 
 } // namespace doris::vectorized::schema_util

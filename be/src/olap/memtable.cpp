@@ -180,12 +180,6 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
                       bool is_append) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     vectorized::Block target_block = *input_block;
-    if (!_tablet_schema->is_dynamic_schema()) {
-        // This insert may belong to a rollup tablet, rollup columns is a subset of base table
-        // but for dynamic table, it's need full columns, so input_block should ignore _column_offset
-        // of each column and avoid copy_block
-        target_block = input_block->copy_block(_column_offset);
-    }
     if (_is_first_insertion) {
         _is_first_insertion = false;
         auto cloneBlock = target_block.clone_without_columns();
@@ -513,15 +507,12 @@ Status MemTable::_do_flush() {
     vectorized::Block block = _output_mutable_block.to_block();
     FlushContext ctx;
     ctx.block = &block;
-    if (_tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
-    }
     if (!_tablet_schema->is_partial_update()) {
         ctx.generate_delete_bitmap = [this](size_t segment_id) {
             return _generate_delete_bitmap(segment_id);
         };
     }
+    RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
     ctx.segment_id = _segment_id;
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
@@ -536,76 +527,93 @@ Status MemTable::close() {
     return flush();
 }
 
+// This function could throw exeception, it's not expection safe
 Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
-    if (block.rows() == 0) {
+    if (block.rows() == 0 || _tablet_schema->num_variant_columns() == 0) {
         return Status::OK();
     }
 
-    // Sanitize block to match exactly from the same type of frontend meta
-    vectorized::schema_util::FullBaseSchemaView schema_view;
-    schema_view.table_id = _tablet_schema->table_id();
-    vectorized::ColumnWithTypeAndName* variant_column =
-            block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
-    if (!variant_column) {
+    // Get positions of variant column
+    // TODO pre-caculate
+    std::vector<int> variant_column_pos;
+    for (int i = 0; i < _tablet_schema->columns().size(); ++i) {
+        if (_tablet_schema->columns()[i].is_variant_type()) {
+            variant_column_pos.push_back(i);
+        }
+    }
+    if (variant_column_pos.empty()) {
         return Status::OK();
     }
-    auto base_column = variant_column->column;
-    vectorized::ColumnObject& object_column =
-            assert_cast<vectorized::ColumnObject&>(base_column->assume_mutable_ref());
-    if (object_column.empty()) {
-        block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
-        return Status::OK();
+
+    try {
+        // Parse each variant column from raw string column
+        vectorized::schema_util::parse_variant_columns(block, variant_column_pos);
+        vectorized::schema_util::finalize_variant_columns(block, variant_column_pos);
+    } catch (const doris::Exception& e) {
+        // TODO more graceful, max_filter_ratio
+        LOG(WARNING) << "encounter execption " << e.to_string();
+        return Status::InternalError(e.to_string());
     }
-    object_column.finalize();
-    // Has extended columns
-    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
-    //  static   dynamic
-    // | ----- | ------- |
+    //     static     extracted
+    // | --------- | ----------- |
     // The static ones are original _tablet_schame columns
     TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
     vectorized::Block flush_block(std::move(block));
-    // The dynamic ones are auto generated and extended, append them the the orig_block
-    for (auto& entry : object_column.get_subcolumns()) {
-        const std::string& column_name = entry->path.get_path();
-        auto column_iter = schema_view.column_name_to_column.find(column_name);
-        if (UNLIKELY(column_iter == schema_view.column_name_to_column.end())) {
-            // Column maybe dropped by light weight schema change DDL
-            continue;
+
+    // Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
+    // those columns are extracted columns, leave none extracted columns remain in original variant column, which is
+    // JSONB format at present
+    for (size_t i = 0; i < variant_column_pos.size(); ++i) {
+        size_t variant_pos = variant_column_pos[i];
+        vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
+                flush_block.get_by_position(variant_pos).column->assume_mutable_ref());
+        const TabletColumn& parent_column = _tablet_schema->columns()[variant_pos];
+        CHECK(object_column.is_finalized());
+        std::shared_ptr<vectorized::ColumnObject::Subcolumns::Node> root;
+        for (auto& entry : object_column.get_subcolumns()) {
+            if (entry->path.empty()) {
+                // Root
+                root = entry;
+                continue;
+            }
+            const std::string& column_name = parent_column.name() + "." + entry->path.get_path();
+            TabletColumn tablet_column;
+            vectorized::schema_util::get_column_by_type(entry->data.get_least_common_type(),
+                                                        column_name, tablet_column);
+            tablet_column.set_path_info(entry->path);
+            tablet_column.set_parent_unique_id(_tablet_schema->columns()[variant_pos].unique_id());
+            flush_schema->append_column(std::move(tablet_column));
+            flush_block.insert({entry->data.get_finalized_column_ptr()->get_ptr(),
+                                entry->data.get_least_common_type(), column_name});
         }
-        TabletColumn column(column_iter->second);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                column, column.is_nullable());
-        // Dynamic generated columns does not appear in original tablet schema
-        if (_tablet_schema->field_index(column.name()) < 0) {
-            flush_schema->append_column(column);
-            flush_block.insert({data_type->create_column(), data_type, column.name()});
-        }
+        // Handle root column
+        flush_block.get_by_position(variant_pos).column = root->data.get_finalized_column_ptr();
+        flush_block.get_by_position(variant_pos).type = root->data.get_least_common_type();
     }
 
-    // Ensure column are all present at this schema version.Otherwise there will be some senario:
-    //  Load1 -> version(10) with schema [a, b, c, d, e], d & e is new added columns and schema version became 10
-    //  Load2 -> version(10) with schema [a, b, c] and has no extended columns and fetched the schema at version 10
-    //  Load2 will persist meta with [a, b, c] but Load1 will persist meta with [a, b, c, d, e]
-    // So we should make sure that rowset at the same schema version alawys contain the same size of columns.
-    // so that all columns at schema_version is in either _tablet_schema or schema_change_recorder
-    for (const auto& [name, column] : schema_view.column_name_to_column) {
-        if (_tablet_schema->field_index(name) == -1) {
-            const auto& tcolumn = schema_view.column_name_to_column[name];
-            TabletColumn new_column(tcolumn);
-            _rowset_writer->mutable_schema_change_recorder()->add_extended_columns(
-                    column, schema_view.schema_version);
-        }
+    {
+        // Update rowset schema, tablet's tablet schema will be updated when build Rowset
+        // Eg. flush schema:    A(int),    B(float),  C(int), D(int)
+        //  ctx.tablet_schema:  A(bigint), B(double)
+        //  => update_schema:   A(bigint), B(double), C(int), D(int)
+        RowsetWriterContext& rw_ctx = _rowset_writer->mutable_context();
+        TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
+        vectorized::schema_util::get_least_common_schema({rw_ctx.tablet_schema, flush_schema},
+                                                         update_schema);
+        std::lock_guard<std::mutex> lock(*rw_ctx.schema_lock);
+        CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
+                << "Rowset merge schema columns count is " << update_schema->num_columns()
+                << ", but flush_schema is larger " << flush_schema->num_columns();
+        rw_ctx.tablet_schema.swap(update_schema);
+        VLOG_DEBUG << "dump rs schema: " << rw_ctx.tablet_schema->dump_structure();
     }
 
-    // Last schema alignment before flush to disk, due to the schema maybe variant before this procedure
-    // Eg. add columnA(INT) -> drop ColumnA -> add ColumnA(Double), then columnA could be type of `Double`,
-    // unfold will cast to Double type
-    RETURN_IF_ERROR(vectorized::schema_util::unfold_object(
-            flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true));
-    flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
     ctx->flush_schema = flush_schema;
     block.swap(flush_block);
+    VLOG_DEBUG << "dump block: " << block.dump_data();
+    VLOG_DEBUG << "dump flush schema: " << flush_schema->dump_structure();
     return Status::OK();
 }
 

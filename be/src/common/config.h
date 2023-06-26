@@ -1003,8 +1003,6 @@ DECLARE_Int32(max_depth_in_bkd_tree);
 DECLARE_Bool(inverted_index_compaction_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
-// semi-structure configs
-DECLARE_Bool(enable_parse_multi_dimession_array);
 
 // Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
 // In the case of time series compaction, the execution of compaction is adjusted

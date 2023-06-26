@@ -132,6 +132,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_JSONB: {
         return std::make_unique<OlapColumnDataConvertorVarChar>(true);
     }
+    case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+        return std::make_unique<OlapColumnDataConvertorVarChar>(true);
+    }
     case FieldType::OLAP_FIELD_TYPE_BOOL: {
         return std::make_unique<OlapColumnDataConvertorSimple<vectorized::UInt8>>();
     }

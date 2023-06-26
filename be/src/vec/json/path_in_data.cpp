@@ -92,6 +92,35 @@ void PathInData::build_parts(const Parts& other_parts) {
         begin += part.key.length() + 1;
     }
 }
+
+void PathInData::from_protobuf(const segment_v2::ColumnPathInfo& pb) {
+    parts.clear();
+    path = pb.path();
+    has_nested = pb.has_has_nested();
+    parts.reserve(pb.path_part_infos().size());
+    for (const segment_v2::ColumnPathPartInfo& part_info : pb.path_part_infos()) {
+        Part part;
+        part.is_nested = part_info.is_nested();
+        part.anonymous_array_level = part_info.anonymous_array_level();
+        part.key = part_info.key();
+        parts.push_back(part);
+    }
+}
+
+void PathInData::to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const {
+    pb->set_path(path);
+    pb->set_has_nested(has_nested);
+    pb->set_parrent_column_unique_id(parent_col_unique_id);
+
+    // set parts info
+    for (const Part& part : parts) {
+        segment_v2::ColumnPathPartInfo& part_info = *pb->add_path_part_infos();
+        part_info.set_key(std::string(part.key.data(), part.key.size()));
+        part_info.set_is_nested(part.is_nested);
+        part_info.set_anonymous_array_level(part.anonymous_array_level);
+    }
+}
+
 size_t PathInData::Hash::operator()(const PathInData& value) const {
     auto hash = get_parts_hash(value.parts);
     return hash.low ^ hash.high;

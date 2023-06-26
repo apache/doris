@@ -190,6 +190,8 @@ message ColumnPB {
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
     optional bool result_is_nullable = 19;
+    // persist info for PathInData that represents path in document, e.g. JSON.
+    optional segment_v2.ColumnPathInfo column_path_info = 20;
 }
 
 enum IndexType {
@@ -231,7 +233,7 @@ message TabletSchemaPB {
     repeated TabletIndexPB index = 16;
     optional int32 version_col_idx = 17 [default = -1];
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
-    optional bool is_dynamic_schema = 19 [default=false];
+    optional bool is_dynamic_schema = 19 [deprecated = true]; // deprecated
     optional bool is_partial_update = 20 [default=false];
     repeated string partial_update_input_columns = 21;
     optional bool enable_single_replica_compaction = 22 [default=false];

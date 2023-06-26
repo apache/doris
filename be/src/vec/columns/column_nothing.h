@@ -42,7 +42,7 @@ public:
         return typeid(rhs) == typeid(ColumnNothing);
     }
 
-    TypeIndex get_data_type() const override { return TypeIndex::Nothing; }
+    TypeIndex get_underlying_data_type() const override { return TypeIndex::Nothing; }
 };
 
 } // namespace doris::vectorized

@@ -86,9 +86,9 @@ public:
     public:
         Subcolumn() = default;
 
-        Subcolumn(size_t size_, bool is_nullable_);
+        Subcolumn(size_t size_, bool is_nullable_, bool is_root = false);
 
-        Subcolumn(MutableColumnPtr&& data_, bool is_nullable_);
+        Subcolumn(MutableColumnPtr&& data_, bool is_nullable_, bool is_root = false);
 
         size_t size() const;
 
@@ -180,6 +180,9 @@ public:
         /// least common type and we count number of defaults in prefix,
         /// which will be converted to the default type of final common type.
         size_t num_of_defaults_in_prefix = 0;
+        // If it is the root subcolumn of SubcolumnsTree,
+        // the root Node should be JSONB type when finalize
+        bool is_root = false;
     };
     using Subcolumns = SubcolumnsTree<Subcolumn>;
 
@@ -266,7 +269,7 @@ public:
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
 
-    TypeIndex get_data_type() const override { return TypeIndex::VARIANT; }
+    TypeIndex get_underlying_data_type() const override { return TypeIndex::VARIANT; }
 
     size_t size() const override;
 

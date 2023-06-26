@@ -424,6 +424,7 @@ terminal String
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
+    KW_VARIANT,
     KW_KEY,
     KW_KEYS,
     KW_KILL,
@@ -6112,6 +6113,8 @@ type ::=
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_VARIANT
+  {: RESULT = ScalarType.createVariantType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
      RESULT = type;

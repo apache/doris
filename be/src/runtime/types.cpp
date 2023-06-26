@@ -92,13 +92,6 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         }
         break;
     }
-    case TTypeNodeType::VARIANT: {
-        DCHECK(!node.__isset.scalar_type);
-        // variant column must be the last column
-        DCHECK_EQ(*idx, types.size() - 1);
-        type = TYPE_VARIANT;
-        break;
-    }
     case TTypeNodeType::MAP: {
         //TODO(xy): handle contains_null[0] for key and [1] for value
         DCHECK(!node.__isset.scalar_type);

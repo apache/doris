@@ -62,6 +62,9 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATEV2;
     }
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
+    }
     const char* get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
@@ -113,6 +116,9 @@ public:
     PrimitiveType get_type_as_primitive_type() const override { return TYPE_DATETIMEV2; }
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::DATETIMEV2;
+    }
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
     const char* get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }

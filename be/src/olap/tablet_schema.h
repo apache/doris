@@ -36,10 +36,12 @@
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
 class Block;
+class PathInData;
 } // namespace vectorized
 
 struct OlapTableIndexSchema;
@@ -83,11 +85,17 @@ public:
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     size_t length() const { return _length; }
+    void set_length(size_t length) { _length = length; }
+    void set_default_value(const std::string& default_value) {
+        _default_value = default_value;
+        _has_default_value = true;
+    }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
     void set_is_key(bool is_key) { _is_key = is_key; }
     void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
     void set_has_default_value(bool has) { _has_default_value = has; }
+    void set_path_info(const vectorized::PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function_union(
             vectorized::DataTypePtr type) const;
@@ -117,6 +125,11 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
+    const vectorized::PathInData& path_info() const { return _column_path; }
+    // If it is an extracted column from variant column
+    bool is_extracted_column() const { return !_column_path.empty(); };
+    bool parent_unique_d() const { return _parent_col_unique_id; }
+    void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
 
 private:
     int32_t _unique_id;
@@ -141,12 +154,12 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
-
-    TabletColumn* _parent = nullptr;
+    int32_t _parent_col_unique_id = -1;
     std::vector<TabletColumn> _sub_columns;
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
+    vectorized::PathInData _column_path;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -226,6 +239,7 @@ public:
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
+    size_t num_variant_columns() const { return _num_variant_columns; };
     KeysType keys_type() const { return _keys_type; }
     SortType sort_type() const { return _sort_type; }
     size_t sort_col_num() const { return _sort_col_num; }
@@ -247,7 +261,6 @@ public:
     bool store_row_column() const { return _store_row_column; }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
-    bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
@@ -305,6 +318,27 @@ public:
         str += "]";
         return str;
     }
+
+    // Dump [(name, type, is_nullable), ...]
+    string dump_structure() const {
+        string str = "[";
+        for (auto p : _field_name_to_index) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += "(";
+            str += p.first;
+            str += ", ";
+            str += TabletColumn::get_string_by_field_type(_cols[p.second].type());
+            str += ", ";
+            str += "is_nullable:";
+            str += (_cols[p.second].is_nullable() ? "true" : "false");
+            str += ")";
+        }
+        str += "]";
+        return str;
+    }
+
     vectorized::Block create_missing_columns_block();
     vectorized::Block create_update_columns_block();
     void set_partial_update_info(bool is_partial_update,
@@ -330,6 +364,7 @@ private:
     std::unordered_map<std::string, int32_t> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_id_to_index;
     size_t _num_columns = 0;
+    size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
@@ -341,7 +376,6 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
-    bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
     int32_t _version_col_idx = -1;

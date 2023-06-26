@@ -112,7 +112,6 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _db_id = tschema.db_id;
     _table_id = tschema.table_id;
     _version = tschema.version;
-    _is_dynamic_schema = tschema.is_dynamic_schema;
     _is_partial_update = tschema.is_partial_update;
 
     for (auto& tcolumn : tschema.partial_update_input_columns) {

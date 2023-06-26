@@ -80,7 +80,7 @@ void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const UIn
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
-        if (column.get_data_type() == TypeIndex::JSONB) {
+        if (column.get_underlying_data_type() == TypeIndex::JSONB) {
             std::string json_string =
                     JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
             checkArrowStatus(builder.Append(json_string.data(), json_string.size()),

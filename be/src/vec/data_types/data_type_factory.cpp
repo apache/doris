@@ -155,6 +155,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_VARCHAR:
     case TYPE_BINARY:
     case TYPE_LAMBDA_FUNCTION:
+    case TYPE_VARIANT:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case TYPE_AGG_STATE:
@@ -218,9 +219,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
         break;
     }
-    case TYPE_VARIANT:
-        // ColumnObject always none nullable
-        return std::make_shared<vectorized::DataTypeObject>("json", true);
     case INVALID_TYPE:
     default:
         DCHECK(false) << "invalid PrimitiveType:" << (int)col_desc.type;
@@ -285,6 +283,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
     case TypeIndex::String:
+    case TypeIndex::VARIANT:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case TypeIndex::Decimal32:
@@ -370,6 +369,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
+    case FieldType::OLAP_FIELD_TYPE_VARIANT:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
@@ -440,6 +440,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeFloat64>();
         break;
     case PGenericType::STRING:
+    case PGenericType::VARIANT:
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::JSONB:
@@ -504,10 +505,6 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
             names.push_back(pcolumn.children(i).name());
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
-        break;
-    }
-    case PGenericType::VARIANT: {
-        nested = std::make_shared<DataTypeObject>("object", true);
         break;
     }
     case PGenericType::QUANTILE_STATE: {

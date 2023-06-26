@@ -195,7 +195,9 @@ public:
         LOG(FATAL) << "get_permutation not supported";
     }
 
-    TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
+    TypeIndex get_underlying_data_type() const override {
+        LOG(FATAL) << "get_underlying_data_type not supported";
+    }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported";

@@ -94,7 +94,7 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    TypeIndex get_data_type() const override { return data->get_data_type(); }
+    TypeIndex get_underlying_data_type() const override { return data->get_underlying_data_type(); }
 
     UInt64 get64(size_t) const override { return data->get64(0); }
 

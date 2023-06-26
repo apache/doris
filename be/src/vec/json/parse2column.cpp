@@ -215,12 +215,6 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
-        // TODO support multi dimensions array
-        if (!config::enable_parse_multi_dimession_array && field_info.num_dimensions >= 2) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "Sorry multi dimensions array is not supported now, we are working on it");
-        }
         if (is_nothing(field_info.scalar_type)) {
             continue;
         }
@@ -270,10 +264,11 @@ void parse_json_to_variant(IColumn& column, const StringRef& json,
     return parse_json_to_variant(column, json.data, json.size, parser);
 }
 
-void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons) {
+void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column) {
     auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
-    for (StringRef str : jsons) {
-        parse_json_to_variant(column, str.data, str.size, parser.get());
+    for (size_t i = 0; i < raw_json_column.size(); ++i) {
+        StringRef raw_json = raw_json_column.get_data_at(i);
+        parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get());
     }
 }
 

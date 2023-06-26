@@ -27,6 +27,7 @@
 #include <string_view>
 #include <vector>
 
+#include "gen_cpp/segment_v2.pb.h"
 #include "vec/common/uint128.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -71,6 +72,9 @@ public:
     struct Hash {
         size_t operator()(const PathInData& value) const;
     };
+
+    void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
+    void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 
 private:
     /// Creates full path from parts.

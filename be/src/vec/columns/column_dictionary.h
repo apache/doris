@@ -114,8 +114,8 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
+    [[noreturn]] TypeIndex get_underlying_data_type() const override {
+        LOG(FATAL) << "ColumnDictionary get_underlying_data_type not implemeted";
     }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }

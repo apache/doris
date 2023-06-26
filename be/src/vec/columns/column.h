@@ -149,9 +149,10 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
-    // todo(Amory) from column to get data type is not correct ,column is memory data,can not to assume memory data belong to which data type
-    virtual TypeIndex get_data_type() const {
-        LOG(FATAL) << "Cannot get_data_type() column " << get_name();
+
+    // Type of data that column contains. It's an underlying type: UInt16 for Date, UInt32 for DateTime, so on.
+    virtual TypeIndex get_underlying_data_type() const {
+        LOG(FATAL) << "Cannot get_underlying_data_type() column " << get_name();
         __builtin_unreachable();
     }
 
