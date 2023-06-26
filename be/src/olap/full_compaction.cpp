@@ -132,6 +132,10 @@ Status FullCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedP
 }
 
 Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
+    std::vector<RowsetSharedPtr> output_rowsets;
+    output_rowsets.push_back(_output_rowset);
+    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+    RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     std::shared_lock rlock(_tablet->get_header_lock());
     _tablet->save_meta();
     return Status::OK();
