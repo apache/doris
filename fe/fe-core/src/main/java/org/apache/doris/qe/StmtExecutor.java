@@ -542,7 +542,6 @@ public class StmtExecutor {
                 throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
-            syncJournalIfNeeded();
             handleQueryWithRetry(queryId);
         }
     }
@@ -566,6 +565,7 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
+        syncJournalIfNeeded();
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().enablePipelineEngine()) {
             this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
@@ -688,7 +688,6 @@ public class StmtExecutor {
 
             // sql/sqlHash block
             checkBlockRules();
-            syncJournalIfNeeded();
             if (parsedStmt instanceof QueryStmt) {
                 handleQueryWithRetry(queryId);
             } else if (parsedStmt instanceof SetStmt) {

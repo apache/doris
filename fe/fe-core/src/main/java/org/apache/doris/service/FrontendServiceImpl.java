@@ -110,6 +110,7 @@ import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
+import org.apache.doris.thrift.TGetMasterMaxJournalIdReply;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
@@ -2551,5 +2552,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    @Override
+    public TGetMasterMaxJournalIdReply getMasterMaxJournalId() throws TException {
+        final Env env = Env.getCurrentEnv();
+        Preconditions.checkState(env.isMaster(), "should get max journal id from master");
+        return new TGetMasterMaxJournalIdReply(env.getMaxJournalId());
     }
 }
