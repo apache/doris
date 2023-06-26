@@ -1348,6 +1348,38 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
+
+            //first_value/last_value for array
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    ""));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
+                Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                "",
+                "",
+                null,
+                "",
+                ""));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
+                Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                "",
+                "",
+                null,
+                "",
+                "", true));
         }
 
         // Avg
