@@ -50,7 +50,7 @@ protected:
 private:
     Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
 
-    DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
+    DISALLOW_COPY_AND_ASSIGN(FullCompaction);
 };
 
 } // namespace doris

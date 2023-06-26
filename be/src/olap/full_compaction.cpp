@@ -56,11 +56,6 @@ Status FullCompaction::prepare_compact() {
 }
 
 Status FullCompaction::execute_compact_impl() {
-#ifndef __APPLE__
-    if (config::enable_full_compaction_idle_sched) {
-        Thread::set_idle_sched();
-    }
-#endif
     std::unique_lock<std::mutex> lock(_tablet->get_full_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another full compaction is running. tablet=" << _tablet->full_name();

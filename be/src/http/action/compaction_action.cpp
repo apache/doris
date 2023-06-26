@@ -36,6 +36,7 @@
 #include "http/http_status.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
+#include "olap/full_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
