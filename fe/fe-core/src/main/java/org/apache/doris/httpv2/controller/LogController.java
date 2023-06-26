@@ -90,7 +90,7 @@ public class LogController {
             }
             if (!Strings.isNullOrEmpty(delVerboseName)) {
                 delVerboseName = delVerboseName.trim();
-                List<String> verboseNames = Lists.newArrayList(configs.y);
+                List<String> verboseNames = Lists.newArrayList(configs.z);
                 if (verboseNames.contains(delVerboseName)) {
                     verboseNames.remove(delVerboseName);
                     configs = Log4jConfig.updateLogging(null, null,
@@ -100,8 +100,9 @@ public class LogController {
             }
 
             map.put("Level", configs.x);
-            map.put("VerboseNames", StringUtils.join(configs.y, ","));
-            map.put("AuditNames", StringUtils.join(configs.z, ","));
+            map.put("Mode", configs.y);
+            map.put("VerboseNames", StringUtils.join(configs.z, ","));
+            map.put("AuditNames", StringUtils.join(configs.u, ","));
             content.put("LogConfiguration", map);
         } catch (IOException e) {
             LOG.error(e);
