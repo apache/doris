@@ -737,16 +737,16 @@
                             "type": "category",
                             "label": "Account Management",
                             "items": [
-                                "sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY",
-                                "sql-manual/sql-reference/Account-Management-Statements/REVOKE",
-                                "sql-manual/sql-reference/Account-Management-Statements/GRANT",
-                                "sql-manual/sql-reference/Account-Management-Statements/LDAP",
                                 "sql-manual/sql-reference/Account-Management-Statements/CREATE-ROLE",
-                                "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
                                 "sql-manual/sql-reference/Account-Management-Statements/CREATE-USER",
-                                "sql-manual/sql-reference/Account-Management-Statements/DROP-USER",
+                                "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER",
                                 "sql-manual/sql-reference/Account-Management-Statements/SET-PASSWORD",
-                                "sql-manual/sql-reference/Account-Management-Statements/ALTER-USER"
+                                "sql-manual/sql-reference/Account-Management-Statements/SET-PROPERTY",
+                                "sql-manual/sql-reference/Account-Management-Statements/LDAP",
+                                "sql-manual/sql-reference/Account-Management-Statements/GRANT",
+                                "sql-manual/sql-reference/Account-Management-Statements/REVOKE",
+                                "sql-manual/sql-reference/Account-Management-Statements/DROP-ROLE",
+                                "sql-manual/sql-reference/Account-Management-Statements/DROP-USER"
                             ]
                         },
                         {
