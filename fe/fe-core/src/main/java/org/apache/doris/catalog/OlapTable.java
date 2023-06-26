@@ -2405,4 +2405,13 @@ public class OlapTable extends Table {
         return getPartitionInfo().getPartitionColumns().stream()
             .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
     }
+
+    public boolean hasVariantColumns() {
+        for (Column column : getBaseSchema()) {
+            if (column.getType().isVariantType()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

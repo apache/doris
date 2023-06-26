@@ -52,8 +52,11 @@
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/columns/column.h"
+<<<<<<< HEAD
 #include "vec/columns/column_object.h"
 #include "vec/common/schema_util.h" // variant column
+=======
+>>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 
@@ -321,17 +324,19 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     int ret;
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(column.unique_id())) {
-            auto index_id =
-                    _context.tablet_schema->get_inverted_index(column.unique_id())->index_id();
+        if (_context.tablet_schema->has_inverted_index(column)) {
+            auto index_info = _context.tablet_schema->get_inverted_index(column);
+            auto index_id = index_info->index_id();
             auto src_idx_path =
                     begin < 0 ? InvertedIndexDescriptor::inverted_index_file_path(
-                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id)
+                                        _context.rowset_dir, _context.rowset_id, seg_id, index_id,
+                                        index_info->get_escaped_index_suffix_path())
                               : InvertedIndexDescriptor::local_inverted_index_path_segcompacted(
                                         _context.rowset_dir, _context.rowset_id, begin, end,
-                                        index_id);
+                                        index_id, index_info->get_escaped_index_suffix_path());
             auto dst_idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id);
+                    _context.rowset_dir, _context.rowset_id, _num_segcompacted, index_id,
+                    index_info->get_escaped_index_suffix_path());
             VLOG_DEBUG << "segcompaction skip this index. rename " << src_idx_path << " to "
                        << dst_idx_path;
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
@@ -427,6 +432,13 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
+    // Update the tablet schema in the rowset metadata if the tablet schema contains a variant.
+    // During the build process, _context.tablet_schema will be used as the rowset schema.
+    // This situation may arise in the event of a linked schema change. If this schema is not set,
+    // the subcolumns of the variant will be lost.
+    if (_context.tablet_schema->num_variant_columns() > 0 && rowset->tablet_schema() != nullptr) {
+        _context.tablet_schema = rowset->tablet_schema();
+    }
     return Status::OK();
 }
 
@@ -445,15 +457,9 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         return Status::OK();
     }
 
-    TabletSchemaSPtr flush_schema;
-    if (_context.tablet_schema->num_variant_columns() > 0) {
-        // Unfold variant column
-        RETURN_IF_ERROR(expand_variant_to_subcolumns(*block, flush_schema));
-    }
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
-        RETURN_IF_ERROR(
-                _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
+        RETURN_IF_ERROR(_segment_creator.flush_single_block(block, segment_id, flush_size));
     }
     return Status::OK();
 }
@@ -529,6 +535,17 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     // update rowset meta tablet schema if tablet schema updated
     if (_context.tablet_schema->num_variant_columns() > 0) {
         _rowset_meta->set_tablet_schema(_context.tablet_schema);
+<<<<<<< HEAD
+=======
+    }
+
+    RowsetSharedPtr rowset;
+    status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_dir, _rowset_meta,
+                                          &rowset);
+    if (!status.ok()) {
+        LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
+        return nullptr;
+>>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(
@@ -778,6 +795,7 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
+<<<<<<< HEAD
 Status BetaRowsetWriter::expand_variant_to_subcolumns(vectorized::Block& block,
                                                       TabletSchemaSPtr& flush_schema) {
     size_t num_rows = block.rows();
@@ -887,4 +905,6 @@ Status BetaRowsetWriter::expand_variant_to_subcolumns(vectorized::Block& block,
     return Status::OK();
 }
 
+=======
+>>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
 } // namespace doris

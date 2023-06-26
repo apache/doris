@@ -641,9 +641,7 @@ TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         std::vector<TabletSchemaSPtr> schemas;
         std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        target_schema = std::make_shared<TabletSchema>();
-        // TODO(lhy) maybe slow?
-        vectorized::schema_util::get_least_common_schema(schemas, target_schema);
+        target_schema = vectorized::schema_util::get_least_common_schema(schemas, nullptr);
         VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
     }
     return target_schema;
@@ -1342,7 +1340,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
                     return true;
                 }
             }
@@ -2650,6 +2648,12 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
+}
+
+void Tablet::update_by_least_common_schema(const TabletSchemaSPtr& least_common_schema) {
+    std::lock_guard wrlock(_meta_lock);
+    CHECK(_max_version_schema->schema_version() >= least_common_schema->schema_version());
+    _max_version_schema = least_common_schema;
 }
 
 Status Tablet::_get_segment_column_iterator(

@@ -1128,6 +1128,9 @@ DECLARE_mBool(enable_flatten_nested_for_variant);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
+// Threshold to estimate a column is sparsed 
+// Notice: TEST ONLY
+DECLARE_mInt64(threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table

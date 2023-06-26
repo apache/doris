@@ -360,7 +360,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         BlockUPtr block = ctx->get_free_block();
 
         status = scanner->get_block(state, block.get(), &eos);
-        VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
         // So, NOT_FOUND for VFileScanner is not a fail case.
@@ -371,6 +370,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
+        VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         if (status.is<ErrorCode::NOT_FOUND>()) {
             // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
@@ -384,7 +384,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
+                VLOG_DEBUG << "dump block " << block->dump_data(0, block->rows());
                 status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
+                VLOG_DEBUG << "after merge dump merged block "
+                           << blocks.back().get()->dump_data(0, blocks.back().get()->rows());
                 if (!status.ok()) {
                     break;
                 }

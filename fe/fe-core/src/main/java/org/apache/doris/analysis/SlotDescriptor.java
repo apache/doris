@@ -44,6 +44,9 @@ public class SlotDescriptor {
 
     // for SlotRef.toSql() in the absence of a path
     private String label;
+    // for variant column's sub column lables
+    private List<String> subColLabels;
+    private String materializedColumnnName;
 
     // Expr(s) materialized into this slot; multiple exprs for unions. Should be empty if
     // path_ is set.
@@ -64,7 +67,6 @@ public class SlotDescriptor {
 
     private ColumnStats stats;  // only set if 'column' isn't set
     private boolean isAgg;
-    private boolean isMultiRef;
     // If set to false, then such slots will be ignored during
     // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
@@ -77,7 +79,6 @@ public class SlotDescriptor {
         this.isMaterialized = false;
         this.isNullable = true;
         this.isAgg = false;
-        this.isMultiRef = false;
     }
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
@@ -93,14 +94,6 @@ public class SlotDescriptor {
         this.stats = src.stats;
         this.type = src.type;
         this.sourceExprs.add(new SlotRef(src));
-    }
-
-    public boolean isMultiRef() {
-        return isMultiRef;
-    }
-
-    public void setMultiRef(boolean isMultiRef) {
-        this.isMultiRef = isMultiRef;
     }
 
     public boolean getIsAgg() {
@@ -121,6 +114,14 @@ public class SlotDescriptor {
 
     public SlotId getId() {
         return id;
+    }
+
+    public void setSubColLables(List<String> subColLables) {
+        this.subColLabels = subColLables;
+    }
+
+    public List<String> getSubColLables() {
+        return this.subColLabels;
     }
 
     public TupleDescriptor getParent() {
@@ -212,6 +213,10 @@ public class SlotDescriptor {
         this.stats = stats;
     }
 
+    void setMaterializedColumnName(String name) {
+        this.materializedColumnnName = name;
+    }
+
     public ColumnStats getStats() {
         if (stats == null) {
             if (column != null) {
@@ -295,9 +300,10 @@ public class SlotDescriptor {
 
     public TSlotDescriptor toThrift() {
         // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        String colName = materializedColumnnName != null ? materializedColumnnName :
+                                     ((column != null) ? column.getNonShadowName() : "");
         TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                byteOffset, 0, getIsNullable() ? 0 : -1,
-                ((column != null) ? column.getNonShadowName() : ""), slotIdx,
+                byteOffset, 0, getIsNullable() ? 0 : -1, colName, slotIdx,
                 isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         tSlotDescriptor.setIsAutoIncrement(isAutoInc);
@@ -307,6 +313,9 @@ public class SlotDescriptor {
             tSlotDescriptor.setPrimitiveType(column.getDataType().toThrift());
             tSlotDescriptor.setIsKey(column.isKey());
             tSlotDescriptor.setColDefaultValue(column.getDefaultValue());
+        }
+        if (subColLabels != null) {
+            tSlotDescriptor.setColumnPaths(subColLabels);
         }
         return tSlotDescriptor;
     }
@@ -318,7 +327,7 @@ public class SlotDescriptor {
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
                 .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
-                .add("isAutoIncrement", isAutoInc).toString();
+                .add("isAutoIncrement", isAutoInc).add("subColLabels", subColLabels).toString();
     }
 
     @Override
@@ -335,6 +344,7 @@ public class SlotDescriptor {
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
                 .append(", isAutoIncrement=").append(isAutoInc)
+                .append(", subColLabels=").append(subColLabels)
                 .append("}")
                 .toString();
     }

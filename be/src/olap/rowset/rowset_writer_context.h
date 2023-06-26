@@ -41,8 +41,8 @@ struct RowsetWriterContext {
     RowsetWriterContext()
             : tablet_id(0),
               tablet_schema_hash(0),
-              index_id(0),
               partition_id(0),
+              index_id(0),
               rowset_type(BETA_ROWSET),
               rowset_state(PREPARED),
               version(Version(0, 0)),
@@ -57,12 +57,13 @@ struct RowsetWriterContext {
     RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
-    int64_t index_id;
     int64_t partition_id;
+    int64_t index_id;
     RowsetTypePB rowset_type;
     io::FileSystemSPtr fs;
     std::string rowset_dir;
     TabletSchemaSPtr tablet_schema;
+    TabletSchemaSPtr original_tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
@@ -104,10 +105,13 @@ struct RowsetWriterContext {
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
     bool enable_segcompaction = true;
+<<<<<<< HEAD
 
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
 
     bool is_transient_rowset_writer = false;
+=======
+>>>>>>> 3a1028514e ([Feature-Variant](Variant Type) support variant type)
     // In semi-structure senario tablet_schema will be updated concurrently,
     // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
     std::shared_ptr<std::mutex> schema_lock;

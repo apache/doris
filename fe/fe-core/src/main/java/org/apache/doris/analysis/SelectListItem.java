@@ -22,6 +22,8 @@ package org.apache.doris.analysis;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
+
 public class SelectListItem {
     private Expr expr;
     // for "[name.]*"
@@ -148,6 +150,20 @@ public class SelectListItem {
         }
         return "__" + expr.getExprName() + "_" + position;
     }
+
+    public List<String> toSubColumnLabels() {
+        Preconditions.checkState(!isStar());
+        // if (alias != null) {
+        //     return alias;
+        // }
+        // Abbreviate the toSql() for analytic exprs.
+        // if (expr instanceof AnalyticExpr) {
+        //     AnalyticExpr analyticExpr = (AnalyticExpr) expr;
+        //     return analyticExpr.getFnCall().toSql() + " OVER(...)";
+        // }
+        return expr.toSubColumnLabel();
+    }
+
 
     public void setAlias(String alias) {
         this.alias = alias;
