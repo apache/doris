@@ -119,7 +119,14 @@ public:
 
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
-    virtual bool is_java_udf() const { return false; }
+    virtual bool is_java_udf() const {
+        for (const auto& child : _children) {
+            if (child->is_java_udf()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     TExprNodeType::type node_type() const { return _node_type; }
 
