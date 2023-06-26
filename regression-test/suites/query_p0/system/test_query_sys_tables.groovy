@@ -205,4 +205,5 @@ suite("test_query_sys_tables", "query,p0") {
     qt_sql "select * from referential_constraints"
     qt_sql "select * from key_column_usage"
     qt_sql "select * from triggers"
+    qt_sql "select * from parameters"
 }

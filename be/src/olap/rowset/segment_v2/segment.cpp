@@ -52,6 +52,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "util/bvar_helper.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
@@ -378,6 +379,7 @@ Status Segment::lookup_row_key(const Slice& key, bool with_seq_col, RowLocation*
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
+    row_location->rowset_id = _rowset_id;
 
     if (has_seq_col) {
         size_t num_to_read = 1;

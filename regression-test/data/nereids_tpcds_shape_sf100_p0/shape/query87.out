@@ -11,13 +11,15 @@ hashAgg[GLOBAL]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](store_sales.ss_customer_sk = customer.c_customer_sk)
-----------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[store_sales]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_month_seq >= 1184)(date_dim.d_month_seq <= 1195))
-------------------------------PhysicalOlapScan[date_dim]
+--------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[store_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_month_seq >= 1184)(date_dim.d_month_seq <= 1195))
+----------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer]
@@ -27,13 +29,15 @@ hashAgg[GLOBAL]
 ----------------hashAgg[LOCAL]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_customer_sk = customer.c_customer_sk)
-----------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[catalog_sales]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_month_seq >= 1184)(date_dim.d_month_seq <= 1195))
-------------------------------PhysicalOlapScan[date_dim]
+--------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((date_dim.d_month_seq >= 1184)(date_dim.d_month_seq <= 1195))
+----------------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[customer]

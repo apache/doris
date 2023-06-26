@@ -47,6 +47,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
+import org.apache.doris.planner.JdbcTableSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -63,6 +64,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -96,11 +98,11 @@ public class NativeInsertStmt extends InsertStmt {
     private static final String SHUFFLE_HINT = "SHUFFLE";
     private static final String NOSHUFFLE_HINT = "NOSHUFFLE";
 
-    private final TableName tblName;
+    protected final TableName tblName;
     private final PartitionNames targetPartitionNames;
     // parsed from targetPartitionNames.
     private List<Long> targetPartitionIds;
-    private final List<String> targetColumnNames;
+    protected List<String> targetColumnNames;
     private QueryStmt queryStmt;
     private final List<String> planHints;
     private Boolean isRepartition;
@@ -111,7 +113,7 @@ public class NativeInsertStmt extends InsertStmt {
 
     private final Map<String, Expr> exprByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
-    private Table targetTable;
+    protected Table targetTable;
 
     private DatabaseIf db;
     private long transactionId;
@@ -252,8 +254,7 @@ public class NativeInsertStmt extends InsertStmt {
         return isTransactionBegin;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         if (targetTable == null) {
@@ -277,6 +278,20 @@ public class NativeInsertStmt extends InsertStmt {
         if (targetPartitionNames != null) {
             targetPartitionNames.analyze(analyzer);
         }
+    }
+
+    /**
+     * translate load related stmt to`insert into xx select xx from tvf` semantic
+     */
+    protected void convertSemantic(Analyzer analyzer) throws UserException {
+        // do nothing
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        preCheckAnalyze(analyzer);
+
+        convertSemantic(analyzer);
 
         // set target table and
         analyzeTargetTable(analyzer);
@@ -319,8 +334,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
-        // Get table
+    protected void initTargetTable(Analyzer analyzer) throws AnalysisException {
         if (targetTable == null) {
             DatabaseIf db = analyzer.getEnv().getCatalogMgr()
                     .getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
@@ -333,6 +347,11 @@ public class NativeInsertStmt extends InsertStmt {
                 throw new AnalysisException("Not support insert target table.");
             }
         }
+    }
+
+    private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
+        // Get table
+        initTargetTable(analyzer);
 
         if (targetTable instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) targetTable;
@@ -392,6 +411,9 @@ public class NativeInsertStmt extends InsertStmt {
 
         // check columns of target table
         for (Column col : baseColumns) {
+            if (col.isAutoInc()) {
+                continue;
+            }
             if (isPartialUpdate && !partialUpdateCols.contains(col.getName())) {
                 continue;
             }
@@ -493,6 +515,24 @@ public class NativeInsertStmt extends InsertStmt {
         // parse query statement
         queryStmt.setFromInsert(true);
         queryStmt.analyze(analyzer);
+
+        // deal with this case: insert into tbl values();
+        // should try to insert default values for all columns in tbl if set
+        if (isValuesOrConstantSelect) {
+            final ValueList valueList = ((SelectStmt) queryStmt).getValueList();
+            if (valueList != null && valueList.getFirstRow().isEmpty() && CollectionUtils.isEmpty(targetColumnNames)) {
+                final int rowSize = mentionedColumns.size();
+                final List<String> colLabels = queryStmt.getColLabels();
+                final List<Expr> resultExprs = queryStmt.getResultExprs();
+                Preconditions.checkState(resultExprs.isEmpty(), "result exprs should be empty.");
+                for (int i = 0; i < rowSize; i++) {
+                    resultExprs.add(new IntLiteral(1));
+                    final DefaultValueExpr defaultValueExpr = new DefaultValueExpr();
+                    valueList.getFirstRow().add(defaultValueExpr);
+                    colLabels.add(defaultValueExpr.toColumnLabel());
+                }
+            }
+        }
 
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()
@@ -720,6 +760,9 @@ public class NativeInsertStmt extends InsertStmt {
             }
             if (exprByName.containsKey(col.getName())) {
                 resultExprByName.add(Pair.of(col.getName(), exprByName.get(col.getName())));
+            } else if (targetTable.getType().equals(TableIf.TableType.JDBC_EXTERNAL_TABLE)) {
+                // For JdbcTable,we do not need to generate plans for columns that are not specified at write time
+                continue;
             } else {
                 // process sequence col, map sequence column to other column
                 if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()
@@ -771,6 +814,15 @@ public class NativeInsertStmt extends InsertStmt {
                     table.getLineDelimiter(),
                     brokerDesc);
             dataPartition = dataSink.getOutputPartition();
+        } else if (targetTable instanceof JdbcTable) {
+            //for JdbcTable,we need to pass the currently written column to `JdbcTableSink`
+            //to generate the prepare insert statment
+            List<String> insertCols = Lists.newArrayList();
+            for (Column column : targetColumns) {
+                insertCols.add(column.getName());
+            }
+            dataSink = new JdbcTableSink((JdbcTable) targetTable, insertCols);
+            dataPartition = DataPartition.UNPARTITIONED;
         } else {
             dataSink = DataSink.createDataSink(targetTable);
             dataPartition = DataPartition.UNPARTITIONED;
@@ -853,10 +905,5 @@ public class NativeInsertStmt extends InsertStmt {
         } else {
             return RedirectStatus.FORWARD_WITH_SYNC;
         }
-    }
-
-    @Override
-    public String toSql() {
-        return null;
     }
 }

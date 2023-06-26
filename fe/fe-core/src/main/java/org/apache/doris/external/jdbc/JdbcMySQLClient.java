@@ -17,19 +17,20 @@
 
 package org.apache.doris.external.jdbc;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.Util;
 
-import avro.shaded.com.google.common.collect.Lists;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -91,7 +92,7 @@ public class JdbcMySQLClient extends JdbcClient {
     private Map<String, String> getJdbcColumnsTypeInfo(String dbName, String tableName) {
         Connection conn = getConnection();
         ResultSet resultSet = null;
-        Map<String, String> fieldtoType = new HashMap<String, String>();
+        Map<String, String> fieldtoType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
         queryBuf.append(tableName);
@@ -135,6 +136,7 @@ public class JdbcMySQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
+            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
@@ -159,6 +161,7 @@ public class JdbcMySQLClient extends JdbcClient {
                     }
                 }
 
+                field.setKey(primaryKeys.contains(field.getColumnName()));
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -171,6 +174,9 @@ public class JdbcMySQLClient extends JdbcClient {
                 field.setAllowNull(rs.getInt("NULLABLE") != 0);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
+                String isAutoincrement = rs.getString("IS_AUTOINCREMENT");
+                field.setAutoincrement("YES".equalsIgnoreCase(isAutoincrement));
+                field.setDefaultValue(rs.getString("COLUMN_DEF"));
                 tableSchema.add(field);
             }
         } catch (SQLException e) {
@@ -180,6 +186,34 @@ public class JdbcMySQLClient extends JdbcClient {
             close(rs, conn);
         }
         return tableSchema;
+    }
+
+    @Override
+    public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
+        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
+        List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
+        for (JdbcFieldSchema field : jdbcTableSchema) {
+            dorisTableSchema.add(new Column(field.getColumnName(),
+                    jdbcTypeToDoris(field), field.isKey(), null,
+                    field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
+                    true, null, -1, null));
+        }
+        return dorisTableSchema;
+    }
+
+    protected List<String> getPrimaryKeys(DatabaseMetaData databaseMetaData, String catalogName,
+                                          String dbName, String tableName) throws SQLException {
+        ResultSet rs = null;
+        List<String> primaryKeys = Lists.newArrayList();
+
+        rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
+        while (rs.next()) {
+            String columnName = rs.getString("COLUMN_NAME");
+            primaryKeys.add(columnName);
+        }
+        rs.close();
+
+        return primaryKeys;
     }
 
     @Override
@@ -201,10 +235,11 @@ public class JdbcMySQLClient extends JdbcClient {
                     return Type.BIGINT;
                 case "BIGINT":
                     return Type.LARGEINT;
-                case "DECIMAL":
+                case "DECIMAL": {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                }
                 case "DOUBLE":
                     // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
                     // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
@@ -237,19 +272,28 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME":
-            case "DATETIMEV2": // for jdbc catalog connecting Doris database
+            // for jdbc catalog connecting Doris database
+            case "DATETIMEV2": {
                 // mysql can support microsecond
-                // todo(gaoxin): Get real precision of DATETIMEV2
-                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                // use columnSize to calculate the precision of timestamp/datetime
+                int columnSize = fieldSchema.getColumnSize();
+                int scale = columnSize > 19 ? columnSize - 20 : 0;
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
-            case "DECIMALV3": // for jdbc catalog connecting Doris database
+            // for jdbc catalog connecting Doris database
+            case "DECIMALV3": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
+            }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);

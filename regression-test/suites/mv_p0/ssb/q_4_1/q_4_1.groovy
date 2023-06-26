@@ -19,7 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mv_ssb_q_4_1") {
 
-    // because nereids cannot support rollup correctly forbid it temporary
     sql """set enable_nereids_planner=false"""
 
     sql """ DROP TABLE IF EXISTS lineorder_flat; """

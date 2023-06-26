@@ -72,7 +72,6 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.PushdownAliasIntoUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
@@ -137,8 +136,7 @@ public class RuleSet {
             new PushdownProjectThroughCTE(),
             new PushdownFilterThroughCTEAnchor(),
             new PushdownProjectThroughCTEAnchor(),
-            new PushdownAliasThroughJoin(),
-            new PushdownAliasIntoUnionAll());
+            new PushdownAliasThroughJoin());
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalCTEProduceToPhysicalCTEProduce())
@@ -202,7 +200,7 @@ public class RuleSet {
             .build();
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
-            .add(JoinCommute.NON_INNER.build())
+            .add(JoinCommute.BUSHY.build())
             .addAll(OTHER_REORDER_RULES)
             .build();
 

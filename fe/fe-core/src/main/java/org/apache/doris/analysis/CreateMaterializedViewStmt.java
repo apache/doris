@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -224,20 +226,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
-                String functionName = functionCallExpr.getFnName().getFunction();
-                // current version not support count(distinct) function in creating materialized
-                // view
-                if (!isReplay) {
-                    MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
-                    if (mvColumnPattern == null) {
-                        throw new AnalysisException(
-                                "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
-                    }
-                    if (!mvColumnPattern.match(functionCallExpr)) {
-                        throw new AnalysisException(
-                                "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
-                    }
-                }
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -415,7 +403,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throws AnalysisException {
         String functionName = functionCallExpr.getFnName().getFunction();
         List<Expr> childs = functionCallExpr.getChildren();
-        Preconditions.checkArgument(childs.size() == 1);
         Expr defineExpr = childs.get(0);
         Type baseType = defineExpr.getType();
         AggregateType mvAggregateType = null;
@@ -465,7 +452,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 type = Type.BIGINT;
                 break;
             default:
-                throw new AnalysisException("Unsupported function:" + functionName);
+                mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                defineExpr = Function.convertToStateCombinator(functionCallExpr);
+                type = defineExpr.type;
         }
         if (mvAggregateType == null) {
             mvAggregateType = AggregateType.valueOf(functionName.toUpperCase());
@@ -478,8 +467,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             } else if (defineExpr instanceof CastExpr && defineExpr.getChild(0) instanceof SlotRef) {
                 slot = (SlotRef) defineExpr.getChild(0);
             } else {
-                throw new AnalysisException("Aggregate function require single slot argument, invalid argument is: "
-                        + defineExpr.toSql());
+                throw new AnalysisException(
+                        "Aggregate function require single slot argument, invalid argument is: " + defineExpr.toSql());
             }
 
             AggregateType input = slot.getColumn().getAggregationType();
@@ -512,6 +501,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                         name = item.getName();
                         break;
                     default:
+                        if (Env.getCurrentEnv()
+                                .isAggFunctionName(functionCallExpr.getFnName().getFunction().toLowerCase())) {
+                            MVColumnItem genericItem = buildMVColumnItem(analyzer, functionCallExpr);
+                            expr = genericItem.getDefineExpr();
+                            name = genericItem.getName();
+                        }
                         break;
                 }
             }

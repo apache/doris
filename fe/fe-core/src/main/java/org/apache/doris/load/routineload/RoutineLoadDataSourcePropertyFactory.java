@@ -35,14 +35,14 @@ public class RoutineLoadDataSourcePropertyFactory {
 
     public static AbstractDataSourceProperties createDataSource(String type, Map<String, String> parameters,
                                                                 boolean multiLoad) {
-        if (type.equals(LoadDataSourceType.KAFKA.name())) {
+        if (type.equalsIgnoreCase(LoadDataSourceType.KAFKA.name())) {
             return new KafkaDataSourceProperties(parameters, multiLoad);
         }
         throw new IllegalArgumentException("Unknown routine load data source type: " + type);
     }
 
     public static AbstractDataSourceProperties createDataSource(String type, Map<String, String> parameters) {
-        if (type.equals(LoadDataSourceType.KAFKA.name())) {
+        if (type.equalsIgnoreCase(LoadDataSourceType.KAFKA.name())) {
             return new KafkaDataSourceProperties(parameters);
         }
         throw new IllegalArgumentException("Unknown routine load data source type: " + type);

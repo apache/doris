@@ -27,8 +27,10 @@ namespace doris::io {
 
 class S3ReadBenchmark : public BaseBenchmark {
 public:
-    S3ReadBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("S3ReadBenchmark", iterations, conf_map), _result(buffer, 128) {}
+    S3ReadBenchmark(int threads, int iterations, size_t file_size,
+                    const std::map<std::string, std::string>& conf_map)
+            : BaseBenchmark("S3ReadBenchmark", threads, iterations, file_size, 3, conf_map),
+              _result(buffer, 128) {}
     virtual ~S3ReadBenchmark() = default;
 
     Status init() override {
@@ -41,7 +43,9 @@ public:
         return Status::OK();
     }
 
-    Status run() override { return _reader->read_at(0, _result, &_bytes_read); }
+    Status run(benchmark::State& state) override {
+        return _reader->read_at(0, _result, &_bytes_read);
+    }
 
 private:
     doris::S3Conf _s3_conf;

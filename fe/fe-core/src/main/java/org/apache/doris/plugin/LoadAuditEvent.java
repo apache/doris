@@ -31,7 +31,7 @@ public class LoadAuditEvent extends AuditEvent {
     public String filePathList = "";
     // for Baidu HDFS/AFS it is username
     // for BOS, it is bos_accesskey
-    // for Apache HDFS, it it username or kerberos_principal
+    // for Apache HDFS, it is username or kerberos_principal
     // for Amazon S3, it is fs.s3a.access.key
     @AuditField(value = "BrokerUser")
     public String brokerUser = "";

@@ -34,6 +34,8 @@ const std::string OLD_HEADER_PREFIX = "hdr_";
 
 const std::string HEADER_PREFIX = "tabletmeta_";
 
+const std::string PENDING_PUBLISH_INFO = "ppi_";
+
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
@@ -57,6 +59,16 @@ public:
                                    const string& header_prefix = "tabletmeta_");
 
     static Status load_json_meta(DataDir* store, const std::string& meta_path);
+
+    static Status save_pending_publish_info(DataDir* store, TTabletId tablet_id,
+                                            int64_t publish_version,
+                                            const std::string& meta_binary);
+
+    static Status remove_pending_publish_info(DataDir* store, TTabletId tablet_id,
+                                              int64_t publish_version);
+
+    static Status traverse_pending_publish(
+            OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
 };
 
 } // namespace doris

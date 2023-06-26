@@ -1498,7 +1498,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = true;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
@@ -1585,12 +1585,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int be_exec_version = max_be_exec_version;
-
-    @ConfField(mutable = false)
-    public static int statistic_job_scheduler_execution_interval_ms = 1000;
-
-    @ConfField(mutable = false)
-    public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
      * mtmv is still under dev, remove this config when it is graduate.
@@ -1753,7 +1747,7 @@ public class Config extends ConfigBase {
      * Otherwise, use external catalog metadata.
      */
     @ConfField(mutable = true)
-    public static boolean collect_external_table_stats_by_sql = false;
+    public static boolean collect_external_table_stats_by_sql = true;
 
     /**
      * Max num of same name meta informatntion in catalog recycle bin.
