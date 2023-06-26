@@ -397,7 +397,7 @@ public abstract class BulkLoadJob extends LoadJob {
                     throw new DdlException("Unknown load job type.");
             }
             bulkLoadJob.setComment(insertStmt.getComments());
-            bulkLoadJob.setJobProperties(insertStmt.getProperties());
+            bulkLoadJob.setJobProperties(insertStmt.getLoadProperties().getProperties());
             // TODO(tsy): use generic and change the param in checkAndSetDataSourceInfo
             bulkLoadJob.checkAndSetDataSourceInfo(db, (List<DataDescription>) insertStmt.getDataDescList());
             return bulkLoadJob;

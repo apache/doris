@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -54,13 +55,16 @@ public class LoadProperties {
     private Double maxFilterRatio = 0.0;
 
     @Property("send_batch_parallelism")
-    private Integer sendBatchParallelism = 1;
+    private Integer sendBatchParallelism;
 
     @Property(value = "timeout", needSet = true)
     private Integer timeoutS;
 
+    /**
+     * max_filter_ratio < 0 <=> isStrictMode = true
+     */
     @Property(value = "strict_mode", needSet = true)
-    private Boolean strictMode;
+    private boolean isStrictMode;
 
     // ------------------------ just for routine load ------------------------
 
@@ -74,18 +78,26 @@ public class LoadProperties {
     private Long maxBatchIntervalS = 10L;
     // -----------------------------------------------------------------------
 
-    public void analyze(ConnectContext connectContext, Map<String, String> properties) {
+    private Map<String,String> properties;
+
+    public LoadProperties(Map<String, String> properties) {
+        this.properties = properties;
+
+        final ConnectContext connectContext = ConnectContext.get();
         Preconditions.checkNotNull(connectContext, "connect context should be not null");
 
         final SessionVariable sessionVariable = connectContext.getSessionVariable();
         final String qualifiedUser = connectContext.getQualifiedUser();
         long memLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(qualifiedUser);
         this.execMemLimit = memLimit > 0 ? memLimit : sessionVariable.getMaxExecMemByte();
-        this.timezone = sessionVariable.getTimeZone();
+        final String timeZone = sessionVariable.getTimeZone();
+        this.timezone = "CST".equals(timeZone) ? TimeUtils.DEFAULT_TIME_ZONE : timeZone;
         this.timeoutS = connectContext.getExecTimeout();
-        this.strictMode = sessionVariable.getEnableInsertStrict();
+        this.isStrictMode = sessionVariable.getEnableInsertStrict();
         this.sendBatchParallelism = sessionVariable.getSendBatchParallelism();
+    }
 
+    public void analyze() {
         if (MapUtils.isEmpty(properties)) {
             return;
         }

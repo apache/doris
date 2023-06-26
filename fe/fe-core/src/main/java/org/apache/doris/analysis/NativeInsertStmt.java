@@ -329,7 +329,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
-            int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
+            int sendBatchParallelism = loadProperties.getSendBatchParallelism();
             sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
         }
     }

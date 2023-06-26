@@ -113,7 +113,7 @@ public class BrokerLoadStmt extends InsertStmt {
         if (brokerDesc != null) {
             sb.append("\n").append(brokerDesc.toSql());
         }
-
+        final Map<String, String> properties = loadProperties.getProperties();
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
             sb.append(new PrintableMap<>(properties, "=", true, false));

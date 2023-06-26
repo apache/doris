@@ -65,6 +65,10 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
 
     private static final String DEFAULT_FORMAT = FORMAT_CSV;
 
+    private static final String MAX_FILTER_RATIO = "max_filter_ratio";
+
+    private static final String TIMEOUT = "timeout";
+
     private final DataDescription dataDescription;
 
     /**
@@ -88,7 +92,7 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
                 buildInsertSource(dataDescList.get(0), brokerDesc), null);
         this.label = label;
         this.dataDescription = dataDescList.get(0);
-        this.properties = properties;
+        this.loadProperties = new LoadProperties(properties);
         this.comments = comments;
         this.isCsvFormat = isCsvFormat(dataDescription.getFileFormat());
     }
@@ -183,6 +187,22 @@ public class S3TvfLoadStmt extends NativeInsertStmt {
 
     private static boolean isCsvFormat(String format) {
         return Strings.isNullOrEmpty(format) || StringUtils.equalsIgnoreCase(format, FORMAT_CSV);
+    }
+
+    @Override
+    protected void analyzeProperties() throws DdlException {
+        final Map<String, String> properties = loadProperties.getProperties();
+
+        final String maxFilterRatio = properties.get(MAX_FILTER_RATIO);
+        final boolean isStrictMode = maxFilterRatio == null || Float.parseFloat(maxFilterRatio) < 0.0f;
+        loadProperties.setStrictMode(isStrictMode);
+
+        final String timeoutProp = properties.get(TIMEOUT);
+        if (StringUtils.isNotEmpty(timeoutProp)) {
+            loadProperties.setTimeoutS(Integer.parseInt(timeoutProp));
+        }
+
+        super.analyzeProperties();
     }
 
     // --------------------------------------------------------------------------------------

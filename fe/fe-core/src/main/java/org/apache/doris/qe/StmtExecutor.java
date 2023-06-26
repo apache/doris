@@ -42,6 +42,7 @@ import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LoadProperties;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LoadType;
 import org.apache.doris.analysis.LockTablesStmt;
@@ -151,6 +152,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
@@ -1592,8 +1594,7 @@ public class StmtExecutor {
     private int executeForTxn(InsertStmt insertStmt)
             throws UserException, TException, InterruptedException, ExecutionException, TimeoutException {
         if (context.isTxnIniting()) { // first time, begin txn
-            beginTxn(insertStmt.getDbName(),
-                    insertStmt.getTbl());
+            beginTxn(insertStmt);
         }
         if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDbName())
                 || !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
@@ -1636,12 +1637,15 @@ public class StmtExecutor {
         return effectRows;
     }
 
-    private void beginTxn(String dbName, String tblName) throws UserException, TException,
+    private void beginTxn(InsertStmt insertStmt) throws UserException, TException,
             InterruptedException, ExecutionException, TimeoutException {
+
+        final String dbName = insertStmt.getDbName();
+        final String tblName = insertStmt.getTbl();
         TransactionEntry txnEntry = context.getTxnEntry();
         TTxnParams txnConf = txnEntry.getTxnConf();
-        SessionVariable sessionVariable = context.getSessionVariable();
-        long timeoutSecond = context.getExecTimeout();
+        final LoadProperties loadProperties = insertStmt.getLoadProperties();
+        long timeoutSecond = loadProperties.getTimeoutS();
 
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
         Database dbObj = Env.getCurrentInternalCatalog()
@@ -1673,9 +1677,9 @@ public class StmtExecutor {
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
 
-        long maxExecMemByte = sessionVariable.getMaxExecMemByte();
-        String timeZone = sessionVariable.getTimeZone();
-        int sendBatchParallelism = sessionVariable.getSendBatchParallelism();
+        long maxExecMemByte = loadProperties.getExecMemLimit();
+        String timeZone = loadProperties.getTimezone();
+        int sendBatchParallelism = loadProperties.getSendBatchParallelism();
 
         request.setTxnId(txnConf.getTxnId()).setDb(txnConf.getDb())
                 .setTbl(txnConf.getTbl())
@@ -1733,16 +1737,25 @@ public class StmtExecutor {
             label = insertStmt.getLabel();
             LOG.info("Do insert [{}] with query id: {}", label, DebugUtil.printId(context.queryId()));
 
+            final LoadProperties loadProperties = insertStmt.getLoadProperties();
             try {
                 coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-                coord.setLoadZeroTolerance(context.getSessionVariable().getEnableInsertStrict());
+
+                final TQueryOptions queryOptions = coord.getQueryOptions();
+                queryOptions.setMemLimit(loadProperties.getExecMemLimit());
+                queryOptions.setExecutionTimeout(loadProperties.getTimeoutS());
+
+                final TQueryGlobals queryGlobals = coord.getQueryGlobals();
+                queryGlobals.setTimeZone(loadProperties.getTimezone());
+
+                coord.setLoadZeroTolerance(loadProperties.isStrictMode());
                 coord.setQueryType(TQueryType.LOAD);
                 profile.addExecutionProfile(coord.getExecutionProfile());
 
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
                 coord.exec();
-                int execTimeout = context.getExecTimeout();
+                int execTimeout = loadProperties.getTimeoutS();
                 LOG.debug("Insert execution timeout:{}", execTimeout);
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
@@ -1772,7 +1785,7 @@ public class StmtExecutor {
                 }
 
                 // if in strict mode, insert will fail if there are filtered rows
-                if (context.getSessionVariable().getEnableInsertStrict()) {
+                if (loadProperties.isStrictMode()) {
                     if (filteredRows > 0) {
                         context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
                                 "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());

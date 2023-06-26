@@ -171,6 +171,7 @@ public class Coordinator {
     // but, we execute `NOW()` distributed.
     // So we make a query global value here to make one `now()` value in one query process.
     private final TQueryGlobals queryGlobals = new TQueryGlobals();
+
     private TQueryOptions queryOptions;
     private TNetworkAddress coordAddress;
 
@@ -3395,6 +3396,14 @@ public class Coordinator {
                         backendExecState.instanceProfile);
             }
         }
+    }
+
+    public TQueryOptions getQueryOptions() {
+        return queryOptions;
+    }
+
+    public TQueryGlobals getQueryGlobals() {
+        return queryGlobals;
     }
 
     // Runtime filter target fragment instance param
