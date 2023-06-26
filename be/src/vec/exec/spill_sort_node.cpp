@@ -51,7 +51,7 @@ Status SpillSortNode::_prepare_inmemory_sort_node(RuntimeState* state) {
     in_memory_sort_node_ = std::make_unique<VSortNode>(_pool, t_plan_node_, desc_tbl_);
     in_memory_sort_node_->set_children(get_children());
     in_memory_sort_node_->set_prepare_children(false);
-    RETURN_IF_ERROR(in_memory_sort_node_->init(t_plan_node_));
+    RETURN_IF_ERROR(in_memory_sort_node_->init(t_plan_node_, state));
     RETURN_IF_ERROR(in_memory_sort_node_->prepare(state));
     RETURN_IF_ERROR(in_memory_sort_node_->alloc_resource(state));
     return Status::OK();
@@ -95,6 +95,8 @@ Status SpillSortNode::_release_in_mem_sorted_blocks() {
     RETURN_IF_ERROR(
             in_memory_sort_node_->release_sorted_blocks(state_, blocks, spill_block_batch_size_));
 
+    RETURN_IF_ERROR(_prepare_inmemory_sort_node(state_));
+
     SpillStreamSPtr stream;
     RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
             stream, print_id(state_->query_id()), "sort", id(), spill_block_batch_size_,
@@ -107,8 +109,7 @@ Status SpillSortNode::_release_in_mem_sorted_blocks() {
 Status SpillSortNode::revoke_memory() {
     RETURN_IF_ERROR(_release_in_mem_sorted_blocks());
     spilling_stream_ = sorted_streams_.back();
-    RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->spill_stream(spilling_stream_));
-    return Status::WaitForIO("Spilling");
+    return ExecEnv::GetInstance()->spill_stream_mgr()->spill_stream(spilling_stream_);
 }
 
 bool SpillSortNode::io_task_finished() {
@@ -146,6 +147,7 @@ Status SpillSortNode::sink(RuntimeState* state, Block* input_block, bool eos) {
     if (eos) {
         LOG(WARNING) << "spill sort eos";
         RETURN_IF_ERROR(_prepare_for_pull(state));
+        _can_read = true;
     }
     return Status::OK();
 }
@@ -213,7 +215,7 @@ Status SpillSortNode::_create_intermediate_merger(int num_blocks,
     for (int i = 0; i < num_blocks && !sorted_streams_.empty(); ++i) {
         auto stream = sorted_streams_.front();
         current_merging_streams_.emplace_back(stream);
-        child_block_suppliers.emplace_back(std::bind(std::mem_fn(&SpillStream::get_next),
+        child_block_suppliers.emplace_back(std::bind(std::mem_fn(&SpillStream::get_next_sync),
                                                      stream.get(), std::placeholders::_1,
                                                      std::placeholders::_2));
 

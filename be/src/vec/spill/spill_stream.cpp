@@ -24,6 +24,7 @@
 #include <memory>
 #include <mutex>
 
+#include "common/status.h"
 #include "vec/core/block.h"
 #include "vec/spill/spill_reader.h"
 #include "vec/spill/spill_writer.h"
@@ -117,6 +118,7 @@ void SpillStream::spill() {
         spilled_blocks_.emplace_back(block);
     }
     spill_promise_->set_value(Status::OK());
+    LOG(WARNING) << "spill finished: stream " << stream_id_;
 }
 
 bool SpillStream::is_spilling() {
@@ -126,9 +128,9 @@ bool SpillStream::is_spilling() {
         if (status == std::future_status::ready) {
             spill_status_ = future.get();
             spill_promise_ = nullptr;
-            return true;
-        } else {
             return false;
+        } else {
+            return true;
         }
     }
     return false;
@@ -145,7 +147,7 @@ size_t SpillStream::spillable_data_size() {
     return size;
 }
 
-Status SpillStream::get_next(Block* block, bool* eos) {
+Status SpillStream::get_next(Block* block, bool* eos, bool async) {
     std::lock_guard l(lock_);
     if (in_mem_blocks_.empty() && dirty_blocks_.empty() && spilled_blocks_.empty()) {
         *eos = true;
@@ -162,11 +164,18 @@ Status SpillStream::get_next(Block* block, bool* eos) {
         return Status::OK();
     } else {
         // initiate async read
-        RETURN_IF_ERROR(_read_async());
-        return Status::WaitForIO("reading spilled blocks");
+        if (async) {
+            RETURN_IF_ERROR(_read_async());
+            return Status::WaitForIO("reading spilled blocks");
+        } else {
+            return _read_sync(block);
+        }
     }
 }
 
+Status SpillStream::get_next_sync(Block* block, bool* eos) {
+    return get_next(block, eos, false);
+}
 SpillableBlockSPtr SpillStream::_get_next_spilled_block() {
     std::lock_guard l(lock_);
     if (spilled_blocks_.empty()) {
@@ -175,6 +184,19 @@ SpillableBlockSPtr SpillStream::_get_next_spilled_block() {
     auto block = spilled_blocks_.front();
     spilled_blocks_.pop_front();
     return block;
+}
+
+Status SpillStream::_read_sync(Block* block) {
+    Status st;
+    auto spilled_block = _get_next_spilled_block();
+    if (spilled_block) {
+        st = reader_->read_at_offset(spilled_block->offset_, spilled_block->spill_data_size_,
+                                     &spilled_block->block_);
+        RETURN_IF_ERROR(st);
+        *block = spilled_block->get_block();
+    }
+
+    return Status::OK();
 }
 
 Status SpillStream::_read_async() {

@@ -89,7 +89,9 @@ public:
 
     bool has_next() const { return eos_; }
 
-    Status get_next(Block* block, bool* eos);
+    Status get_next(Block* block, bool* eos, bool async = true);
+
+    Status get_next_sync(Block* block, bool* eos);
 
     // write blocks_ to disk asynchronously
     // Status flush(const flush_stream_callback& cb);
@@ -131,6 +133,8 @@ private:
     Status _flush_internal();
 
     Status _read_async();
+
+    Status _read_sync(Block* block);
 
     ThreadPool* io_thread_pool_;
     std::unique_ptr<MutableBlock> mutable_block_;

@@ -425,6 +425,13 @@ public:
         return _query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill;
     }
 
+    int64_t min_revokable_mem() const {
+        if (_query_options.__isset.min_revokable_mem) {
+            return _query_options.min_revokable_mem;
+        }
+        return 0;
+    }
+
 private:
     Status create_error_log_file();
 

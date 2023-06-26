@@ -228,8 +228,6 @@ private:
 
     Status _do_sort();
 
-    Status _append_block_impl(Block* block);
-
     std::unique_ptr<MergeSorterState> _state;
 
     static constexpr size_t INITIAL_BUFFERED_BLOCK_SIZE = 1024 * 1024;

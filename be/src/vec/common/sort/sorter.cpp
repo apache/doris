@@ -333,33 +333,22 @@ Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
     {
         SCOPED_TIMER(_merge_block_timer);
-        auto old_rows = _state->unsorted_block_->rows();
-        auto st = _append_block_impl(block);
-        if (st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-            _is_append_block_oom = true;
-            _state->unsorted_block_->resize(old_rows);
+        auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
+        const auto& arrival_data = block->get_columns_with_type_and_name();
+        auto sz = block->rows();
+        for (int i = 0; i < data.size(); ++i) {
+            DCHECK(data[i].type->equals(*(arrival_data[i].type)))
+                    << " type1: " << data[i].type->get_name()
+                    << " type2: " << arrival_data[i].type->get_name();
+            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
+            data[i].column->assume_mutable()->insert_range_from(
+                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
         }
-        RETURN_IF_ERROR(st);
+        block->clear_column_data();
     }
     if (_reach_limit()) {
         RETURN_IF_ERROR(_do_sort());
     }
-    return Status::OK();
-}
-
-Status FullSorter::_append_block_impl(Block* block) {
-    auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
-    const auto& arrival_data = block->get_columns_with_type_and_name();
-    auto sz = block->rows();
-    for (int i = 0; i < data.size(); ++i) {
-        DCHECK(data[i].type->equals(*(arrival_data[i].type)))
-                << " type1: " << data[i].type->get_name()
-                << " type2: " << arrival_data[i].type->get_name();
-        //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-        RETURN_IF_CATCH_EXCEPTION(data[i].column->assume_mutable()->insert_range_from(
-                *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz));
-    }
-    block->clear_column_data();
     return Status::OK();
 }
 

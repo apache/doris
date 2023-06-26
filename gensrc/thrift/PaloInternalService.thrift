@@ -231,6 +231,8 @@ struct TQueryOptions {
   77: optional bool enable_sort_spill = false
 
   78: optional bool enable_agg_spill = false
+
+  79: optional i64 min_revokable_mem = 0
 }
 
 

@@ -472,12 +472,12 @@ bool GraceHashJoinNode::need_more_input_data() const {
 // pick a spilled partition, try to build hash table, and repartition it if failed,
 // until succeed to build at least one hash table for a partition
 Status GraceHashJoinNode::_prepare_spilled_probe(RuntimeState* state, bool* eos) {
-#define CHECK_STATUS(st)    \
-    do {                    \
-        _update_status(st); \
-        if (!status_.ok()) {     \
-            return;         \
-        }                   \
+#define CHECK_STATUS(st)     \
+    do {                     \
+        _update_status(st);  \
+        if (!status_.ok()) { \
+            return;          \
+        }                    \
     } while (0)
 
     DCHECK(!is_building_hash_table_);

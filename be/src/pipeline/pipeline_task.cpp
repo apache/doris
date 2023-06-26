@@ -209,18 +209,17 @@ Status PipelineTask::execute(bool* eos) {
             COUNTER_UPDATE(_yield_counts, 1);
             break;
         }
-        auto sys_mem_available = doris::MemInfo::sys_mem_available();
-        if (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() &&
-            _state->enable_spill()) {
-            auto revokable_mem_size = _root->revokable_mem_size();
-            if (revokable_mem_size > 1024 * 1024) {
-                auto st = _root->revoke_memory();
-                if (st.is<ErrorCode::PIP_WAIT_FOR_IO>()) {
-                    set_state(PipelineTaskState::BLOCKED_FOR_IO);
-                    break;
-                }
-                RETURN_IF_ERROR(st);
+        // auto sys_mem_available = doris::MemInfo::sys_mem_available();
+        // if (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() &&
+        // auto tmp_proc_rss = PerfCounters::get_vm_rss();
+        auto revokable_mem_size = _root->revokable_mem_size();
+        if (revokable_mem_size >= _state->min_revokable_mem() && _state->enable_sort_spill()) {
+            auto st = _root->revoke_memory();
+            if (st.is<ErrorCode::PIP_WAIT_FOR_IO>()) {
+                set_state(PipelineTaskState::BLOCKED_FOR_IO);
+                break;
             }
+            RETURN_IF_ERROR(st);
         }
 
         SCOPED_RAW_TIMER(&time_spent);
