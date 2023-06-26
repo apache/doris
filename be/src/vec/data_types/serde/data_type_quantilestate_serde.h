@@ -57,21 +57,16 @@ public:
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
     }
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
-    }
 
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
 private:
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 
 template <typename T>
@@ -123,17 +118,39 @@ void DataTypeQuantileStateSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
 template <typename T>
 template <bool is_binary_format>
 Status DataTypeQuantileStateSerDe<T>::_write_column_to_mysql(
-        const IColumn& column, std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx,
-        int start, int end, bool col_const) const {
-    int buf_ret = 0;
-    for (ssize_t i = start; i < end; ++i) {
-        if (0 != buf_ret) {
+        const IColumn& column, MysqlRowBuffer<is_binary_format>& result, int row_idx,
+        bool col_const) const {
+    auto& data_column = reinterpret_cast<const ColumnQuantileState<T>&>(column);
+
+    if (_return_object_as_string) {
+        const auto col_index = index_check_const(row_idx, col_const);
+        auto& quantile_value = const_cast<QuantileState<T>&>(data_column.get_element(col_index));
+        size_t size = quantile_value.get_serialized_size();
+        std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
+        quantile_value.serialize((uint8_t*)buf.get());
+        if (0 != result.push_string(buf.get(), size)) {
             return Status::InternalError("pack mysql buffer failed.");
         }
-        buf_ret = result[row_idx].push_null();
-        ++row_idx;
+    } else {
+        if (0 != result.push_null()) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
     }
     return Status::OK();
+}
+
+template <typename T>
+Status DataTypeQuantileStateSerDe<T>::write_column_to_mysql(const IColumn& column,
+                                                            MysqlRowBuffer<true>& row_buffer,
+                                                            int row_idx, bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+template <typename T>
+Status DataTypeQuantileStateSerDe<T>::write_column_to_mysql(const IColumn& column,
+                                                            MysqlRowBuffer<false>& row_buffer,
+                                                            int row_idx, bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
 } // namespace vectorized

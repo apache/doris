@@ -43,6 +43,7 @@
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/exec/join/join_op.h" // IWYU pragma: keep
+#include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vjoin_node_base.h"
 
@@ -71,6 +72,8 @@ struct SerializedHashTableContext {
             ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped, true>;
     using Iter = typename HashTable::iterator;
 
+    SerializedHashTableContext() { _arena.reset(new Arena()); }
+
     HashTable hash_table;
     Iter iter;
     bool inited = false;
@@ -82,7 +85,7 @@ struct SerializedHashTableContext {
             keys.resize(num_rows);
         }
 
-        _arena.reset(new Arena());
+        _arena->clear();
         keys_memory_usage = 0;
         size_t keys_size = key_columns.size();
         for (size_t i = 0; i < num_rows; ++i) {
@@ -251,14 +254,31 @@ public:
 
     bool should_build_hash_table() const { return _should_build_hash_table; }
 
+    bool ready_for_finish() {
+        if (_runtime_filter_slots == nullptr) {
+            return true;
+        }
+        return _runtime_filter_slots->ready_finish_publish();
+    }
+
 private:
-    using VExprContexts = std::vector<VExprContext*>;
+    void _init_short_circuit_for_probe() override {
+        _short_circuit_for_probe =
+                (_short_circuit_for_null_in_probe_side &&
+                 _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
+                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
+    }
+
     // probe expr
-    VExprContexts _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
     // build expr
-    VExprContexts _build_expr_ctxs;
+    VExprContextSPtrs _build_expr_ctxs;
     // other expr
-    std::unique_ptr<VExprContext*> _vother_join_conjunct_ptr;
+    VExprContextSPtrs _other_join_conjuncts;
 
     // mark the join column whether support null eq
     std::vector<bool> _is_null_safe_eq_join;
@@ -281,8 +301,6 @@ private:
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
     RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;
@@ -290,12 +308,15 @@ private:
     RuntimeProfile::Counter* _build_side_merge_block_timer;
     RuntimeProfile::Counter* _build_runtime_filter_timer;
 
+    RuntimeProfile::Counter* _open_timer;
+    RuntimeProfile::Counter* _allocate_resource_timer;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
+
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _build_blocks_memory_usage;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
-
-    RuntimeProfile* _build_phase_profile;
 
     std::shared_ptr<Arena> _arena;
 
@@ -327,7 +348,7 @@ private:
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
     std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
-    VRuntimeFilterSlots* _runtime_filter_slots = nullptr;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
@@ -346,7 +367,7 @@ private:
 
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
-    Status _do_evaluate(Block& block, std::vector<VExprContext*>& exprs,
+    Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
 
     template <bool BuildSide>

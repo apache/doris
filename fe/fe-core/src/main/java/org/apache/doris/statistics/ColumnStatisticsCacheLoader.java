@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -30,7 +32,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletionException;
 
 public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<ColumnStatistic>> {
 
@@ -42,20 +43,39 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
 
     @Override
     protected Optional<ColumnStatistic> doLoad(StatisticsCacheKey key) {
+        // Load from statistics table.
+        Optional<ColumnStatistic> columnStatistic = loadFromStatsTable(String.valueOf(key.tableId),
+                String.valueOf(key.idxId), key.colName);
+        if (columnStatistic.isPresent()) {
+            return columnStatistic;
+        }
+        // Load from data source metadata
+        try {
+            TableIf table = Env.getCurrentEnv().getCatalogMgr().getCatalog(key.catalogId)
+                    .getDbOrMetaException(key.dbId).getTableOrMetaException(key.tableId);
+            columnStatistic = table.getColumnStatistic();
+        } catch (Exception e) {
+            LOG.warn(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
+                    key.catalogId, key.dbId, key.tableId), e);
+        }
+        return columnStatistic;
+    }
+
+    private Optional<ColumnStatistic> loadFromStatsTable(String tableId, String idxId, String colName) {
         Map<String, String> params = new HashMap<>();
-        params.put("tblId", String.valueOf(key.tableId));
-        params.put("idxId", String.valueOf(key.idxId));
-        params.put("colId", String.valueOf(key.colName));
+        params.put("tblId", tableId);
+        params.put("idxId", idxId);
+        params.put("colId", colName);
 
         List<ColumnStatistic> columnStatistics;
         List<ResultRow> columnResult =
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
-                        .replace(QUERY_COLUMN_STATISTICS));
+                .replace(QUERY_COLUMN_STATISTICS));
         try {
             columnStatistics = StatisticsUtil.deserializeToColumnStatistics(columnResult);
         } catch (Exception e) {
-            LOG.warn("Failed to deserialize column statistics", e);
-            throw new CompletionException(e);
+            LOG.warn("Exception to deserialize column statistics", e);
+            return Optional.empty();
         }
         if (CollectionUtils.isEmpty(columnStatistics)) {
             return Optional.empty();

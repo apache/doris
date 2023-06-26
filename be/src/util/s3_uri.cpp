@@ -25,6 +25,9 @@
 
 namespace doris {
 
+const std::string S3URI::_SCHEME_S3 = "s3";
+const std::string S3URI::_SCHEME_HTTP = "http";
+const std::string S3URI::_SCHEME_HTTPS = "https";
 const std::string S3URI::_SCHEME_DELIM = "://";
 const std::string S3URI::_PATH_DELIM = "/";
 const std::string S3URI::_QUERY_DELIM = "?";
@@ -42,15 +45,30 @@ Status S3URI::parse() {
     std::vector<std::string> scheme_split = strings::Split(_location, _SCHEME_DELIM);
     std::string rest;
     if (scheme_split.size() == 2) {
-        // has scheme, eg: s3://bucket1/path/to/file.txt
-        rest = scheme_split[1];
-        std::vector<std::string> authority_split =
-                strings::Split(rest, strings::delimiter::Limit(_PATH_DELIM, 1));
-        if (authority_split.size() != 2) {
+        if (scheme_split[0] == _SCHEME_S3) {
+            // has scheme, eg: s3://bucket1/path/to/file.txt
+            rest = scheme_split[1];
+            std::vector<std::string> authority_split =
+                    strings::Split(rest, strings::delimiter::Limit(_PATH_DELIM, 1));
+            if (authority_split.size() != 2) {
+                return Status::InvalidArgument("Invalid S3 URI: {}", _location);
+            }
+            _bucket = authority_split[0];
+            _key = authority_split[1];
+        } else if (scheme_split[0] == _SCHEME_HTTP || scheme_split[0] == _SCHEME_HTTPS) {
+            // has scheme, eg: http(s)://host/bucket1/path/to/file.txt
+            rest = scheme_split[1];
+            std::vector<std::string> authority_split =
+                    strings::Split(rest, strings::delimiter::Limit(_PATH_DELIM, 2));
+            if (authority_split.size() != 3) {
+                return Status::InvalidArgument("Invalid S3 HTTP URI: {}", _location);
+            }
+            // authority_split[1] is host
+            _bucket = authority_split[1];
+            _key = authority_split[2];
+        } else {
             return Status::InvalidArgument("Invalid S3 URI: {}", _location);
         }
-        _bucket = authority_split[0];
-        _key = authority_split[1];
     } else if (scheme_split.size() == 1) {
         // no scheme, eg: path/to/file.txt
         _bucket = ""; // unknown

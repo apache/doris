@@ -100,10 +100,6 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
-    void _peel_pushed_vconjunct(
-            RuntimeState* state,
-            const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
-
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
     RuntimeProfile::Counter* _rows_read_counter;
     // Wall based aggregate read throughput [bytes/sec]

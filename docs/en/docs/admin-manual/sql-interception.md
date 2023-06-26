@@ -26,7 +26,7 @@ under the License.
 
 # SQL Block Rule
 
-This function is only used to limit the query statement, and does not limit the execution of the explain statement.
+This function is used to limit any sql statement (no matter DDL or DML statement).
 Support SQL block rule by user level:
 
 1. by regex way to deny specify SQL

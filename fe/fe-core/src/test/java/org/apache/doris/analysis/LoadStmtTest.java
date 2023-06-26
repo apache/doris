@@ -239,6 +239,14 @@ public class LoadStmtTest {
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getLabel().getDbName());
         Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
+
+        // unified load stmt
+        UnifiedLoadStmt unifiedStmt = UnifiedLoadStmt.buildMysqlLoadStmt(desc, Maps.newHashMap(), "");
+        Config.mysql_load_server_secure_path = "/";
+        unifiedStmt.analyze(analyzer);
+        Assert.assertTrue(unifiedStmt.getProxyStmt() instanceof LoadStmt);
+        Assert.assertNull(((LoadStmt) unifiedStmt.getProxyStmt()).getLabel().getDbName());
+        Assert.assertEquals(unifiedStmt.getRedirectStatus(), RedirectStatus.NO_FORWARD);
     }
 
     @Test

@@ -73,9 +73,7 @@ void Rowset::make_visible(Version version) {
 
     if (_rowset_meta->has_delete_predicate()) {
         _rowset_meta->mutable_delete_predicate()->set_version(version.first);
-        return;
     }
-    make_visible_extra(version);
 }
 
 bool Rowset::check_rowset_segment() {

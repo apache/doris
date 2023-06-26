@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
@@ -76,7 +77,7 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer,
+    static Status open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile* profile,
                        const UniqueId& load_id = TUniqueId());
 
     ~DeltaWriter();
@@ -115,6 +116,7 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
+    int64_t active_memtable_mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
@@ -123,18 +125,13 @@ public:
 
     int32_t schema_hash() { return _tablet->schema_hash(); }
 
-    void save_mem_consumption_snapshot();
-
-    int64_t get_memtable_consumption_inflush() const;
-
-    int64_t get_memtable_consumption_snapshot() const;
-
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
+                const UniqueId& load_id);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -148,6 +145,8 @@ private:
                                       const TabletSchema& ori_tablet_schema);
 
     void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
+
+    void _init_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
@@ -177,13 +176,6 @@ private:
 
     std::mutex _lock;
 
-    // memory consumption snapshot for current delta_writer, only
-    // used for std::sort
-    int64_t _mem_consumption_snapshot = 0;
-    // memory consumption snapshot for current memtable, only
-    // used for std::sort
-    int64_t _memtable_consumption_snapshot = 0;
-
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
@@ -196,8 +188,26 @@ private:
 
     // total rows num written by DeltaWriter
     int64_t _total_received_rows = 0;
-    // rows num merged by memtable
-    int64_t _merged_rows = 0;
+
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _lock_timer = nullptr;
+    RuntimeProfile::Counter* _sort_timer = nullptr;
+    RuntimeProfile::Counter* _agg_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_timer = nullptr;
+    RuntimeProfile::Counter* _delete_bitmap_timer = nullptr;
+    RuntimeProfile::Counter* _segment_writer_timer = nullptr;
+    RuntimeProfile::Counter* _memtable_duration_timer = nullptr;
+    RuntimeProfile::Counter* _put_into_output_timer = nullptr;
+    RuntimeProfile::Counter* _sort_times = nullptr;
+    RuntimeProfile::Counter* _agg_times = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _segment_num = nullptr;
+    RuntimeProfile::Counter* _raw_rows_num = nullptr;
+    RuntimeProfile::Counter* _merged_rows_num = nullptr;
+
+    MonotonicStopWatch _lock_watch;
+
+    MemTableStat _memtable_stat;
 };
 
 } // namespace doris

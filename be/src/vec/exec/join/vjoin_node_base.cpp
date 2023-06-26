@@ -54,9 +54,10 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
                                                            : TJoinOp::CROSS_JOIN)),
-          _have_other_join_conjunct(tnode.__isset.hash_join_node
-                                            ? tnode.hash_join_node.__isset.vother_join_conjunct
-                                            : false),
+          _have_other_join_conjunct(tnode.__isset.hash_join_node &&
+                                    ((tnode.hash_join_node.__isset.other_join_conjuncts &&
+                                      !tnode.hash_join_node.other_join_conjuncts.empty()) ||
+                                     tnode.hash_join_node.__isset.vother_join_conjunct)),
           _match_all_probe(_join_op == TJoinOp::LEFT_OUTER_JOIN ||
                            _join_op == TJoinOp::FULL_OUTER_JOIN),
           _match_all_build(_join_op == TJoinOp::RIGHT_OUTER_JOIN ||
@@ -104,12 +105,31 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     }
 }
 
+Status VJoinNodeBase::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::prepare(state));
+    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+
+    _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
+    _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
+    _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
+    _build_output_block_timer =
+            ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
+    _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
+
+    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
+    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
+
+    return Status::OK();
+}
+
 Status VJoinNodeBase::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
 void VJoinNodeBase::release_resource(RuntimeState* state) {
-    VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
     ExecNode::release_resource(state);
 }
@@ -130,6 +150,7 @@ void VJoinNodeBase::_construct_mutable_join_block() {
 }
 
 Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block) {
+    SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
             is_mem_reuse
@@ -183,8 +204,8 @@ Status VJoinNodeBase::init(const TPlanNode& tnode, RuntimeState* state) {
                                            ? tnode.hash_join_node.srcExprList
                                            : tnode.nested_loop_join_node.srcExprList;
         for (const auto& expr : output_exprs) {
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(VExpr::create_expr_tree(_pool, expr, &ctx));
+            VExprContextSPtr ctx;
+            RETURN_IF_ERROR(VExpr::create_expr_tree(expr, ctx));
             _output_expr_ctxs.push_back(ctx);
         }
     }

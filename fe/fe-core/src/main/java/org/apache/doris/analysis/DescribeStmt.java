@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -200,11 +199,7 @@ public class DescribeStmt extends ShowStmt {
                             // Extra string (aggregation and bloom filter)
                             List<String> extras = Lists.newArrayList();
                             if (column.getAggregationType() != null) {
-                                if (column.getAggregationType() == AggregateType.GENERIC_AGGREGATION) {
-                                    extras.add(column.getGenericAggregationString());
-                                } else {
-                                    extras.add(column.getAggregationType().name());
-                                }
+                                extras.add(column.getAggregationString());
                             }
                             if (bfColumns != null && bfColumns.contains(column.getName())) {
                                 extras.add("BLOOM_FILTER");

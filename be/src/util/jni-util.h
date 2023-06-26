@@ -75,6 +75,9 @@ public:
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
 
+    static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
+    static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
+
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
 

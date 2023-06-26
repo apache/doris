@@ -27,6 +27,7 @@
 #include <memory> // for unique_ptr
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "common/status.h" // Status
 #include "io/fs/file_reader_writer_fwd.h"
@@ -34,6 +35,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_handle.h"
+#include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "util/once.h"
 #include "util/slice.h"
@@ -76,7 +78,7 @@ public:
 
     ~Segment();
 
-    Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
+    Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
     uint32_t id() const { return _segment_id; }
@@ -85,13 +87,15 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
+    Status new_column_iterator(const TabletColumn& tablet_column,
+                               std::unique_ptr<ColumnIterator>* iter);
 
-    Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
+    Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
+                                     std::unique_ptr<BitmapIndexIterator>* iter);
 
     Status new_inverted_index_iterator(const TabletColumn& tablet_column,
                                        const TabletIndex* index_meta, OlapReaderStatistics* stats,
-                                       InvertedIndexIterator** iter);
+                                       std::unique_ptr<InvertedIndexIterator>* iter);
 
     const ShortKeyIndexDecoder* get_short_key_index() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());

@@ -118,4 +118,104 @@ suite("test_delete") {
     qt_sql9 """select * from tb_test1;"""
     sql """ delete from tb_test1 where DT = '20221001'; """
     qt_sql10 """select * from tb_test1;"""
+
+    sql """ DROP TABLE IF EXISTS delete_test_tb """
+    sql """
+        CREATE TABLE `delete_test_tb` (
+          `k1` varchar(30)  NULL,
+          `v1` varchar(30) NULL
+        )
+        UNIQUE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """
+        insert into delete_test_tb values
+            (' ', '1'), ('  ', '2'), ('   ', '3'), ('    ', '4'),
+            ('abc', '5'), ("'d", '6'), ("'e'", '7'), ("f'", '8');
+    """
+
+    qt_check_data """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = '  ';
+    """
+    qt_check_data2 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+     sql """
+        delete from delete_test_tb where k1 = '    ';
+    """
+    qt_check_data3 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "'d";
+    """
+    qt_check_data4 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "'e'";
+    """
+    qt_check_data5 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """
+        delete from delete_test_tb where k1 = "f'";
+    """
+    qt_check_data6 """
+        select k1, v1 from delete_test_tb order by v1;
+    """
+
+    sql """ DROP TABLE IF EXISTS delete_test_tb2 """
+    sql """
+        CREATE TABLE `delete_test_tb2` (
+          `k1` int  NULL,
+          `k2` decimal(9, 2) NULL,
+          `v1` double NULL
+        )
+        UNIQUE KEY(`k1`, `k2`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 4
+        PROPERTIES
+        (
+            "replication_num" = "1"
+        );
+    """
+
+    sql """
+        insert into delete_test_tb2 values
+            (1, 1.12, 1.1), (2, 2.23, 2.2), (3, 3.34, 3.3), (null, 4.45, 4.4),
+            (5, null, 5.5), (null, null, 6.6);
+    """
+
+    qt_check_numeric """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 1; """
+    qt_check_numeric """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k2 = 2.23; """
+    qt_check_numeric2 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 3 and k2 = 3.3; """
+    qt_check_numeric3 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 = 3 and k2 = 3.34; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 is not null and k2 = 4.45; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
+
+    sql """ delete from  delete_test_tb2 where k1 is null and k2 = 4.45; """
+    qt_check_numeric4 """ select k1, k2, v1 from delete_test_tb2 order by k1, k2; """;
 }

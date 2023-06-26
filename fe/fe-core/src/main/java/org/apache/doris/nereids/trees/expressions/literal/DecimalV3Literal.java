@@ -40,7 +40,8 @@ public class DecimalV3Literal extends Literal {
     public DecimalV3Literal(DecimalV3Type dataType, BigDecimal value) {
         super(DecimalV3Type.createDecimalV3Type(dataType.getPrecision(), dataType.getScale()));
         Objects.requireNonNull(value, "value not be null");
-        BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(dataType.getScale(), RoundingMode.DOWN);
+        BigDecimal adjustedValue = value.scale() < 0 ? value
+                : value.setScale(dataType.getScale(), RoundingMode.HALF_UP);
         this.value = Objects.requireNonNull(adjustedValue);
     }
 

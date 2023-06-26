@@ -112,23 +112,24 @@ ARCH="$(uname -m)"
 
 ORI_OUTPUT="${ROOT}/output"
 
-FE="apache-doris-fe-${VERSION}-bin-${ARCH}"
-BE="apache-doris-be-${VERSION}-bin-${ARCH}"
-DEPS="apache-doris-dependencies-${VERSION}-bin-${ARCH}"
-
-OUTPUT="${ORI_OUTPUT}/apache-doris-${VERSION}-bin-${ARCH}"
-OUTPUT_FE="${OUTPUT}/${FE}"
-OUTPUT_DEPS="${OUTPUT}/${DEPS}"
-OUTPUT_BE="${OUTPUT}/${BE}"
+FE="fe"
+BE="be"
+EXT="extensions"
+PACKAGE="apache-doris-${VERSION}-bin-${ARCH}"
 
 if [[ "${_USE_AVX2}" == "0" && "${ARCH}" == "x86_64" ]]; then
-    OUTPUT_BE="${OUTPUT_BE}-noavx2"
+    PACKAGE="${PACKAGE}-noavx2"
 fi
+
+OUTPUT="${ORI_OUTPUT}/${PACKAGE}"
+OUTPUT_FE="${OUTPUT}/${FE}"
+OUTPUT_EXT="${OUTPUT}/${EXT}"
+OUTPUT_BE="${OUTPUT}/${BE}"
 
 echo "Package Name:"
 echo "FE:   ${OUTPUT_FE}"
 echo "BE:   ${OUTPUT_BE}"
-echo "JAR:  ${OUTPUT_DEPS}"
+echo "JAR:  ${OUTPUT_EXT}"
 
 sh build.sh --clean &&
     USE_AVX2="${_USE_AVX2}" sh build.sh &&
@@ -136,26 +137,22 @@ sh build.sh --clean &&
 
 echo "Begin to pack"
 rm -rf "${OUTPUT}"
-mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_DEPS}"
+mkdir -p "${OUTPUT_FE}" "${OUTPUT_BE}" "${OUTPUT_EXT}"
 
 # FE
 cp -R "${ORI_OUTPUT}"/fe/* "${OUTPUT_FE}"/
 
-# DEPS
-cp "${ORI_OUTPUT}"/be/lib/java-udf-jar-with-dependencies.jar "${OUTPUT_DEPS}"/
-cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_DEPS}"/apache_hdfs_broker
-cp -R "${ORI_OUTPUT}"/audit_loader "${OUTPUT_DEPS}"/audit_loader
+# EXT
+cp -R "${ORI_OUTPUT}"/apache_hdfs_broker "${OUTPUT_EXT}"/apache_hdfs_broker
+cp -R "${ORI_OUTPUT}"/audit_loader "${OUTPUT_EXT}"/audit_loader
 
 # BE
 cp -R "${ORI_OUTPUT}"/be/* "${OUTPUT_BE}"/
-rm "${OUTPUT_BE}"/lib/java-udf-jar-with-dependencies.jar
 
 if [[ "${TAR}" -eq 1 ]]; then
     echo "Begin to compress"
-    cd "${OUTPUT}"
-    tar -cf - "${FE}" | xz -T0 -z - >"${FE}".tar.xz
-    tar -cf - "${BE}" | xz -T0 -z - >"${BE}".tar.xz
-    tar -cf - "${DEPS}" | xz -T0 -z - >"${DEPS}".tar.xz
+    cd "${ORI_OUTPUT}"
+    tar -cf - "${PACKAGE}" | xz -T0 -z - >"${PACKAGE}".tar.xz
     cd -
 fi
 

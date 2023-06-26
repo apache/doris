@@ -78,7 +78,6 @@ public:
         return TPrimitiveType::DATETIME;
     }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;

@@ -51,21 +51,16 @@ public:
                                 int end, const cctz::time_zone& ctz) const override {
         LOG(FATAL) << "not support read arrow array to uint64 column";
     }
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<false>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
-    }
 
-    Status write_column_to_mysql(const IColumn& column, std::vector<MysqlRowBuffer<true>>& result,
-                                 int row_idx, int start, int end, bool col_const) const override {
-        return _write_column_to_mysql(column, result, row_idx, start, end, col_const);
-    }
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
 
 private:
     template <bool is_binary_format>
-    Status _write_column_to_mysql(const IColumn& column,
-                                  std::vector<MysqlRowBuffer<is_binary_format>>& result,
-                                  int row_idx, int start, int end, bool col_const) const;
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
     int scale;
 };
 } // namespace vectorized

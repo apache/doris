@@ -84,10 +84,9 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VCaseExpr::close(RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
+void VCaseExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close_function_context(context, scope, _function);
-    VExpr::close(state, context, scope);
+    VExpr::close(context, scope);
 }
 
 Status VCaseExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
@@ -118,7 +117,7 @@ std::string VCaseExpr::debug_string() const {
     out << "CaseExpr(has_case_expr=" << _has_case_expr << " has_else_expr=" << _has_else_expr
         << " function=" << _function_name << "){";
     bool first = true;
-    for (VExpr* input_expr : children()) {
+    for (auto& input_expr : children()) {
         if (first) {
             first = false;
         } else {

@@ -45,7 +45,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                                const doris::TupleDescriptor* input_tuple_desc,
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                               int64_t max_bytes_in_blocks_queue_)
+                               int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances)
         : _state(state_),
           _parent(parent),
           _input_tuple_desc(input_tuple_desc),
@@ -55,7 +55,8 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           limit(limit_),
           _max_bytes_in_queue(max_bytes_in_blocks_queue_),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
-          _scanners(scanners_) {
+          _scanners(scanners_),
+          _num_parallel_instances(num_parallel_instances) {
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
         _is_finished = true;
@@ -68,8 +69,11 @@ Status ScannerContext::init() {
     // 1. Calculate max concurrency
     // TODO: now the max thread num <= config::doris_scanner_thread_pool_thread_num / 4
     // should find a more reasonable value.
-    _max_thread_num = _parent->_shared_scan_opt ? config::doris_scanner_thread_pool_thread_num
-                                                : config::doris_scanner_thread_pool_thread_num / 4;
+    _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
+    if (_parent->_shared_scan_opt) {
+        DCHECK(_num_parallel_instances > 0);
+        _max_thread_num *= _num_parallel_instances;
+    }
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     DCHECK(_max_thread_num > 0);
     _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
@@ -81,6 +85,7 @@ Status ScannerContext::init() {
     _scanner_profile = _parent->_scanner_profile;
     _scanner_sched_counter = _parent->_scanner_sched_counter;
     _scanner_ctx_sched_counter = _parent->_scanner_ctx_sched_counter;
+    _scanner_ctx_sched_time = _parent->_scanner_ctx_sched_time;
     _free_blocks_memory_usage = _parent->_free_blocks_memory_usage;
     _newly_create_free_blocks_num = _parent->_newly_create_free_blocks_num;
     _queued_blocks_memory_usage = _parent->_queued_blocks_memory_usage;
@@ -98,6 +103,9 @@ Status ScannerContext::init() {
             limit == -1 ? _batch_size : std::min(static_cast<int64_t>(_batch_size), limit);
     _block_per_scanner = (doris_scanner_row_num + (real_block_size - 1)) / real_block_size;
     _free_blocks_capacity = _max_thread_num * _block_per_scanner;
+    auto pre_alloc_block_count = _max_thread_num * _block_per_scanner;
+
+    _init_free_block(pre_alloc_block_count, real_block_size);
 
 #ifndef BE_TEST
     // 3. get thread token
@@ -115,6 +123,19 @@ Status ScannerContext::init() {
                                                thread_token == nullptr ? "False" : "True");
 
     return Status::OK();
+}
+
+void ScannerContext::_init_free_block(int pre_alloc_block_count, int real_block_size) {
+    // The free blocks is used for final output block of scanners.
+    // So use _output_tuple_desc;
+    int64_t free_blocks_memory_usage = 0;
+    for (int i = 0; i < pre_alloc_block_count; ++i) {
+        auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(), real_block_size,
+                                                      true /*ignore invalid slots*/);
+        free_blocks_memory_usage += block->allocated_bytes();
+        _free_blocks.emplace_back(std::move(block));
+    }
+    _free_blocks_memory_usage->add(free_blocks_memory_usage);
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
@@ -226,14 +247,20 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
         std::stringstream scanner_rows_read;
+        std::stringstream scanner_wait_worker_time;
         scanner_statistics << "[";
         scanner_rows_read << "[";
+        scanner_wait_worker_time << "[";
         for (auto finished_scanner_time : _finished_scanner_runtime) {
             scanner_statistics << PrettyPrinter::print(finished_scanner_time, TUnit::TIME_NS)
                                << ", ";
         }
         for (auto finished_scanner_rows : _finished_scanner_rows_read) {
             scanner_rows_read << PrettyPrinter::print(finished_scanner_rows, TUnit::UNIT) << ", ";
+        }
+        for (auto finished_scanner_wait_time : _finished_scanner_wait_worker_time) {
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(finished_scanner_wait_time, TUnit::TIME_NS) << ", ";
         }
         // Only unfinished scanners here
         for (auto& scanner : _scanners) {
@@ -244,11 +271,18 @@ Status ScannerContext::_close_and_clear_scanners(VScanNode* node, RuntimeState* 
                                << ", ";
             scanner_rows_read << PrettyPrinter::print(scanner->get_rows_read(), TUnit::UNIT)
                               << ", ";
+            scanner_wait_worker_time
+                    << PrettyPrinter::print(scanner->get_scanner_wait_worker_timer(),
+                                            TUnit::TIME_NS)
+                    << ", ";
         }
         scanner_statistics << "]";
         scanner_rows_read << "]";
+        scanner_wait_worker_time << "]";
         node->_scanner_profile->add_info_string("PerScannerRunningTime", scanner_statistics.str());
         node->_scanner_profile->add_info_string("PerScannerRowsRead", scanner_rows_read.str());
+        node->_scanner_profile->add_info_string("PerScannerWaitTime",
+                                                scanner_wait_worker_time.str());
     }
     // Only unfinished scanners here
     for (auto& scanner : _scanners) {
@@ -345,13 +379,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
     int thread_slot_num = 0;
     {
         // If there are enough space in blocks queue,
-        // the scanner number depends on the _free_blocks_capacity
-        std::lock_guard f(_free_blocks_lock);
-        thread_slot_num = (_free_blocks_capacity + _block_per_scanner - 1) / _block_per_scanner;
-        thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
-        if (thread_slot_num <= 0) {
-            thread_slot_num = 1;
-        }
+        // the scanner number depends on the _free_blocks numbers
+        thread_slot_num = cal_thread_slot_num_by_free_block_num();
     }
 
     // 2. get #thread_slot_num scanners from ctx->scanners
@@ -364,6 +393,8 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             if (scanner->need_to_close()) {
                 _finished_scanner_runtime.push_back(scanner->get_time_cost_ns());
                 _finished_scanner_rows_read.push_back(scanner->get_rows_read());
+                _finished_scanner_wait_worker_time.push_back(
+                        scanner->get_scanner_wait_worker_timer());
                 scanner->close(_state);
             } else {
                 current_run->push_back(scanner);
@@ -371,6 +402,10 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             }
         }
     }
+}
+
+taskgroup::TaskGroup* ScannerContext::get_task_group() const {
+    return _state->get_query_ctx()->get_task_group();
 }
 
 } // namespace doris::vectorized

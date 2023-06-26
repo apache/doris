@@ -88,8 +88,6 @@ public interface Plan extends TreeNode<Plan> {
      */
     List<Slot> getOutput();
 
-    List<Slot> getNonUserVisibleOutput();
-
     /**
      * Get output slot set of the plan.
      */
@@ -115,10 +113,6 @@ public interface Plan extends TreeNode<Plan> {
 
     default List<Slot> computeOutput() {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
-    }
-
-    default List<Slot> computeNonUserVisibleOutput() {
-        return ImmutableList.of();
     }
 
     String treeString();

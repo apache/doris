@@ -264,8 +264,15 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>();
     }
 
-    auto cloneBlock = block->clone_empty();
-    MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+    auto clone_block = block->clone_empty();
+    MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+    // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+    auto all_column_names = mutable_block.get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            mutable_block.erase(name);
+        }
+    }
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -297,15 +304,15 @@ Status VCollectIterator::_topn_next(Block* block) {
         bool eof = false;
         while (read_rows < _topn_limit && !eof) {
             block->clear_column_data();
-            auto res = rs_reader->next_block(block);
-            if (!res.ok()) {
-                if (res.is<END_OF_FILE>()) {
+            auto status = rs_reader->next_block(block);
+            if (!status.ok()) {
+                if (status.is<END_OF_FILE>()) {
                     eof = true;
                     if (block->rows() == 0) {
                         break;
                     }
                 } else {
-                    return res;
+                    return status;
                 }
             }
 
@@ -313,8 +320,14 @@ Status VCollectIterator::_topn_next(Block* block) {
 
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
-                    *(_reader->_reader_context.filter_block_vconjunct_ctx_ptr), block,
-                    block->columns()));
+                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
+            // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+            auto all_column_names = block->get_names();
+            for (auto& name : all_column_names) {
+                if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+                    block->erase(name);
+                }
+            }
 
             // update read rows
             read_rows += block->rows();
@@ -346,7 +359,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                         DCHECK(block->get_by_position(j).type->equals(
                                 *mutable_block.get_datatype_by_position(j)));
                         res = block->get_by_position(j).column->compare_at(
-                                i, last_row_pos, *(mutable_block.get_column_by_position(j)), 0);
+                                i, last_row_pos, *(mutable_block.get_column_by_position(j)), -1);
                         if (res) {
                             break;
                         }
@@ -389,7 +402,25 @@ Status VCollectIterator::_topn_next(Block* block) {
                     first++;
                 }
                 sorted_row_pos.erase(first, sorted_row_pos.end());
-                // TODO: mutable_block should also shrink
+
+                // shrink mutable_block to save memory when rows > _topn_limit * 2
+                if (mutable_block.rows() > _topn_limit * 2) {
+                    VLOG_DEBUG << "topn debug start  shrink mutable_block from "
+                               << mutable_block.rows() << " rows";
+                    Block tmp_block = mutable_block.to_block();
+                    clone_block = tmp_block.clone_empty();
+                    mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+                    for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
+                        mutable_block.add_row(&tmp_block, *it);
+                    }
+
+                    sorted_row_pos.clear();
+                    for (size_t i = 0; i < _topn_limit; i++) {
+                        sorted_row_pos.insert(i);
+                    }
+                    VLOG_DEBUG << "topn debug finish shrink mutable_block to "
+                               << mutable_block.rows() << " rows";
+                }
             }
 
             // update runtime_predicate
@@ -407,11 +438,22 @@ Status VCollectIterator::_topn_next(Block* block) {
                         query_ctx->get_runtime_predicate().update(new_top, col_name, _is_reverse));
             }
         } // end of while (read_rows < _topn_limit && !eof)
-    }     // end of for (auto rs_reader : _rs_readers)
+        VLOG_DEBUG << "topn debug rowset " << i << " read_rows=" << read_rows << " eof=" << eof
+                   << " _topn_limit=" << _topn_limit
+                   << " sorted_row_pos.size()=" << sorted_row_pos.size()
+                   << " mutable_block.rows()=" << mutable_block.rows();
+    } // end of for (auto rs_reader : _rs_readers)
 
     // copy result_block to block
-    // TODO only copy limit rows
+    VLOG_DEBUG << "topn debug result _topn_limit=" << _topn_limit
+               << " sorted_row_pos.size()=" << sorted_row_pos.size()
+               << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
+    // append a column to indicate scanner filter_block is already done
+    auto filtered_datatype = std::make_shared<DataTypeUInt8>();
+    auto filtered_column = filtered_datatype->create_column_const(block->rows(), (uint8_t)1);
+    block->insert(
+            {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();
@@ -419,7 +461,7 @@ Status VCollectIterator::_topn_next(Block* block) {
 
 bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,
                                                          const size_t& rpos) const {
-    int ret = _mutable_block->compare_at(lpos, rpos, _compare_columns, *_mutable_block, 0);
+    int ret = _mutable_block->compare_at(lpos, rpos, _compare_columns, *_mutable_block, -1);
     return _is_reverse ? ret > 0 : ret < 0;
 }
 

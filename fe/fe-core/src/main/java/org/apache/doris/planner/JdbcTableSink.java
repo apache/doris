@@ -18,7 +18,6 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -29,6 +28,8 @@ import org.apache.doris.thrift.TOdbcTableType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 public class JdbcTableSink extends DataSink {
     private static final Logger LOG = LogManager.getLogger(JdbcTableSink.class);
@@ -44,11 +45,12 @@ public class JdbcTableSink extends DataSink {
     private final String checkSum;
     private final TOdbcTableType jdbcType;
     private final boolean useTransaction;
+    private String insertSql;
 
-    public JdbcTableSink(JdbcTable jdbcTable) {
+    public JdbcTableSink(JdbcTable jdbcTable, List<String> insertCols) {
         resourceName = jdbcTable.getResourceName();
         jdbcType = jdbcTable.getJdbcTableType();
-        externalTableName = OdbcTable.databaseProperName(jdbcType, jdbcTable.getExternalTableName());
+        externalTableName = JdbcTable.databaseProperName(jdbcType, jdbcTable.getExternalTableName());
         useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
         jdbcUrl = jdbcTable.getJdbcUrl();
         jdbcUser = jdbcTable.getJdbcUser();
@@ -57,6 +59,7 @@ public class JdbcTableSink extends DataSink {
         driverUrl = jdbcTable.getDriverUrl();
         checkSum = jdbcTable.getCheckSum();
         dorisTableName = jdbcTable.getName();
+        insertSql = jdbcTable.getInsertSql(insertCols);
     }
 
     @Override
@@ -84,6 +87,7 @@ public class JdbcTableSink extends DataSink {
         jdbcTableSink.jdbc_table.setJdbcDriverClass(driverClass);
         jdbcTableSink.jdbc_table.setJdbcDriverChecksum(checkSum);
         jdbcTableSink.jdbc_table.setJdbcResourceName(resourceName);
+        jdbcTableSink.setInsertSql(insertSql);
         jdbcTableSink.setUseTransaction(useTransaction);
         jdbcTableSink.setTableType(jdbcType);
 

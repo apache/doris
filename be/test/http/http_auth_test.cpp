@@ -49,7 +49,7 @@ static HttpAuthTestHandler s_auth_handler =
 class HttpAuthTest : public testing::Test {};
 
 TEST_F(HttpAuthTest, disable_auth) {
-    EXPECT_FALSE(config::enable_http_auth);
+    EXPECT_FALSE(config::enable_all_http_auth);
 
     auto evhttp_req = evhttp_request_new(nullptr, nullptr);
     HttpRequest req(evhttp_req);
@@ -57,8 +57,8 @@ TEST_F(HttpAuthTest, disable_auth) {
     evhttp_request_free(evhttp_req);
 }
 
-TEST_F(HttpAuthTest, enable_http_auth) {
-    config::enable_http_auth = true;
+TEST_F(HttpAuthTest, enable_all_http_auth) {
+    config::enable_all_http_auth = true;
 
     // 1. empty auth info
     {

@@ -235,10 +235,12 @@ protected:
             },
             "creation_time": 1553765670
         })";
-        pb1->init_from_json(json_rowset_meta);
-        pb1->set_start_version(start);
-        pb1->set_end_version(end);
-        pb1->set_creation_time(10000);
+        RowsetMetaPB rowset_meta_pb;
+        json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
+        rowset_meta_pb.set_start_version(start);
+        rowset_meta_pb.set_end_version(end);
+        rowset_meta_pb.set_creation_time(10000);
+        pb1->init_from_pb(rowset_meta_pb);
     }
 
     void add_delete_predicate(TabletSharedPtr tablet, DeletePredicatePB& del_pred,

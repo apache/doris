@@ -116,6 +116,9 @@ public:
         DCHECK(_s_initialized);
         return _s_soft_mem_limit_str;
     }
+    static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
+        return proc_mem_no_allocator_cache() + bytes > soft_mem_limit();
+    }
 
     static std::string debug_string();
 

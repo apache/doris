@@ -44,7 +44,7 @@ class VExprContext;
 
 namespace doris::vectorized {
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExpr* impl)
+VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl)
         : VExpr(node), _impl(impl), _always_true(false), _filtered_rows(0), _scan_rows(0) {}
 
 VRuntimeFilterWrapper::VRuntimeFilterWrapper(const VRuntimeFilterWrapper& vexpr)
@@ -66,9 +66,9 @@ Status VRuntimeFilterWrapper::open(RuntimeState* state, VExprContext* context,
     return _impl->open(state, context, scope);
 }
 
-void VRuntimeFilterWrapper::close(RuntimeState* state, VExprContext* context,
+void VRuntimeFilterWrapper::close(VExprContext* context,
                                   FunctionContext::FunctionStateScope scope) {
-    _impl->close(state, context, scope);
+    _impl->close(context, scope);
 }
 
 bool VRuntimeFilterWrapper::is_constant() const {

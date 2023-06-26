@@ -36,8 +36,8 @@
 2
 
 -- !stream_load_json5 --
-9	apache	\N
-10	doris	\N
+9	apache
+10	doris
 
 -- !stream_load_json6 --
 2

@@ -42,8 +42,7 @@ public class OptimizeGroupJob extends Job {
     @Override
     public void execute() {
         COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.JOB_EXECUTION, group, null, null));
-        if (group.getCostLowerBound() > context.getCostUpperBound()
-                || group.getLowestCostPlan(context.getRequiredProperties()).isPresent()) {
+        if (group.getLowestCostPlan(context.getRequiredProperties()).isPresent()) {
             return;
         }
         if (!group.isExplored()) {

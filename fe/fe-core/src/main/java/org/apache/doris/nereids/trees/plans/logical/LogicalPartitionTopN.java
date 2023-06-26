@@ -23,11 +23,14 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
+import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.types.WindowFuncType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -85,13 +88,12 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
                                 boolean hasGlobalLimit, long partitionLimit, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_PARTITION_TOP_N, groupExpression, logicalProperties, child);
-        String funcName = expr.toString();
-        if (funcName.equals("row_number()")) {
+        if (expr instanceof RowNumber) {
             this.function = WindowFuncType.ROW_NUMBER;
-        } else if (funcName.equals("rank()")) {
+        } else if (expr instanceof Rank) {
             this.function = WindowFuncType.RANK;
         } else {
-            Preconditions.checkArgument(funcName.equals("dense_rank()"));
+            Preconditions.checkArgument(expr instanceof DenseRank);
             this.function = WindowFuncType.DENSE_RANK;
         }
         this.partitionKeys = ImmutableList.copyOf(

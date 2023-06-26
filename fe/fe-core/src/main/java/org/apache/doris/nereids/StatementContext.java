@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.qe.ConnectContext;
@@ -46,10 +47,13 @@ public class StatementContext {
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
+    private boolean isOtherJoinReorder = false;
 
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
+
+    private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -105,8 +109,20 @@ public class StatementContext {
         isDpHyp = dpHyp;
     }
 
+    public boolean isOtherJoinReorder() {
+        return isOtherJoinReorder;
+    }
+
+    public void setOtherJoinReorder(boolean otherJoinReorder) {
+        isOtherJoinReorder = otherJoinReorder;
+    }
+
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
+    }
+
+    public CTEId getNextCTEId() {
+        return cteIdGenerator.getNextId();
     }
 
     public ObjectId getNextObjectId() {

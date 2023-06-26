@@ -37,7 +37,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -53,7 +52,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,9 +71,7 @@ public class HashJoinNode extends JoinNodeBase {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private List<Expr> otherJoinConjuncts;
-    // join conjunct from the JOIN clause that aren't equi-join predicates, only use in
-    // vec exec engine
-    private Expr votherJoinConjunct = null;
+
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
@@ -91,17 +87,11 @@ public class HashJoinNode extends JoinNodeBase {
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
 
-        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
-        if (VectorizedUtil.isVectorized()) {
-            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-                tupleIds.addAll(inner.getTupleIds());
-            } else {
-                tupleIds.addAll(outer.getTupleIds());
-                tupleIds.addAll(inner.getTupleIds());
-            }
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
         } else {
             tupleIds.addAll(outer.getTupleIds());
             tupleIds.addAll(inner.getTupleIds());
@@ -134,17 +124,11 @@ public class HashJoinNode extends JoinNodeBase {
         tblRefIds.addAll(outer.getTblRefIds());
         tblRefIds.addAll(inner.getTblRefIds());
 
-        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
-        if (VectorizedUtil.isVectorized()) {
-            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-                tupleIds.addAll(inner.getTupleIds());
-            } else {
-                tupleIds.addAll(outer.getTupleIds());
-                tupleIds.addAll(inner.getTupleIds());
-            }
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
         } else {
             tupleIds.addAll(outer.getTupleIds());
             tupleIds.addAll(inner.getTupleIds());
@@ -258,11 +242,6 @@ public class HashJoinNode extends JoinNodeBase {
     @Override
     protected void computeOtherConjuncts(Analyzer analyzer, ExprSubstitutionMap originToIntermediateSmap) {
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, originToIntermediateSmap, analyzer, false);
-        if (votherJoinConjunct != null) {
-            votherJoinConjunct =
-                    Expr.substituteList(Arrays.asList(votherJoinConjunct), originToIntermediateSmap, analyzer, false)
-                            .get(0);
-        }
     }
 
     @Override
@@ -287,10 +266,7 @@ public class HashJoinNode extends JoinNodeBase {
                 newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
-        // Only for Vec: create new tuple for join result
-        if (VectorizedUtil.isVectorized()) {
-            computeOutputTuple(analyzer);
-        }
+        computeOutputTuple(analyzer);
     }
 
     @Override
@@ -717,10 +693,6 @@ public class HashJoinNode extends JoinNodeBase {
             msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
 
-        // use in vec exec engine to replace otherJoinConjuncts
-        if (votherJoinConjunct != null) {
-            msg.hash_join_node.setVotherJoinConjunct(votherJoinConjunct.treeToThrift());
-        }
         if (hashOutputSlotIds != null) {
             for (SlotId slotId : hashOutputSlotIds) {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
@@ -827,15 +799,6 @@ public class HashJoinNode extends JoinNodeBase {
         public String toString() {
             return description;
         }
-    }
-
-    @Override
-    public void convertToVectorized() {
-        if (!otherJoinConjuncts.isEmpty()) {
-            votherJoinConjunct = convertConjunctsToAndCompoundPredicate(otherJoinConjuncts);
-            initCompoundPredicate(votherJoinConjunct);
-        }
-        super.convertToVectorized();
     }
 
     /**

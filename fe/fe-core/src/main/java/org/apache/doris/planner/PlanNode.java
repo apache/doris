@@ -39,7 +39,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -101,8 +100,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected List<Expr> conjuncts = Lists.newArrayList();
 
-    protected Expr vconjunct = null;
-
     // Conjuncts used to filter the original load file.
     // In the load execution plan, the difference between "preFilterConjuncts" and "conjuncts" is that
     // conjuncts are used to filter the data after column conversion and mapping,
@@ -161,7 +158,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.tupleIds = Lists.newArrayList(tupleIds);
         this.tblRefIds = Lists.newArrayList(tupleIds);
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
+        this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
         this.statisticalType = statisticalType;
     }
@@ -172,7 +169,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.tupleIds = Lists.newArrayList();
         this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
+        this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
         this.statisticalType = statisticalType;
     }
@@ -190,7 +187,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
         this.cardinality = -1;
         this.compactData = node.compactData;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
+        this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
         this.statisticalType = statisticalType;
     }
@@ -435,6 +432,21 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return targetConjuncts.get(0);
     }
 
+    protected List<Expr> splitAndCompoundPredicateToConjuncts(Expr vconjunct) {
+        List<Expr> conjuncts = Lists.newArrayList();
+        if (vconjunct instanceof CompoundPredicate) {
+            CompoundPredicate andCompound = (CompoundPredicate) vconjunct;
+            if (andCompound.getOp().equals(CompoundPredicate.Operator.AND)) {
+                conjuncts.addAll(splitAndCompoundPredicateToConjuncts(vconjunct.getChild(0)));
+                conjuncts.addAll(splitAndCompoundPredicateToConjuncts(vconjunct.getChild(1)));
+            }
+        }
+        if (conjuncts.isEmpty()) {
+            conjuncts.add(vconjunct);
+        }
+        return conjuncts;
+    }
+
     public void addConjuncts(List<Expr> conjuncts) {
         if (conjuncts == null) {
             return;
@@ -462,9 +474,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void transferConjuncts(PlanNode recipient) {
-        recipient.vconjunct = vconjunct;
-        vconjunct = null;
-
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }
@@ -584,9 +593,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             msg.addToRowTuples(tid.asInt());
             msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
-        // `conjuncts` is never needed on vectorized engine except scan nodes which use them as push-down predicates.
-        if (this instanceof ScanNode || !VectorizedUtil.isVectorized()) {
-            for (Expr e : conjuncts) {
+
+        for (Expr e : conjuncts) {
+            if  (!(e instanceof BitmapFilterPredicate)) {
                 msg.addToConjuncts(e.treeToThrift());
             }
         }
@@ -594,10 +603,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         // Serialize any runtime filters
         for (RuntimeFilter filter : runtimeFilters) {
             msg.addToRuntimeFilters(filter.toThrift());
-        }
-
-        if (vconjunct != null) {
-            msg.vconjunct = vconjunct.treeToThrift();
         }
 
         msg.compact_data = compactData;
@@ -1037,6 +1042,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 if (isBuildNode) {
                     filterStr.append(" <- ");
                     filterStr.append(filter.getSrcExpr().toSql());
+                    filterStr.append("(").append(filter.getEstimateNdv()).append("/")
+                            .append(filter.getExpectFilterSizeBytes()).append("/")
+                            .append(filter.getFilterSizeBytes()).append(")");
                 } else {
                     filterStr.append(" -> ");
                     filterStr.append(filter.getTargetExpr(getId()).toSql());
@@ -1049,28 +1057,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
         return getRuntimeFilterExplainString(isBuildNode, false);
-    }
-
-    public void convertToVectorized() {
-        List<Expr> conjunctsExcludeBitmapFilter = Lists.newArrayList();
-        for (Expr expr : conjuncts) {
-            if (!(expr instanceof BitmapFilterPredicate)) {
-                conjunctsExcludeBitmapFilter.add(expr);
-            }
-        }
-        if (!conjunctsExcludeBitmapFilter.isEmpty()) {
-            vconjunct = convertConjunctsToAndCompoundPredicate(conjunctsExcludeBitmapFilter);
-            initCompoundPredicate(vconjunct);
-        }
-
-        if (!preFilterConjuncts.isEmpty()) {
-            vpreFilterConjunct = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
-            initCompoundPredicate(vpreFilterConjunct);
-        }
-
-        for (PlanNode child : children) {
-            child.convertToVectorized();
-        }
     }
 
     /**
@@ -1165,8 +1151,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return outputSlotIds;
     }
 
-    public void setVConjunct(Set<Expr> exprs) {
-        vconjunct = convertConjunctsToAndCompoundPredicate(new ArrayList<>(exprs));
+    public void setConjuncts(Set<Expr> exprs) {
+        conjuncts = new ArrayList<>(exprs);
     }
 
     public void setCardinalityAfterFilter(long cardinalityAfterFilter) {

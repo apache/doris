@@ -48,8 +48,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.statistics.AnalysisTaskInfo;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HistogramTask;
 import org.apache.doris.statistics.MVAnalysisTask;
@@ -66,6 +66,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -73,7 +74,6 @@ import com.google.common.collect.Sets;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -193,6 +193,21 @@ public class OlapTable extends Table {
         this.tableProperty = null;
     }
 
+    private TableProperty getOrCreatTableProperty() {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        return tableProperty;
+    }
+
+    public BinlogConfig getBinlogConfig() {
+        return getOrCreatTableProperty().getBinlogConfig();
+    }
+
+    public void setBinlogConfig(BinlogConfig binlogConfig) {
+        getOrCreatTableProperty().setBinlogConfig(binlogConfig);
+    }
+
     public void setTableProperty(TableProperty tableProperty) {
         this.tableProperty = tableProperty;
     }
@@ -234,6 +249,13 @@ public class OlapTable extends Table {
             return Lists.newArrayList();
         }
         return indexes.getIndexes();
+    }
+
+    public List<Long> getIndexIds() {
+        if (indexes == null) {
+            return Lists.newArrayList();
+        }
+        return indexes.getIndexIds();
     }
 
     public TableIndexes getTableIndexes() {
@@ -333,8 +355,8 @@ public class OlapTable extends Table {
             Preconditions.checkState(storageType == TStorageType.COLUMN);
         }
 
-        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
-                schemaHash, shortKeyColumnCount, storageType, keysType, origStmt, indexes);
+        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion, schemaHash,
+                shortKeyColumnCount, storageType, keysType, origStmt, indexes, getQualifiedDbName());
         try {
             indexMeta.parseStmt(analyzer);
         } catch (Exception e) {
@@ -962,10 +984,7 @@ public class OlapTable extends Table {
 
     // map the sequence column to other column
     public void setSequenceMapCol(String colName) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.setSequenceMapCol(colName);
+        getOrCreatTableProperty().setSequenceMapCol(colName);
     }
 
     public void setSequenceInfo(Type type) {
@@ -994,6 +1013,15 @@ public class OlapTable extends Table {
     public Column getSequenceCol() {
         for (Column column : getBaseSchema(true)) {
             if (column.isSequenceColumn()) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    public Column getRowStoreCol() {
+        for (Column column : getBaseSchema(true)) {
+            if (column.isRowStoreColumn()) {
                 return column;
             }
         }
@@ -1052,11 +1080,11 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public BaseAnalysisTask createAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         if (info.analysisType.equals(AnalysisType.HISTOGRAM)) {
             return new HistogramTask(info);
         }
-        if (info.analysisType.equals(AnalysisType.COLUMN)) {
+        if (info.analysisType.equals(AnalysisType.FUNDAMENTALS)) {
             return new OlapAnalysisTask(info);
         }
         return new MVAnalysisTask(info);
@@ -1470,21 +1498,9 @@ public class OlapTable extends Table {
         return replicaCount;
     }
 
-    public void checkStableAndNormal(String clusterName) throws DdlException {
+    public void checkNormalStateForAlter() throws DdlException {
         if (state != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + name + "]'s state is not NORMAL. "
-                    + "Do not allow doing materialized view");
-        }
-        // check if all tablets are healthy, and no tablet is in tablet scheduler
-        boolean isStable = isStable(Env.getCurrentSystemInfo(),
-                Env.getCurrentEnv().getTabletScheduler(),
-                clusterName);
-        if (!isStable) {
-            throw new DdlException("table [" + name + "] is not stable."
-                    + " Some tablets of this table may not be healthy or are being "
-                    + "scheduled."
-                    + " You need to repair the table first"
-                    + " or stop cluster balance. See 'help admin;'.");
+            throw new DdlException("Table[" + name + "]'s state is not NORMAL. Do not allow doing ALTER ops");
         }
     }
 
@@ -1660,10 +1676,7 @@ public class OlapTable extends Table {
     }
 
     public void setReplicationAllocation(ReplicaAllocation replicaAlloc) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.setReplicaAlloc(replicaAlloc);
+        getOrCreatTableProperty().setReplicaAlloc(replicaAlloc);
     }
 
     public ReplicaAllocation getDefaultReplicaAllocation() {
@@ -1681,9 +1694,7 @@ public class OlapTable extends Table {
     }
 
     public void setIsInMemory(boolean isInMemory) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY,
                 Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
@@ -1697,18 +1708,12 @@ public class OlapTable extends Table {
     }
 
     public void setIsAutoBucket(boolean isAutoBucket) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET,
+        getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET,
                 Boolean.valueOf(isAutoBucket).toString());
     }
 
     public void setEstimatePartitionSize(String estimatePartitionSize) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE,
+        getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE,
                 estimatePartitionSize);
     }
 
@@ -1728,9 +1733,7 @@ public class OlapTable extends Table {
     }
 
     public void setEnableLightSchemaChange(boolean enableLightSchemaChange) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE,
                 Boolean.valueOf(enableLightSchemaChange).toString());
         tableProperty.buildEnableLightSchemaChange();
@@ -1741,9 +1744,7 @@ public class OlapTable extends Table {
             throw new UserException("storage policy feature is disabled by default. "
                     + "Enable it by setting 'enable_storage_policy=true' in fe.conf");
         }
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicy);
         tableProperty.buildStoragePolicy();
     }
@@ -1755,10 +1756,19 @@ public class OlapTable extends Table {
         return "";
     }
 
+    public void setCcrEnable(boolean ccrEnable) throws UserException {
+        // TODO(Drogon): Config.enable_ccr
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_CCR_ENABLE, Boolean.toString(ccrEnable));
+        tableProperty.buildCcrEnable();
+    }
+
+    public boolean isCcrEnable() {
+        return tableProperty != null && tableProperty.isCcrEnable();
+    }
+
     public void setDisableAutoCompaction(boolean disableAutoCompaction) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION,
                 Boolean.valueOf(disableAutoCompaction).toString());
         tableProperty.buildDisableAutoCompaction();
@@ -1771,10 +1781,24 @@ public class OlapTable extends Table {
         return false;
     }
 
-    public void setStoreRowColumn(boolean storeRowColumn) {
+    public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
+                Boolean.valueOf(enableSingleReplicaCompaction).toString());
+        tableProperty.buildEnableSingleReplicaCompaction();
+    }
+
+    public Boolean enableSingleReplicaCompaction() {
+        if (tableProperty != null) {
+            return tableProperty.enableSingleReplicaCompaction();
+        }
+        return false;
+    }
+
+    public void setStoreRowColumn(boolean storeRowColumn) {
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                 Boolean.valueOf(storeRowColumn).toString());
         tableProperty.buildStoreRowColumn();
@@ -1787,6 +1811,20 @@ public class OlapTable extends Table {
         return false;
     }
 
+    public void setSkipWriteIndexOnLoad(boolean skipWriteIndexOnLoad) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
+                Boolean.valueOf(skipWriteIndexOnLoad).toString());
+        tableProperty.buildSkipWriteIndexOnLoad();
+    }
+
+    public Boolean skipWriteIndexOnLoad() {
+        if (tableProperty != null) {
+            return tableProperty.skipWriteIndexOnLoad();
+        }
+        return false;
+    }
+
     public Boolean isDynamicSchema() {
         if (tableProperty != null) {
             return tableProperty.isDynamicSchema();
@@ -1795,9 +1833,7 @@ public class OlapTable extends Table {
     }
 
     public void setIsDynamicSchema(boolean isDynamicSchema) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(
                 PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, Boolean.valueOf(isDynamicSchema).toString());
         tableProperty.buildDynamicSchema();
@@ -1808,10 +1844,13 @@ public class OlapTable extends Table {
         return baseIndexMeta.getSchemaVersion();
     }
 
+    public int getIndexSchemaVersion(long indexId) {
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        return indexMeta.getSchemaVersion();
+    }
+
     public void setDataSortInfo(DataSortInfo dataSortInfo) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyDataSortInfoProperties(dataSortInfo);
         tableProperty.buildDataSortInfo();
     }
@@ -1947,17 +1986,13 @@ public class OlapTable extends Table {
     }
 
     public void setCompressionType(TCompressionType compressionType) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPRESSION, compressionType.name());
         tableProperty.buildCompressionType();
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
+        TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
         tableProperty.buildStorageFormat();
     }
@@ -1977,17 +2012,11 @@ public class OlapTable extends Table {
     }
 
     public DataSortInfo getDataSortInfo() {
-        if (tableProperty == null) {
-            return new DataSortInfo(TSortType.LEXICAL, this.getKeysNum());
-        }
-        return tableProperty.getDataSortInfo();
+        return getOrCreatTableProperty().getDataSortInfo();
     }
 
     public void setEnableUniqueKeyMergeOnWrite(boolean speedup) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.setEnableUniqueKeyMergeOnWrite(speedup);
+        getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {

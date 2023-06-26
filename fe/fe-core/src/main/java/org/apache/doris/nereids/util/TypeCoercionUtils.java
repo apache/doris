@@ -466,7 +466,7 @@ public class TypeCoercionUtils {
                 return castChildren(divide, left, right, DoubleType.INSTANCE);
             }
             return divide.withChildren(castIfNotSameType(left,
-                    DecimalV3Type.createDecimalV3Type(retType.getPrecision(), dt1.getScale() + dt2.getScale())),
+                    DecimalV3Type.createDecimalV3Type(retType.getPrecision(), retType.getScale())),
                     castIfNotSameType(right, dt2));
         } else if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
             commonType = DecimalV2Type.SYSTEM_DEFAULT;
@@ -1077,10 +1077,24 @@ public class TypeCoercionUtils {
             return Optional.empty();
         }
 
+        // decimalv3 and floating type
+        if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
+            if (t1.isFloatType() || t2.isDoubleType() || t1.isDoubleType() || t2.isFloatType()) {
+                return Optional.of(DoubleType.INSTANCE);
+            }
+        }
+
         // decimal precision derive
         if (t1.isDecimalV3Type() || t2.isDecimalV3Type()) {
             return Optional.of(DecimalV3Type.widerDecimalV3Type(
                     DecimalV3Type.forType(t1), DecimalV3Type.forType(t2), true));
+        }
+
+        // decimalv2 and floating type
+        if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {
+            if (t1.isFloatType() || t2.isDoubleType() || t1.isDoubleType() || t2.isFloatType()) {
+                return Optional.of(DoubleType.INSTANCE);
+            }
         }
 
         if (t1.isDecimalV2Type() || t2.isDecimalV2Type()) {

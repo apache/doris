@@ -38,21 +38,19 @@ FileCachePolicy cache_type_from_string(const std::string& type);
 // The dervied class should implement get_cache_path() method
 class CachePathPolicy {
 public:
+    virtual ~CachePathPolicy() = default;
     // path: the path of file which will be cached
     // return value: the cache path of the given file.
-    virtual std::string get_cache_path(const std::string& path) const { return ""; }
+    virtual std::string get_cache_path(const std::string& path) const = 0;
 };
 
 class NoCachePathPolicy : public CachePathPolicy {
 public:
-    NoCachePathPolicy() = default;
     std::string get_cache_path(const std::string& path) const override { return ""; }
 };
 
 class SegmentCachePathPolicy : public CachePathPolicy {
 public:
-    SegmentCachePathPolicy() = default;
-
     void set_cache_path(const std::string& cache_path) { _cache_path = cache_path; }
 
     std::string get_cache_path(const std::string& path) const override { return _cache_path; }
@@ -63,7 +61,6 @@ private:
 
 class FileBlockCachePathPolicy : public CachePathPolicy {
 public:
-    FileBlockCachePathPolicy() = default;
     std::string get_cache_path(const std::string& path) const override { return path; }
 };
 

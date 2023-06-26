@@ -31,6 +31,7 @@ namespace doris {
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineTask {
 public:
+    virtual ~EngineTask() = default;
     virtual Status execute() { return Status::OK(); }
     virtual Status finish() { return Status::OK(); }
 };

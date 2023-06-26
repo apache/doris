@@ -20,12 +20,11 @@ package org.apache.doris.nereids;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.CTEContext;
-import org.apache.doris.nereids.analyzer.NereidsAnalyzer;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
@@ -42,9 +41,12 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -63,6 +65,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -70,33 +73,34 @@ import javax.annotation.Nullable;
 /**
  * Context used in memo.
  */
-public class CascadesContext implements ScheduleContext, PlanSource {
+public class CascadesContext implements ScheduleContext {
+
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
-
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
-
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
-
     private final StatementContext statementContext;
 
     private CTEContext cteContext;
-    private RuleSet ruleSet;
-    private JobPool jobPool;
+    private final RuleSet ruleSet;
+    private final JobPool jobPool;
     private final JobScheduler jobScheduler;
     private JobContext currentJobContext;
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
-
+    private Optional<Scope> outerScope = Optional.empty();
     private List<Table> tables = null;
 
     private boolean isRewriteRoot;
-
     private volatile boolean isTimeout = false;
 
-    private Optional<Scope> outerScope = Optional.empty();
+    private Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
+    private Map<CTEId, Callable<LogicalPlan>> cteIdToCTEClosure = new HashMap<>();
+    private Map<CTEId, Set<Expression>> cteIdToProjects = new HashMap<>();
+    private Map<Integer, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private Map<CTEId, Set<Integer>> cteIdToConsumerUnderProjects = new HashMap<>();
 
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             PhysicalProperties requestProperties) {
@@ -123,11 +127,6 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         this.cteContext = cteContext;
     }
 
-    public static CascadesContext newMemoContext(StatementContext statementContext,
-            Plan initPlan, PhysicalProperties requireProperties) {
-        return new CascadesContext(initPlan, new Memo(initPlan), statementContext, requireProperties);
-    }
-
     public static CascadesContext newRewriteContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return new CascadesContext(initPlan, null, statementContext, requireProperties);
@@ -135,7 +134,34 @@ public class CascadesContext implements ScheduleContext, PlanSource {
 
     public static CascadesContext newRewriteContext(StatementContext statementContext,
             Plan initPlan, CTEContext cteContext) {
-        return new CascadesContext(initPlan, null, statementContext, cteContext, PhysicalProperties.ANY);
+        return newRewriteContext(statementContext, initPlan, cteContext, PhysicalProperties.ANY);
+    }
+
+    public static CascadesContext newRewriteContext(StatementContext statementContext,
+            Plan initPlan, CTEContext cteContext, PhysicalProperties requireProperties) {
+        return new CascadesContext(initPlan, null, statementContext, cteContext, requireProperties);
+    }
+
+    /**
+     * New rewrite context.
+     */
+    public static CascadesContext newRewriteContext(CascadesContext context, Plan plan) {
+        return newRewriteContext(context, plan, PhysicalProperties.ANY);
+    }
+
+    /**
+     * New rewrite context copy from current context, used in cbo rewriter.
+     */
+    public static CascadesContext newRewriteContext(CascadesContext context,
+            Plan plan, PhysicalProperties requireProperties) {
+        CascadesContext cascadesContext = CascadesContext.newRewriteContext(
+                context.getStatementContext(), plan, context.getCteContext(), requireProperties);
+        cascadesContext.cteIdToConsumers = context.cteIdToConsumers;
+        cascadesContext.cteIdToProjects = context.cteIdToProjects;
+        cascadesContext.cteContext = context.cteContext;
+        cascadesContext.cteIdToCTEClosure = context.cteIdToCTEClosure;
+        cascadesContext.consumerIdToFilters = context.consumerIdToFilters;
+        return cascadesContext;
     }
 
     public synchronized void setIsTimeout(boolean isTimeout) {
@@ -150,8 +176,8 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         this.memo = new Memo(plan);
     }
 
-    public NereidsAnalyzer newAnalyzer() {
-        return new NereidsAnalyzer(this);
+    public Analyzer newAnalyzer() {
+        return new Analyzer(this);
     }
 
     @Override
@@ -179,17 +205,9 @@ public class CascadesContext implements ScheduleContext, PlanSource {
         return ruleSet;
     }
 
-    public void setRuleSet(RuleSet ruleSet) {
-        this.ruleSet = ruleSet;
-    }
-
     @Override
     public JobPool getJobPool() {
         return jobPool;
-    }
-
-    public void setJobPool(JobPool jobPool) {
-        this.jobPool = jobPool;
     }
 
     public JobScheduler getJobScheduler() {
@@ -453,5 +471,89 @@ public class CascadesContext implements ScheduleContext, PlanSource {
                 locked.pop().readUnlock();
             }
         }
+    }
+
+    public void putCTEIdToCTEClosure(CTEId cteId, Callable<LogicalPlan> cteClosure) {
+        this.cteIdToCTEClosure.put(cteId, cteClosure);
+    }
+
+    public void putAllCTEIdToCTEClosure(Map<CTEId, Callable<LogicalPlan>> cteConsumers) {
+        this.cteIdToCTEClosure.putAll(cteConsumers);
+    }
+
+    public void putCTEIdToConsumer(LogicalCTEConsumer cteConsumer) {
+        Set<LogicalCTEConsumer> consumers =
+                this.cteIdToConsumers.computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
+        consumers.add(cteConsumer);
+    }
+
+    public void putAllCTEIdToConsumer(Map<CTEId, Set<LogicalCTEConsumer>> cteConsumers) {
+        this.cteIdToConsumers.putAll(cteConsumers);
+    }
+
+    public void putCTEIdToProject(CTEId cteId, Expression p) {
+        Set<Expression> projects = this.cteIdToProjects.computeIfAbsent(cteId, k -> new HashSet<>());
+        projects.add(p);
+    }
+
+    public Set<Expression> getProjectForProducer(CTEId cteId) {
+        return this.cteIdToProjects.get(cteId);
+    }
+
+    /**
+     * Fork for rewritten child tree of CTEProducer.
+     */
+    public CascadesContext forkForCTEProducer(Plan plan) {
+        CascadesContext cascadesContext = new CascadesContext(plan, memo, statementContext, PhysicalProperties.ANY);
+        cascadesContext.cteIdToConsumers = cteIdToConsumers;
+        cascadesContext.cteIdToProjects = cteIdToProjects;
+        cascadesContext.cteContext = cteContext;
+        cascadesContext.cteIdToCTEClosure = cteIdToCTEClosure;
+        cascadesContext.consumerIdToFilters = consumerIdToFilters;
+        return cascadesContext;
+    }
+
+    public int cteReferencedCount(CTEId cteId) {
+        Set<LogicalCTEConsumer> cteConsumer = cteIdToConsumers.get(cteId);
+        if (cteConsumer == null) {
+            return 0;
+        }
+        return cteIdToConsumers.get(cteId).size();
+    }
+
+    public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
+        return cteIdToConsumers;
+    }
+
+    public Map<CTEId, Callable<LogicalPlan>> getCteIdToCTEClosure() {
+        return cteIdToCTEClosure;
+    }
+
+    public LogicalPlan findCTEPlanForInline(CTEId cteId) {
+        try {
+            return cteIdToCTEClosure.get(cteId).call();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void putConsumerIdToFilter(int id, Expression filter) {
+        Set<Expression> filters = this.consumerIdToFilters.computeIfAbsent(id, k -> new HashSet<>());
+        filters.add(filter);
+    }
+
+    public Map<Integer, Set<Expression>> getConsumerIdToFilters() {
+        return consumerIdToFilters;
+    }
+
+    public void markConsumerUnderProject(LogicalCTEConsumer cteConsumer) {
+        Set<Integer> consumerIds =
+                this.cteIdToConsumerUnderProjects.computeIfAbsent(cteConsumer.getCteId(), k -> new HashSet<>());
+        consumerIds.add(cteConsumer.getConsumerId());
+    }
+
+    public boolean couldPruneColumnOnProducer(CTEId cteId) {
+        Set<Integer> consumerIds = this.cteIdToConsumerUnderProjects.get(cteId);
+        return consumerIds.size() == this.cteIdToConsumers.get(cteId).size();
     }
 }

@@ -49,6 +49,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/exec/format/table/transactional_hive_reader.h"
 
 namespace doris {
 class RuntimeState;
@@ -90,7 +91,7 @@ struct OrcPredicate {
 };
 
 struct LazyReadContext {
-    VExprContext* vconjunct_ctx = nullptr;
+    VExprContextSPtrs conjuncts;
     bool can_lazy_read = false;
     // block->rows() returns the number of rows of the first column,
     // so we should check and resize the first column
@@ -102,6 +103,7 @@ struct LazyReadContext {
     // be different with orc column name
     // std::pair<std::list<col_name>, std::vector<slot_id>>
     std::pair<std::list<std::string>, std::vector<int>> predicate_columns;
+    // predicate orc file column names
     std::list<std::string> predicate_orc_columns;
     std::vector<std::string> lazy_read_columns;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -109,9 +111,9 @@ struct LazyReadContext {
     // lazy read partition columns or all partition columns
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
-    std::unordered_map<std::string, VExprContext*> predicate_missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
-    std::unordered_map<std::string, VExprContext*> missing_columns;
+    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
 };
 
 class OrcReader : public GenericReader {
@@ -130,24 +132,26 @@ public:
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
-              const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-              size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-              bool enable_lazy_mat = true);
+              const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
+              io::IOContext* io_ctx, bool enable_lazy_mat = true);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<std::string>& column_names, const std::string& ctz,
-              io::IOContext* io_ctx, bool enable_lazy_mat = true);
+              const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
 
     ~OrcReader() override;
 
     Status init_reader(
+            const std::vector<std::string>* column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            VExprContext* vconjunct_ctx);
+            const VExprContextSPtrs& conjuncts, bool is_acid,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
 
     Status _init_select_types(const orc::Type& type, int idx);
 
@@ -157,14 +161,14 @@ public:
                     partition_columns);
     Status _fill_missing_columns(
             Block* block, size_t rows,
-            const std::unordered_map<std::string, VExprContext*>& missing_columns);
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns);
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
-    void close();
+    void _build_delete_row_filter(const Block* block, size_t rows);
 
     int64_t size() const;
 
@@ -175,7 +179,19 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
+    void set_delete_rows(const TransactionalHiveReader::AcidRowIDSet* delete_rows) {
+        _delete_rows = delete_rows;
+    }
+
     Status filter(orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size, void* arg);
+
+    Status fill_dict_filter_column_names(
+            std::unique_ptr<orc::StripeInformation> current_strip_information,
+            std::list<std::string>& column_names);
+
+    Status on_string_dicts_loaded(
+            std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
+            bool* is_stripe_filtered);
 
 private:
     struct OrcProfile {
@@ -202,6 +218,27 @@ private:
         OrcReader* orcReader;
     };
 
+    class StringDictFilterImpl : public orc::StringDictFilter {
+    public:
+        StringDictFilterImpl(OrcReader* orc_reader) : _orc_reader(orc_reader) {}
+        ~StringDictFilterImpl() override = default;
+
+        virtual void fillDictFilterColumnNames(
+                std::unique_ptr<orc::StripeInformation> current_strip_information,
+                std::list<std::string>& column_names) const override {
+            _orc_reader->fill_dict_filter_column_names(std::move(current_strip_information),
+                                                       column_names);
+        }
+        virtual void onStringDictsLoaded(
+                std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
+                bool* is_stripe_filtered) const override {
+            _orc_reader->on_string_dicts_loaded(column_name_to_dict_map, is_stripe_filtered);
+        }
+
+    private:
+        OrcReader* _orc_reader;
+    };
+
     // Create inner orc file,
     // return EOF if file is empty
     // return EROOR if encounter error.
@@ -210,7 +247,8 @@ private:
     void _init_profile();
     Status _init_read_columns();
     void _init_orc_cols(const orc::Type& type, std::vector<std::string>& orc_cols,
-                        std::vector<std::string>& orc_cols_lower_case);
+                        std::vector<std::string>& orc_cols_lower_case,
+                        std::unordered_map<std::string, const orc::Type*>& type_map);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
     TypeDescriptor _convert_to_doris_type(const orc::Type* orc_type);
@@ -336,6 +374,10 @@ private:
         return Status::OK();
     }
 
+    template <bool is_filter>
+    Status _decode_int32_column(const std::string& col_name, const MutableColumnPtr& data_column,
+                                orc::ColumnVectorBatch* cvb, size_t num_values);
+
     template <typename DecimalPrimitiveType, bool is_filter>
     Status _decode_decimal_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                   const DataTypePtr& data_type, orc::ColumnVectorBatch* cvb,
@@ -402,6 +444,20 @@ private:
                                  const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                  size_t num_values);
 
+    template <bool is_filter>
+    Status _decode_string_non_dict_encoded_column(const std::string& col_name,
+                                                  const MutableColumnPtr& data_column,
+                                                  const orc::TypeKind& type_kind,
+                                                  orc::EncodedStringVectorBatch* cvb,
+                                                  size_t num_values);
+
+    template <bool is_filter>
+    Status _decode_string_dict_encoded_column(const std::string& col_name,
+                                              const MutableColumnPtr& data_column,
+                                              const orc::TypeKind& type_kind,
+                                              orc::EncodedStringVectorBatch* cvb,
+                                              size_t num_values);
+
     Status _fill_doris_array_offsets(const std::string& col_name,
                                      ColumnArray::Offsets64& doris_offsets,
                                      orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
@@ -410,6 +466,18 @@ private:
     std::string _get_field_name_lower_case(const orc::Type* orc_type, int pos);
 
     void _collect_profile_on_close();
+
+    bool _can_filter_by_dict(int slot_id);
+
+    Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
+
+    Status _convert_dict_cols_to_string_cols(Block* block,
+                                             const std::vector<orc::ColumnVectorBatch*>* batch_vec);
+
+    MutableColumnPtr _convert_dict_column_to_string_column(const ColumnInt32* dict_column,
+                                                           const NullMap* null_map,
+                                                           orc::ColumnVectorBatch* cvb,
+                                                           const orc::Type* orc_column_typ);
 
 private:
     RuntimeProfile* _profile = nullptr;
@@ -422,7 +490,7 @@ private:
     int64_t _range_start_offset;
     int64_t _range_size;
     const std::string& _ctz;
-    const std::vector<std::string>& _column_names;
+    const std::vector<std::string>* _column_names;
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
@@ -436,11 +504,11 @@ private:
     // Flag for hive engine. True if the external table engine is Hive.
     bool _is_hive = false;
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
+    std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
-    bool _closed = false;
 
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;
@@ -458,18 +526,33 @@ private:
     size_t _decimal_scale_params_index;
 
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter = nullptr;
     LazyReadContext _lazy_read_ctx;
     std::unique_ptr<TextConverter> _text_converter = nullptr;
+    const TransactionalHiveReader::AcidRowIDSet* _delete_rows = nullptr;
+    std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr = nullptr;
+
+    const TupleDescriptor* _tuple_descriptor;
+    const RowDescriptor* _row_descriptor;
+    const std::unordered_map<int, VExprContextSPtrs>* _slot_id_to_filter_conjuncts;
+    VExprContextSPtrs _dict_filter_conjuncts;
+    VExprContextSPtrs _non_dict_filter_conjuncts;
+    VExprContextSPtrs _filter_conjuncts;
+    // std::pair<col_name, slot_id>
+    std::vector<std::pair<std::string, int>> _dict_filter_cols;
+    std::shared_ptr<ObjectPool> _obj_pool;
+    std::unique_ptr<orc::StringDictFilter> _string_dict_filter;
 };
 
 class ORCFileInputStream : public orc::InputStream {
 public:
-    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader,
+    ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr inner_reader,
                        OrcReader::Statistics* statistics, const io::IOContext* io_ctx,
                        RuntimeProfile* profile)
             : _file_name(file_name),
-              _file_reader(file_reader),
+              _inner_reader(inner_reader),
+              _file_reader(inner_reader),
               _statistics(statistics),
               _io_ctx(io_ctx),
               _profile(profile) {}
@@ -489,6 +572,7 @@ public:
 
 private:
     const std::string& _file_name;
+    io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics;

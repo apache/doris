@@ -703,11 +703,13 @@ public class DynamicPartitionTableTest {
         // history_partition_num too large, but because start is -10, so modify ok
         String alter3 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '1000')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter3));
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
         Assert.assertEquals(14, tbl.getPartitionNames().size());
 
         // set start and history_partition_num properly.
         String alter4 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '100', 'dynamic_partition.start' = '-20')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter4));
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
         Assert.assertEquals(24, tbl.getPartitionNames().size());
     }
 

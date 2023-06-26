@@ -589,8 +589,8 @@ public class AggregateFunction extends Function {
     }
 
     @Override
-    public TFunction toThrift(Type realReturnType, Type[] realArgTypes) {
-        TFunction fn = super.toThrift(realReturnType, realArgTypes);
+    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
+        TFunction fn = super.toThrift(realReturnType, realArgTypes, realArgTypeNullables);
         TAggregateFunction aggFn = new TAggregateFunction();
         aggFn.setIsAnalyticOnlyFn(isAnalyticFn && !isAggregateFn);
         aggFn.setUpdateFnSymbol(updateFnSymbol);

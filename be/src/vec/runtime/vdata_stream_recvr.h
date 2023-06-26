@@ -48,6 +48,7 @@
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
 class MemTracker;
@@ -59,7 +60,6 @@ class RuntimeState;
 namespace vectorized {
 class VDataStreamMgr;
 class VSortedRunMerger;
-class VExprContext;
 
 class VDataStreamRecvr {
 public:
@@ -70,7 +70,7 @@ public:
 
     virtual ~VDataStreamRecvr();
 
-    Status create_merger(const std::vector<VExprContext*>& ordering_expr,
+    Status create_merger(const VExprContextSPtrs& ordering_expr,
                          const std::vector<bool>& is_asc_order,
                          const std::vector<bool>& nulls_first, size_t batch_size, int64_t limit,
                          size_t offset);
@@ -152,6 +152,7 @@ private:
     RuntimeProfile::Counter* _data_arrival_timer;
     RuntimeProfile::Counter* _decompress_timer;
     RuntimeProfile::Counter* _decompress_bytes;
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;

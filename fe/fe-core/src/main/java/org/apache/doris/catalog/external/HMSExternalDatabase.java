@@ -21,7 +21,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +32,7 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external database.
  */
-public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> implements GsonPostProcessable {
+public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
     private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
 
     /**
@@ -75,9 +74,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
     }
 
     @Override
-    public void createTable(String tableName, long tableId) {
+    public void replayCreateTableFromEvent(String tableName, long tableId) {
         LOG.debug("create table [{}]", tableName);
-        makeSureInitialized();
         tableNameToId.put(tableName, tableId);
         HMSExternalTable table = getExternalTable(tableName, tableId, extCatalog);
         idToTbl.put(tableId, table);

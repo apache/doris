@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/container/detail/std_fwd.hpp>
+#include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <list>
@@ -49,14 +50,18 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
+#include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
+#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
+#include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
 #include "olap/task/engine_task.h"
@@ -147,12 +152,18 @@ StorageEngine::~StorageEngine() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
+    if (_single_replica_compaction_thread_pool) {
+        _single_replica_compaction_thread_pool->shutdown();
+    }
 
     if (_seg_compaction_thread_pool) {
         _seg_compaction_thread_pool->shutdown();
     }
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
+    if (_calc_delete_bitmap_thread_pool) {
+        _calc_delete_bitmap_thread_pool->shutdown();
     }
     _clear();
     _s_instance = nullptr;
@@ -542,11 +553,13 @@ void StorageEngine::stop() {
     }
 
     THREAD_JOIN(_compaction_tasks_producer_thread);
+    THREAD_JOIN(_update_replica_infos_thread);
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
+    THREAD_JOIN(_async_publish_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)            \
@@ -607,6 +620,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 
 void StorageEngine::_start_clean_cache() {
     SegmentLoader::instance()->prune();
+    SchemaCache::instance()->prune();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
@@ -757,6 +771,16 @@ void StorageEngine::_clean_unused_rowset_metas() {
     }
 }
 
+void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
+    for (auto [tablet_id, version] : gc_tablet_infos) {
+        LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
+                                 version);
+
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        tablet->gc_binlogs(version);
+    }
+}
+
 void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
@@ -903,7 +927,6 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
         return Status::Error<CE_CMD_PARAMS_ERROR>();
     }
-    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 
@@ -1018,6 +1041,35 @@ void StorageEngine::create_cumulative_compaction(
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
     base_compaction.reset(new BaseCompaction(best_tablet));
+}
+
+void StorageEngine::create_single_replica_compaction(
+        TabletSharedPtr best_tablet,
+        std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
+        CompactionType compaction_type) {
+    single_replica_compaction.reset(new SingleReplicaCompaction(best_tablet, compaction_type));
+}
+
+bool StorageEngine::get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica,
+                                          std::string* token) {
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_peer_replica_infos.count(tablet_id) &&
+        _peer_replica_infos[tablet_id].replica_id !=
+                _tablet_manager->get_tablet(tablet_id)->replica_id()) {
+        *replica = _peer_replica_infos[tablet_id];
+        *token = _token;
+        return true;
+    }
+    return false;
+}
+
+bool StorageEngine::should_fetch_from_peer(int64_t tablet_id) {
+    std::unique_lock<std::mutex> lock(_peer_replica_infos_mutex);
+    if (_peer_replica_infos.count(tablet_id)) {
+        return _peer_replica_infos[tablet_id].replica_id !=
+               _tablet_manager->get_tablet(tablet_id)->replica_id();
+    }
+    return false;
 }
 
 // Return json:

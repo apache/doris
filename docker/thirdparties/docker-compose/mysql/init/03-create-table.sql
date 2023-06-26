@@ -283,3 +283,20 @@ create table doris_test.all_types (
   `varbinary` varbinary(12),
   `enum` enum('Value1', 'Value2', 'Value3')
 ) engine=innodb charset=utf8;
+
+CREATE TABLE `doris_test`.`auto_default_t` (
+    `id` bigint NOT NULL AUTO_INCREMENT,
+    `name` varchar(64) DEFAULT NULL,
+    `dt` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) engine=innodb charset=utf8;
+
+create table doris_test.dt (
+  `timestamp0` timestamp(0),
+  `timestamp1` timestamp(1),
+  `timestamp2` timestamp(2),
+  `timestamp3` timestamp(3),
+  `timestamp4` timestamp(4),
+  `timestamp5` timestamp(5),
+  `timestamp6` timestamp(6)
+) engine=innodb charset=utf8;

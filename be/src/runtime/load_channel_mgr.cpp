@@ -47,6 +47,12 @@
 
 namespace doris {
 
+#ifndef BE_TEST
+constexpr uint32_t START_BG_INTERVAL = 60;
+#else
+constexpr uint32_t START_BG_INTERVAL = 1;
+#endif
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "load"}}));
@@ -125,7 +131,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 #endif
             channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
                                           channel_timeout_s, is_high_priority, params.sender_ip(),
-                                          params.backend_id()));
+                                          params.backend_id(), params.enable_profile()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -137,11 +143,14 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
     UniqueId load_id(params.id());
     std::shared_ptr<LoadChannel> channel;
-    auto it = _load_channels.find(load_id);
-    if (it != _load_channels.end()) {
-        channel = it->second;
-    } else {
-        return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        auto it = _load_channels.find(load_id);
+        if (it != _load_channels.end()) {
+            channel = it->second;
+        } else {
+            return Status::InternalError("unknown load id, load id=" + load_id.to_string());
+        }
     }
     RETURN_IF_ERROR(channel->open_partition(params));
     return Status::OK();
@@ -182,11 +191,13 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
     if (!status.ok() || is_eof) {
         return status;
     }
+    SCOPED_TIMER(channel->get_mgr_add_batch_timer());
 
     if (!channel->is_high_priority()) {
         // 2. check if mem consumption exceed limit
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
+        SCOPED_TIMER(channel->get_handle_mem_limit_timer());
         _handle_mem_exceed_limit();
     }
 
@@ -240,15 +251,8 @@ Status LoadChannelMgr::_start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
             "LoadChannelMgr", "cancel_timeout_load_channels",
             [this]() {
-#ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-#endif
-#ifndef BE_TEST
-                uint32_t interval = 60;
-#else
-                uint32_t interval = 1;
-#endif
-                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+                while (!_stop_background_threads_latch.wait_for(
+                        std::chrono::seconds(START_BG_INTERVAL))) {
                     _start_load_channels_clean();
                 }
             },
@@ -302,6 +306,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
+    // Record current memory status.
     int64_t process_soft_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
     // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
@@ -354,12 +359,12 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
                 // do not select high priority channel to reduce memory
-                // to avoid blocking them.
+                // to avoid blocking the.
                 continue;
             }
             std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>
                     writers_mem_snap;
-            kv.second->get_writers_mem_consumption_snapshot(&writers_mem_snap);
+            kv.second->get_active_memtable_mem_consumption(&writers_mem_snap);
             for (auto item : writers_mem_snap) {
                 // multimap is empty
                 if (item.second.empty()) {
@@ -406,8 +411,9 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             << " delta writers (total mem: "
             << PrettyPrinter::print_bytes(mem_consumption_in_picked_writer) << ", max mem: "
             << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.front()))
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.front())
             << ", min mem:" << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.back()))
-            << "), ";
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.back()) << "), ";
         if (proc_mem_no_allocator_cache < process_soft_mem_limit) {
             oss << "because total load mem consumption "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption()) << " has exceeded";
@@ -428,8 +434,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                 << PrettyPrinter::print_bytes(process_soft_mem_limit)
                 << ", total load mem consumption: "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                << ", vm_rss: " << PerfCounters::get_vm_rss_str()
-                << ", tc/jemalloc allocator cache: " << MemInfo::allocator_cache_mem_str();
+                << ", vm_rss: " << PerfCounters::get_vm_rss_str();
         }
         LOG(INFO) << oss.str();
     }

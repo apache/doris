@@ -73,9 +73,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-            .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-            .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
     }
 
     private void processRename() throws DdlException {
@@ -93,7 +93,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
         Env.getCurrentEnv().getCatalogMgr()
                 .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
 
     }
 

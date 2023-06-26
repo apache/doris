@@ -24,7 +24,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.IcebergExternalTable;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
@@ -83,17 +82,8 @@ public class IcebergScanNode extends FileQueryScanNode {
      */
     public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, needCheckColumnPriv);
-    }
 
-    @Override
-    protected void doInitialize() throws UserException {
         ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                String.format("Querying external view '%s.%s' is not supported", table.getDbName(), table.getName()));
-        }
-        computeColumnFilter();
-        initBackendPolicy();
         if (table instanceof HMSExternalTable) {
             source = new IcebergHMSSource((HMSExternalTable) table, desc, columnNameToRange);
         } else if (table instanceof IcebergExternalTable) {
@@ -106,11 +96,17 @@ public class IcebergScanNode extends FileQueryScanNode {
                     source = new IcebergApiSource((IcebergExternalTable) table, desc, columnNameToRange);
                     break;
                 default:
-                    throw new UserException("Unknown iceberg catalog type: " + catalogType);
+                    Preconditions.checkState(false, "Unknown iceberg catalog type: " + catalogType);
+                    break;
             }
         }
         Preconditions.checkNotNull(source);
-        initSchemaParams();
+    }
+
+    @Override
+    protected void doInitialize() throws UserException {
+        super.doInitialize();
+
     }
 
     public static void setIcebergParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit) {

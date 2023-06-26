@@ -47,7 +47,7 @@ FE 的配置项有两种方式进行查看：
 
 2. 通过命令查看
 
-   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项：
+   FE 启动后，可以在 MySQL 客户端中，通过以下命令查看 FE 的配置项，具体语法参照[ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md)：
 
    `ADMIN SHOW FRONTEND CONFIG;`
 
@@ -2716,7 +2716,7 @@ show data （其他用法：HELP SHOW DATA）
 
 #### `max_instance_num`
 
-<version since="1.2.4"></version>
+<version since="dev"></version>
 
 默认值：128
 
@@ -2733,3 +2733,10 @@ show data （其他用法：HELP SHOW DATA）
 是否为 Master FE 节点独有的配置项：false
 
 控制是否启用查询命中率统计。默认为 false。
+
+#### `div_precision_increment`
+<version since="dev"></version>
+
+默认值：4
+
+此变量表示增加与/运算符执行的除法操作结果规模的位数。默认为4。

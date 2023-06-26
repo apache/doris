@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -73,6 +74,20 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
+
+        createTable("create table agg_have_dup_base(\n"
+                + "    k1 int null,\n"
+                + "    k2 int not null,\n"
+                + "    k3 bigint null,\n"
+                + "    k4 varchar(100) null\n"
+                + "    )\n"
+                + "duplicate key (k1,k2,k3)\n"
+                + "distributed BY hash(k1) buckets 3\n"
+                + "properties(\"replication_num\" = \"1\")");
+
+        createMv("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1");
+        createMv("create materialized view mv2 as select k1, k2, k3 from agg_have_dup_base group by k1, k2, k3");
+        createMv("create materialized view mv3 as select k1, k2 + k3 from agg_have_dup_base group by k1, k2 + k3");
     }
 
     @Test
@@ -90,9 +105,23 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testInsertIntoDuplicateKeyTableWithCast() throws Exception {
-        String sql = "explain insert into t1 select * from (select cast(k1 as varchar), 1, 1, 1 from src) t";
+    public void testInsertIntoSomeColumns() throws Exception {
+        String sql = "explain insert into t1 (v1, v2) select v1 + 1, v2 + 4 from src";
         Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testAnalysisException() {
+        String sql = "explain insert into t1(v1, v2) select k2 * 2, v1 + 1, v2 + 4 from src";
+        Assertions.assertThrows(AnalysisException.class, () -> getOutputFragment(sql));
+    }
+
+    @Test
+    public void testWithMV() throws Exception {
+        String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
+        Assertions.assertEquals(10, getOutputFragment(sql).getOutputExprs().size());
+        String sql1 = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
+        Assertions.assertEquals(10, getOutputFragment(sql1).getOutputExprs().size());
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

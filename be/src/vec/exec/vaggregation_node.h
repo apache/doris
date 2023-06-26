@@ -102,7 +102,10 @@ struct AggregationMethodSerialized {
     std::vector<StringRef> keys;
     size_t keys_memory_usage = 0;
     AggregationMethodSerialized()
-            : _serialized_key_buffer_size(0), _serialized_key_buffer(nullptr) {}
+            : _serialized_key_buffer_size(0), _serialized_key_buffer(nullptr) {
+        _arena.reset(new Arena());
+        _serialize_key_arena.reset(new Arena());
+    }
 
     using State = ColumnsHashing::HashMethodSerialized<typename Data::value_type, Mapped, true>;
 
@@ -120,20 +123,19 @@ struct AggregationMethodSerialized {
         }
         size_t total_bytes = max_one_row_byte_size * num_rows;
 
-        if (total_bytes > SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES) {
+        if (total_bytes > config::pre_serialize_keys_limit_bytes) {
             // reach mem limit, don't serialize in batch
-            // for simplicity, we just create a new arena here.
-            _arena.reset(new Arena());
+            _arena->clear();
             size_t keys_size = key_columns.size();
             for (size_t i = 0; i < num_rows; ++i) {
                 keys[i] = serialize_keys_to_pool_contiguous(i, keys_size, key_columns, *_arena);
             }
             keys_memory_usage = _arena->size();
         } else {
-            _arena.reset();
+            _arena->clear();
             if (total_bytes > _serialized_key_buffer_size) {
                 _serialized_key_buffer_size = total_bytes;
-                _serialize_key_arena.reset(new Arena());
+                _serialize_key_arena->clear();
                 _serialized_key_buffer = reinterpret_cast<uint8_t*>(
                         _serialize_key_arena->alloc(_serialized_key_buffer_size));
             }
@@ -175,7 +177,7 @@ struct AggregationMethodSerialized {
     }
 
     void reset() {
-        _arena.reset();
+        _arena.reset(new Arena());
         keys_memory_usage = 0;
         _serialized_key_buffer_size = 0;
     }
@@ -185,7 +187,6 @@ private:
     uint8_t* _serialized_key_buffer;
     std::unique_ptr<Arena> _serialize_key_arena;
     std::unique_ptr<Arena> _arena;
-    static constexpr size_t SERIALIZE_KEYS_MEM_LIMIT_IN_BYTES = 16 * 1024 * 1024; // 16M
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
@@ -889,7 +890,7 @@ private:
     friend class pipeline::AggSourceOperator;
     friend class pipeline::StreamingAggSourceOperator;
     // group by k1,k2
-    std::vector<VExprContext*> _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
@@ -944,6 +945,7 @@ private:
     RuntimeProfile::Counter* _hash_table_input_counter;
     RuntimeProfile::Counter* _max_row_size_counter;
 
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::Counter* _hash_table_memory_usage;
     RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
 
@@ -999,7 +1001,7 @@ private:
     Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     void _close_with_serialized_key();
-    void _init_hash_method(std::vector<VExprContext*>& probe_exprs);
+    void _init_hash_method(const VExprContextSPtrs& probe_exprs);
 
     template <typename AggState, typename AggMethod>
     void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
@@ -1072,7 +1074,7 @@ private:
         CHECK(ctxs.size() == 1 && ctxs[0]->root()->is_slot_ref())
                 << "input_exprs_ctxs is invalid, input_exprs_ctx[0]="
                 << ctxs[0]->root()->debug_string();
-        return ((VSlotRef*)ctxs[0]->root())->column_id();
+        return ((VSlotRef*)ctxs[0]->root().get())->column_id();
     }
 
     template <bool limit, bool for_spill = false>

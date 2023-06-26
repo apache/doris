@@ -18,11 +18,11 @@
 suite("test_arith_functions") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use test_query_db"
+    sql "use nereids_test_query_db"
 
     test {
         sql 'select add(1, 1), subtract(1, 1), multiply(2, 2), divide(3.0, 2.0), mod(3.0, 1.3)'
-        result([[2, 0, 4, 1.500000000, 0.400000000]])
+        result([[2, 0, 4, 1.50000, 0.4]])
     }
     test {
         sql 'select int_divide(1, 1), bitand(1, 1), bitor(2, 2), bitxor(3.0, 2.0), bitnot(3.0)'

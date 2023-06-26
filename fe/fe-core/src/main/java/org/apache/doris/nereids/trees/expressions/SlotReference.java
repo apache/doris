@@ -88,6 +88,12 @@ public class SlotReference extends Slot {
                 column.isAllowNull(), qualifier, column);
     }
 
+    public static SlotReference fromColumn(Column column, String name, List<String> qualifier) {
+        DataType dataType = DataType.fromCatalogType(column.getType());
+        return new SlotReference(StatementScopeIdGenerator.newExprId(), name, dataType,
+            column.isAllowNull(), qualifier, column);
+    }
+
     @Override
     public String getName() {
         return name;

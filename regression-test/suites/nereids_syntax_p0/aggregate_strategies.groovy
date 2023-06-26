@@ -90,19 +90,6 @@ suite("aggregate_strategies") {
             notContains "STREAMING"
         }
 
-        explain {
-            sql """
-            select count(*)
-            from (
-              select id
-              from $tableName
-              group by id
-            )a
-            """
-
-            notContains "STREAMING"
-        }
-
         test {
             sql """select
                 /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
@@ -213,4 +200,7 @@ suite("aggregate_strategies") {
     }
 
     qt_sql_distinct_same_col """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
+
+    sql "set experimental_enable_pipeline_engine=true"
+    qt_sql_distinct_same_col2 """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
 }

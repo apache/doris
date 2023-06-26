@@ -150,7 +150,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
 
     @Override
     public ColumnStatistic visitLiteral(Literal literal, Statistics context) {
-        if (ColumnStatistic.MAX_MIN_UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
+        if (ColumnStatistic.UNSUPPORTED_TYPE.contains(literal.getDataType().toCatalogDataType())) {
             return ColumnStatistic.UNKNOWN;
         }
         double literalVal = literal.getDouble();
@@ -252,7 +252,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMin(Min min, Statistics context) {
         Expression child = min.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
+        if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
         /*
@@ -270,7 +270,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitMax(Max max, Statistics context) {
         Expression child = max.child();
         ColumnStatistic columnStat = child.accept(this, context);
-        if (columnStat == ColumnStatistic.UNKNOWN) {
+        if (columnStat.isUnKnown) {
             return ColumnStatistic.UNKNOWN;
         }
         /*
