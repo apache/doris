@@ -322,30 +322,6 @@ public class PropertyConverterTest extends TestWithFeService {
     }
 
     @Test
-    public void testOBSCatalogPropertiesConverter() throws Exception {
-        String query = "create catalog hms_obs properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    'obs.endpoint' = 'obs.cn-north-4.myhuaweicloud.com',\n"
-                    + "    'obs.access_key' = 'akk',\n"
-                    + "    'obs.secret_key' = 'skk'\n"
-                    + ");";
-        CreateCatalogStmt analyzedStmt = createStmt(query);
-        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_obs");
-        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 11);
-
-        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 16);
-
-        Map<String, String> expectedMetaProperties = new HashMap<>();
-        expectedMetaProperties.put("endpoint", "obs.cn-north-4.myhuaweicloud.com");
-        expectedMetaProperties.put("AWS_ENDPOINT", "obs.cn-north-4.myhuaweicloud.com");
-        expectedMetaProperties.putAll(expectedCredential);
-        checkExpectedProperties(ObsProperties.OBS_PREFIX, properties, expectedMetaProperties);
-    }
-
-    @Test
     public void testS3CompatibleCatalogPropertiesConverter() throws Exception {
         String catalogName0 = "hms_cos";
         String query0 = "create catalog " + catalogName0 + " properties (\n"
@@ -356,7 +332,7 @@ public class PropertyConverterTest extends TestWithFeService {
                     + "    'cos.secret_key' = 'skk'\n"
                     + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                    "cos.ap-beijing.myqcloud.com", query0);
+                    "cos.ap-beijing.myqcloud.com", query0, 11, 16);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
@@ -367,7 +343,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
-                    "oss.oss-cn-beijing.aliyuncs.com", query1);
+                    "oss.oss-cn-beijing.aliyuncs.com", query1, 11, 16);
 
         String catalogName2 = "hms_minio";
         String query2 = "create catalog " + catalogName2 + " properties (\n"
@@ -378,19 +354,31 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'minio.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
-                    "http://127.0.0.1", query2);
+                    "http://127.0.0.1", query2, 11, 20);
+
+        String catalogName3 = "hms_obs";
+        String query3 = "create catalog hms_obs properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'obs.endpoint' = 'obs.cn-north-4.myhuaweicloud.com',\n"
+                + "    'obs.access_key' = 'akk',\n"
+                + "    'obs.secret_key' = 'skk'\n"
+                + ");";
+        testS3CompatibleCatalogProperties(catalogName3, ObsProperties.OBS_PREFIX,
+                "obs.cn-north-4.myhuaweicloud.com", query3, 11, 16);
     }
 
     private void testS3CompatibleCatalogProperties(String catalogName, String prefix,
-                                                            String endpoint, String sql) throws Exception {
+                                                   String endpoint, String sql,
+                                                   int catalogPropsSize, int bePropsSize) throws Exception {
         Env.getCurrentEnv().getCatalogMgr().dropCatalog(new DropCatalogStmt(true, catalogName));
         CreateCatalogStmt analyzedStmt = createStmt(sql);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
-        Assertions.assertEquals(properties.size(), 11);
+        Assertions.assertEquals(properties.size(), catalogPropsSize);
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
-        Assertions.assertEquals(hdProps.size(), 20);
+        Assertions.assertEquals(hdProps.size(), bePropsSize);
 
         Map<String, String> expectedMetaProperties = new HashMap<>();
         expectedMetaProperties.put("endpoint", endpoint);
