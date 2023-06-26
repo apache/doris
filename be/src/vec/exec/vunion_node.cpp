@@ -317,12 +317,6 @@ void VUnionNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-    for (auto& exprs : _const_expr_lists) {
-        VExpr::close(exprs, state);
-    }
-    for (auto& exprs : _child_expr_lists) {
-        VExpr::close(exprs, state);
-    }
     return ExecNode::release_resource(state);
 }
 

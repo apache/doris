@@ -46,11 +46,7 @@
 
 namespace doris {
 
-Reusable::~Reusable() {
-    for (auto& ctx : _output_exprs_ctxs) {
-        ctx->close(_runtime_state.get());
-    }
-}
+Reusable::~Reusable() {}
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
@@ -249,6 +245,12 @@ Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
     Status st;
+    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
+        specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
+    }
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
         if (!config::disable_storage_row_cache) {
@@ -263,8 +265,9 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, nullptr, &location,
-                                      INT32_MAX /*rethink?*/, rowset_ptr.get()));
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, true, specified_rowsets,
+                                      &location, INT32_MAX /*rethink?*/, segment_caches,
+                                      rowset_ptr.get()));
         if (st.is_not_found()) {
             continue;
         }

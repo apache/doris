@@ -266,6 +266,13 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+    // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+    auto all_column_names = mutable_block.get_names();
+    for (auto& name : all_column_names) {
+        if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+            mutable_block.erase(name);
+        }
+    }
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -314,6 +321,13 @@ Status VCollectIterator::_topn_next(Block* block) {
             // filter block
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
+            // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+            auto all_column_names = block->get_names();
+            for (auto& name : all_column_names) {
+                if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
+                    block->erase(name);
+                }
+            }
 
             // update read rows
             read_rows += block->rows();
@@ -435,6 +449,11 @@ Status VCollectIterator::_topn_next(Block* block) {
                << " sorted_row_pos.size()=" << sorted_row_pos.size()
                << " mutable_block.rows()=" << mutable_block.rows();
     *block = mutable_block.to_block();
+    // append a column to indicate scanner filter_block is already done
+    auto filtered_datatype = std::make_shared<DataTypeUInt8>();
+    auto filtered_column = filtered_datatype->create_column_const(block->rows(), (uint8_t)1);
+    block->insert(
+            {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
     _topn_eof = true;
     return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();

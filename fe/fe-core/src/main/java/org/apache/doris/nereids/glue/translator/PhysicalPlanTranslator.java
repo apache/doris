@@ -47,6 +47,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.IcebergExternalTable;
+import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -159,6 +160,7 @@ import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TFetchOption;
@@ -325,7 +327,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTableSink sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
                 olapTuple,
-                olapTableSink.getPartitionIds(),
+                olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
                 olapTableSink.isSingleReplicaLoad()
         );
 
@@ -454,7 +456,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
-        if (leftMostNode instanceof OlapScanNode) {
+        if (leftMostNode instanceof OlapScanNode
+                && currentFragment.getDataPartition().getType() != TPartitionType.RANDOM) {
             currentFragment.setHasColocatePlanNode(true);
         }
         setPlanRoot(currentFragment, aggregationNode, aggregate);
@@ -755,6 +758,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        Utils.execWithUncheckedException(scanNode::init);
         context.getRuntimeTranslator().ifPresent(
                 runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(tvfRelation.getId()).forEach(
                     expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
@@ -778,10 +782,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanTranslatorContext context) {
         List<Slot> slotList = jdbcScan.getOutput();
-        ExternalTable table = jdbcScan.getTable();
+        TableIf table = jdbcScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
-        JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor, true);
+        JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                table instanceof JdbcExternalTable);
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
@@ -1065,7 +1070,25 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 PlanNode child = sortNode.getChild(0);
                 Preconditions.checkArgument(child instanceof OlapScanNode,
                         "topN opt expect OlapScanNode, but we get " + child);
-                ((OlapScanNode) child).setUseTopnOpt(true);
+                OlapScanNode scanNode = ((OlapScanNode) child);
+                scanNode.setUseTopnOpt(true);
+            }
+            // push sort to scan opt
+            if (sortNode.getChild(0) instanceof OlapScanNode) {
+                OlapScanNode scanNode = ((OlapScanNode) sortNode.getChild(0));
+                if (checkPushSort(sortNode, scanNode.getOlapTable())) {
+                    SortInfo sortInfo = sortNode.getSortInfo();
+                    scanNode.setSortInfo(sortInfo);
+                    scanNode.getSortInfo().setSortTupleSlotExprs(sortNode.getResolvedTupleExprs());
+                    for (Expr expr : sortInfo.getOrderingExprs()) {
+                        scanNode.getSortInfo().addMaterializedOrderingExpr(expr);
+                    }
+                    if (sortNode.getOffset() > 0) {
+                        scanNode.setSortLimit(sortNode.getLimit() + sortNode.getOffset());
+                    } else {
+                        scanNode.setSortLimit(sortNode.getLimit());
+                    }
+                }
             }
             addPlanRoot(currentFragment, sortNode, topN);
         } else {
@@ -1088,6 +1111,60 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(currentFragment.getPlanRoot(), topN);
         return currentFragment;
+    }
+
+    /**
+     * topN opt: using storage data ordering to accelerate topn operation.
+     * refer pr: optimize topn query if order by columns is prefix of sort keys of table (#10694)
+     */
+    public boolean checkPushSort(SortNode sortNode, OlapTable olapTable) {
+        // Ensure limit is less then threshold
+        if (sortNode.getLimit() <= 0
+                || sortNode.getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+            return false;
+        }
+
+        // Ensure all isAscOrder is same, ande length != 0.
+        // Can't be zorder.
+        if (sortNode.getSortInfo().getIsAscOrder().stream().distinct().count() != 1
+                || olapTable.isZOrderSort()) {
+            return false;
+        }
+
+        // Tablet's order by key only can be the front part of schema.
+        // Like: schema: a.b.c.d.e.f.g order by key: a.b.c (no a,b,d)
+        // Do **prefix match** to check if order by key can be pushed down.
+        // olap order by key: a.b.c.d
+        // sort key: (a) (a,b) (a,b,c) (a,b,c,d) is ok
+        //           (a,c) (a,c,d), (a,c,b) (a,c,f) (a,b,c,d,e)is NOT ok
+        List<Expr> sortExprs = sortNode.getSortInfo().getOrderingExprs();
+        List<Boolean> nullsFirsts = sortNode.getSortInfo().getNullsFirst();
+        List<Boolean> isAscOrders = sortNode.getSortInfo().getIsAscOrder();
+        if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
+            return false;
+        }
+        for (int i = 0; i < sortExprs.size(); i++) {
+            // table key.
+            Column tableKey = olapTable.getFullSchema().get(i);
+            // sort slot.
+            Expr sortExpr = sortExprs.get(i);
+            if (sortExpr instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) sortExpr;
+                if (tableKey.equals(slotRef.getColumn())) {
+                    // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
+                    // since NULLS is at file head but data is at tail
+                    if (tableKey.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private SortNode translateSortNode(AbstractPhysicalSort<? extends Plan> sort, PlanNode childNode,
@@ -1437,7 +1514,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             // translate runtime filter
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
-                List<RuntimeFilter> filters = runtimeFilterTranslator
+                Set<RuntimeFilter> filters = runtimeFilterTranslator
                         .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
                 filters.forEach(filter -> runtimeFilterTranslator
                         .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));

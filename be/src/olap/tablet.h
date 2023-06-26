@@ -47,11 +47,11 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/version_graph.h"
+#include "segment_loader.h"
 #include "util/metrics.h"
 #include "util/once.h"
 #include "util/slice.h"
@@ -94,7 +94,7 @@ public:
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
-           const std::string& cumulative_compaction_type = "");
+           const std::string_view& cumulative_compaction_type = "");
 
     Status init();
     bool init_succeeded();
@@ -399,9 +399,12 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
-                          const RowsetIdUnorderedSet* rowset_ids, RowLocation* row_location,
-                          uint32_t version, RowsetSharedPtr* rowset = nullptr);
+    Status lookup_row_key(
+            const Slice& encoded_key, bool with_seq_col,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, RowLocation* row_location,
+            uint32_t version,
+            std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId>& segment_caches,
+            RowsetSharedPtr* rowset = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -426,9 +429,19 @@ public:
     // and build newly generated rowset's delete_bitmap
     Status calc_delete_bitmap(RowsetSharedPtr rowset,
                               const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                              const RowsetIdUnorderedSet* specified_rowset_ids,
+                              const std::vector<RowsetSharedPtr>& specified_rowsets,
                               DeleteBitmapPtr delete_bitmap, int64_t version,
                               RowsetWriter* rowset_writer = nullptr);
+
+    std::vector<RowsetSharedPtr> get_rowset_by_ids(
+            const RowsetIdUnorderedSet* specified_rowset_ids);
+
+    Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
+                                      const segment_v2::SegmentSharedPtr& seg,
+                                      const std::vector<RowsetSharedPtr>& specified_rowsets,
+                                      DeleteBitmapPtr delete_bitmap, int64_t end_version,
+                                      RowsetWriter* rowset_writer);
+
     Status calc_delete_bitmap_between_segments(
             RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
@@ -447,7 +460,15 @@ public:
 
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
 
-    Status update_delete_bitmap(const RowsetSharedPtr& rowset, const TabletTxnInfo* load_info,
+    Status commit_phase_update_delete_bitmap(
+            const RowsetSharedPtr& rowset, RowsetIdUnorderedSet& pre_rowset_ids,
+            DeleteBitmapPtr delete_bitmap,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments, int64_t txn_id,
+            RowsetWriter* rowset_writer = nullptr);
+
+    Status update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                const RowsetIdUnorderedSet& pre_rowset_ids,
+                                DeleteBitmapPtr delete_bitmap, int64_t txn_id,
                                 RowsetWriter* rowset_writer = nullptr);
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -488,6 +509,7 @@ public:
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     bool can_add_binlog(uint64_t total_binlog_size) const;
+    void gc_binlogs(int64_t version);
 
     inline void increase_io_error_times() { ++_io_error_times; }
 
@@ -588,9 +610,6 @@ private:
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
-    // RowsetTree is used to locate rowsets containing a key or a key range quickly.
-    // It's only used in UNIQUE_KEYS data model.
-    std::unique_ptr<RowsetTree> _rowset_tree;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
@@ -608,7 +627,7 @@ private:
 
     // cumulative compaction policy
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
-    std::string _cumulative_compaction_type;
+    std::string_view _cumulative_compaction_type;
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;

@@ -1516,7 +1516,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = true;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
@@ -1603,12 +1603,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int be_exec_version = max_be_exec_version;
-
-    @ConfField(mutable = false)
-    public static int statistic_job_scheduler_execution_interval_ms = 1000;
-
-    @ConfField(mutable = false)
-    public static int statistic_task_scheduler_execution_interval_ms = 1000;
 
     /*
      * mtmv is still under dev, remove this config when it is graduate.
@@ -1771,7 +1765,7 @@ public class Config extends ConfigBase {
      * Otherwise, use external catalog metadata.
      */
     @ConfField(mutable = true)
-    public static boolean collect_external_table_stats_by_sql = false;
+    public static boolean collect_external_table_stats_by_sql = true;
 
     /**
      * Max num of same name meta informatntion in catalog recycle bin.
@@ -1976,7 +1970,10 @@ public class Config extends ConfigBase {
      * so just disable creating nesting complex data type when create table.
      * We can make it able after we fully support
      */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "当前默认设置为 true，不支持建表时创建复杂类型(array/struct/map)嵌套复杂类型, 仅支持array类型自身嵌套。",
+            "Now default set to true, not support create complex type(array/struct/map) nested complex type "
+                    + "when we create table, only support array type nested array"})
     public static boolean disable_nested_complex_type  = true;
     /*
      * "max_instance_num" is used to set the maximum concurrency. When the value set

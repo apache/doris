@@ -164,6 +164,15 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
                         + "collection of external tables is not supported");
             }
         }
+        if (analyzeProperties.isSync()
+                && (analyzeProperties.isAutomatic() || analyzeProperties.getPeriodTimeInMs() != 0)) {
+            throw new AnalysisException("Automatic/Period statistics collection "
+                    + "and synchronous statistics collection cannot be set at same time");
+        }
+        if (analyzeProperties.isAutomatic() && analyzeProperties.getPeriodTimeInMs() != 0) {
+            throw new AnalysisException("Automatic collection "
+                    + "and period statistics collection cannot be set at same time");
+        }
     }
 
     private void checkColumn() throws AnalysisException {
@@ -241,11 +250,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
             return false;
         }
         return table instanceof HMSExternalTable && table.getPartitionNames().size() > partNum;
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {

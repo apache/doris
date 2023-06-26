@@ -93,9 +93,14 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         boolean isFirst = true;
         for (SlotDescriptor slot : source.getDesc().getSlots()) {
+            // for example
+            // select a,b,c,d,e,f,g from paimon;
+            // columnNamesBuilder: a,b,c,d,e,f,g
+            // columnIdsBuilder: 0,1,2,3,4,5,6
+            // columnTypesBuilder: INT#STRING#BOOLEAN#BIGINT#FLOAT#DOUBLE#DECIMAL(10, 0)
             if (!isFirst) {
                 columnNamesBuilder.append(",");
-                columnTypesBuilder.append(",");
+                columnTypesBuilder.append("#");
                 columnIdsBuilder.append(",");
             }
             columnNamesBuilder.append(slot.getColumn().getName());

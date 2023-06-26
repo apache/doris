@@ -564,14 +564,10 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasDeleteSign()) {
-            Column newColumn = new Column(olapTable.getDeleteSignColumn());
-            newColumn.setAggregationType(AggregateType.REPLACE, true);
-            newMVColumns.add(newColumn);
+            newMVColumns.add(new Column(olapTable.getDeleteSignColumn()));
         }
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
-            Column newColumn = new Column(olapTable.getSequenceCol());
-            newColumn.setAggregationType(AggregateType.REPLACE, true);
-            newMVColumns.add(newColumn);
+            newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
         if (olapTable.storeRowColumn()) {
             Column newColumn = new Column(olapTable.getRowStoreCol());

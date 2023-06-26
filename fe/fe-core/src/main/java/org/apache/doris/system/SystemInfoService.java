@@ -812,7 +812,7 @@ public class SystemInfoService {
 
     public void checkAvailableCapacity() throws DdlException {
         if (getAvailableCapacityB() <= 0L) {
-            throw new DdlException("System has no available disk capacity");
+            throw new DdlException("System has no available disk capacity or no available BE nodes");
         }
     }
 

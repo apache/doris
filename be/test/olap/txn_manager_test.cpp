@@ -40,6 +40,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "util/uid_util.h"
 
 using ::testing::_;
@@ -280,8 +281,9 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
                                          schema_hash, _tablet_uid, load_id, _rowset, false);
     EXPECT_TRUE(status == Status::OK());
     Version new_version(10, 11);
+    TabletPublishStatistics stats;
     status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                   _tablet_uid, new_version);
+                                   _tablet_uid, new_version, &stats);
     EXPECT_TRUE(status == Status::OK());
 
     RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
@@ -298,8 +300,9 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
     auto not_exist_txn = transaction_id + 1000;
+    TabletPublishStatistics stats;
     Status status = _txn_mgr->publish_txn(_meta, partition_id, not_exist_txn, tablet_id,
-                                          schema_hash, _tablet_uid, new_version);
+                                          schema_hash, _tablet_uid, new_version, &stats);
     EXPECT_EQ(status, Status::OK());
 }
 

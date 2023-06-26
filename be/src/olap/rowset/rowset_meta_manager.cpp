@@ -146,6 +146,7 @@ Status RowsetMetaManager::_save_with_binlog(OlapMeta* meta, TabletUid tablet_uid
     binlog_meta_entry_pb.set_rowset_id(rowset_meta_pb.rowset_id());
     binlog_meta_entry_pb.set_num_segments(rowset_meta_pb.num_segments());
     binlog_meta_entry_pb.set_creation_time(rowset_meta_pb.creation_time());
+    binlog_meta_entry_pb.set_rowset_id_v2(rowset_meta_pb.rowset_id_v2());
     std::string binlog_meta_value;
     if (!binlog_meta_entry_pb.SerializeToString(&binlog_meta_value)) {
         LOG(WARNING) << "serialize binlog pb failed. rowset id:" << binlog_meta_key;

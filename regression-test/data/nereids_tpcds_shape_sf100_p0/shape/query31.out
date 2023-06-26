@@ -27,17 +27,17 @@ CteAnchor[cteId= ( CTEId#6=] )
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter((ws.d_year = 2000)d_qoy IN (1, 2, 3))
-----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[customer_address]
+----------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[web_sales]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((ws.d_year = 2000)d_qoy IN (1, 2, 3))
+------------------------------PhysicalOlapScan[date_dim]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer_address]
 ----PhysicalQuickSort
 ------PhysicalDistribute
 --------PhysicalQuickSort

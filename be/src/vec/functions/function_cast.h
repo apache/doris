@@ -248,6 +248,7 @@ struct ConvertImpl {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
+                ToDataType::check_type_scale(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
                 col_to = ColVecTo::create();
@@ -1074,19 +1075,15 @@ public:
                         return true;
                     }
 
-                    const ColumnWithTypeAndName& scale_column = block.get_by_position(arguments[1]);
-                    UInt32 scale = extract_to_decimal_scale(scale_column);
-
+                    const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), scale);
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
-                    auto type =
-                            check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), type->get_scale());
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count);
@@ -1296,6 +1293,7 @@ struct ConvertThroughParsing {
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = additions;
+            ToDataType::check_type_scale(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
             col_to = ColVecTo::create(size);
@@ -1349,10 +1347,11 @@ struct ConvertThroughParsing {
                         if constexpr (is_load_ && is_strict_insert_) {
                             if (string_size != 0 && (*vec_null_map_to)[i]) {
                                 return Status::InternalError(
-                                        "Invalid value in strict mode for function {}, source "
+                                        "Invalid value {} in strict mode for function {}, source "
                                         "column {}, from "
                                         "type "
                                         "{} to type {}",
+                                        std::string((char*)&(*chars)[current_offset], string_size),
                                         Name::name, col_from->get_name(), FromDataType().get_name(),
                                         ToDataType().get_name());
                             }
@@ -1588,9 +1587,12 @@ private:
                         using LeftDataType = typename Types::LeftType;
                         using RightDataType = typename Types::RightType;
 
-                        ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
+                        auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
                                 context, block, arguments, result, input_rows_count,
                                 context->check_overflow_for_decimal(), scale);
+                        if (!state) {
+                            throw Exception(state.code(), state.to_string());
+                        }
                         return true;
                     });
 
@@ -2059,7 +2061,7 @@ public:
     static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
-    FunctionBuilderCast() {}
+    FunctionBuilderCast() = default;
 
     String get_name() const override { return name; }
 

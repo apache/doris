@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "exec/operator.h"
 #include "pipeline.h"
+#include "runtime/task_group/task_group.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"
@@ -36,9 +37,6 @@ class RuntimeState;
 namespace pipeline {
 class PipelineFragmentContext;
 } // namespace pipeline
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
@@ -106,27 +104,14 @@ inline const char* get_state_name(PipelineTaskState idx) {
 }
 
 class TaskQueue;
+class PriorityTaskQueue;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state, Operators& operators,
                  OperatorPtr& sink, PipelineFragmentContext* fragment_context,
-                 RuntimeProfile* parent_profile)
-            : _index(index),
-              _pipeline(pipeline),
-              _operators(operators),
-              _source(_operators.front()),
-              _root(_operators.back()),
-              _sink(sink),
-              _prepared(false),
-              _opened(false),
-              _can_steal(pipeline->_can_steal),
-              _state(state),
-              _cur_state(PipelineTaskState::NOT_READY),
-              _data_state(SourceState::DEPEND_ON_SOURCE),
-              _fragment_context(fragment_context),
-              _parent_profile(parent_profile) {}
+                 RuntimeProfile* parent_profile);
 
     Status prepare(RuntimeState* state);
 
@@ -163,12 +148,6 @@ public:
 
     Status finalize();
 
-    void finish_p_dependency() {
-        for (const auto& p : _pipeline->_parents) {
-            p.lock()->finish_one_dependency(_previous_schedule_id);
-        }
-    }
-
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
     QueryContext* query_context();
@@ -194,11 +173,11 @@ public:
 
     std::string debug_string();
 
-    taskgroup::TaskGroup* get_task_group() const;
+    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
 
-    static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
+    static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -215,6 +194,12 @@ public:
     int get_core_id() const { return this->_core_id; }
 
 private:
+    void _finish_p_dependency() {
+        for (const auto& p : _pipeline->_parents) {
+            p.lock()->finish_one_dependency(_previous_schedule_id);
+        }
+    }
+
     Status _open();
     void _init_profile();
     void _fresh_profile_counter();
@@ -257,6 +242,7 @@ private:
     RuntimeProfile::Counter* _open_timer;
     RuntimeProfile::Counter* _exec_timer;
     RuntimeProfile::Counter* _get_block_timer;
+    RuntimeProfile::Counter* _get_block_counter;
     RuntimeProfile::Counter* _sink_timer;
     RuntimeProfile::Counter* _finalize_timer;
     RuntimeProfile::Counter* _close_timer;

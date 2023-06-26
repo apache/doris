@@ -64,7 +64,9 @@ public class DropStatsStmt extends DdlStmt {
     public DropStatsStmt(TableName tableName,
             List<String> columnNames) {
         this.tableName = tableName;
-        this.columnNames = new HashSet<>(columnNames);
+        if (columnNames != null) {
+            this.columnNames = new HashSet<>(columnNames);
+        }
         dropExpired = false;
     }
 

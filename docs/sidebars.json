@@ -50,7 +50,6 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
@@ -206,8 +205,8 @@
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
                         "lakehouse/multi-catalog/iceberg",
-                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/hudi",
+                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/dlf",
@@ -700,6 +699,7 @@
                                 "sql-manual/sql-functions/table-functions/hdfs",
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/backends",
+                                "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group"
                             ]
                         },
@@ -775,21 +775,21 @@
                                     "type": "category",
                                     "label": "Alter",
                                     "items": [
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
                                     ]
                                 },
@@ -809,41 +809,41 @@
                                     "type": "category",
                                     "label": "Create",
                                     "items": [
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ENCRYPT-KEY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-POLICY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE"
                                     ]
                                 },
                                 {
                                     "type": "category",
                                     "label": "Drop",
                                     "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-POLICY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ENCRYPT-KEY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-DATABASE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-POLICY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FUNCTION",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE"
                                     ]
                                 }
                             ]
@@ -882,7 +882,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE"
                                     ]
                                 },
                                 "sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE"
@@ -1093,7 +1094,8 @@
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
                         "admin-manual/maint-monitor/tablet-restore-tool",
-                        "admin-manual/maint-monitor/metadata-operation"
+                        "admin-manual/maint-monitor/metadata-operation",
+                        "admin-manual/maint-monitor/automatic-service-start"
                     ]
                 },
                 {
@@ -1243,6 +1245,7 @@
             "label": "Release notes",
             "items": [
                 "releasenotes/release-2.0.0Alpha1",
+                "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",
                 "releasenotes/release-1.2.2",

@@ -163,11 +163,9 @@ public abstract class BaseAnalysisTask {
     public abstract void execute() throws Exception;
 
     public void cancel() {
+        killed = true;
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
-        }
-        if (killed) {
-            return;
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
@@ -201,10 +199,5 @@ public abstract class BaseAnalysisTask {
         } else {
             return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
         }
-    }
-
-    public void markAsKilled() {
-        this.killed = true;
-        cancel();
     }
 }

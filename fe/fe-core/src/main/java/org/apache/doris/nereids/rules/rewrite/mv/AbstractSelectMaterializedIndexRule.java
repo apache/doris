@@ -59,6 +59,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 
@@ -340,7 +341,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
             if (equalColNames.contains(column.getName())) {
                 matchCount++;
             } else if (nonEqualColNames.contains(column.getName())) {
-                // Unequivalence predicate's columns can match only first column in index.
+                // un-equivalence predicate's columns can match only first column in index.
                 matchCount++;
                 break;
             } else {
@@ -386,7 +387,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         if (mvPlan.getSelectedIndexId() == mvPlan.getTable().getBaseIndexId()) {
             return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot);
         }
-        for (Slot mvSlot : mvPlan.getOutputByMvIndex(mvPlan.getSelectedIndexId())) {
+        for (Slot mvSlot : mvPlan.getOutputByIndex(mvPlan.getSelectedIndexId())) {
             boolean isPushed = false;
             for (Slot baseSlot : mvPlan.getOutput()) {
                 if (org.apache.doris.analysis.CreateMaterializedViewStmt.isMVColumnAggregate(mvSlot.getName())) {
@@ -414,15 +415,15 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
     /** SlotContext */
     protected static class SlotContext {
+
         // base index Slot to selected mv Slot
         public final Map<Slot, Slot> baseSlotToMvSlot;
-
-        // selected mv Slot name to mv Slot
-        public final Map<String, Slot> mvNameToMvSlot;
+        // selected mv Slot name to mv Slot, we must use ImmutableSortedMap because column name could be uppercase
+        public final ImmutableSortedMap<String, Slot> mvNameToMvSlot;
 
         public SlotContext(Map<Slot, Slot> baseSlotToMvSlot, Map<String, Slot> mvNameToMvSlot) {
             this.baseSlotToMvSlot = ImmutableMap.copyOf(baseSlotToMvSlot);
-            this.mvNameToMvSlot = ImmutableMap.copyOf(mvNameToMvSlot);
+            this.mvNameToMvSlot = ImmutableSortedMap.copyOf(mvNameToMvSlot, String.CASE_INSENSITIVE_ORDER);
         }
     }
 
@@ -446,7 +447,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         @Override
-        public LogicalAggregate visitLogicalAggregate(LogicalAggregate agg, Void ctx) {
+        public LogicalAggregate<Plan> visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, Void ctx) {
             Plan child = agg.child(0).accept(this, ctx);
             List<Expression> groupByExprs = agg.getGroupByExpressions();
             List<Expression> newGroupByExprs = groupByExprs.stream()
@@ -462,7 +463,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         @Override
-        public LogicalRepeat visitLogicalRepeat(LogicalRepeat repeat, Void ctx) {
+        public LogicalRepeat<Plan> visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void ctx) {
             Plan child = repeat.child(0).accept(this, ctx);
             List<List<Expression>> groupingSets = repeat.getGroupingSets();
             ImmutableList.Builder<List<Expression>> newGroupingExprs = ImmutableList.builder();
@@ -482,7 +483,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         @Override
-        public LogicalFilter visitLogicalFilter(LogicalFilter filter, Void ctx) {
+        public LogicalFilter<Plan> visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void ctx) {
             Plan child = filter.child(0).accept(this, ctx);
             Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
                     new ReplaceExpressionWithMvColumn(slotContext).replace(filter.getPredicate())));
@@ -491,7 +492,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
 
         @Override
-        public LogicalProject visitLogicalProject(LogicalProject project, Void ctx) {
+        public LogicalProject<Plan> visitLogicalProject(LogicalProject<? extends Plan> project, Void ctx) {
             Plan child = project.child(0).accept(this, ctx);
             List<NamedExpression> projects = project.getProjects();
             List<NamedExpression> newProjects = projects.stream()
@@ -511,15 +512,15 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * ReplaceExpressionWithMvColumn
      */
     protected static class ReplaceExpressionWithMvColumn extends DefaultExpressionRewriter<Void> {
+
         // base index Slot to selected mv Slot
         private final Map<Slot, Slot> baseSlotToMvSlot;
-
-        // selected mv Slot name to mv Slot
-        private final Map<String, Slot> mvNameToMvSlot;
+        // selected mv Slot name to mv Slot,  we must use ImmutableSortedMap because column name could be uppercase
+        private final ImmutableSortedMap<String, Slot> mvNameToMvSlot;
 
         public ReplaceExpressionWithMvColumn(SlotContext slotContext) {
             this.baseSlotToMvSlot = ImmutableMap.copyOf(slotContext.baseSlotToMvSlot);
-            this.mvNameToMvSlot = ImmutableMap.copyOf(slotContext.mvNameToMvSlot);
+            this.mvNameToMvSlot = ImmutableSortedMap.copyOf(slotContext.mvNameToMvSlot, String.CASE_INSENSITIVE_ORDER);
         }
 
         public Expression replace(Expression expression) {

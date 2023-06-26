@@ -67,6 +67,7 @@ parser code {:
     public boolean isVerbose = false;
     public String wild;
     public Expr where;
+    public ArrayList<PlaceHolderExpr> placeholder_expr_list = Lists.newArrayList();
 
     // List of expected tokens ids from current parsing state for generating syntax error message
     private final List<Integer> expectedTokenIds = Lists.newArrayList();
@@ -1074,7 +1075,11 @@ stmt ::=
     | switch_stmt:stmt
     {: RESULT = stmt; :}
     | query_stmt:query
-    {: RESULT = query; :}
+    {:
+        RESULT = query;
+        query.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
@@ -1828,7 +1833,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -1854,7 +1859,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -5185,6 +5190,8 @@ prepare_stmt ::=
     KW_PREPARE variable_name:name KW_FROM select_stmt:s
     {:
         RESULT = new PrepareStmt(s, name, false);
+        s.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
     :}
     ;
 
@@ -6741,9 +6748,9 @@ literal ::=
   | KW_NULL
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | MOD 
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
     // we have an unmatched string literal.

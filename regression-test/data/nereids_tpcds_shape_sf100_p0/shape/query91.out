@@ -23,8 +23,9 @@ PhysicalQuickSort
 --------------------------hashJoin[INNER_JOIN](household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN](catalog_returns.cr_returning_customer_sk = customer.c_customer_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[customer]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[customer]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN](catalog_returns.cr_returned_date_sk = date_dim.d_date_sk)

@@ -72,6 +72,8 @@ struct SerializedHashTableContext {
             ColumnsHashing::HashMethodSerialized<typename HashTable::value_type, Mapped, true>;
     using Iter = typename HashTable::iterator;
 
+    SerializedHashTableContext() { _arena.reset(new Arena()); }
+
     HashTable hash_table;
     Iter iter;
     bool inited = false;
@@ -83,7 +85,7 @@ struct SerializedHashTableContext {
             keys.resize(num_rows);
         }
 
-        _arena.reset(new Arena());
+        _arena->clear();
         keys_memory_usage = 0;
         size_t keys_size = key_columns.size();
         for (size_t i = 0; i < num_rows; ++i) {
@@ -299,8 +301,6 @@ private:
     RuntimeProfile::Counter* _probe_next_timer;
     RuntimeProfile::Counter* _build_buckets_counter;
     RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _search_hashtable_timer;
     RuntimeProfile::Counter* _build_side_output_timer;
     RuntimeProfile::Counter* _probe_side_output_timer;

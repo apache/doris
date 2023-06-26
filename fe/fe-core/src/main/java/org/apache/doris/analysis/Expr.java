@@ -37,7 +37,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
@@ -1914,8 +1913,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
-                VectorizedUtil.isVectorized());
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false);
         Function f = Env.getCurrentEnv().getTableFunction(searchDesc, mode);
         return f;
     }
@@ -2518,6 +2516,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         return false;
+    }
+
+    public void replaceSlot(TupleDescriptor tuple) {
+        for (Expr expr : getChildren()) {
+            expr.replaceSlot(tuple);
+        }
     }
 }
 

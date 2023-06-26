@@ -279,7 +279,6 @@ Status VRepeatNode::close(RuntimeState* state) {
 }
 
 void VRepeatNode::release_resource(RuntimeState* state) {
-    VExpr::close(_expr_ctxs, state);
     ExecNode::release_resource(state);
 }
 

@@ -125,7 +125,6 @@ data:
     rpc_port = 9020
     query_port = 9030
     edit_log_port = 9010
-    mysql_service_nio_enabled = true
     #Doris needs to generate the log4j configuration file according to the fe.yml configuration information, which is written in the same directory as fe.yml by default, but the config we mount is readonly, so specify this configuration to write the log4j file to another location
     custom_config_dir = /opt/apache-doris/
     #when set to false, the backend will not be dropped and remaining in DECOMMISSION state

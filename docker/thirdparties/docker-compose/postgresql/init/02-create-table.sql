@@ -161,3 +161,8 @@ CREATE TABLE catalog_pg_test.wkb_test (
    id SERIAL PRIMARY KEY,
    location bytea
 );
+
+CREATE TABLE catalog_pg_test.dt_test (
+    ts_field TIMESTAMP(3),
+    tzt_field TIMESTAMPTZ(3)
+);
