@@ -35,12 +35,9 @@ public class PushdownFilterThroughProject extends PlanPostProcessor {
         }
 
         PhysicalProject<? extends Plan> project = (PhysicalProject<? extends Plan>) child;
-
-        PhysicalFilter<? extends Plan> newFilter = new PhysicalFilter<>(
+        PhysicalFilter<? extends Plan> newFilter = filter.withConjunctsAndChild(
                 ExpressionUtils.replace(filter.getConjuncts(), project.getAliasToProducer()),
-                filter.getLogicalProperties(),
-                project.child()
-        );
+                project.child());
 
         return project.withChildren(newFilter.accept(this, context));
     }

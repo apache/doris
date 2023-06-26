@@ -125,6 +125,11 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
                 statistics, child());
     }
 
+    public PhysicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
+        return new PhysicalFilter<>(conjuncts, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, child);
+    }
+
     @Override
     public String shapeInfo() {
         StringBuilder builder = new StringBuilder();
