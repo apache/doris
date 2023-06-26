@@ -89,6 +89,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -121,6 +122,11 @@ public class Analyzer {
     // protected final Map<String, TupleDescriptor> aliasMap             = Maps.newHashMap();
     // map from lowercase qualified column name ("alias.col") to descriptor
     private final Map<String, SlotDescriptor>  slotRefMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+
+    // Notice: it's case sensitive
+    // Variant column name -> Paths of sub columns
+    private final Map<String, Map<List<String>, SlotDescriptor>> subColumnSlotRefMap
+                                           = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     // map from tuple id to list of conjuncts referencing tuple
     private final Map<TupleId, List<ExprId>> tuplePredicates = Maps.newHashMap();
@@ -745,6 +751,18 @@ public class Analyzer {
             slot.setIsNullable(col.isAllowNull());
             String key = tableRef.aliases[0] + "." + col.getName();
             slotRefMap.put(key, slot);
+
+            if (col.getType().isVariantType()) {
+                LOG.debug("add subColumnSlotRefMap, key {}, column {}", key, col.toThrift());
+                subColumnSlotRefMap.put(key, Maps.newTreeMap(
+                    new Comparator<List<String>>() {
+                        public int compare(List<String> lst1, List<String> lst2) {
+                            String str1 = String.join(".", lst1);
+                            String str2 = String.join(".", lst2);
+                            return str1.compareTo(str2);
+                        }
+                    }));
+            }
         }
         globalState.descTbl.computeStatAndMemLayout();
         tableRefMap.put(result.getId(), ref);
@@ -908,7 +926,8 @@ public class Analyzer {
      * @param colName
      * @throws AnalysisException
      */
-    public SlotDescriptor registerColumnRef(TableName tblName, String colName) throws AnalysisException {
+    public SlotDescriptor registerColumnRef(TableName tblName, String colName, List<String> subColNames)
+                throws AnalysisException {
         TupleDescriptor d;
         TableName newTblName = tblName;
         if (newTblName == null) {
@@ -987,11 +1006,46 @@ public class Analyzer {
                                                 newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
+        LOG.debug("register column ref table {}, colName {}, col {}", tblName, colName, col.toSql());
+        if (col.getType().isVariantType() || (subColNames != null && !subColNames.isEmpty())) {
+            if (!col.getType().isVariantType()) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
+                        Joiner.on(".").join(tblName.getTbl(), colName));
+            }
+            if (subColNames == null) {
+                // Root
+                subColNames = new ArrayList<String>();
+            }
+            String key = d.getAlias() + "." + col.getName();
+            if (subColumnSlotRefMap.get(key) == null) {
+                subColumnSlotRefMap.put(key, Maps.newTreeMap(
+                    new Comparator<List<String>>() {
+                        public int compare(List<String> lst1, List<String> lst2) {
+                            String str1 = String.join(".", lst1);
+                            String str2 = String.join(".", lst2);
+                            return str1.compareTo(str2);
+                        }
+                    }));
+            }
+            SlotDescriptor result = subColumnSlotRefMap.get(key).get(subColNames);
+            if (result != null) {
+                // avoid duplicate slots
+                return result;
+            }
+            result = globalState.descTbl.addSlotDescriptor(d);
+            LOG.debug("register slot descriptor {}", result);
+            result.setSubColLables(subColNames);
+            result.setColumn(col);
+            result.setIsMaterialized(true);
+            result.setIsNullable(col.isAllowNull());
+            subColumnSlotRefMap.get(key).put(subColNames, result);
+            return result;
+        }
+
         // Make column name case insensitive
         String key = d.getAlias() + "." + col.getName();
         SlotDescriptor result = slotRefMap.get(key);
         if (result != null) {
-            result.setMultiRef(true);
             return result;
         }
         result = globalState.descTbl.addSlotDescriptor(d);
@@ -1015,7 +1069,6 @@ public class Analyzer {
         String key = colName;
         SlotDescriptor result = slotRefMap.get(key);
         if (result != null) {
-            result.setMultiRef(true);
             return result;
         }
         result = addSlotDescriptor(tupleDescriptor);

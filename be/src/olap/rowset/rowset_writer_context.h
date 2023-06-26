@@ -40,14 +40,15 @@ struct RowsetWriterContext {
     RowsetWriterContext()
             : tablet_id(0),
               tablet_schema_hash(0),
-              index_id(0),
               partition_id(0),
+              index_id(0),
               rowset_type(BETA_ROWSET),
               rowset_state(PREPARED),
               version(Version(0, 0)),
               txn_id(0),
               tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN) {
+              segments_overlap(OVERLAP_UNKNOWN),
+              schema_lock(new std::mutex) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }
@@ -55,8 +56,8 @@ struct RowsetWriterContext {
     RowsetId rowset_id;
     int64_t tablet_id;
     int64_t tablet_schema_hash;
-    int64_t index_id;
     int64_t partition_id;
+    int64_t index_id;
     RowsetTypePB rowset_type;
     io::FileSystemSPtr fs;
     std::string rowset_dir;
@@ -89,16 +90,15 @@ struct RowsetWriterContext {
     std::set<int32_t> skip_inverted_index;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     std::shared_ptr<Tablet> tablet = nullptr;
-    // for tracing local schema change record
-    std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
-            nullptr;
-
     std::shared_ptr<MowContext> mow_context;
     std::shared_ptr<FileWriterCreator> file_writer_creator;
     std::shared_ptr<SegmentCollector> segment_collector;
 
     // segcompaction for this RowsetWriter, disable it for some transient writers
     bool enable_segcompaction = true;
+    // In semi-structure senario tablet_schema will be updated concurrently,
+    // this lock need to be held when update.Use shared_ptr to avoid delete copy contructor
+    std::shared_ptr<std::mutex> schema_lock;
 };
 
 } // namespace doris

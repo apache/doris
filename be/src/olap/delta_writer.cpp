@@ -51,6 +51,7 @@
 #include "util/mem_info.h"
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
+#include "util/time.h"
 #include "vec/core/block.h"
 
 namespace doris {

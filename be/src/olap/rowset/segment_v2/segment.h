@@ -32,15 +32,21 @@
 #include "common/status.h" // Status
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "util/once.h"
 #include "util/slice.h"
+#include "vec/columns/subcolumn_tree.h"
 
 namespace doris {
+namespace vectorized {
+class IDataType;
+}
 
 class ShortKeyIndexDecoder;
 class Schema;
@@ -71,7 +77,6 @@ public:
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
-
     ~Segment();
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
@@ -84,7 +89,14 @@ public:
     uint32_t num_rows() const { return _num_rows; }
 
     Status new_column_iterator(const TabletColumn& tablet_column,
-                               std::unique_ptr<ColumnIterator>* iter);
+                               std::unique_ptr<ColumnIterator>* iter,
+                               HierarchicalDataReader* path_reader = nullptr);
+
+    Status new_iterator_with_path(const TabletColumn& tablet_column,
+                                  std::unique_ptr<ColumnIterator>* iter,
+                                  HierarchicalDataReader* path_reader = nullptr);
+
+    Status new_column_iterator(int32_t unique_id, std::unique_ptr<ColumnIterator>* iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
                                      std::unique_ptr<BitmapIndexIterator>* iter);
@@ -125,6 +137,12 @@ public:
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
+    // Get the inner file column's data type
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed) const;
+
+    // If column in segment is the same type in schema
+    bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema) const;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
@@ -154,6 +172,19 @@ private:
     // after this segment is generated.
     std::map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
 
+    // Init from ColumnMetaPB in SegmentFooterPB
+    // map column unique id ---> it's inner data type
+    std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
+
+    // path -> reader/type
+    struct SubcolumnReader {
+        std::unique_ptr<ColumnReader> reader;
+        std::shared_ptr<const vectorized::IDataType> file_column_type;
+    };
+    // subcolumn tree of each subcolumn's unique id
+    using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
+    SubcolumnColumnReaders _sub_column_tree;
+    
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way

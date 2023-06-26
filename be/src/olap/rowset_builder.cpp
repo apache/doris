@@ -49,6 +49,7 @@
 #include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -265,6 +266,20 @@ Status RowsetBuilder::commit_txn() {
 
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
+
+    if (_tablet->tablet_schema()->num_variant_columns() > 0) {
+        // update tablet schema when meet variant columns, before commit_txn
+        // Eg. rowset schema:       A(int),    B(float),  C(int), D(int)
+        // _tabelt->tablet_schema:  A(bigint), B(double)
+        //  => update_schema:       A(bigint), B(double), C(int), D(int)
+        RowsetWriterContext& rw_ctx = _rowset_writer->mutable_context();
+        TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
+        vectorized::schema_util::get_least_common_schema(
+                {_tablet->tablet_schema(), rw_ctx.tablet_schema}, update_schema);
+        _tablet->update_by_least_common_schema(update_schema);
+        VLOG_DEBUG << "dump updated tablet schema: " << update_schema->dump_structure();
+    }
+
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
                                                             _req.load_id, _rowset, false);
 

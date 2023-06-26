@@ -151,6 +151,8 @@ public:
 
     virtual int64_t segment_writer_ns() { return 0; }
 
+    virtual RowsetWriterContext& mutable_context() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
 };
