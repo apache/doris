@@ -31,6 +31,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.constants.S3Properties.Env;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
 import com.google.common.collect.Maps;
@@ -88,6 +89,14 @@ public class S3TvfLoadStmtTest {
 
     @Test
     public void testClauses() throws UserException {
+        new Expectations() {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = new ConnectContext();
+            }
+        };
+
         final BinaryPredicate greater = new BinaryPredicate(Operator.GT, new IntLiteral(1), new IntLiteral(0));
         final BinaryPredicate less = new BinaryPredicate(Operator.LT, new IntLiteral(1), new IntLiteral(0));
         DataDescription dataDescription = buildDataDesc(
@@ -140,6 +149,10 @@ public class S3TvfLoadStmtTest {
         //        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
         new Expectations() {
             {
+                ConnectContext.get();
+                minTimes = 0;
+                result = new ConnectContext();
+
                 dataDescription.getParsedColumnExprList();
                 minTimes = 0;
                 result = columnsDescList;
