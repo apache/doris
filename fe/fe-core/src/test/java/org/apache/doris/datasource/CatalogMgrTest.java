@@ -659,6 +659,69 @@ public class CatalogMgrTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(() -> mgr.createCatalog(createStmt7));
     }
 
+    @Test
+    public void testInvalidAndValidAlterCatalogProperties() throws Exception {
+
+        String catalogName="test_hive1";
+        String createCatalogSql = "CREATE CATALOG test_hive1 PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='nn1,nn2',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn1'='127.0.0.1:4007',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn2'='127.0.0.1:4008',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        CreateCatalogStmt createStmt = (CreateCatalogStmt) parseAndAnalyzeStmt(createCatalogSql);
+        mgr.createCatalog(createStmt);
+
+        String alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt1 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Missing dfs.ha.namenodes.HANN property",
+                () -> mgr.alterCatalogProps(alterCatalogPropertyStmt1));
+
+        alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='nn1,nn3',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn1'='127.0.0.1:4007',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn3'='127.0.0.1:4007',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "=''\n"
+                + ");";
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt2 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogSql);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Missing dfs.client.failover.proxy.provider.HANN property",
+                () -> mgr.alterCatalogProps(alterCatalogPropertyStmt2));
+
+        alterCatalogSql = "ALTER CATALOG test_hive1 SET PROPERTIES (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
+                + "    'dfs.nameservices' = 'HANN',\n"
+                + "    'dfs.ha.namenodes.HANN'='nn1,nn3',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn1'='127.0.0.1:4007',\n"
+                + "    'dfs.namenode.rpc-address.HANN.nn3'='127.0.0.1:4007',\n"
+                + "    'dfs.client.failover.proxy.provider.HANN'"
+                + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
+                + ");";
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt3 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogSql);
+        mgr.alterCatalogProps(alterCatalogPropertyStmt3);
+
+        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
+        Assert.assertEquals(7, catalog.getProperties().size());
+        Assert.assertEquals("nn1,nn3", catalog.getProperties().get("dfs.ha.namenodes.HANN"));
+    }
+
     public void testAlterFileCache() throws Exception {
         String catalogName = "good_hive_3";
         String createCatalogSql = "CREATE CATALOG " + catalogName
