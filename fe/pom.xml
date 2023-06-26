@@ -215,7 +215,7 @@ under the License.
         <commons-validator.version>1.7</commons-validator.version>
         <gson.version>2.8.9</gson.version>
         <guava.version>30.0-jre</guava.version>
-        <jackson.version>2.12.3</jackson.version>
+        <jackson.version>2.14.3</jackson.version>
         <java-cup.version>0.11-a-czt02-cdh</java-cup.version>
         <javassist.version>3.18.2-GA</javassist.version>
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
@@ -233,9 +233,10 @@ under the License.
         <log4j-1.2.version>2.18.0</log4j-1.2.version>
         <slf4j.version>2.0.6</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <netty-all.version>4.1.89.Final</netty-all.version>
+        <netty-all.version>4.1.94.Final</netty-all.version>
         <objenesis.version>2.1</objenesis.version>
         <grpc.version>1.30.0</grpc.version>
+        <check.freamework.version>3.32.0</check.freamework.version>
         <protobuf.version>3.21.12</protobuf.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
@@ -243,7 +244,7 @@ under the License.
         <protoc.artifact>com.google.protobuf:protoc:${protoc.artifact.version}</protoc.artifact>
         <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</grpc.java.artifact>
         <protoparser.version>3.1.5</protoparser.version>
-        <snappy-java.version>1.1.7.2</snappy-java.version>
+        <snappy-java.version>1.1.10.1</snappy-java.version>
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
         <kubernetes-client.version>5.12.2</kubernetes-client.version>
@@ -275,7 +276,7 @@ under the License.
         <arrow.version>9.0.0</arrow.version>
         <avro.version>1.11.1</avro.version>
         <!-- hudi -->
-        <hudi.version>0.13.0</hudi.version>
+        <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
 
@@ -295,7 +296,8 @@ under the License.
         <hadoop.version>3.3.5</hadoop.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>2.7.8</spring.version>
+        <spring.version>2.7.13</spring.version>
+        <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.4.14</zookeeper.version>
         <velocity-engine-core.version>2.3</velocity-engine-core.version>
         <ojdbc6.version>11.2.0.4</ojdbc6.version>
@@ -372,6 +374,11 @@ under the License.
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-exporter-zipkin</artifactId>
                 <version>${opentelemetry.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.orc</groupId>
+                <artifactId>orc-core</artifactId>
+                <version>${orc.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -481,6 +488,18 @@ under the License.
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-auth</artifactId>
                 <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-aliyun</artifactId>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <!-- pls confirm if this is a mandatory dependency  -->
+                    <exclusion>
+                        <groupId>org.ini4j</groupId>
+                        <artifactId>ini4j</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.doris</groupId>
@@ -846,6 +865,11 @@ under the License.
                 <artifactId>protobuf-java</artifactId>
                 <version>${protobuf.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.checkerframework</groupId>
+                <artifactId>checker</artifactId>
+                <version>${check.freamework.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
             <dependency>
                 <groupId>com.squareup</groupId>
@@ -1025,7 +1049,7 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-launcher_2.12</artifactId>
                 <version>${spark.version}</version>
-                <!-- <scope>provided</scope> -->
+                <scope>provided</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
             <dependency>
@@ -1038,6 +1062,12 @@ under the License.
                         <artifactId>arrow-vector</artifactId>
                     </exclusion>
                 </exclusions>
+                <scope>provided</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.spark</groupId>
+                <artifactId>spark-tags_2.12</artifactId>
+                <version>${spark.version}</version>
                 <scope>provided</scope>
             </dependency>
 
@@ -1300,22 +1330,42 @@ under the License.
                 <groupId>org.apache.hive</groupId>
                 <artifactId>hive-common</artifactId>
                 <version>${hive.common.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client-core</artifactId>
-                <version>${mapreduce.client.version}</version>
+                <version>${hadoop.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>javax.servlet</groupId>
                         <artifactId>servlet-api</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-mapreduce-client-common</artifactId>
-                <version>${mapreduce.client.version}</version>
+                <version>${hadoop.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>io.netty</groupId>
+                        <artifactId>netty</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
             <dependency>
                 <groupId>com.alibaba</groupId>
