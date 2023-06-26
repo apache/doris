@@ -44,6 +44,8 @@ public class SlotDescriptor {
 
     // for SlotRef.toSql() in the absence of a path
     private String label;
+    // for variant column's sub column lables
+    private List<String> subColLabels;
 
     // Expr(s) materialized into this slot; multiple exprs for unions. Should be empty if
     // path_ is set.
@@ -64,7 +66,6 @@ public class SlotDescriptor {
 
     private ColumnStats stats;  // only set if 'column' isn't set
     private boolean isAgg;
-    private boolean isMultiRef;
     // If set to false, then such slots will be ignored during
     // materialize them.Used to optimize to read less data and less memory usage
     private boolean needMaterialize = true;
@@ -76,7 +77,6 @@ public class SlotDescriptor {
         this.isMaterialized = false;
         this.isNullable = true;
         this.isAgg = false;
-        this.isMultiRef = false;
     }
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent, SlotDescriptor src) {
@@ -91,14 +91,6 @@ public class SlotDescriptor {
         this.isAgg = false;
         this.stats = src.stats;
         this.type = src.type;
-    }
-
-    public boolean isMultiRef() {
-        return isMultiRef;
-    }
-
-    public void setMultiRef(boolean isMultiRef) {
-        this.isMultiRef = isMultiRef;
     }
 
     public boolean getIsAgg() {
@@ -119,6 +111,14 @@ public class SlotDescriptor {
 
     public SlotId getId() {
         return id;
+    }
+
+    public void setSubColLables(List<String> subColLables) {
+        this.subColLabels = subColLables;
+    }
+
+    public List<String> getSubColLables() {
+        return this.subColLabels;
     }
 
     public TupleDescriptor getParent() {
@@ -294,6 +294,9 @@ public class SlotDescriptor {
             tSlotDescriptor.setColUniqueId(column.getUniqueId());
             tSlotDescriptor.setIsKey(column.isKey());
         }
+        if (subColLabels != null) {
+            tSlotDescriptor.setColumnPaths(subColLabels);
+        }
         return tSlotDescriptor;
     }
 
@@ -303,7 +306,8 @@ public class SlotDescriptor {
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
-                .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable()).toString();
+                .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable())
+                .add("subColLabels", subColLabels).toString();
     }
 
     @Override
@@ -319,6 +323,7 @@ public class SlotDescriptor {
                 .append(", colUniqueId=").append(column == null ? "null" : column.getUniqueId())
                 .append(", type=").append(type == null ? "null" : type.toSql())
                 .append(", nullable=").append(isNullable)
+                .append(", subColLabels=").append(subColLabels)
                 .append("}")
                 .toString();
     }

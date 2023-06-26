@@ -232,8 +232,6 @@ public:
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
-    TypeIndex get_data_type() const override { return TypeId<T>::value; }
-
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(IColumn::ColumnIndex num_columns,

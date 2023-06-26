@@ -98,10 +98,7 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "write_column_to_pb with type " + column.get_name());
-    }
+                                 int row_idx, bool col_const) const override;
 };
 } // namespace vectorized
 } // namespace doris

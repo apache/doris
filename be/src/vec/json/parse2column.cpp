@@ -97,7 +97,7 @@ public:
     }
 };
 
-SimpleObjectPool<JSONDataParser<SimdJSONParser>> parsers_pool;
+SimpleObjectPool<JsonParser> parsers_pool;
 
 using Node = typename ColumnObject::Subcolumns::Node;
 /// Visitor that keeps @num_dimensions_to_keep dimensions in arrays
@@ -129,68 +129,6 @@ private:
     size_t num_dimensions_to_keep;
 };
 
-/// Finds a subcolumn from the same Nested type as @entry and inserts
-/// an array with default values with consistent sizes as in Nested type.
-bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
-                                    const ColumnObject::Subcolumns& subcolumns) {
-    if (!entry->path.has_nested_part()) {
-        return false;
-    }
-
-    const Node* current_node = subcolumns.find_leaf(entry->path);
-    const Node* leaf = nullptr;
-    size_t num_skipped_nested = 0;
-
-    while (current_node) {
-        /// Try to find the first Nested up to the current node.
-        const auto* node_nested = ColumnObject::Subcolumns::find_parent(
-                current_node, [](const auto& candidate) { return candidate.is_nested(); });
-
-        if (!node_nested) {
-            break;
-        }
-
-        /// If there are no leaves, skip current node and find
-        /// the next node up to the current.
-        leaf = ColumnObject::Subcolumns::find_leaf(node_nested, [&](const auto& candidate) {
-            return candidate.data.size() == entry->data.size() + 1;
-        });
-
-        if (leaf) {
-            break;
-        }
-
-        current_node = node_nested->parent;
-        ++num_skipped_nested;
-    }
-
-    if (!leaf) {
-        return false;
-    }
-
-    auto last_field = leaf->data.get_last_field();
-    if (last_field.is_null()) {
-        return false;
-    }
-
-    const auto& least_common_type = entry->data.get_least_common_type();
-    size_t num_dimensions = schema_util::get_number_of_dimensions(*least_common_type);
-    assert(num_skipped_nested < num_dimensions);
-
-    /// Replace scalars to default values with consistent array sizes.
-    size_t num_dimensions_to_keep = num_dimensions - num_skipped_nested;
-    auto default_scalar =
-            num_skipped_nested
-                    ? schema_util::create_empty_array_field(num_skipped_nested)
-                    : schema_util::get_base_type_of_array(least_common_type)->get_default();
-
-    auto default_field = apply_visitor(
-            FieldVisitorReplaceScalars(default_scalar, num_dimensions_to_keep), last_field);
-    entry->data.insert(std::move(default_field));
-
-    return true;
-}
-
 template <typename ParserImpl>
 void parse_json_to_variant(IColumn& column, const char* src, size_t length,
                            JSONDataParser<ParserImpl>* parser) {
@@ -215,12 +153,6 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     for (size_t i = 0; i < paths.size(); ++i) {
         FieldInfo field_info;
         get_field_info(values[i], &field_info);
-        // TODO support multi dimensions array
-        if (!config::enable_parse_multi_dimession_array && field_info.num_dimensions >= 2) {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
-                    "Sorry multi dimensions array is not supported now, we are working on it");
-        }
         if (is_nothing(field_info.scalar_type)) {
             continue;
         }
@@ -232,11 +164,7 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
 
         if (!column_object.has_subcolumn(paths[i])) {
-            if (paths[i].has_nested_part()) {
-                column_object.add_nested_subcolumn(paths[i], field_info, num_rows);
-            } else {
-                column_object.add_sub_column(paths[i], num_rows);
-            }
+            column_object.add_sub_column(paths[i], num_rows);
         }
         auto* subcolumn = column_object.get_subcolumn(paths[i]);
         if (!subcolumn) {
@@ -250,36 +178,33 @@ void parse_json_to_variant(IColumn& column, const char* src, size_t length,
     const auto& subcolumns = column_object.get_subcolumns();
     for (const auto& entry : subcolumns) {
         if (!paths_set.contains(entry->path.get_path())) {
-            bool inserted = try_insert_default_from_nested(entry, subcolumns);
-            if (!inserted) {
-                entry->data.insertDefault();
-            }
+            entry->data.insertDefault();
         }
     }
     column_object.incr_num_rows();
 }
 
 bool extract_key(MutableColumns& columns, StringRef json, const std::vector<StringRef>& keys,
-                 const std::vector<ExtractType>& types, JSONDataParser<SimdJSONParser>* parser) {
+                 const std::vector<ExtractType>& types, JsonParser* parser) {
     return parser->extract_key(columns, json, keys, types);
 }
 
 // exposed interfaces
-void parse_json_to_variant(IColumn& column, const StringRef& json,
-                           JSONDataParser<SimdJSONParser>* parser) {
+void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser) {
     return parse_json_to_variant(column, json.data, json.size, parser);
 }
 
-void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons) {
-    auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
-    for (StringRef str : jsons) {
-        parse_json_to_variant(column, str.data, str.size, parser.get());
+void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column) {
+    auto parser = parsers_pool.get([] { return new JsonParser(); });
+    for (size_t i = 0; i < raw_json_column.size(); ++i) {
+        StringRef raw_json = raw_json_column.get_data_at(i);
+        parse_json_to_variant(column, raw_json.data, raw_json.size, parser.get());
     }
 }
 
 bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
                  const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
-    auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
+    auto parser = parsers_pool.get([] { return new JsonParser(); });
     for (StringRef json : jsons) {
         if (!extract_key(columns, json, keys, types, parser.get())) {
             return false;
@@ -290,7 +215,7 @@ bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,
 
 bool extract_key(MutableColumns& columns, const ColumnString& json_column,
                  const std::vector<StringRef>& keys, const std::vector<ExtractType>& types) {
-    auto parser = parsers_pool.get([] { return new JSONDataParser<SimdJSONParser>(); });
+    auto parser = parsers_pool.get([] { return new JsonParser(); });
     for (size_t x = 0; x < json_column.size(); ++x) {
         if (!extract_key(columns, json_column.get_data_at(x), keys, types, parser.get())) {
             return false;

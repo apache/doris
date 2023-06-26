@@ -339,7 +339,7 @@ Status VFileScanner::_init_src_block(Block* block) {
     for (auto& slot : _input_tuple_desc->slots()) {
         DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
+        if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
             RETURN_IF_CATCH_EXCEPTION(data_type = DataTypeFactory::instance().create_data_type(
                                               slot->type(), slot->is_nullable()));
@@ -359,9 +359,6 @@ Status VFileScanner::_init_src_block(Block* block) {
 
 Status VFileScanner::_cast_to_input_block(Block* block) {
     if (!_is_load) {
-        return Status::OK();
-    }
-    if (_is_dynamic_schema) {
         return Status::OK();
     }
     SCOPED_TIMER(_cast_to_input_block_timer);
@@ -773,9 +770,9 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
-                                                       _file_slot_descs, &_scanner_eof,
-                                                       _io_ctx.get(), _is_dynamic_schema);
+            _cur_reader =
+                    NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
+                                                 _file_slot_descs, &_scanner_eof, _io_ctx.get());
             init_status =
                     ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
             break;
@@ -1003,10 +1000,6 @@ Status VFileScanner::_init_expr_ctxes() {
             }
         }
     }
-    // If last slot is_variant from stream plan which indicate table is dynamic schema
-    _is_dynamic_schema =
-            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
-
     // TODO: It should can move to scan node to process.
     if (!_conjuncts.empty()) {
         _process_conjuncts_for_dict_filter();

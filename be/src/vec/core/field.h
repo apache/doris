@@ -558,38 +558,52 @@ public:
         }
     }
 
-private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
-                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
-                         DecimalField<Decimal128I>, BitmapValue, HyperLogLog, QuantileState<double>>
-            storage;
+    bool operator>=(const Field& rhs) const { return rhs <= *this; }
 
-    Types::Which which;
+    bool operator==(const Field& rhs) const {
+        if (which != rhs.which) return false;
 
-    /// Assuming there was no allocated state or it was deallocated (see destroy).
-    template <typename T>
-    void create_concrete(T&& x) {
-        using UnqualifiedType = std::decay_t<T>;
+        switch (which) {
+        case Types::Null:
+            return true;
+        case Types::UInt64:
+        case Types::Int64:
+        case Types::Float64:
+            return get<UInt64>() == rhs.get<UInt64>();
+        case Types::String:
+            return get<String>() == rhs.get<String>();
+        case Types::JSONB:
+            return get<JsonbField>() == rhs.get<JsonbField>();
+        case Types::Array:
+            return get<Array>() == rhs.get<Array>();
+        case Types::Tuple:
+            return get<Tuple>() == rhs.get<Tuple>();
+        case Types::Map:
+            return get<Map>() < rhs.get<Map>();
+        case Types::UInt128:
+            return get<UInt128>() == rhs.get<UInt128>();
+        case Types::Int128:
+            return get<Int128>() == rhs.get<Int128>();
+        case Types::Decimal32:
+            return get<DecimalField<Decimal32>>() == rhs.get<DecimalField<Decimal32>>();
+        case Types::Decimal64:
+            return get<DecimalField<Decimal64>>() == rhs.get<DecimalField<Decimal64>>();
+        case Types::Decimal128:
+            return get<DecimalField<Decimal128>>() == rhs.get<DecimalField<Decimal128>>();
+        case Types::Decimal128I:
+            return get<DecimalField<Decimal128I>>() == rhs.get<DecimalField<Decimal128I>>();
+        case Types::AggregateFunctionState:
+            return get<AggregateFunctionStateData>() == rhs.get<AggregateFunctionStateData>();
+        case Types::FixedLengthObject:
+            break;
+        case Types::VariantMap:
+            return get<VariantMap>() == rhs.get<VariantMap>();
+        }
 
-        // In both Field and PODArray, small types may be stored as wider types,
-        // e.g. char is stored as UInt64. Field can return this extended value
-        // with get<StorageType>(). To avoid uninitialized results from get(),
-        // we must initialize the entire wide stored type, and not just the
-        // nominal type.
-        using StorageType = NearestFieldType<UnqualifiedType>;
-        new (&storage) StorageType(std::forward<T>(x));
-        which = TypeToEnum<UnqualifiedType>::value;
+        CHECK(false) << "Bad type of Field";
     }
 
-    /// Assuming same types.
-    template <typename T>
-    void assign_concrete(T&& x) {
-        using JustT = std::decay_t<T>;
-        assert(which == TypeToEnum<JustT>::value);
-        JustT* MAY_ALIAS ptr = reinterpret_cast<JustT*>(&storage);
-        *ptr = std::forward<T>(x);
-    }
+    bool operator!=(const Field& rhs) const { return !(*this == rhs); }
 
     template <typename F,
               typename Field> /// Field template parameter may be const or non-const Field.
@@ -656,6 +670,39 @@ private:
             LOG(FATAL) << "type not supported, type=" << Types::to_string(field.which);
             break;
         }
+    }
+
+private:
+    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(Types::Which), Null, UInt64, UInt128, Int64,
+                         Int128, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
+                         DecimalField<Decimal32>, DecimalField<Decimal64>, DecimalField<Decimal128>,
+                         DecimalField<Decimal128I>, HyperLogLog, QuantileState<double>>
+            storage;
+
+    Types::Which which;
+
+    /// Assuming there was no allocated state or it was deallocated (see destroy).
+    template <typename T>
+    void create_concrete(T&& x) {
+        using UnqualifiedType = std::decay_t<T>;
+
+        // In both Field and PODArray, small types may be stored as wider types,
+        // e.g. char is stored as UInt64. Field can return this extended value
+        // with get<StorageType>(). To avoid uninitialized results from get(),
+        // we must initialize the entire wide stored type, and not just the
+        // nominal type.
+        using StorageType = NearestFieldType<UnqualifiedType>;
+        new (&storage) StorageType(std::forward<T>(x));
+        which = TypeToEnum<UnqualifiedType>::value;
+    }
+
+    /// Assuming same types.
+    template <typename T>
+    void assign_concrete(T&& x) {
+        using JustT = std::decay_t<T>;
+        assert(which == TypeToEnum<JustT>::value);
+        JustT* MAY_ALIAS ptr = reinterpret_cast<JustT*>(&storage);
+        *ptr = std::forward<T>(x);
     }
 
     void create(const Field& x) {

@@ -131,6 +131,11 @@ public:
 
     void get(size_t n, Field& res) const override {
         assert(n < size());
+        if (res.get_type() == Field::Types::JSONB) {
+            // Handle JsonbField
+            res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
+            return;
+        }
         res.assign_string(&chars[offset_at(n)], size_at(n));
     }
 
@@ -140,15 +145,22 @@ public:
     }
 
     void insert(const Field& x) override {
-        const String& s = vectorized::get<const String&>(x);
+        StringRef s;
+        if (x.get_type() == Field::Types::JSONB) {
+            // Handle JsonbField
+            const auto& real_field = vectorized::get<const JsonbField&>(x);
+            s = StringRef(real_field.get_value(), real_field.get_size());
+        } else {
+            s = vectorized::get<const String&>(x);
+        }
         const size_t old_size = chars.size();
-        const size_t size_to_append = s.size();
+        const size_t size_to_append = s.size;
         const size_t new_size = old_size + size_to_append;
 
         check_chars_length(new_size, old_size + 1);
 
         chars.resize(new_size);
-        memcpy(chars.data() + old_size, s.c_str(), size_to_append);
+        memcpy(chars.data() + old_size, s.data, size_to_append);
         offsets.push_back(new_size);
     }
 
@@ -485,6 +497,8 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
@@ -592,14 +606,16 @@ public:
         return shrinked_column;
     }
 
-    TypeIndex get_data_type() const override { return TypeIndex::String; }
-
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return get_indices_of_non_default_rows_impl<ColumnString>(indices, from, limit);
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return get_ratio_of_default_rows_impl<ColumnString>(sample_ratio);
+    }
 };
 
 } // namespace doris::vectorized
