@@ -56,7 +56,7 @@ private:
             char* pos = begin;
 
             auto null_map = ColumnUInt8::create(vec_in.size(), 0);
-            size_t src_size = std::min(sizeof(ArgType), (uint64_t)4);
+            size_t src_size = std::min(sizeof(ArgType), (unsigned long)4);
             for (size_t i = 0; i < vec_in.size(); ++i) {
                 auto value = vec_in[i];
                 if (value < IPV4_MIN_NUM_VALUE || value > IPV4_MAX_NUM_VALUE) {
