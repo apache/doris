@@ -71,6 +71,10 @@ Status NewOlapScanNode::_init_profile() {
     _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
+    _block_init_get_row_range_by_keys_timer =
+            ADD_TIMER(_segment_profile, "BlockInitGetRowRangeByKeysTime");
+    _block_init_get_row_range_by_conditions_timer =
+            ADD_TIMER(_segment_profile, "BlockInitGetRowRangeByConditionsTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
