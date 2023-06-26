@@ -29,8 +29,14 @@ under the License.
 
 ## 使用限制
 
-1. Hudi 目前仅支持 Copy On Write 表的 Snapshot Query，以及 Merge On Read 表的 Read Optimized Query。后续将支持 Incremental Query 和 Merge On Read 表的 Snapshot Query。
-2. 目前仅支持 Hive Metastore 类型的 Catalog。所以使用方式和 Hive Catalog 基本一致。后续版本将支持其他类型的 Catalog。
+1. 目前支持 Copy On Write 表的 Snapshot Query，以及 Merge On Read 表的 Snapshot Queries 和 Read Optimized Query。后续将支持 Incremental Query 和 Time Travel。
+
+|  表类型   | 支持的查询类型  |
+|  ----  | ----  |
+| Copy On Write  | Snapshot Query |
+| Merge On Read  | Snapshot Queries + Read Optimized Queries |
+
+2. 目前支持 Hive Metastore 和兼容 Hive Metastore 类型(例如[AWS Glue](./hive.md)/[Alibaba DLF](./dlf.md))的 Catalog。
 
 ## 创建 Catalog
 
@@ -52,3 +58,28 @@ CREATE CATALOG hudi PROPERTIES (
 ## 列类型映射
 
 和 Hive Catalog 一致，可参阅 [Hive Catalog](./hive.md) 中 **列类型映射** 一节。
+
+## 查询优化
+
+Doris 使用 parquet native reader 读取 COW 表的数据文件，使用 Java SDK(通过JNI调用hudi-bundle) 读取 MOR 表的数据文件。在 upsert 场景下，MOR 依然会有数据文件没有被更新，这部分文件可以通过 parquet native reader读取，用户可以通过 [explain](../../advanced/best-practice/query-analysis.md) 命令查看 hudi scan 的执行计划，`hudiNativeReadSplits` 表示有多少 split 文件通过 parquet native reader 读取。
+```
+|0:VHUDI_SCAN_NODE                                                             |
+|      table: minbatch_mor_rt                                                  |
+|      predicates: `o_orderkey` = 100030752                                    |
+|      inputSplitNum=810, totalFileSize=5645053056, scanRanges=810             |
+|      partition=80/80                                                         |
+|      numNodes=6                                                              |
+|      hudiNativeReadSplits=717/810                                            |
+```
+用户可以通过 [profile](../../admin-manual/http-actions/fe/profile-action.md) 查看 Java SDK 的性能，例如:
+```
+-  HudiJniScanner:  0ns
+  -  FillBlockTime:  31.29ms
+  -  GetRecordReaderTime:  1m5s
+  -  JavaScanTime:  35s991ms
+  -  OpenScannerTime:  1m6s
+```
+1. `OpenScannerTime`: 创建并初始化 JNI Reader 的时间
+2. `JavaScanTime`: Java SDK 读取数据的时间
+3. `FillBlockTime`: Java 数据拷贝为 C++ 数据的时间
+4. `GetRecordReaderTime`: 调用 Java SDK 并创建 Hudi Record Reader 的时间

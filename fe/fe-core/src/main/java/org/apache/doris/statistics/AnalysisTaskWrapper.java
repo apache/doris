@@ -65,7 +65,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
                     LOG.warn("Failed to execute task", except);
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
-                                    AnalysisState.FAILED, except.getMessage(), -1);
+                                    AnalysisState.FAILED, except.getMessage(), System.currentTimeMillis());
                 } else {
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,

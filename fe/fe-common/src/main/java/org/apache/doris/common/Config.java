@@ -1498,7 +1498,7 @@ public class Config extends ConfigBase {
     public static boolean enable_pipeline_load = true;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
-    @ConfField(mutable = true, masterOnly = true, expType = ExperimentalType.EXPERIMENTAL)
+    @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
     public static boolean enable_workload_group = false;
 
     @ConfField(mutable = true)
