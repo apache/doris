@@ -149,7 +149,6 @@ Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
         if (it != _load_channels.end()) {
             channel = it->second;
         } else {
-            DCHECK(false);
             return Status::InternalError("unknown load id, load id=" + load_id.to_string());
         }
     }
