@@ -421,6 +421,10 @@ void ExecEnv::_destroy() {
     _join_node_thread_pool.reset(nullptr);
     _serial_download_cache_thread_token.reset(nullptr);
     _download_cache_thread_pool.reset(nullptr);
+    _orphan_mem_tracker.reset();
+    _experimental_mem_tracker.reset();
+    _page_no_cache_mem_tracker.reset();
+    _brpc_iobuf_block_memory_tracker.reset();
 
     _is_init = false;
 }
