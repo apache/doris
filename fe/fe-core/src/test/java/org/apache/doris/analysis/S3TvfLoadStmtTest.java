@@ -38,6 +38,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.hadoop.util.Lists;
 import org.junit.Assert;
 import org.junit.Before;
@@ -71,9 +72,24 @@ public class S3TvfLoadStmtTest {
 
     private Set<String> colNames;
 
+    @Mocked
+    private ConnectContext ctx;
+
     @Before
     public void setUp() throws AnalysisException {
         FeConstants.runningUnitTest = true;
+
+        new Expectations() {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
+
+                ctx.getQualifiedUser();
+                minTimes = 0;
+                result = "default_cluster:user";
+            }
+        };
 
         labelName = new LabelName("testDb", "testTbl");
 
@@ -89,14 +105,6 @@ public class S3TvfLoadStmtTest {
 
     @Test
     public void testClauses() throws UserException {
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = new ConnectContext();
-            }
-        };
-
         final BinaryPredicate greater = new BinaryPredicate(Operator.GT, new IntLiteral(1), new IntLiteral(0));
         final BinaryPredicate less = new BinaryPredicate(Operator.LT, new IntLiteral(1), new IntLiteral(0));
         DataDescription dataDescription = buildDataDesc(
@@ -149,10 +157,6 @@ public class S3TvfLoadStmtTest {
         //        DataDescription dataDescription = buildDataDesc(colNames, null, null, null);
         new Expectations() {
             {
-                ConnectContext.get();
-                minTimes = 0;
-                result = new ConnectContext();
-
                 dataDescription.getParsedColumnExprList();
                 minTimes = 0;
                 result = columnsDescList;
