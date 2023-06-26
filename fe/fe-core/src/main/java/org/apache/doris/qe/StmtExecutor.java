@@ -67,7 +67,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
-import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
@@ -789,7 +788,7 @@ public class StmtExecutor {
     }
 
     private void syncJournalIfNeeded() throws Exception {
-        if (!context.getSessionVariable().enableStrongConsistency) {
+        if (!context.getSessionVariable().enableStrongConsistencyRead) {
             return;
         }
         // fetch master's max journal id and wait for replay

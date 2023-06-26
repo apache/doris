@@ -350,7 +350,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
-    public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency";
+    public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -981,7 +981,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean ignoreColumnWithComplexType = false;
 
     @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY)
-    public boolean enableStrongConsistency = false;
+    public boolean enableStrongConsistencyRead = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
