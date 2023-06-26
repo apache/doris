@@ -125,7 +125,7 @@ show build index [FROM db_name];
 -- Example 1: Viewing the progress of all build index tasks
 show build index;
 -- Example 2: Viewing the progress of the build index task for a specified table
-show build index wehre TableName = "table1";
+show build index where TableName = "table1";
 ```
 
 - drop an inverted index

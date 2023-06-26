@@ -123,7 +123,7 @@ show build index [FROM db_name];
 -- 示例1，查看所有的build index任务进展
 show build index;
 -- 示例2，查看指定table的build index任务进展
-show build index wehre TableName = "table1";
+show build index where TableName = "table1";
 ```
 
 - 删除倒排索引
