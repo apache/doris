@@ -41,10 +41,10 @@ inline uint32_t Value(const char* data, size_t n) {
 }
 
 // Return the crc32c of data content in all slices
-inline uint32_t Value(const std::vector<Slice>& slices) {
+inline uint32_t Value(const std::vector<OwnedSlice>& slices) {
     uint32_t crc = 0;
     for (auto& slice : slices) {
-        crc = Extend(crc, slice.get_data(), slice.get_size());
+        crc = Extend(crc, slice.slice().get_data(), slice.slice().get_size());
     }
     return crc;
 }

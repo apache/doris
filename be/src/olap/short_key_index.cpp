@@ -35,7 +35,7 @@ Status ShortKeyIndexBuilder::add_item(const Slice& key) {
     return Status::OK();
 }
 
-Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows, std::vector<Slice>* body,
+Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows, std::vector<OwnedSlice>* body,
                                       segment_v2::PageFooterPB* page_footer) {
     page_footer->set_type(segment_v2::SHORT_KEY_PAGE);
     page_footer->set_uncompressed_size(_key_buf.size() + _offset_buf.size());
@@ -48,8 +48,8 @@ Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows, std::vector<Sli
     footer->set_num_rows_per_block(_num_rows_per_block);
     footer->set_num_segment_rows(num_segment_rows);
 
-    body->emplace_back(_key_buf);
-    body->emplace_back(_offset_buf);
+    body->emplace_back(_key_buf.build());
+    body->emplace_back(_offset_buf.build());
     return Status::OK();
 }
 

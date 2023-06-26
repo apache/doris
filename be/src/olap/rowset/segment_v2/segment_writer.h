@@ -147,7 +147,7 @@ private:
     Status _write_short_key_index();
     Status _write_primary_key_index();
     Status _write_footer();
-    Status _write_raw_data(const std::vector<Slice>& slices);
+    Status _write_raw_data(const std::vector<OwnedSlice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
