@@ -113,7 +113,8 @@ public:
 
         return Status::RuntimeError(
                 "Illegal column {} of argument of function {}, expected Int8 or Int16 or Int32 or "
-                "Int64", argument.name, get_name());
+                "Int64",
+                argument.name, get_name());
     }
 };
 } // namespace doris::vectorized

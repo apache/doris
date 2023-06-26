@@ -18,7 +18,9 @@
 #include "vec/functions/function_ip.h"
 
 namespace doris::vectorized {
-struct NameFunctionIPv4NumToString { static constexpr auto name = "ipv4numtostring"; };
+struct NameFunctionIPv4NumToString {
+    static constexpr auto name = "ipv4numtostring";
+};
 
 void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv4NumToString<0, NameFunctionIPv4NumToString>>();

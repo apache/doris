@@ -20,8 +20,8 @@
 
 #pragma once
 #include <algorithm>
-#include <cstring>
 #include <bit>
+#include <cstring>
 #include <utility>
 
 constexpr size_t IPV4_BINARY_LENGTH = 4;
