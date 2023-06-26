@@ -86,7 +86,7 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
 
     @Override
     public int hashCode() {
-        return Objects.hash(filePath, format, properties);
+        return Objects.hash(super.hashCode(), filePath, format, properties);
     }
 
     @Override

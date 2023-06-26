@@ -1438,8 +1438,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             format = ctx.format.getText();
         }
         Map<String, String> properties = Maps.newHashMap();
-        for (TvfPropertyContext property : ctx.properties) {
-            properties.put(property.key.getText(), property.value.getText());
+        for (TvfPropertyContext argument : ctx.properties) {
+            String key = parseTVFPropertyItem(argument.key);
+            String value = parseTVFPropertyItem(argument.value);
+            properties.put(key, value);
         }
         return new LogicalFileSink<>(ctx.filePath.getText(), format, properties, plan);
     }

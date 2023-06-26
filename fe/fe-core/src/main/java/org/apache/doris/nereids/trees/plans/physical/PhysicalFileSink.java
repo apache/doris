@@ -50,7 +50,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     public PhysicalFileSink(String filePath, String format, Map<String, String> properties,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             CHILD_TYPE child) {
-        super(PlanType.LOGICAL_FILE_SINK, groupExpression, logicalProperties, child);
+        super(PlanType.PHYSICAL_FILE_SINK, groupExpression, logicalProperties, child);
         this.filePath = filePath;
         this.format = format;
         this.properties = properties;
@@ -59,7 +59,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     public PhysicalFileSink(String filePath, String format, Map<String, String> properties,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_FILE_SINK, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        super(PlanType.PHYSICAL_FILE_SINK, groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.filePath = filePath;
         this.format = format;
         this.properties = properties;
@@ -80,7 +80,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalFileSink only accepts one child");
-        return new PhysicalFileSink<>(filePath, format, properties, getLogicalProperties(), child(0));
+        return new PhysicalFileSink<>(filePath, format, properties, getLogicalProperties(), children.get(0));
     }
 
     @Override
@@ -109,7 +109,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public int hashCode() {
-        return Objects.hash(filePath, format, properties);
+        return Objects.hash(super.hashCode(), filePath, format, properties);
     }
 
     @Override
@@ -119,7 +119,7 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, logicalProperties.get(), child());
+        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, getLogicalProperties(), child());
     }
 
     @Override

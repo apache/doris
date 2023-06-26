@@ -71,7 +71,8 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 + " format as csv\n"
                 + " properties (\n"
                 + "    \"column_separator\" = \",\",\n"
-                + "    \"line_delimiter\" = \"\\n\",\n"
+                + "    \"line_delimiter\" = \"\\n\",\n" 
+                + "    \"broker.name\" = \"my_broker\",\n"
                 + "    \"max_file_size\" = \"100MB\"\n"
                 + ")";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
