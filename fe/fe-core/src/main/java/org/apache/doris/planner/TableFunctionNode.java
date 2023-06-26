@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotId;
