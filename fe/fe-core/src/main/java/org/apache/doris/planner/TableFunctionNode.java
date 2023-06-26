@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotId;
@@ -120,7 +121,8 @@ public class TableFunctionNode extends PlanNode {
         }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
-        List<Expr> baseTblResultExprs = selectStmt.getResultExprs();
+        List<Expr> baseTblResultExprs = Expr.substituteList(selectStmt.getResultExprs(),
+                outputSmap, analyzer, false);
         for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
