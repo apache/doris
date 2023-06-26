@@ -71,6 +71,7 @@ import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
@@ -224,6 +225,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -308,7 +310,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
-        return withExplain(plan, ctx.explain());
+        return withExplain(withOutFile(plan, ctx.outFileClause()), ctx.explain());
     }
 
     @Override
@@ -1425,6 +1427,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             return new ExplainCommand(explainLevel, inputPlan);
         });
+    }
+
+    private LogicalPlan withOutFile(LogicalPlan plan, OutFileClauseContext ctx) {
+        if (ctx == null) {
+            return plan;
+        }
+        String format = "csv";
+        if (ctx.format != null) {
+            format = ctx.format.getText();
+        }
+        Map<String, String> properties = Maps.newHashMap();
+        for (TvfPropertyContext property : ctx.properties) {
+            properties.put(property.key.getText(), property.value.getText());
+        }
+        return new LogicalFileSink<>(ctx.filePath.getText(), format, properties, plan);
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {

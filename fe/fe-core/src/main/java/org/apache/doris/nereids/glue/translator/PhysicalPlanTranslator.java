@@ -342,11 +342,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink,
             PlanTranslatorContext context) {
         PlanFragment rootFragment = fileSink.child().accept(this, context);
-        ResultFileSink sink = new ResultFileSink(rootFragment.getPlanRoot().getId(), new OutFileClause(
+        OutFileClause outFile = new OutFileClause(
                 fileSink.getFilePath(),
                 fileSink.getFormat(),
                 fileSink.getProperties()
-        ));
+        );
+
+        List<Expr> outputExprs = Lists.newArrayList();
+        fileSink.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        rootFragment.setOutputExprs(outputExprs);
+
+        try {
+            outFile.analyze(null, outputExprs,
+                    fileSink.getOutput().stream().map(NamedExpression::getName).collect(Collectors.toList()));
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e.getCause());
+        }
+        ResultFileSink sink = new ResultFileSink(rootFragment.getPlanRoot().getId(), outFile);
 
         rootFragment.setSink(sink);
         return rootFragment;
