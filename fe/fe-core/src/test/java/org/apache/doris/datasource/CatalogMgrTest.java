@@ -652,7 +652,7 @@ public class CatalogMgrTest extends TestWithFeService {
     @Test
     public void testInvalidAndValidAlterCatalogProperties() throws Exception {
 
-        String catalogName="test_hive1";
+        String catalogName = "test_hive1";
         String createCatalogSql = "CREATE CATALOG test_hive1 PROPERTIES (\n"
                 + "    'type'='hms',\n"
                 + "    'hive.metastore.uris' = 'thrift://127.0.0.1:7007',\n"
@@ -674,7 +674,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + "    'dfs.client.failover.proxy.provider.HANN'"
                 + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
                 + ");";
-        AlterCatalogPropertyStmt alterCatalogPropertyStmt1 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogSql);
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt1 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
+                alterCatalogSql);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Missing dfs.ha.namenodes.HANN property",
                 () -> mgr.alterCatalogProps(alterCatalogPropertyStmt1));
@@ -689,7 +690,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + "    'dfs.client.failover.proxy.provider.HANN'"
                 + "=''\n"
                 + ");";
-        AlterCatalogPropertyStmt alterCatalogPropertyStmt2 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogSql);
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt2 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
+                alterCatalogSql);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Missing dfs.client.failover.proxy.provider.HANN property",
                 () -> mgr.alterCatalogProps(alterCatalogPropertyStmt2));
@@ -704,7 +706,8 @@ public class CatalogMgrTest extends TestWithFeService {
                 + "    'dfs.client.failover.proxy.provider.HANN'"
                 + "='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'\n"
                 + ");";
-        AlterCatalogPropertyStmt alterCatalogPropertyStmt3 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCatalogSql);
+        AlterCatalogPropertyStmt alterCatalogPropertyStmt3 = (AlterCatalogPropertyStmt) parseAndAnalyzeStmt(
+                alterCatalogSql);
         mgr.alterCatalogProps(alterCatalogPropertyStmt3);
 
         CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
