@@ -26,58 +26,6 @@ if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
     export PATH
 fi
 
-OPTS="$(getopt \
-    -n "$0" \
-    -o '' \
-    -l 'conf:,fs_type:,operation:,threads:,iterations:,file_size:' \
-    -- "$@")"
-
-eval set -- "${OPTS}"
-
-while true; do
-    case "$1" in
-    --conf)
-        CONF="$2"
-        shift 2
-        ;;
-    --fs_type)
-        FS_TYPE="$2"
-        shift 2
-        ;;
-    --operation)
-        OPERATION="$2"
-        shift 2
-        ;;
-    --threads)
-        THREADS="$2"
-        shift 2
-        ;;
-    --iterations)
-        ITERATIONS="$2"
-        shift 2
-        ;;
-    --file_size)
-        FILE_SIZE="$2"
-        shift 2
-        ;;
-    --)
-        shift
-        break
-        ;;
-    *)
-        echo "Internal error"
-        exit 1
-        ;;
-    esac
-done
-
-echo "CONF: ${CONF}"
-echo "FS_TYPE: ${FS_TYPE}"
-echo "OPERATION: ${OPERATION}"
-echo "THREADS: ${THREADS}"
-echo "ITERATIONS: ${ITERATIONS}"
-echo "FILE_SIZE: ${FILE_SIZE}"
-
 DORIS_HOME="$(
     cd "${curdir}/.."
     pwd
@@ -316,16 +264,5 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
 
-${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/fs_benchmark_tool" --conf "${CONF}" --fs_type="${FS_TYPE}" --operation="${OPERATION}" --threads="${THREADS}" --iterations="${ITERATIONS}" --file_size="${FILE_SIZE}" 2>&1 | tee "${LOG_DIR}/fs_benchmark_tool.log"
-
-qps="0MB/s"
-latency="0ms"
-
-eval "$(grep "median" "${LOG_DIR}/fs_benchmark_tool.log" | awk '{printf("qps=%sMB/s latency=%sms", "'"${FILE_SIZE}"'" / 1024 / 1024 / ($2 * "'"${THREADS}"'" / 1000), $2 * "'"${THREADS}"'")}')"
-
-echo "------------------------------"
-echo "   Benchmark Result  "
-echo "------------------------------"
-echo "thread_num: ${THREADS}."
-echo "qps: ${qps}."
-echo "latency: ${latency}."
+echo "$@"
+${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/fs_benchmark_tool" "$@" 2>&1 | tee "${LOG_DIR}/fs_benchmark_tool.log"
