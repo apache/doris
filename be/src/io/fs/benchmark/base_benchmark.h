@@ -92,6 +92,98 @@ public:
         });
     }
 
+    virtual std::string get_file_path(benchmark::State& state) {
+        std::string base_dir = _conf_map["base_dir"];
+        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        return file_path;
+    }
+
+    Status read(benchmark::State& state, FileReaderSPtr reader) {
+        bm_log("begin to run {}", _name);
+        size_t buffer_size =
+            _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
+        std::vector<char> buffer;
+        buffer.resize(buffer_size);
+        doris::Slice data = {buffer.data(), buffer.size()};
+        size_t offset = 0;
+        size_t bytes_read = 0;
+
+        size_t read_size = reader->size();
+        if (_file_size > 0) {
+            read_size = std::min(read_size, _file_size);
+        }
+        long remaining_size = read_size;
+
+        Status status;
+        auto start = std::chrono::high_resolution_clock::now();
+        while (remaining_size > 0) {
+            bytes_read = 0;
+            size_t size = std::min(buffer_size, (size_t)remaining_size);
+            data.size = size;
+            status = reader->read_at(offset, data, &bytes_read);
+            if (status != Status::OK() || bytes_read < 0) {
+                bm_log("reader read_at error: {}", status.to_string());
+                break;
+            }
+            if (bytes_read == 0) { // EOF
+                break;
+            }
+            offset += bytes_read;
+            remaining_size -= bytes_read;
+        }
+        bm_log("finish to run {}", _name);
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        state.counters["ReadRate"] = benchmark::Counter(read_size, benchmark::Counter::kIsRate);
+
+        if (reader != nullptr) {
+            reader->close();
+        }
+        return status;
+    }
+
+    Status write(benchmark::State& state, FileWriter* writer) {
+        size_t write_size = _file_size;
+        size_t buffer_size =
+                _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
+        long remaining_size = write_size;
+        std::vector<char> buffer;
+        buffer.resize(buffer_size);
+        doris::Slice data = {buffer.data(), buffer.size()};
+
+        bm_log("beginto run {}", _name);
+        Status status;
+        auto start = std::chrono::high_resolution_clock::now();
+        while (remaining_size > 0) {
+            size_t size = std::min(buffer_size, (size_t)remaining_size);
+            data.size = size;
+            status = writer->append(data);
+            if (status != Status::OK()) {
+                bm_log("writer append error: {}", status.to_string());
+                break;
+            }
+            remaining_size -= size;
+        }
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
+
+        state.counters["WriteRate"] = benchmark::Counter(write_size, benchmark::Counter::kIsRate);
+
+        if (writer != nullptr) {
+            writer->close();
+        }
+        return status;
+    }
+
 protected:
     std::string _name;
     int _threads;

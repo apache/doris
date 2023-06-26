@@ -35,103 +35,159 @@ public:
             : BaseBenchmark(name, threads, iterations, file_size, 3, conf_map) {}
     virtual ~S3Benchmark() = default;
 
-    Status init() override {
-        bm_log("begin to init {}", _name);
-        S3URI s3_uri(_conf_map["file"]);
+    Status get_fs(const std::string& path) {
+        S3URI s3_uri(path);
         RETURN_IF_ERROR(s3_uri.parse());
         RETURN_IF_ERROR(
                 S3ClientFactory::convert_properties_to_s3_conf(_conf_map, s3_uri, &_s3_conf));
-        RETURN_IF_ERROR(io::S3FileSystem::create(std::move(_s3_conf), "", &_fs));
-        RETURN_IF_ERROR(init_other());
-        bm_log("finish to init {}", _name);
-        return Status::OK();
+        return io::S3FileSystem::create(std::move(_s3_conf), "", &_fs);
     }
-
-    virtual Status init_other() { return Status::OK(); }
 
 protected:
     doris::S3Conf _s3_conf;
     std::shared_ptr<io::S3FileSystem> _fs;
 };
 
-class S3ReadBenchmark : public S3Benchmark {
+class S3OpenReadBenchmark : public S3Benchmark {
 public:
-    S3ReadBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("S3ReadBenchmark", iterations, conf_map), _result(buffer, 128) {}
-    virtual ~S3ReadBenchmark() = default;
+    S3iOpenReadBenchmark(int threads, int iterations, size_t file_size, const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3ReadBenchmark", threads, iterations, file_size, conf_map) {}
+    virtual ~S3OpenReadBenchmark() = default;
 
-    Status init_other() override {
-        std::string file_path = _conf_map["file"];
+    Status run(benchmark::State& state) override {
+        auto file_path = get_file_path(state);
+        RETURN_IF_ERROR(get_fs(file_path));
+         
+        io::FileReaderSPtr reader;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         RETURN_IF_ERROR(FileFactory::create_s3_reader(
                 _conf_map, file_path, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&_fs),
                 &_reader, reader_opts));
-        return Status::OK();
+
+        return read(state, reader);
     }
-
-    Status run() override { return _reader->read_at(0, _result, &_bytes_read); }
-
-private:
-    doris::S3Conf _s3_conf;
-    io::FileReaderSPtr _reader;
-    char buffer[128];
-    doris::Slice _result;
-    size_t _bytes_read = 0;
 };
 
-class S3SizeBenchmark : public S3Benchmark {
+// Read a single specified file
+class S3SingleReadBenchmark : public S3OpenReadBenchmark {
 public:
-    S3SizeBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("S3SizeBenchmark", iterations, conf_map) {}
-    virtual ~S3SizeBenchmark() = default;
+    S3SingleReadBenchmark(int threads, int iterations, size_t file_size,
+                            const std::map<std::string, std::string>& conf_map)
+            : S3OpenReadBenchmark("S3SingleReadBenchmark", threads, iterations, file_size, conf_map) {}
+    virtual ~S3SingleReadBenchmark() = default;
 
-    Status run() override {
-        int64_t file_size = 0;
-        return _fs->file_size(_conf_map["file"], &file_size);
+    virtual std::string get_file_path(benchmark::State& state) override {
+        std::string file_path = _conf_map["file_path"];
+        bm_log("file_path: {}", file_path);
+        return file_path;
+    }
+};
+
+class S3CreateWriteBenchmark : public S3Benchmark {
+public:
+    S3CreateWriteBenchmark(int threads, int iterations, size_t file_size,
+                             const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3CreateWriteBenchmark", threads, iterations, file_size, 3,
+                            conf_map) {}
+    virtual ~S3CreateWriteBenchmark() = default;
+
+    Status init() override { return Status::OK(); }
+
+    Status run(benchmark::State& state) override {
+        auto file_path = get_file_path(state);
+        RETURN_IF_ERROR(get_fs(file_path));
+
+        io::FileWriterPtr writer;
+        RETURN_IF_ERROR(fs->create_file(file_path, &writer));
+        return write(state, writer.get());
     }
 };
 
 class S3ListBenchmark : public S3Benchmark {
 public:
-    S3ListBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("S3ListBenchmark", iterations, conf_map) {}
+    S3ListBenchmark(int threads, int iterations, size_t file_size, const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3ListBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~S3ListBenchmark() = default;
 
-    Status run() override {
+    virtual std::string get_file_path(benchmark::State& state) override {
+        return _conf_map["file_path"];
+    }
+
+    Status run(benchmark::State& state) override {
+        auto file_path = get_file_path(state);
+        RETURN_IF_ERROR(get_fs(file_path));
+
+        auto start = std::chrono::high_resolution_clock::now();
         std::vector<FileInfo> files;
         bool exists = true;
-        return _fs->list(_conf_map["file"], true, &files, &exists);
+        RETURN_IF_ERROR(_fs->list(_conf_map["file"], true, &files, &exists));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        state.counters["ListCost"] =
+        benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert); 
     }
 };
 
-class S3OpenBenchmark : public S3Benchmark {
+class S3RenameBenchmark : public S3Benchmark {
 public:
-    S3OpenBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("S3OpenBenchmark", iterations, conf_map) {}
-    virtual ~S3OpenBenchmark() = default;
+    S3RenameBenchmark(int threads, int iterations, size_t file_size,
+                        const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("HdfsRenameBenchmark", threads, 1, file_size, 1, conf_map) {}
+    virtual ~HdfsRenameBenchmark() = default;
 
-    Status init_other() override {
-        std::string file_path = _conf_map["file"];
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
-        RETURN_IF_ERROR(FileFactory::create_s3_reader(
-                _conf_map, file_path, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&_fs),
-                &_reader, reader_opts));
+    Status init() override { return Status::OK(); }
+
+    Status run(benchmark::State& state) override {
+        auto file_path = get_file_path(state);
+        RETURN_IF_ERROR(get_fs(file_path));
+
+        auto new_file_path = file_path + "_new";
+        bm_log("file_path: {}", file_path);
+
+        bm_log("begin to run {}", _name);
+        auto start = std::chrono::high_resolution_clock::now();
+        RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
+
+        state.counters["RenameCost"] =
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
         return Status::OK();
     }
-
-    Status run() override { return _fs->open_file(_conf_map["file"], &_reader); }
-
-private:
-    io::FileReaderSPtr _reader;
 };
 
-class S3ConnectBenchmark : public S3Benchmark {
+class S3ExistsBenchmark : public S3Benchmark {
 public:
-    S3ConnectBenchmark(int iterations, const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("S3ConnectBenchmark", iterations, conf_map) {}
-    virtual ~S3ConnectBenchmark() = default;
+    S3ExistsBenchmark(int threads, int iterations, size_t file_size,
+                        const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("HdfsExistsBenchmark", threads, iterations, file_size, 3, conf_map) {}
+    virtual ~S3ExistsBenchmark() = default;
 
-    Status run() override { return _fs->connect(); }
+    Status run(benchmark::State& state) override {
+        auto file_path = get_file_path(state);
+        RETURN_IF_ERROR(get_fs(file_path));
+
+        auto start = std::chrono::high_resolution_clock::now();
+        bool res = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &res));
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+
+        state.SetIterationTime(elapsed_seconds.count());
+        bm_log("finish to run {}", _name);
+
+        state.counters["ExistsCost"] =
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+        return Status::OK();
+    }
 };
 
 } // namespace doris::io
