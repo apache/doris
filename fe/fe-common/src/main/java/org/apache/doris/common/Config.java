@@ -1703,9 +1703,25 @@ public class Config extends ConfigBase {
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
+     * Deprecated, use max_partition_cache_loader_thread_pool_size instead.
      */
+    @Deprecated
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 10;
+
+    /**
+     * Max partition cache loader thread-pool size.
+     * Max thread pool size for loading external meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_partition_cache_loader_thread_pool_size = 10;
+
+    /**
+     * Max file cache loader thread-pool size.
+     * Max thread pool size for loading external meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_file_cache_loader_thread_pool_size = 50;
 
     /**
      * Max cache num of external catalog's file

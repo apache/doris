@@ -89,6 +89,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -110,7 +112,8 @@ public class HiveMetaStoreCache {
     private HMSExternalCatalog catalog;
     private JobConf jobConf;
 
-    private Executor executor;
+    private Executor partitionCacheLoader;
+    private ThreadPoolExecutor fileCacheLoader;
 
     // cache from <dbname-tblname> -> <values of partitions>
     private LoadingCache<PartitionValueCacheKey, HivePartitionValues> partitionValuesCache;
@@ -120,9 +123,11 @@ public class HiveMetaStoreCache {
     private volatile AtomicReference<LoadingCache<FileCacheKey, FileCacheValue>> fileCacheRef
             = new AtomicReference<>();
 
-    public HiveMetaStoreCache(HMSExternalCatalog catalog, Executor executor) {
+    public HiveMetaStoreCache(HMSExternalCatalog catalog, Executor partitionCacheLoader,
+                              ThreadPoolExecutor fileCacheLoader) {
         this.catalog = catalog;
-        this.executor = executor;
+        this.partitionCacheLoader = partitionCacheLoader;
+        this.fileCacheLoader = fileCacheLoader;
         init();
         initMetrics();
     }
@@ -133,19 +138,19 @@ public class HiveMetaStoreCache {
                 .build(CacheLoader.asyncReloading(
                         new CacheLoader<PartitionValueCacheKey, HivePartitionValues>() {
                             @Override
-                            public HivePartitionValues load(PartitionValueCacheKey key) throws Exception {
+                            public HivePartitionValues load(PartitionValueCacheKey key) {
                                 return loadPartitionValues(key);
                             }
-                        }, executor));
+                        }, partitionCacheLoader));
 
         partitionCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(CacheLoader.asyncReloading(new CacheLoader<PartitionCacheKey, HivePartition>() {
                     @Override
-                    public HivePartition load(PartitionCacheKey key) throws Exception {
+                    public HivePartition load(PartitionCacheKey key) {
                         return loadPartitions(key);
                     }
-                }, executor));
+                }, partitionCacheLoader));
 
         setNewFileCache();
     }
@@ -168,10 +173,14 @@ public class HiveMetaStoreCache {
         if (fileMetaCacheTtlSecond >= HMSExternalCatalog.FILE_META_CACHE_TTL_DISABLE_CACHE) {
             fileCacheBuilder.expireAfterWrite(fileMetaCacheTtlSecond, TimeUnit.SECONDS);
         }
-        // if the file.meta.cache.ttl-second is equal 0, use the synchronous loader
-        // if the file.meta.cache.ttl-second greater than 0, use the asynchronous loader
-        CacheLoader<FileCacheKey, FileCacheValue> loader = getGuavaCacheLoader(executor,
-                fileMetaCacheTtlSecond);
+
+        // use a synchronous loader so we can do concurrent load outside
+        CacheLoader<FileCacheKey, FileCacheValue> loader = new CacheLoader<FileCacheKey, FileCacheValue>() {
+                @Override
+                public FileCacheValue load(FileCacheKey key) {
+                    return loadFiles(key);
+                }
+        };
 
         LoadingCache<FileCacheKey, FileCacheValue> preFileCache = fileCacheRef.get();
 
@@ -357,6 +366,13 @@ public class HiveMetaStoreCache {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("load #{} splits for {} in catalog {}", result.getFiles().size(), key, catalog.getName());
                 }
+
+                // Replace default hive partition with a null_string.
+                for (int i = 0; i < result.getValuesSize(); i++) {
+                    if (HIVE_DEFAULT_PARTITION.equals(result.getPartitionValues().get(i))) {
+                        result.getPartitionValues().set(i, FeConstants.null_string);
+                    }
+                }
                 return result;
             } catch (Exception e) {
                 throw new CacheException("failed to get input splits for %s in catalog %s", e, key, catalog.getName());
@@ -398,36 +414,29 @@ public class HiveMetaStoreCache {
 
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions, boolean useSelfSplitter) {
         long start = System.currentTimeMillis();
-        List<FileCacheKey> keys = Lists.newArrayListWithExpectedSize(partitions.size());
-        partitions.stream().forEach(p -> {
-            FileCacheKey fileCacheKey = p.isDummyPartition()
-                    ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
-                    p.getInputFormat(), useSelfSplitter)
-                    : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
-            fileCacheKey.setUseSelfSplitter(useSelfSplitter);
-            keys.add(fileCacheKey);
-        });
 
-        Stream<FileCacheKey> stream;
-        if (partitions.size() < MIN_BATCH_FETCH_PARTITION_NUM) {
-            stream = keys.stream();
-        } else {
-            stream = keys.parallelStream();
-        }
-        List<FileCacheValue> fileLists = stream.map(k -> {
-            try {
-                FileCacheValue fileCacheValue = fileCacheRef.get().get(k);
-                // Replace default hive partition with a null_string.
-                for (int i = 0; i < fileCacheValue.getValuesSize(); i++) {
-                    if (HIVE_DEFAULT_PARTITION.equals(fileCacheValue.getPartitionValues().get(i))) {
-                        fileCacheValue.getPartitionValues().set(i, FeConstants.null_string);
+        List<Future<FileCacheValue>> futureLists = partitions.stream()
+                .map(p -> {
+                    FileCacheKey fileCacheKey = p.isDummyPartition()
+                            ? FileCacheKey.createDummyCacheKey(p.getDbName(), p.getTblName(), p.getPath(),
+                            p.getInputFormat(), useSelfSplitter)
+                            : new FileCacheKey(p.getPath(), p.getInputFormat(), p.getPartitionValues());
+                    fileCacheKey.setUseSelfSplitter(useSelfSplitter);
+                    return fileCacheKey;
+                })
+                .map(k -> fileCacheLoader.submit(() -> fileCacheRef.get().get(k)))
+                .collect(Collectors.toList());
+
+        List<FileCacheValue> fileLists = futureLists.stream()
+                .map(f -> {
+                    try {
+                        return f.get();
+                    } catch (InterruptedException | ExecutionException e) {
+                        throw new CacheException("failed to get file cache values in catalog %s", e, catalog.getName());
                     }
-                }
-                return fileCacheValue;
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        }).collect(Collectors.toList());
+                })
+                .collect(Collectors.toList());
+
         LOG.debug("get #{} files from #{} partitions in catalog {} cost: {} ms",
                 fileLists.stream().mapToInt(l -> l.getFiles() == null
                     ? (l.getSplits() == null ? 0 : l.getSplits().size()) : l.getFiles().size()).sum(),
@@ -636,30 +645,6 @@ public class HiveMetaStoreCache {
 
     public void putPartitionValuesCacheForTest(PartitionValueCacheKey key, HivePartitionValues values) {
         partitionValuesCache.put(key, values);
-    }
-
-    /***
-     * get the guava CacheLoader
-     * if the fileMetaCacheTtlSecond equal 0 , the synchronous loader is used
-     * if the fileMetaCacheTtlSecond greater than 0 , the asynchronous loader is used
-     * @param executor
-     * @param fileMetaCacheTtlSecond
-     * @return
-     */
-    private CacheLoader<FileCacheKey, FileCacheValue> getGuavaCacheLoader(Executor executor,
-            int fileMetaCacheTtlSecond) {
-        CacheLoader<FileCacheKey, FileCacheValue> loader =
-                new CacheLoader<FileCacheKey, FileCacheValue>() {
-                    @Override
-                    public FileCacheValue load(FileCacheKey key) throws Exception {
-                        return loadFiles(key);
-                    }
-                };
-        if (fileMetaCacheTtlSecond == HMSExternalCatalog.FILE_META_CACHE_TTL_DISABLE_CACHE) {
-            return loader;
-        } else {
-            return CacheLoader.asyncReloading(loader, executor);
-        }
     }
 
     /***
