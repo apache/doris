@@ -78,7 +78,7 @@ public class LoadProperties {
     private Long maxBatchIntervalS = 10L;
     // -----------------------------------------------------------------------
 
-    private Map<String,String> properties;
+    private Map<String, String> properties;
 
     public LoadProperties(Map<String, String> properties) {
         this.properties = properties;
