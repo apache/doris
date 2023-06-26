@@ -147,12 +147,14 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -1815,13 +1817,26 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             if (!ok || !countDownLatch.getStatus().ok()) {
-                errMsg = "Failed to create partition[" + partitionName + "]. Timeout:" + (timeout / 1000) + " seconds.";
+                errMsg = "Failed to create partition[" + partitionName + "].";
                 // clear tasks
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
 
                 if (!countDownLatch.getStatus().ok()) {
                     errMsg += " Error: " + countDownLatch.getStatus().getErrorMsg();
+                    if (countDownLatch.getStatus().getErrorCode() == TStatusCode.TIMEOUT) {
+                        SystemInfoService infoService = Env.getCurrentSystemInfo();
+                        Set<String> downBeSet = countDownLatch.getLeftMarks().stream()
+                                .map(item -> infoService.getBackend(item.getKey()))
+                                .filter(backend -> !backend.isAlive())
+                                .map(Backend::getHost)
+                                .collect(Collectors.toSet());
+                        if (null != downBeSet || downBeSet.size() != 0) {
+                            String downBE = StringUtils.join(downBeSet, ",");
+                            errMsg += "The BE " + downBE + " is down,please check BE status!";
+                        }
+                    }
                 } else {
+                    errMsg += "Timeout:" + (timeout / 1000) + " seconds.";
                     List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
                     // only show at most 3 results
                     List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 3));
@@ -2055,7 +2070,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new AnalysisException(
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
-                    + " with storage policy(" + storagePolicy + ")");
+                     + " with storage policy(" + storagePolicy + ")");
         }
         olapTable.setStoragePolicy(storagePolicy);
 

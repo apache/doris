@@ -52,6 +52,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "util/bvar_helper.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice

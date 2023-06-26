@@ -197,10 +197,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.5.0.tar.gz"
-BRPC_NAME="brpc-1.5.0.tar.gz"
-BRPC_SOURCE="brpc-1.5.0"
-BRPC_MD5SUM="d1b6d9b615292dfa5cefa227822c5996"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.4.0.tar.gz"
+BRPC_NAME="brpc-1.4.0.tar.gz"
+BRPC_SOURCE="brpc-1.4.0"
+BRPC_MD5SUM="6af9d50822c33a3abc56a1ec0af0e0bc"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -386,10 +386,10 @@ PDQSORT_FILE="pdqsort.h"
 PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
-BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"
-BENCHMARK_NAME=benchmark-1.5.6.tar.gz
-BENCHMARK_SOURCE=benchmark-1.5.6
-BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
+BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
+BENCHMARK_NAME=v1.8.0.tar.gz
+BENCHMARK_SOURCE=benchmark-1.8.0
+BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed

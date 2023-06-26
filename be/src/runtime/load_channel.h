@@ -87,13 +87,13 @@ public:
         return mem_usage;
     }
 
-    void get_writers_mem_consumption_snapshot(
+    void get_active_memtable_mem_consumption(
             std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>*
                     writers_mem_snap) {
         std::lock_guard<SpinLock> l(_tablets_channels_lock);
         for (auto& it : _tablets_channels) {
             std::multimap<int64_t, int64_t, std::greater<int64_t>> tablets_channel_mem;
-            it.second->get_writers_mem_consumption_snapshot(&tablets_channel_mem);
+            it.second->get_active_memtable_mem_consumption(&tablets_channel_mem);
             writers_mem_snap->emplace_back(it.first, std::move(tablets_channel_mem));
         }
     }

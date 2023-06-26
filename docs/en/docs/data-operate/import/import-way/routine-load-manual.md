@@ -410,6 +410,34 @@ FROM KAFKA
 >
 >
 
+**Access the PLAIN certified Kafka cluster**
+
+To access a Kafka cluster with PLAIN authentication enabled, you need to add the following configuration：
+
+   - property.security.protocol=SASL_PLAINTEXT : Use SASL plaintext
+   - property.sasl.mechanism=PLAIN : Set the SASL authentication mode to PLAIN
+   - property.sasl.username=admin : Set the SASL user name
+   - property.sasl.password=admin : Set the SASL password
+
+1. Create a routine import job
+
+    ```sql
+    CREATE ROUTINE LOAD db1.job1 on tbl1
+    PROPERTIES (
+    "desired_concurrent_number"="1",
+     )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092",
+        "kafka_topic" = "my_topic",
+        "property.security.protocol"="SASL_PLAINTEXT",
+        "property.sasl.mechanism"="PLAIN",
+        "property.sasl.username"="admin",
+        "property.sasl.password"="admin"
+    );
+
+    ```
+
 <version since="1.2">
 
 **Accessing a Kerberos-certified Kafka cluster**

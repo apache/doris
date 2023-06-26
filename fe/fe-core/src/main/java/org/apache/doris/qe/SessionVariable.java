@@ -712,7 +712,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_PLANNER, needForward = true,
             fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
-    private boolean enableNereidsPlanner = false;
+    private boolean enableNereidsPlanner = true;
 
     @VariableMgr.VarAttr(name = DISABLE_NEREIDS_RULES, needForward = true)
     private String disableNereidsRules = "";
@@ -759,8 +759,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
-    public boolean enableFunctionPushdown = true;
+    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
+    public boolean enableFunctionPushdown = false;
 
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
@@ -995,8 +995,10 @@ public class SessionVariable implements Serializable, Writable {
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
+            this.enableFunctionPushdown = false;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
+            this.enableFunctionPushdown = true;
         }
         this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {
@@ -1020,24 +1022,41 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
-        // pull_request_id default value is 0
-        if (Config.pull_request_id % 2 == 1) {
-            this.enablePipelineEngine = true;
-            // this.enableFoldConstantByBe = true;
-            // this.enableTwoPhaseReadOpt = false;
-            this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-        } else {
-            // this.enablePipelineEngine = false;
-            // this.enableFoldConstantByBe = false;
-            // this.enableTwoPhaseReadOpt = true;
-            this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+        // pull_request_id default value is 0. When it is 0, use default (global) session variable.
+        if (Config.pull_request_id > 0) {
+            switch (Config.pull_request_id % 4) {
+                case 0:
+                    this.enablePipelineEngine = true;
+                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
+                    break;
+                case 1:
+                    this.enablePipelineEngine = true;
+                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
+                    break;
+                case 2:
+                    this.enablePipelineEngine = false;
+                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
+                    break;
+                case 3:
+                    this.enablePipelineEngine = false;
+                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
-            if (Config.pull_request_id % 2 == 1) {
-                this.batchSize = 4064;
-            } else {
-                this.batchSize = 50;
+            if (Config.pull_request_id > 0) {
+                if (Config.pull_request_id % 2 == 1) {
+                    this.batchSize = 4064;
+                } else {
+                    this.batchSize = 50;
+                }
             }
         }
 

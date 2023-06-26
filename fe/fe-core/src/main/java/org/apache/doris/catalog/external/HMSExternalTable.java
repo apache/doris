@@ -18,17 +18,16 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.HiveAnalysisTask;
 import org.apache.doris.statistics.IcebergAnalysisTask;
-import org.apache.doris.statistics.StatisticsRepository;
 import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -51,6 +50,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,6 +61,7 @@ public class HMSExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     private static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
+    private static final Set<String> SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS;
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
@@ -70,6 +71,9 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
         SUPPORTED_HIVE_FILE_FORMATS.add("org.apache.hadoop.mapred.TextInputFormat");
+
+        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS = Sets.newHashSet();
+        SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.add("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat");
     }
 
     private static final Set<String> SUPPORTED_HUDI_FILE_FORMATS;
@@ -191,7 +195,15 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public boolean isHiveTransactionalTable() {
-        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable);
+        return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
+                && isSupportedTransactionalFileFormat();
+    }
+
+    private boolean isSupportedTransactionalFileFormat() {
+        // Sometimes we meet "transactional" = "true" but format is parquet, which is not supported.
+        // So we need to check the input format for transactional table.
+        String inputFormatName = remoteTable.getSd().getInputFormat();
+        return inputFormatName != null && SUPPORTED_HIVE_TRANSACTIONAL_FILE_FORMATS.contains(inputFormatName);
     }
 
     public boolean isFullAcidTable() {
@@ -380,11 +392,15 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public long estimatedRowCount() {
         try {
-            TableStatistic tableStatistic = StatisticsRepository.fetchTableLevelStats(id);
-            return tableStatistic.rowCount;
-        } catch (DdlException e) {
-            return 1;
+            Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
+                    catalog.getId(), catalog.getDbOrAnalysisException(dbName).getId(), id);
+            if (tableStatistics.isPresent()) {
+                return tableStatistics.get().rowCount;
+            }
+        } catch (Exception e) {
+            LOG.warn(String.format("Fail to get row count for table %s", name), e);
         }
+        return 1;
     }
 
     private List<Column> getIcebergSchema(List<FieldSchema> hmsSchema) {
@@ -395,9 +411,8 @@ public class HMSExternalTable extends ExternalTable {
             tmpSchema.add(new Column(field.getName(),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
                             IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
-                    true, null,
-                    true, false, null, field.getComment(), true, null,
-                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null, null, null, null));
+                    true, null, true, false, null, field.getComment(), true, null,
+                    schema.caseInsensitiveFindField(field.getName()).fieldId(), null));
         }
         return tmpSchema;
     }

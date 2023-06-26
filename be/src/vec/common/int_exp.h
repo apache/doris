@@ -66,15 +66,15 @@ inline uint64_t int_exp10(int x) {
 
 namespace common {
 
-inline std::int32_t exp10_i32(int x) {
+inline constexpr std::int32_t exp10_i32(int x) {
     return exp_details::get_exp<std::int32_t, 10, 10>(x);
 }
 
-inline std::int64_t exp10_i64(int x) {
+inline constexpr std::int64_t exp10_i64(int x) {
     return exp_details::get_exp<std::int64_t, 10, 19>(x);
 }
 
-inline __int128 exp10_i128(int x) {
+inline constexpr __int128 exp10_i128(int x) {
     return exp_details::get_exp<__int128, 10, 39>(x);
 }
 

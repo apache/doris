@@ -29,7 +29,10 @@ suite("test_update_mow", "p0") {
                 date_value date
             )
             UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true"
+            );
         """
     sql "insert into ${tbName1} values(1, 1, 1, '2000-01-01');"
     sql "insert into ${tbName1} values(2, 1, 1, '2000-01-01');"

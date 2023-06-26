@@ -466,12 +466,8 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     bool doClearLockID = false;
 
     if (lock_factory == nullptr) {
-        if (disableLocks) {
-            lock_factory = lucene::store::NoLockFactory::getNoLockFactory();
-        } else {
-            lock_factory = _CLNEW lucene::store::FSLockFactory(directory.c_str(), this->filemode);
-            doClearLockID = true;
-        }
+        lock_factory = _CLNEW lucene::store::NoLockFactory();
+        fs->create_directory(directory);
     }
 
     setLockFactory(lock_factory);
@@ -480,10 +476,6 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
         lockFactory->setLockPrefix(nullptr);
     }
 
-    // It's meaningless checking directory existence in S3.
-    if (fs->type() == io::FileSystemType::S3) {
-        return;
-    }
     bool exists = false;
     Status status = fs->exists(directory, &exists);
     if (!status.ok()) {

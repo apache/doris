@@ -28,7 +28,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
@@ -202,11 +201,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         joinConjuncts = Expr.substituteList(joinConjuncts, combinedChildSmap, analyzer, false);
         computeCrossRuntimeFilterExpr();
-
-        // Only for Vec: create new tuple for join result
-        if (VectorizedUtil.isVectorized()) {
-            computeOutputTuple(analyzer);
-        }
+        computeOutputTuple(analyzer);
     }
 
     private void computeCrossRuntimeFilterExpr() {

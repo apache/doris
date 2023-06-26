@@ -220,6 +220,10 @@ public:
 
     void gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos);
 
+    void add_async_publish_task(int64_t partition_id, int64_t tablet_id, int64_t publish_version,
+                                int64_t transaction_id, bool is_recover);
+    int64_t get_pending_publish_min_version(int64_t tablet_id);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -317,6 +321,8 @@ private:
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
 
     void _gc_binlogs(int64_t tablet_id, int64_t version);
+
+    void _async_publish_callback();
 
 private:
     struct CompactionCandidate {
@@ -453,6 +459,12 @@ private:
 
     std::mutex _running_cooldown_mutex;
     std::unordered_set<int64_t> _running_cooldown_tablets;
+
+    // tablet_id, publish_version, transaction_id, partition_id
+    std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
+    // aync publish for discontinuous versions of merge_on_write table
+    scoped_refptr<Thread> _async_publish_thread;
+    std::mutex _async_publish_mutex;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

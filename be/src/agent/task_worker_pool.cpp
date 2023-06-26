@@ -90,11 +90,12 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(agent_task_queue_size, MetricUnit::NOUNIT);
 
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
-const int64_t PUBLISH_TIMEOUT_SEC = 10;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
+
+static bvar::LatencyRecorder g_publish_version_latency("doris_pk", "publish_version");
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
@@ -1440,25 +1441,28 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
+
         const TPublishVersionRequest& publish_version_req = agent_task_req.publish_version_req;
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task. signature=" << agent_task_req.signature;
 
         std::vector<TTabletId> error_tablet_ids;
         std::vector<TTabletId> succ_tablet_ids;
+        // partition_id, tablet_id, publish_version
+        std::vector<std::tuple<int64_t, int64_t, int64_t>> discontinuous_version_tablets;
         uint32_t retry_time = 0;
         Status status;
         bool is_task_timeout = false;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
-                                                 &succ_tablet_ids);
+                                                 &succ_tablet_ids, &discontinuous_version_tablets);
             status = _env->storage_engine()->execute_task(&engine_task);
             if (status.ok()) {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
-                if (time_elapsed > PUBLISH_TIMEOUT_SEC) {
+                if (time_elapsed > config::publish_version_task_timeout_s) {
                     LOG(INFO) << "task elapsed " << time_elapsed
                               << " seconds since it is inserted to queue, it is timeout";
                     is_task_timeout = true;
@@ -1486,6 +1490,11 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             continue;
         }
 
+        for (auto& item : discontinuous_version_tablets) {
+            StorageEngine::instance()->add_async_publish_task(
+                    std::get<0>(item), std::get<1>(item), std::get<2>(item),
+                    publish_version_req.transaction_id, false);
+        }
         TFinishTaskRequest finish_task_request;
         if (!status) {
             DorisMetrics::instance()->publish_task_failed_total->increment(1);
@@ -1518,11 +1527,13 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     }
                 }
             }
+            uint32_t cost_second = time(nullptr) - agent_task_req.recv_time;
+            g_publish_version_latency << cost_second;
             LOG_INFO("successfully publish version")
                     .tag("signature", agent_task_req.signature)
                     .tag("transaction_id", publish_version_req.transaction_id)
                     .tag("tablets_num", succ_tablet_ids.size())
-                    .tag("cost(s)", time(nullptr) - agent_task_req.recv_time);
+                    .tag("cost(s)", cost_second);
         }
 
         status.to_thrift(&finish_task_request.task_status);

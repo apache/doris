@@ -63,6 +63,12 @@ JniConnector::~JniConnector() {
 }
 
 Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
+    _state = state;
+    _profile = profile;
+    ADD_TIMER(_profile, _connector_name.c_str());
+    _open_scanner_time = ADD_CHILD_TIMER(_profile, "OpenScannerTime", _connector_name.c_str());
+    _java_scan_time = ADD_CHILD_TIMER(_profile, "JavaScanTime", _connector_name.c_str());
+    _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
     // cannot put the env into fields, because frames in an env object is limited
     // to avoid limited frames in a thread, we should get local env in a method instead of in whole object.
     JNIEnv* env = nullptr;
@@ -70,6 +76,7 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     if (env == nullptr) {
         return Status::InternalError("Failed to get/create JVM");
     }
+    SCOPED_TIMER(_open_scanner_time);
     RETURN_IF_ERROR(_init_jni_scanner(env, state->batch_size()));
     // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
@@ -94,7 +101,11 @@ Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
     // return the address of meta information
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    long meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
+    long meta_address = 0;
+    {
+        SCOPED_TIMER(_java_scan_time);
+        meta_address = env->CallLongMethod(_jni_scanner_obj, _jni_scanner_get_next_batch);
+    }
     RETURN_ERROR_IF_EXC(env);
     if (meta_address == 0) {
         // Address == 0 when there's no data in scanner
@@ -118,10 +129,43 @@ Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
+std::map<std::string, std::string> JniConnector::get_statistics(JNIEnv* env) {
+    jobject metrics = env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_statistics);
+    std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
+    env->DeleteLocalRef(metrics);
+    return result;
+}
+
 Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+        // update scanner metrics
+        for (const auto& metric : get_statistics(env)) {
+            std::vector<std::string> type_and_name = split(metric.first, ":");
+            if (type_and_name.size() != 2) {
+                LOG(WARNING) << "Name of JNI Scanner metric should be pattern like "
+                             << "'metricType:metricName'";
+                continue;
+            }
+            long metric_value = std::stol(metric.second);
+            RuntimeProfile::Counter* scanner_counter;
+            if (type_and_name[0] == "timer") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+            } else if (type_and_name[0] == "counter") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+            } else if (type_and_name[0] == "bytes") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+            } else {
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                continue;
+            }
+            COUNTER_UPDATE(scanner_counter, metric_value);
+        }
+
         // _fill_block may be failed and returned, we should release table in close.
         // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
         env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
@@ -145,41 +189,27 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_ERROR_IF_EXC(env);
 
     // prepare constructor parameters
-    jclass hashmap_class = env->FindClass("java/util/HashMap");
-    jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
-    jobject hashmap_object =
-            env->NewObject(hashmap_class, hashmap_constructor, _scanner_params.size());
-    jmethodID hashmap_put = env->GetMethodID(
-            hashmap_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-    RETURN_ERROR_IF_EXC(env);
-    for (const auto& it : _scanner_params) {
-        jstring key = env->NewStringUTF(it.first.c_str());
-        jstring value = env->NewStringUTF(it.second.c_str());
-        env->CallObjectMethod(hashmap_object, hashmap_put, key, value);
-        env->DeleteLocalRef(key);
-        env->DeleteLocalRef(value);
-    }
-    env->DeleteLocalRef(hashmap_class);
-    _jni_scanner_obj =
+    jobject hashmap_object = JniUtil::convert_to_java_map(env, _scanner_params);
+    jobject jni_scanner_obj =
             env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
     env->DeleteLocalRef(hashmap_object);
     RETURN_ERROR_IF_EXC(env);
 
     _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
-    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_get_next_batch = env->GetMethodID(_jni_scanner_cls, "getNextBatchMeta", "()J");
-    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_close = env->GetMethodID(_jni_scanner_cls, "close", "()V");
-    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_release_column = env->GetMethodID(_jni_scanner_cls, "releaseColumn", "(I)V");
-    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");
+    _jni_scanner_get_statistics =
+            env->GetMethodID(_jni_scanner_cls, "getStatistics", "()Ljava/util/Map;");
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
+    env->DeleteLocalRef(jni_scanner_obj);
     RETURN_ERROR_IF_EXC(env);
-    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, _jni_scanner_obj, &_jni_scanner_obj));
     return Status::OK();
 }
 
 Status JniConnector::_fill_block(Block* block, size_t num_rows) {
+    SCOPED_TIMER(_fill_block_time);
     for (int i = 0; i < _column_names.size(); ++i) {
         auto& column_with_type_and_name = block->get_by_name(_column_names[i]);
         auto& column_ptr = column_with_type_and_name.column;
