@@ -82,7 +82,9 @@ public class LoadProperties {
 
     public LoadProperties(Map<String, String> properties) {
         this.properties = properties;
+    }
 
+    public void analyze() {
         final ConnectContext connectContext = ConnectContext.get();
         Preconditions.checkNotNull(connectContext, "connect context should be not null");
 
@@ -95,9 +97,7 @@ public class LoadProperties {
         this.timeoutS = connectContext.getExecTimeout();
         this.isStrictMode = sessionVariable.getEnableInsertStrict();
         this.sendBatchParallelism = sessionVariable.getSendBatchParallelism();
-    }
 
-    public void analyze() {
         if (MapUtils.isEmpty(properties)) {
             return;
         }
