@@ -97,7 +97,7 @@ protected:
     int _threads;
     int _iterations;
     size_t _file_size;
-    int _repetitions = 3;
+    int _repetitions = 1;
     std::map<std::string, std::string> _conf_map;
 };
 
