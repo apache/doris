@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -78,7 +79,8 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return null;
+        Preconditions.checkArgument(children.size() == 1, "PhysicalFileSink only accepts one child");
+        return new PhysicalFileSink<>(filePath, format, properties, getLogicalProperties(), child(0));
     }
 
     @Override

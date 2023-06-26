@@ -59,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -86,6 +87,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -239,6 +241,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalFileSink(LogicalFileSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
+    }
+
+    @Override
     public Statistics visitLogicalEmptyRelation(LogicalEmptyRelation emptyRelation, Void context) {
         return computeEmptyRelation(emptyRelation);
     }
@@ -367,6 +374,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, Void context) {
+        return groupExpression.childStatistics(0);
+    }
+
+    @Override
+    public Statistics visitPhysicalFileSink(PhysicalFileSink<? extends Plan> olapTableSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 

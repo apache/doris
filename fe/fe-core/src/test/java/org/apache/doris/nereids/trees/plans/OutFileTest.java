@@ -64,19 +64,18 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                         + ")\n"
         );
     }
-    
+
     @Test
     public void testWriteOutFile() throws Exception {
-        String sql = "select * from t1 join t2 on t1.id = t2.id into outfile 'file://~/result.csv'" 
-                + " format as csv" 
-                + " properties (" 
-                + "    \"column_separator\" = \",\","
-                + "    \"line_delimiter\" = \"\\n\","
-                + "    \"max_file_size\" = \"100MB\"" 
+        String sql = "select * from T1 join T2 on T1.id = T2.id into outfile 'file://~/result.csv'\n"
+                + " format as csv\n"
+                + " properties (\n"
+                + "    \"column_separator\" = \",\",\n"
+                + "    \"line_delimiter\" = \"\\n\",\n"
+                + "    \"max_file_size\" = \"100MB\"\n"
                 + ")";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("FILE SINK"));
-        
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {
@@ -84,7 +83,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
         PhysicalPlan plan = planner.plan(
-                ((ExplainCommand) parser.parseSingle(sql)).getLogicalPlan(),
+                parser.parseSingle(sql),
                 PhysicalProperties.ANY
         );
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
