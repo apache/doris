@@ -57,6 +57,10 @@ public:
         return TPrimitiveType::INVALID_TYPE;
     }
 
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_NONE;
+    }
+
     MutableColumnPtr create_column() const override;
 
     bool equals(const IDataType& rhs) const override;

@@ -98,6 +98,9 @@ private:
 
     Status _init_return_columns();
 
+    vectorized::PathInData _build_path(SlotDescriptor* slot);
+    Status _init_variant_columns();
+
     bool _aggregation;
 
     TabletSchemaSPtr _tablet_schema;

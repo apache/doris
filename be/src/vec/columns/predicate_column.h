@@ -360,8 +360,9 @@ public:
 
     const char* get_family_name() const override { return TypeName<T>::get(); }
 
-    [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
-        LOG(FATAL) << "clone_resized not supported in PredicateColumnType";
+    MutableColumnPtr clone_resized(size_t size) const override {
+        DCHECK(size == 0);
+        return this->create();
     }
 
     void insert(const Field& x) override {
@@ -461,10 +462,6 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in PredicateColumnType!";
-    }
-
-    [[noreturn]] TypeIndex get_data_type() const override {
-        LOG(FATAL) << "PredicateColumnType get_data_type not implemeted";
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {

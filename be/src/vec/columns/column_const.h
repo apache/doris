@@ -95,8 +95,6 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    TypeIndex get_data_type() const override { return data->get_data_type(); }
-
     UInt64 get64(size_t) const override { return data->get64(0); }
 
     UInt64 get_uint(size_t) const override { return data->get_uint(0); }
@@ -129,6 +127,8 @@ public:
     void insert_default() override { ++s; }
 
     void pop_back(size_t n) override { s -= n; }
+
+    bool can_be_inside_nullable() const override { return true; }
 
     void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override;

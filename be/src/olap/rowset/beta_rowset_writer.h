@@ -104,6 +104,8 @@ public:
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
+    RowsetWriterContext& mutable_context() override { return _context; }
+
     RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) const override {
@@ -161,7 +163,7 @@ private:
     // After unfold block structure changed to -> [A | B | C | D | E | F]
     // The expanded D, E, F is dynamic part of the block
     // The flushed Block columns should match exactly from the same type of frontend meta
-    Status _unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    Status expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment

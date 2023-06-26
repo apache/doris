@@ -41,11 +41,13 @@
 #include "olap/row_cursor.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/hierarchical_data_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 
@@ -326,6 +328,8 @@ private:
         return 0;
     }
 
+    Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
@@ -378,6 +382,7 @@ private:
     std::vector<ColumnId> _first_read_column_ids;
     std::vector<ColumnId> _second_read_column_ids;
     std::vector<ColumnId> _columns_to_filter;
+    std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
@@ -431,6 +436,8 @@ private:
     bool _record_rowids = false;
     int32_t _tablet_id = 0;
     std::set<int32_t> _output_columns;
+
+    std::unique_ptr<HierarchicalDataReader> _path_reader;
 };
 
 } // namespace segment_v2

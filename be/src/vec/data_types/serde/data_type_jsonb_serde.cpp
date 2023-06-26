@@ -17,7 +17,12 @@
 
 #include "data_type_jsonb_serde.h"
 
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
 #include "arrow/array/builder_binary.h"
+#include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
 namespace doris {
 namespace vectorized {
@@ -111,6 +116,102 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
         checkArrowStatus(builder.Append(json_string.data(), json_string.size()), column.get_name(),
                          array_builder->type()->name());
     }
+}
+
+static void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
+                                       rapidjson::Document::AllocatorType& allocator) {
+    // convert type of jsonb to rapidjson::Value
+    switch (val.type()) {
+    case JsonbType::T_True:
+        target.SetBool(true);
+        break;
+    case JsonbType::T_False:
+        target.SetBool(false);
+        break;
+    case JsonbType::T_Null:
+        target.SetNull();
+        break;
+    case JsonbType::T_Float:
+        target.SetFloat(static_cast<const JsonbFloatVal&>(val).val());
+        break;
+    case JsonbType::T_Double:
+        target.SetDouble(static_cast<const JsonbDoubleVal&>(val).val());
+        break;
+    case JsonbType::T_Int64:
+        target.SetInt64(static_cast<const JsonbInt64Val&>(val).val());
+        break;
+    case JsonbType::T_Int32:
+        target.SetInt(static_cast<const JsonbInt32Val&>(val).val());
+        break;
+    case JsonbType::T_Int16:
+        target.SetInt(static_cast<const JsonbInt16Val&>(val).val());
+        break;
+    case JsonbType::T_Int8:
+        target.SetInt(static_cast<const JsonbInt8Val&>(val).val());
+        break;
+    case JsonbType::T_String:
+        target.SetString(static_cast<const JsonbStringVal&>(val).getBlob(),
+                         static_cast<const JsonbStringVal&>(val).getBlobLen());
+        break;
+    case JsonbType::T_Array: {
+        target.SetArray();
+        const ArrayVal& array = static_cast<const ArrayVal&>(val);
+        if (array.numElem() == 0) {
+            target.SetNull();
+            break;
+        }
+        target.Reserve(array.numElem(), allocator);
+        for (auto it = array.begin(); it != array.end(); ++it) {
+            rapidjson::Value val;
+            convert_jsonb_to_rapidjson(*static_cast<const JsonbValue*>(it), val, allocator);
+            target.PushBack(val, allocator);
+        }
+        break;
+    }
+    case JsonbType::T_Object: {
+        target.SetObject();
+        const ObjectVal& obj = static_cast<const ObjectVal&>(val);
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            rapidjson::Value val;
+            convert_jsonb_to_rapidjson(*it->value(), val, allocator);
+            target.AddMember(rapidjson::GenericStringRef(it->getKeyStr(), it->klen()), val,
+                             allocator);
+        }
+        break;
+    }
+    default:
+        CHECK(false) << "unkown type " << static_cast<int>(val.type());
+        break;
+    }
+}
+
+void DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                rapidjson::Document::AllocatorType& allocator,
+                                                int row_num) const {
+    auto& data = assert_cast<const ColumnString&>(column);
+    const auto jsonb_val = data.get_data_at(row_num);
+    JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
+    rapidjson::Value value;
+    convert_jsonb_to_rapidjson(*val, value, allocator);
+    if (val->isObject() && result.IsObject()) {
+        JsonFunctions::merge_objects(result, value, allocator);
+    } else {
+        result = std::move(value);
+    }
+}
+
+void DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
+                                                 const rapidjson::Value& result) const {
+    // TODO improve performance
+    auto& col = assert_cast<ColumnString&>(column);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    result.Accept(writer);
+    JsonbParser parser;
+    bool ok = parser.parse(buffer.GetString(), buffer.GetLength());
+    CHECK(ok);
+    col.insert_data(parser.getWriter().getOutput()->getBuffer(),
+                    parser.getWriter().getOutput()->getSize());
 }
 
 } // namespace vectorized
