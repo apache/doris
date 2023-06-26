@@ -324,6 +324,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     } else if ((read_params.reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
