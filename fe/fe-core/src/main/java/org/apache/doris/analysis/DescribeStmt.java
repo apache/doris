@@ -229,7 +229,8 @@ public class DescribeStmt extends ShowStmt {
                             if (column.getOriginType().isDatetimeV2()) {
                                 StringBuilder typeStr = new StringBuilder("DATETIME");
                                 if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
-                                    typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale()).append(")");
+                                    typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale())
+                                            .append(")");
                                 }
                                 row.set(3, typeStr.toString());
                             } else if (column.getOriginType().isDateV2()) {
