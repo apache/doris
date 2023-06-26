@@ -773,40 +773,6 @@
                             "items": [
                                 {
                                     "type": "category",
-                                    "label": "Alter",
-                                    "items": [
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
-                                    ]
-                                },
-                                {
-                                    "type": "category",
-                                    "label": "Backup and Restore",
-                                    "items": [
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/DROP-REPOSITORY",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-RESTORE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/BACKUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-BACKUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY"
-                                    ]
-                                },
-                                {
-                                    "type": "category",
                                     "label": "Create",
                                     "items": [
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-CATALOG",
@@ -829,6 +795,28 @@
                                 },
                                 {
                                     "type": "category",
+                                    "label": "Alter",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-DATABASE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-CATALOG",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-BITMAP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-RENAME",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-REPLACE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
                                     "label": "Drop",
                                     "items": [
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-CATALOG",
@@ -844,6 +832,19 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Drop/TRUNCATE-TABLE"
+                                    ]
+                                },
+                                {
+                                    "type": "category",
+                                    "label": "Backup and Restore",
+                                    "items": [
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/DROP-REPOSITORY",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/BACKUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-BACKUP",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE",
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CANCEL-RESTORE"
+                                        
                                     ]
                                 }
                             ]
