@@ -225,6 +225,9 @@ Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
     return Status::OK();
 }
 
+static const std::regex COLUMN_NAME_REGEX(
+        "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,:]{0,255}$");
+
 // Do batch add columns schema change
 // only the base table supported
 Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
@@ -249,7 +252,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
         if (dedup.contains(to_lower(column_type_name.name))) {
             continue;
         }
-        if (!std::regex_match(column_type_name.name, BeConsts::COLUMN_NAME_REGEX)) {
+        if (!std::regex_match(column_type_name.name, COLUMN_NAME_REGEX)) {
             continue;
         }
         dedup.insert(to_lower(column_type_name.name));
