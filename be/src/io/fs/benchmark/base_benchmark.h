@@ -43,44 +43,61 @@ void bm_log(const std::string& fmt, Args&&... args) {
 
 class BaseBenchmark {
 public:
-    BaseBenchmark(const std::string& name, int iterations,
-                  const std::map<std::string, std::string>& conf_map)
-            : _name(name), _iterations(iterations), _conf_map(conf_map) {}
+    BaseBenchmark(const std::string& name, int threads, int iterations, size_t file_size,
+                  int repetitions, const std::map<std::string, std::string>& conf_map)
+            : _name(name),
+              _threads(threads),
+              _iterations(iterations),
+              _file_size(file_size),
+              _repetitions(repetitions),
+              _conf_map(conf_map) {}
     virtual ~BaseBenchmark() = default;
 
     virtual Status init() { return Status::OK(); }
-    virtual Status run() { return Status::OK(); }
+    virtual Status run(benchmark::State& state) { return Status::OK(); }
 
     void register_bm() {
         auto bm = benchmark::RegisterBenchmark(_name.c_str(), [&](benchmark::State& state) {
-            // first turn will use more time
             Status st;
-            st = this->init();
-            if (!st) {
-                std::cerr << "failed to init. bm: " << _name << ", err: " << st;
-                return;
+            if (state.thread_index() == 0) {
+                st = this->init();
             }
-            st = this->run();
-            if (!st) {
-                std::cerr << "failed to run at first time. bm: " << _name << ", err: " << st;
+            if (st != Status::OK()) {
+                bm_log("Benchmark {} init error: {}", _name, st.to_string());
                 return;
             }
             for (auto _ : state) {
-                state.PauseTiming();
-                this->init();
-                state.ResumeTiming();
-                this->run();
+                st = this->run(state);
+                if (st != Status::OK()) {
+                    bm_log("Benchmark {} run error: {}", _name, st.to_string());
+                    return;
+                }
             }
         });
+        if (_threads != 0) {
+            bm->Threads(_threads);
+        }
         if (_iterations != 0) {
             bm->Iterations(_iterations);
         }
+        bm->Repetitions(_repetitions);
+
         bm->Unit(benchmark::kMillisecond);
+        bm->UseManualTime();
+        bm->ComputeStatistics("max", [](const std::vector<double>& v) -> double {
+            return *(std::max_element(std::begin(v), std::end(v)));
+        });
+        bm->ComputeStatistics("min", [](const std::vector<double>& v) -> double {
+            return *(std::min_element(std::begin(v), std::end(v)));
+        });
     }
 
 protected:
     std::string _name;
+    int _threads;
     int _iterations;
+    size_t _file_size;
+    int _repetitions = 3;
     std::map<std::string, std::string> _conf_map;
 };
 

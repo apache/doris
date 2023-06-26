@@ -74,15 +74,15 @@ The features for inverted index is as follows:
       - missing stands for no parser, the whole field is considered to be a term
       - "english" stands for english parser
       - "chinese" stands for chinese parser
-      - "unicode" stands for mixed-type word segmentation suitable for situations with a mix of Chinese and English. It can segment email prefixes and suffixes, IP addresses, and mixed characters and numbers, and can also segment Chinese characters into 1-gram.
+      - "unicode" stands for muti-language mixed word segmentation suitable for situations with a mix of Chinese and English. It can segment email prefixes and suffixes, IP addresses, and mixed characters and numbers, and can also segment Chinese characters one by one.
 
     - "parser_mode" is utilized to set the tokenizer/parser type for Chinese word segmentation.
-      - in "fine_grained" mode, the system will meticulously tokenize each possible segment.
-      - in "coarse_grained" mode, the system follows the maximization principle, performing accurate and comprehensive tokenization.
+      - in "fine_grained" mode, the system tend to generate short words, eg. 6 words '武汉' '武汉市' '市长' '长江' '长江大桥' '大桥' for '武汉长江大桥'.
+      - in "coarse_grained" mode, the system tend to generate long words, eg. 2 words '武汉市' '市长' '长江大桥' for '武汉长江大桥'.
       - default mode is "coarse_grained".
-    - "support_phrase" is utilized to specify if the index requires support for phrase mode. 
-      - "true" indicates that support is needed.
-      - "false" indicates that support is not needed.
+    - "support_phrase" is utilized to specify if the index requires support for phrase mode query MATCH_PHRASE
+      - "true" indicates that support is needed, but needs more storage for index.
+      - "false" indicates that support is not needed, and less storage for index. MATCH_ALL can be used for matching multi words without order.
       - default mode is "false".
   - COMMENT is optional
 

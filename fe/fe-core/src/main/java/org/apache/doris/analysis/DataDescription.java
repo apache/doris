@@ -154,6 +154,8 @@ public class DataDescription implements InsertStmt.DataDesc {
     private boolean isMysqlLoad = false;
     private int skipLines = 0;
 
+    private boolean isAnalyzed = false;
+
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
@@ -570,6 +572,10 @@ public class DataDescription implements InsertStmt.DataDesc {
             return null;
         }
         return columnSeparator.getSeparator();
+    }
+
+    public Separator getColumnSeparatorObj() {
+        return columnSeparator;
     }
 
     public boolean isNegative() {
@@ -1001,6 +1007,9 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public void analyze(String fullDbName) throws AnalysisException {
+        if (isAnalyzed) {
+            return;
+        }
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
@@ -1015,6 +1024,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is append.");
         }
+        isAnalyzed = true;
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
