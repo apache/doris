@@ -252,11 +252,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
         return table instanceof HMSExternalTable && table.getPartitionNames().size() > partNum;
     }
 
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.FORWARD_NO_SYNC;
-    }
-
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {

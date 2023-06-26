@@ -2216,7 +2216,7 @@ public class Coordinator {
             }
         }
 
-        if (params.isSetLoadedRows()) {
+        if (params.isSetLoadedRows() && jobId != -1) {
             Env.getCurrentEnv().getLoadManager().updateJobProgress(
                     jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
                     params.getLoadedRows(), params.getLoadedBytes(), params.isDone());

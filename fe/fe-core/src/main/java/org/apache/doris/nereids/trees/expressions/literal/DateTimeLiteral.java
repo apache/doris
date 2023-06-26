@@ -317,6 +317,10 @@ public class DateTimeLiteral extends DateLiteral {
         return second;
     }
 
+    public long getMicroSecond() {
+        return microSecond;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {

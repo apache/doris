@@ -561,6 +561,7 @@ public class ConnectProcessor {
             LOG.warn("Unknown command(" + code + ")");
             return;
         }
+        LOG.debug("handle command {}", command);
         ctx.setCommand(command);
         ctx.setStartTime();
 

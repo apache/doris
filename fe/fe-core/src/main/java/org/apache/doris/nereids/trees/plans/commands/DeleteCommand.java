@@ -42,7 +42,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Objects;
+import java.util.Optional;
 
 /**
  * delete from unique key table.
@@ -57,18 +57,18 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
     /**
      * constructor
      */
-    public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions, LogicalPlan logicalQuery) {
+    public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions,
+            LogicalPlan logicalQuery) {
         super(PlanType.DELETE_COMMAND);
-        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
-                "nameParts in DeleteCommand cannot be null"));
+        this.nameParts = Utils.copyRequiredList(nameParts);
         this.tableAlias = tableAlias;
-        this.partitions = Utils.copyIfNotNull(partitions);
+        this.partitions = Utils.copyRequiredList(partitions);
         this.logicalQuery = logicalQuery;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), null).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
     }
 
     private void checkTable(ConnectContext ctx) {
@@ -112,7 +112,8 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
         logicalQuery = new LogicalProject<>(selectLists, logicalQuery);
 
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, cols, null, partitions, logicalQuery);
+        return new UnboundOlapTableSink<>(nameParts, cols, ImmutableList.of(),
+                partitions, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

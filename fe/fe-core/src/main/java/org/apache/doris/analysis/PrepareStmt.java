@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -42,9 +41,6 @@ public class PrepareStmt extends StatementBase {
     private static final Logger LOG = LogManager.getLogger(PrepareStmt.class);
     private StatementBase inner;
     private String stmtName;
-    // select * from tbl where a = ? and b = ?
-    // `?` is the placeholder
-    protected List<PlaceHolderExpr> placeholders = new ArrayList<>();
 
     // Cached for better CPU performance, since serialize DescriptorTable and
     // outputExprs are heavy work
@@ -87,10 +83,6 @@ public class PrepareStmt extends StatementBase {
 
     public UUID getID() {
         return id;
-    }
-
-    public List<PlaceHolderExpr> placeholders() {
-        return this.placeholders;
     }
 
     public boolean isBinaryProtocol() {
@@ -139,46 +131,6 @@ public class PrepareStmt extends StatementBase {
         return serializedOutputExpr;
     }
 
-    public int getParmCount() {
-        return placeholders.size();
-    }
-
-    public List<Expr> getSlotRefOfPlaceHolders() {
-        ArrayList<Expr> slots = new ArrayList<>();
-        if (inner instanceof SelectStmt) {
-            SelectStmt select = (SelectStmt) inner;
-            for (PlaceHolderExpr pexpr : placeholders) {
-                // Only point query support
-                for (Map.Entry<SlotRef, Expr> entry :
-                            select.getPointQueryEQPredicates().entrySet()) {
-                    // same instance
-                    if (entry.getValue() == pexpr) {
-                        slots.add(entry.getKey());
-                    }
-                }
-            }
-            return slots;
-        }
-        return null;
-    }
-
-    public List<String> getColLabelsOfPlaceHolders() {
-        ArrayList<String> lables = new ArrayList<>();
-        if (inner instanceof SelectStmt) {
-            for (Expr slotExpr : getSlotRefOfPlaceHolders()) {
-                SlotRef slot = (SlotRef) slotExpr;
-                Column c = slot.getColumn();
-                if (c != null) {
-                    lables.add(c.getName());
-                    continue;
-                }
-                lables.add("");
-            }
-            return lables;
-        }
-        return null;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (!(inner instanceof SelectStmt)) {
@@ -186,12 +138,7 @@ public class PrepareStmt extends StatementBase {
         }
         // Use tmpAnalyzer since selectStmt will be reAnalyzed
         Analyzer tmpAnalyzer = new Analyzer(context.getEnv(), context);
-        // collect placeholders from stmt exprs tree
         SelectStmt selectStmt = (SelectStmt) inner;
-        // TODO(lhy) support more clauses
-        if (selectStmt.getWhereClause() != null) {
-            selectStmt.getWhereClause().collect(PlaceHolderExpr.class, placeholders);
-        }
         inner.analyze(tmpAnalyzer);
         if (!selectStmt.checkAndSetPointQuery()) {
             throw new UserException("Only support prepare SelectStmt point query now");
@@ -217,17 +164,40 @@ public class PrepareStmt extends StatementBase {
         return inner;
     }
 
-    public int argsSize() {
-        return placeholders.size();
+    public List<PlaceHolderExpr> placeholders() {
+        return inner.getPlaceHolders();
+    }
+
+    public int getParmCount() {
+        return inner.getPlaceHolders().size();
+    }
+
+    public List<Expr> getPlaceHolderExprList() {
+        ArrayList<Expr> slots = new ArrayList<>();
+        for (PlaceHolderExpr pexpr : inner.getPlaceHolders()) {
+            slots.add(pexpr);
+        }
+        return slots;
+    }
+
+    public List<String> getColLabelsOfPlaceHolders() {
+        ArrayList<String> lables = new ArrayList<>();
+        for (int i = 0; i < inner.getPlaceHolders().size(); ++i) {
+            lables.add("lable " + i);
+        }
+        return lables;
     }
 
     public void asignValues(List<LiteralExpr> values) throws UserException {
-        if (values.size() != placeholders.size()) {
+        if (values.size() != inner.getPlaceHolders().size()) {
             throw new UserException("Invalid arguments size "
-                                + values.size() + ", expected " + placeholders.size());
+                                + values.size() + ", expected " + inner.getPlaceHolders().size());
         }
         for (int i = 0; i < values.size(); ++i) {
-            placeholders.get(i).setLiteral(values.get(i));
+            inner.getPlaceHolders().get(i).setLiteral(values.get(i));
+        }
+        if (!values.isEmpty()) {
+            LOG.debug("assign values {}", values.get(0).toSql());
         }
     }
 
@@ -237,7 +207,6 @@ public class PrepareStmt extends StatementBase {
         serializedOutputExpr = null;
         descTable = null;
         this.id = UUID.randomUUID();
-        placeholders.clear();
         inner.reset();
         serializedFields.clear();
     }

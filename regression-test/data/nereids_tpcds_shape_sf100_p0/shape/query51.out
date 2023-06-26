@@ -18,12 +18,12 @@ PhysicalTopN
 ------------------------------PhysicalDistribute
 --------------------------------hashAgg[LOCAL]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------------PhysicalOlapScan[store_sales]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_month_seq >= 1216)(date_dim.d_month_seq <= 1227))
+------------------------------------------filter((date_dim.d_month_seq <= 1227)(date_dim.d_month_seq >= 1216))
 --------------------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
@@ -34,11 +34,11 @@ PhysicalTopN
 ------------------------------PhysicalDistribute
 --------------------------------hashAgg[LOCAL]
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+------------------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalOlapScan[web_sales]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_month_seq <= 1227)(date_dim.d_month_seq >= 1216))
+------------------------------------------filter((date_dim.d_month_seq >= 1216)(date_dim.d_month_seq <= 1227))
 --------------------------------------------PhysicalOlapScan[date_dim]
 

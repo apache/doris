@@ -50,7 +50,6 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
-                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
@@ -206,8 +205,8 @@
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
                         "lakehouse/multi-catalog/iceberg",
-                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/hudi",
+                        "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/dlf",
@@ -1095,7 +1094,8 @@
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
                         "admin-manual/maint-monitor/tablet-restore-tool",
-                        "admin-manual/maint-monitor/metadata-operation"
+                        "admin-manual/maint-monitor/metadata-operation",
+                        "admin-manual/maint-monitor/automatic-service-start"
                     ]
                 },
                 {

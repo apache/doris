@@ -29,8 +29,14 @@ under the License.
 
 ## Usage
 
-1. Currently, Doris supports Snapshot Query on Copy-on-Write Hudi tables and Read Optimized Query on Merge-on-Read tables. In the future, it will support Snapshot Query on Merge-on-Read tables and Incremental Query.
-2. Doris only supports Hive Metastore Catalogs currently. The usage is basically the same as that of Hive Catalogs. More types of Catalogs will be supported in future versions.
+1. Doris supports Snapshot Query on Copy-on-Write Hudi tables and Read Optimized Query / Snapshot on Merge-on-Read tables. In the future, it will support Incremental Query and Time Travel.
+
+|  Table Type   | Supported Query types  |
+|  ----  | ----  |
+| Copy On Write  | Snapshot Query |
+| Merge On Read  | Snapshot Queries + Read Optimized Queries |
+
+2. Doris supports Hive Metastore(Including catalogs compatible with Hive MetaStore, like [AWS Glue](./hive.md)/[Alibaba DLF](./dlf.md)) Catalogs.
 
 ## Create Catalog
 
@@ -52,3 +58,27 @@ CREATE CATALOG hudi PROPERTIES (
 ## Column Type Mapping
 
 Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
+
+## Query Optimization
+Doris uses the parquet native reader to read the data files of the COW table, and uses the Java SDK (By calling hudi-bundle through JNI) to read the data files of the MOR table. In `upsert` scenario, there may still remains base files that have not been updated in the MOR table, which can be read through the parquet native reader. Users can view the execution plan of hudi scan through the [explain](../../advanced/best-practice/query-analysis.md) command, where `hudiNativeReadSplits` indicates how many split files are read through the parquet native reader.
+```
+|0:VHUDI_SCAN_NODE                                                             |
+|      table: minbatch_mor_rt                                                  |
+|      predicates: `o_orderkey` = 100030752                                    |
+|      inputSplitNum=810, totalFileSize=5645053056, scanRanges=810             |
+|      partition=80/80                                                         |
+|      numNodes=6                                                              |
+|      hudiNativeReadSplits=717/810                                            |
+```
+Users can view the perfomace of Java SDK through [profile](../../admin-manual/http-actions/fe/profile-action.md), for exmpale:
+```
+-  HudiJniScanner:  0ns
+  -  FillBlockTime:  31.29ms
+  -  GetRecordReaderTime:  1m5s
+  -  JavaScanTime:  35s991ms
+  -  OpenScannerTime:  1m6s
+```
+1. `OpenScannerTime`: Time to create and initialize JNI reader
+2. `JavaScanTime`: Time to read data by Java SDK
+3. `FillBlockTime`: Time co convert Java column data into C++ column data
+4. `GetRecordReaderTime`: Time to create and initialize Hudi Record Reader

@@ -6,13 +6,6 @@ PhysicalTopN
 ------PhysicalProject
 --------hashJoin[INNER_JOIN](dn.ss_customer_sk = customer.c_customer_sk)( not (ca_city = bought_city))
 ----------PhysicalDistribute
-------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = current_addr.ca_address_sk)
---------------PhysicalProject
-----------------PhysicalOlapScan[customer_address]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer]
-----------PhysicalDistribute
 ------------PhysicalProject
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
@@ -38,4 +31,11 @@ PhysicalTopN
 --------------------------------PhysicalOlapScan[store]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[customer_address]
+----------PhysicalDistribute
+------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = current_addr.ca_address_sk)
+--------------PhysicalProject
+----------------PhysicalOlapScan[customer_address]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer]
 

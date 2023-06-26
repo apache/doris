@@ -103,6 +103,11 @@ std::vector<std::wstring> InvertedIndexReader::get_analyse_result(
         analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
         reader.reset(
                 (new lucene::util::StringReader(std::wstring(value.begin(), value.end()).c_str())));
+    } else if (analyser_type == InvertedIndexParserType::PARSER_UNICODE) {
+        analyzer = std::make_shared<lucene::analysis::standard::StandardAnalyzer>();
+        reader.reset(new lucene::util::SimpleInputStreamReader(
+                new lucene::util::AStringReader(value.c_str()),
+                lucene::util::SimpleInputStreamReader::UTF8));
     } else if (analyser_type == InvertedIndexParserType::PARSER_CHINESE) {
         auto chinese_analyzer =
                 std::make_shared<lucene::analysis::LanguageBasedAnalyzer>(L"chinese", false);
@@ -339,6 +344,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name,
                                                              InvertedIndexQueryType::EQUAL_QUERY,
                                                              token_ws};
+                VLOG_DEBUG << "cache_key:" << cache_key.encode();
                 InvertedIndexQueryCacheHandle cache_handle;
                 if (cache->lookup(cache_key, &cache_handle)) {
                     stats->inverted_index_query_cache_hit++;

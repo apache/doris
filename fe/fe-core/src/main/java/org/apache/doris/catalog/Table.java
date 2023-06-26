@@ -29,6 +29,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -47,6 +48,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -541,5 +543,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
             }
         }
         return Math.max(cardinality, 1);
+    }
+
+    @Override
+    public DatabaseIf getDatabase() {
+        return Env.getCurrentInternalCatalog().getDbNullable(qualifiedDbName);
+    }
+
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic() {
+        return Optional.empty();
     }
 }
