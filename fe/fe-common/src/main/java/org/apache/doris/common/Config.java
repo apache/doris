@@ -1701,7 +1701,7 @@ public class Config extends ConfigBase {
     public static short max_hive_list_partition_num = -1;
 
     @ConfField(mutable = false, masterOnly = false, description = {"Hive Metastore 池实例数。",
-            "Max number of hive partition values to return while list partitions, -1 means no limitation."})
+            "Max number of hive metastore client pool."})
     public static short max_hms_client_pool_size = 16;
 
     /**
