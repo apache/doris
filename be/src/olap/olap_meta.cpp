@@ -145,8 +145,8 @@ Status OlapMeta::put(const int column_family_index, const std::string& key,
     DorisMetrics::instance()->meta_write_request_total->increment(1);
 
     // log all params
-    LOG(INFO) << "column_family_index: " << column_family_index << ", key: " << key
-              << ", value: " << value;
+    VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << key
+               << ", value: " << value;
 
     auto& handle = _handles[column_family_index];
     rocksdb::Status s;
@@ -172,8 +172,6 @@ Status OlapMeta::put(const int column_family_index, const std::string& key,
 Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry>& entries) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
 
-    // log all params
-
     auto* handle = _handles[column_family_index].get();
     rocksdb::Status s;
     {
@@ -186,8 +184,8 @@ Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry
         // construct write batch
         rocksdb::WriteBatch write_batch;
         for (auto entry : entries) {
-            LOG(INFO) << "column_family_index: " << column_family_index << ", key: " << entry.key
-                      << ", value: " << entry.value;
+            VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << entry.key
+                       << ", value: " << entry.value;
             write_batch.Put(handle, rocksdb::Slice(entry.key), rocksdb::Slice(entry.value));
         }
 

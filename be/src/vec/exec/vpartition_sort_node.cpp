@@ -335,7 +335,6 @@ Status VPartitionSortNode::close(RuntimeState* state) {
 }
 
 void VPartitionSortNode::release_resource(RuntimeState* state) {
-    VExpr::close(_partition_expr_ctxs, state);
     _vsort_exec_exprs.close(state);
     ExecNode::release_resource(state);
 }

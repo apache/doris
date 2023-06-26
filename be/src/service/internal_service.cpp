@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -48,7 +49,9 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -146,10 +149,8 @@ class NewHttpClosure : public ::google::protobuf::Closure {
 public:
     NewHttpClosure(google::protobuf::Closure* done) : _done(done) {}
     NewHttpClosure(T* request, google::protobuf::Closure* done) : _request(request), _done(done) {}
-    ~NewHttpClosure() {}
 
-    void Run() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+    void Run() override {
         if (_request != nullptr) {
             delete _request;
             _request = nullptr;
@@ -282,7 +283,13 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     bool compact = request->has_compact() ? request->compact() : false;
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
-    st = _exec_plan_fragment(request->request(), version, compact);
+    try {
+        st = _exec_plan_fragment(request->request(), version, compact);
+    } catch (const Exception& e) {
+        st = e.to_status();
+    } catch (...) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR);
+    }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
@@ -572,8 +579,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<std::string> column_names;
-            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
@@ -1014,6 +1020,8 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
+    int64_t receive_time = GetCurrentTimeNanos();
+    response->set_receive_time(receive_time);
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
@@ -1612,6 +1620,15 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
         response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
     }
+}
+
+void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcController* cntl_base,
+                                                      const PGetTabletVersionsRequest* request,
+                                                      PGetTabletVersionsResponse* response,
+                                                      google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
+    ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);
 }
 
 } // namespace doris

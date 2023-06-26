@@ -124,6 +124,8 @@ public class IndexChangeJob implements Writable {
 
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.WAITING_TXN;
+        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
+                        .getTransactionIDGenerator().getNextTransactionId();
     }
 
     public long getJobId() {
@@ -216,8 +218,6 @@ public class IndexChangeJob implements Writable {
      */
     public synchronized void run() {
         try {
-            this.watershedTxnId = Env.getCurrentGlobalTransactionMgr()
-                    .getTransactionIDGenerator().getNextTransactionId();
             switch (jobState) {
                 case WAITING_TXN:
                     runWaitingTxnJob();

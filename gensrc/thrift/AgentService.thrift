@@ -42,6 +42,8 @@ struct TTabletSchema {
     14: optional i32 version_col_idx = -1
     15: optional bool is_dynamic_schema = false
     16: optional bool store_row_column = false
+    17: optional bool enable_single_replica_compaction = false
+    18: optional bool skip_write_index_on_load = false
 }
 
 // this enum stands for different storage format in src_backends
@@ -196,6 +198,15 @@ struct TAlterInvertedIndexReq {
     10: optional i64 expiration
 }
 
+struct TTabletGcBinlogInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional i64 version
+}
+
+struct TGcBinlogReq {
+    1: optional list<TTabletGcBinlogInfo> tablet_gc_binlog_infos
+}
+
 struct TStorageMigrationReqV2 {
     1: optional Types.TTabletId base_tablet_id
     2: optional Types.TTabletId new_tablet_id
@@ -286,6 +297,16 @@ struct TUploadReq {
     6: optional string location // root path
 }
 
+struct TRemoteTabletSnapshot {
+    1: optional i64 local_tablet_id
+    2: optional string local_snapshot_path
+    3: optional i64 remote_tablet_id
+    4: optional i64 remote_be_id
+    5: optional Types.TNetworkAddress remote_be_addr
+    6: optional string remote_snapshot_path
+    7: optional string remote_token
+}
+
 struct TDownloadReq {
     1: required i64 job_id
     2: required map<string, string> src_dest_map
@@ -293,6 +314,7 @@ struct TDownloadReq {
     4: optional map<string, string> broker_prop
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
     6: optional string location // root path
+    7: optional list<TRemoteTabletSnapshot> remote_tablet_snapshots
 }
 
 struct TSnapshotRequest {
@@ -308,6 +330,8 @@ struct TSnapshotRequest {
     8: optional bool allow_incremental_clone
     9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
     10: optional bool is_copy_tablet_task
+    11: optional Types.TVersion start_version
+    12: optional Types.TVersion end_version
 }
 
 struct TReleaseSnapshotRequest {
@@ -434,6 +458,7 @@ struct TAgentTaskRequest {
     30: optional TPushCooldownConfReq push_cooldown_conf
     31: optional TPushStoragePolicyReq push_storage_policy_req
     32: optional TAlterInvertedIndexReq alter_inverted_index_req
+    33: optional TGcBinlogReq gc_binlog_req
 }
 
 struct TAgentResult {

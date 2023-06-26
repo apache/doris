@@ -87,13 +87,13 @@ public:
         return mem_usage;
     }
 
-    void get_writers_mem_consumption_snapshot(
+    void get_active_memtable_mem_consumption(
             std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>*
                     writers_mem_snap) {
         std::lock_guard<SpinLock> l(_tablets_channels_lock);
         for (auto& it : _tablets_channels) {
             std::multimap<int64_t, int64_t, std::greater<int64_t>> tablets_channel_mem;
-            it.second->get_writers_mem_consumption_snapshot(&tablets_channel_mem);
+            it.second->get_active_memtable_mem_consumption(&tablets_channel_mem);
             writers_mem_snap->emplace_back(it.first, std::move(tablets_channel_mem));
         }
     }
@@ -128,6 +128,7 @@ protected:
     Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
                        const PTabletWriterAddBlockRequest& request,
                        PTabletWriterAddBlockResult* response) {
+        _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
         bool finished = false;
         auto index_id = request.index_id();
         RETURN_IF_ERROR(channel->close(
@@ -163,6 +164,7 @@ private:
     RuntimeProfile::Counter* _add_batch_times = nullptr;
     RuntimeProfile::Counter* _mgr_add_batch_timer = nullptr;
     RuntimeProfile::Counter* _handle_mem_limit_timer = nullptr;
+    RuntimeProfile::Counter* _handle_eos_timer = nullptr;
 
     // lock protect the tablets channel map
     std::mutex _lock;

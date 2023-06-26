@@ -50,7 +50,7 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     public LogicalGenerate(List<Function> generators, List<Slot> generatorOutput,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_FILTER, groupExpression, logicalProperties, child);
+        super(PlanType.LOGICAL_GENERATE, groupExpression, logicalProperties, child);
         this.generators = ImmutableList.copyOf(generators);
         this.generatorOutput = ImmutableList.copyOf(generatorOutput);
     }

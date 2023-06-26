@@ -128,6 +128,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
     CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
+    CREATE_AND_START_THREAD(GC_BINLOG, _gc_binlog_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -235,6 +236,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                 ret_st = Status::InvalidArgument(
                         "task(signature={}) has wrong request member = push_cooldown_conf",
                         signature);
+            }
+            break;
+        case TTaskType::GC_BINLOG:
+            if (task.__isset.gc_binlog_req) {
+                _gc_binlog_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(
+                        "task(signature={}) has wrong request member = gc_binlog_req", signature);
             }
             break;
         default:

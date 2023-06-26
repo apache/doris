@@ -396,49 +396,49 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
 
     /// Check args: txn_id, remote_tablet_id, binlog_version, remote_host, remote_port, partition_id, load_id
-    if (request.__isset.txn_id) {
+    if (!request.__isset.txn_id) {
         LOG(WARNING) << "txn_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("txn_id is empty");
         return;
     }
-    if (request.__isset.remote_tablet_id) {
+    if (!request.__isset.remote_tablet_id) {
         LOG(WARNING) << "remote_tablet_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("remote_tablet_id is empty");
         return;
     }
-    if (request.__isset.binlog_version) {
+    if (!request.__isset.binlog_version) {
         LOG(WARNING) << "binlog_version is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("binlog_version is empty");
         return;
     }
-    if (request.__isset.remote_host) {
+    if (!request.__isset.remote_host) {
         LOG(WARNING) << "remote_host is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("remote_host is empty");
         return;
     }
-    if (request.__isset.remote_port) {
+    if (!request.__isset.remote_port) {
         LOG(WARNING) << "remote_port is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("remote_port is empty");
         return;
     }
-    if (request.__isset.partition_id) {
+    if (!request.__isset.partition_id) {
         LOG(WARNING) << "partition_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
         tstatus.error_msgs.emplace_back("partition_id is empty");
         return;
     }
-    if (request.__isset.load_id) {
+    if (!request.__isset.load_id) {
         LOG(WARNING) << "load_id is empty";
         tstatus.__set_status_code(TStatusCode::ANALYSIS_ERROR);
         tstatus.__isset.error_msgs = true;
@@ -526,14 +526,12 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         status.to_thrift(&tstatus);
         return;
     }
-    LOG(INFO) << "remote rowset meta pb: " << rowset_meta_pb.ShortDebugString();
     // rewrite rowset meta
     rowset_meta_pb.set_tablet_id(local_tablet_id);
     rowset_meta_pb.set_partition_id(local_tablet->tablet_meta()->partition_id());
     rowset_meta_pb.set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
     rowset_meta_pb.set_txn_id(txn_id);
     rowset_meta_pb.set_rowset_state(RowsetStatePB::COMMITTED);
-    LOG(INFO) << "local rowset meta pb: " << rowset_meta_pb.ShortDebugString();
     auto rowset_meta = std::make_shared<RowsetMeta>();
     if (!rowset_meta->init_from_pb(rowset_meta_pb)) {
         LOG(WARNING) << "failed to init rowset meta from " << get_rowset_meta_url;

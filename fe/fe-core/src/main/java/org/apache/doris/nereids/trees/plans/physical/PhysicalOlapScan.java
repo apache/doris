@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -119,7 +120,7 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public String toString() {
         return Utils.toSqlString("PhysicalOlapScan[" + id.asInt() + "]" + getGroupIdAsString(),
                 "qualified", Utils.qualifiedName(qualifier, olapTable.getName()),
-                "stats", statistics
+                "stats", statistics, "fr", getMutableState(AbstractPlan.FRAGMENT_ID)
         );
     }
 

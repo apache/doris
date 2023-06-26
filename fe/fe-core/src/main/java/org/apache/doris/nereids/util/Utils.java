@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -250,5 +251,9 @@ public class Utils {
                                 .collect(ImmutableList.toImmutableList())
                         )
                 ).collect(ImmutableList.toImmutableList());
+    }
+
+    public static <T> List<T> copyRequiredList(List<T> list) {
+        return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
     }
 }

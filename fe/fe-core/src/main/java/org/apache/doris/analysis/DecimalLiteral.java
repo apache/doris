@@ -82,7 +82,7 @@ public class DecimalLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         if (scale >= 0) {
-            v = v.setScale(scale, RoundingMode.DOWN);
+            v = v.setScale(scale, RoundingMode.HALF_UP);
         }
         init(v);
         analysisDone();
@@ -382,6 +382,13 @@ public class DecimalLiteral extends LiteralExpr {
             return new LargeIntLiteral(value.toBigInteger().toString());
         }
         return super.uncheckedCastTo(targetType);
+    }
+
+    public Expr castToDecimalV3ByDivde(Type targetType) {
+        // onlye use in DecimalLiteral divide DecimalV3
+        CastExpr expr = new CastExpr(targetType, this);
+        expr.setNotFold(true);
+        return expr;
     }
 
     @Override

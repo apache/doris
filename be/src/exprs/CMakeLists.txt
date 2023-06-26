@@ -21,14 +21,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 
-add_library(Exprs
-  block_bloom_filter_avx_impl.cc
-  block_bloom_filter_impl.cc
-  runtime_filter.cpp
-  runtime_filter_rpc.cpp
-  math_functions.cpp
-  string_functions.cpp
-  json_functions.cpp
-)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp *.cc)
+add_library(Exprs STATIC ${SRC_FILES})
 
 pch_reuse(Exprs)

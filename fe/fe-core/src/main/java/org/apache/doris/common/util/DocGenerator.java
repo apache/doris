@@ -25,9 +25,9 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.commons.io.output.FileWriterWithEncoding;
-import org.apache.parquet.Strings;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedReader;

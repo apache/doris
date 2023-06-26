@@ -66,6 +66,10 @@ public:
 
     virtual std::string get_name() { return ""; }
 
+    // return the readable name of current scan range.
+    // eg, for file scanner, return the current file path.
+    virtual std::string get_current_scan_range_name() { return "not implemented"; }
+
 protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
@@ -103,6 +107,8 @@ public:
     }
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
+
+    int64_t get_scanner_wait_worker_timer() { return _scanner_wait_worker_timer; }
 
     void update_scan_cpu_timer() { _scan_cpu_timer += _cpu_watch.elapsed_time(); }
 

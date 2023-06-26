@@ -63,6 +63,9 @@ suite("test_string_function_regexp") {
     qt_sql "SELECT regexp_replace_one('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace_one('a b b','(b)','<\\\\1>');"
 
+    qt_sql_utf1 """ select '皖12345' REGEXP '^[皖][0-9]{5}\$'; """
+    qt_sql_utf2 """ select '皖 12345' REGEXP '^[皖] [0-9]{5}\$'; """
+
     // bug fix
     sql """
         INSERT INTO ${tbName} VALUES

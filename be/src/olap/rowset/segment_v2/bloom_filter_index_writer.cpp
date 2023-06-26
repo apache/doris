@@ -174,6 +174,64 @@ private:
 
 } // namespace
 
+void PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
+    const Slice* v = (const Slice*)values;
+    for (int i = 0; i < count; ++i) {
+        Slice new_value;
+        _type_info->deep_copy(&new_value, v, &_arena);
+        _values.push_back(new_value);
+        ++v;
+    }
+}
+
+Status PrimaryKeyBloomFilterIndexWriterImpl::flush() {
+    std::unique_ptr<BloomFilter> bf;
+    RETURN_IF_ERROR(BloomFilter::create(BLOCK_BLOOM_FILTER, &bf));
+    RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
+    bf->set_has_null(_has_null);
+    for (auto& v : _values) {
+        Slice* s = (Slice*)&v;
+        bf->add_bytes(s->data, s->size);
+    }
+    _bf_buffer_size += bf->size();
+    _bfs.push_back(std::move(bf));
+    _values.clear();
+    _has_null = false;
+    return Status::OK();
+}
+
+Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
+                                                    ColumnIndexMetaPB* index_meta) {
+    if (_values.size() > 0) {
+        RETURN_IF_ERROR(flush());
+    }
+    index_meta->set_type(BLOOM_FILTER_INDEX);
+    BloomFilterIndexPB* meta = index_meta->mutable_bloom_filter_index();
+    meta->set_hash_strategy(_bf_options.strategy);
+    meta->set_algorithm(BLOCK_BLOOM_FILTER);
+
+    // write bloom filters
+    const auto* bf_type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
+    IndexedColumnWriterOptions options;
+    options.write_ordinal_index = true;
+    options.write_value_index = false;
+    options.encoding = PLAIN_ENCODING;
+    IndexedColumnWriter bf_writer(options, bf_type_info, file_writer);
+    RETURN_IF_ERROR(bf_writer.init());
+    for (auto& bf : _bfs) {
+        Slice data(bf->data(), bf->size());
+        bf_writer.add(&data);
+    }
+    RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
+    return Status::OK();
+}
+
+uint64_t PrimaryKeyBloomFilterIndexWriterImpl::size() {
+    uint64_t total_size = _bf_buffer_size;
+    total_size += _arena.used_size();
+    return total_size;
+}
+
 NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
         const BloomFilterOptions& bf_options, uint8_t gram_size, uint16_t bf_size)
         : _bf_options(bf_options),

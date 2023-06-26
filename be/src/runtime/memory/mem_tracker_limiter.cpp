@@ -26,6 +26,7 @@
 #include <queue>
 #include <utility>
 
+#include "common/daemon.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
@@ -79,7 +80,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
     // in real time. Merge its consumption into orphan when parent is process, to avoid repetition.
     ExecEnv::GetInstance()->orphan_mem_tracker()->consume(_consumption->current_value());
     _consumption->set(0);
-    {
+    if (!k_doris_exit) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[_group_num].group_lock);
         if (_tracker_limiter_group_it != mem_tracker_limiter_pool[_group_num].trackers.end()) {
             mem_tracker_limiter_pool[_group_num].trackers.erase(_tracker_limiter_group_it);
@@ -437,7 +438,9 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
         std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
         for (auto tracker : tracker_groups[i].trackers) {
             if (tracker->type() == type) {
-                if (tracker->consumption() <= 33554432) { // 32M small query does not cancel
+                // 32M small query does not cancel
+                if (tracker->consumption() <= 33554432 ||
+                    tracker->consumption() < tracker->limit()) {
                     continue;
                 }
                 if (tracker->is_query_cancelled()) {

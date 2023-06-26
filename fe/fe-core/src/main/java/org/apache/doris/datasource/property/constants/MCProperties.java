@@ -30,6 +30,7 @@ public class MCProperties extends BaseProperties {
     public static final String ACCESS_KEY = "mc.access_key";
     public static final String SECRET_KEY = "mc.secret_key";
     public static final String SESSION_TOKEN = "mc.session_token";
+    public static final String PUBLIC_ACCESS = "mc.public_access";
 
     public static CloudCredential getCredential(Map<String, String> props) {
         return getCloudCredential(props, ACCESS_KEY, SECRET_KEY, SESSION_TOKEN);

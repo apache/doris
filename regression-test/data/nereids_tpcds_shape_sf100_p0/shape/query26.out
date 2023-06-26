@@ -9,8 +9,8 @@ PhysicalTopN
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](catalog_sales.cs_item_sk = item.i_item_sk)
 ----------------PhysicalDistribute
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+------------------hashJoin[INNER_JOIN](catalog_sales.cs_promo_sk = promotion.p_promo_sk)
+--------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
 ------------------------hashJoin[INNER_JOIN](catalog_sales.cs_bill_cdemo_sk = customer_demographics.cd_demo_sk)
 --------------------------PhysicalProject
@@ -23,10 +23,10 @@ PhysicalTopN
 --------------------------PhysicalProject
 ----------------------------filter((date_dim.d_year = 2001))
 ------------------------------PhysicalOlapScan[date_dim]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
-----------------------------PhysicalOlapScan[promotion]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
+--------------------------PhysicalOlapScan[promotion]
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[item]
 

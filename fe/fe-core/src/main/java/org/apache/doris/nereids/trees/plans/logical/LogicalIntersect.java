@@ -82,9 +82,4 @@ public class LogicalIntersect extends LogicalSetOperation {
         return new LogicalIntersect(qualifier, newOutputs,
                 Optional.empty(), Optional.empty(), children);
     }
-
-    @Override
-    public LogicalIntersect withNewChildren(List<Plan> children) {
-        return withChildren(children);
-    }
 }

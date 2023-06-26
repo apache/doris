@@ -19,7 +19,6 @@ package org.apache.doris.external.hms;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -71,13 +70,9 @@ public class HmsCatalogTest extends TestWithFeService {
         rootCtx.setEnv(env);
         mgr = env.getCatalogMgr();
 
-        // create hms catalog by resource
-        CreateResourceStmt hmsResource = (CreateResourceStmt) parseAndAnalyzeStmt(
-                "create resource hms_resource properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
-                rootCtx);
-        env.getResourceMgr().createResource(hmsResource);
+        // create hms catalog
         CreateCatalogStmt hmsCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
-                "create catalog hms_ctl with resource hms_resource;",
+                "create catalog hms_ctl properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
                 rootCtx);
         mgr.createCatalog(hmsCatalog);
 

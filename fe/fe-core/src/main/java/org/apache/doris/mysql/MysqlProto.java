@@ -78,10 +78,10 @@ public class MysqlProto {
 
         context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
 
-        // check resource group level. user name may contains resource group level.
+        // check workload group level. user name may contains workload group level.
         // eg:
         // ...@user_name#HIGH
-        // set resource group if it is valid, or just ignore it
+        // set workload group if it is valid, or just ignore it
         String[] strList = tmpUser.split("#", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];
@@ -192,12 +192,6 @@ public class MysqlProto {
                 channel.setSslMode(true);
                 LOG.debug("switch to ssl mode.");
                 handshakeResponse = channel.fetchOnePacket();
-                capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
-                if (!capability.isClientUseSsl()) {
-                    ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
-                    sendResponsePacket(context);
-                    return false;
-                }
             } else {
                 handshakeResponse = clientRequestPacket;
             }
@@ -208,6 +202,9 @@ public class MysqlProto {
         if (handshakeResponse == null) {
             // receive response failed.
             return false;
+        }
+        if (capability.isDeprecatedEOF()) {
+            context.getMysqlChannel().setClientDeprecatedEOF();
         }
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {

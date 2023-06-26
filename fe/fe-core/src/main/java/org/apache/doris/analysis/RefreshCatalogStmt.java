@@ -38,7 +38,12 @@ public class RefreshCatalogStmt extends DdlStmt {
 
     private final String catalogName;
     private Map<String, String> properties;
-    private boolean invalidCache = false;
+
+    /**
+     * Set default value to true, otherwise
+     * {@link org.apache.doris.catalog.RefreshManager.RefreshTask} will lost the default value
+     */
+    private boolean invalidCache = true;
 
     public RefreshCatalogStmt(String catalogName, Map<String, String> properties) {
         this.catalogName = catalogName;
@@ -66,9 +71,9 @@ public class RefreshCatalogStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);
         }
-        String invalidConfig = properties == null ? null : properties.get(INVALID_CACHE);
-        // Default is to invalid cache.
-        invalidCache = invalidConfig == null ? true : invalidConfig.equalsIgnoreCase("true");
+
+        // Set to false only if user set the property "invalid_cache"="false"
+        invalidCache = !(properties != null && properties.get(INVALID_CACHE).equalsIgnoreCase("false"));
     }
 
     @Override
@@ -77,4 +82,5 @@ public class RefreshCatalogStmt extends DdlStmt {
         stringBuilder.append("REFRESH CATALOG ").append("`").append(catalogName).append("`");
         return stringBuilder.toString();
     }
+
 }

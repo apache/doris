@@ -433,12 +433,6 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
 * 默认值：5
 
-#### `serialize_batch`
-
-* 类型：bool
-* 描述：BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
-* 默认值: false
-
 #### `doris_scan_range_max_mb`
 
 * 类型: int32
@@ -642,7 +636,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `segcompaction_small_threshold`
 
 * 类型：int32
-* 描述：当 segment 文件超过此大小时则会在 segment compaction 时被 compact，否则跳过
+* 描述：当 segment 的行数超过此大小时则会在 segment compaction 时被 compact，否则跳过
 * 默认值：1048576
 
 #### `disable_compaction_trace_log`
@@ -657,6 +651,44 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型: int64
 * 描述: 选取 rowset 去合并的时间间隔，单位为秒
 * 默认值: 86400
+
+#### `max_single_replica_compaction_threads`
+
+* 类型：int32
+* 描述：Single Replica Compaction 线程池中线程数量的最大值。
+* 默认值：10
+
+#### `update_replica_infos_interval_seconds`
+
+* 描述：更新 peer replica infos 的最小间隔时间
+* 默认值：60（s）
+
+#### `compaction_policy`
+
+* 类型：string
+* 描述：配置 compaction 的合并策略，目前实现了两种合并策略，size_based 和 time_series
+  - size_based: 仅当 rowset 的磁盘体积在相同数量级时才进行版本合并。合并之后满足条件的 rowset 进行晋升到 base compaction阶段。能够做到在大量小批量导入的情况下：降低base compact的写入放大率，并在读取放大率和空间放大率之间进行权衡，同时减少了文件版本的数据。
+  - time_series: 当 rowset 的磁盘体积积攒到一定大小时进行版本合并。合并后的 rowset 直接晋升到 base compaction 阶段。在时序场景持续导入的情况下有效降低 compact 的写入放大率。
+* 默认值：size_based
+
+#### `time_series_compaction_goal_size_mbytes`
+
+* 类型：int64
+* 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件的大小，输出的文件大小和输入相当
+* 默认值：512
+
+#### `time_series_compaction_file_count_threshold`
+
+* 类型：int64
+* 描述：开启 time series compaction 时，将使用此参数来调整每次 compaction 输入的文件数量的最小值，只有当 time_series_compaction_goal_size_mbytes 条件不满足时，该参数才会发挥作用
+  - 一个 tablet 中文件数超过该配置，会触发 compaction
+* 默认值：2000
+
+#### `time_series_compaction_time_threshold_seconds`
+
+* 类型：int64
+* 描述：开启 time series compaction 时，将使用此参数来调整 compaction 的最长时间间隔，即长时间未执行过 compaction 时，就会触发一次 compaction，单位为秒
+* 默认值：3600
 
 
 ### 导入
@@ -726,6 +758,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int32
 * 描述：routine load 所使用的 data consumer 的缓存数量。
 * 默认值：10
+
+#### `multi_table_batch_plan_threshold`
+
+* 类型：int32
+* 描述：一流多表使用该配置，表示攒多少条数据再进行规划。过小的值会导致规划频繁，多大的值会增加内存压力和导入延迟。
+* 默认值：200
 
 #### `single_replica_load_download_num_workers`
 * 类型: int32
@@ -1389,7 +1427,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `max_runnings_transactions_per_txn_map`
 
 * 描述: txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
-* 默认值: 100
+* 默认值: 2000
 
 #### `max_download_speed_kbps`
 

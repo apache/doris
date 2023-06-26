@@ -128,7 +128,7 @@ public class UserManager implements Writable {
 
     public List<UserIdentity> getUserIdentityUncheckPasswd(String remoteUser, String remoteHost) {
         List<UserIdentity> userIdentities = Lists.newArrayList();
-        List<User> users = nameToUsers.get(remoteUser);
+        List<User> users = nameToUsers.getOrDefault(remoteUser, Lists.newArrayList());
         for (User user : users) {
             if (!user.getUserIdentity().isDomain() && (user.isAnyHost() || user.getHostPattern().match(remoteHost))) {
                 userIdentities.add(user.getUserIdentity());

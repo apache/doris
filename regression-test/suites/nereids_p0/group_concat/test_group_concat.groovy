@@ -19,23 +19,23 @@ suite("test_group_concat") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     qt_select """
-                SELECT group_concat(k6) FROM test_query_db.test where k6='false'
+                SELECT group_concat(k6) FROM nereids_test_query_db.test where k6='false'
               """
 
     qt_select """
-                SELECT group_concat(DISTINCT k6) FROM test_query_db.test where k6='false'
+                SELECT group_concat(DISTINCT k6) FROM nereids_test_query_db.test where k6='false'
               """
 
     qt_select """
-                SELECT abs(k3), group_concat(cast(abs(k2) as varchar) order by abs(k2), k1) FROM test_query_db.baseall group by abs(k3) order by abs(k3)
+                SELECT abs(k3), group_concat(cast(abs(k2) as varchar) order by abs(k2), k1) FROM nereids_test_query_db.baseall group by abs(k3) order by abs(k3)
               """
               
     qt_select """
-                SELECT abs(k3), group_concat(cast(abs(k2) as varchar), ":" order by abs(k2), k1) FROM test_query_db.baseall group by abs(k3) order by abs(k3)
+                SELECT abs(k3), group_concat(cast(abs(k2) as varchar), ":" order by abs(k2), k1) FROM nereids_test_query_db.baseall group by abs(k3) order by abs(k3)
               """
 
     test {
-        sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char) order by abs(k1), k2) FROM test_query_db.baseall group by abs(k3) order by abs(k3);"""
+        sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char) order by abs(k1), k2) FROM nereids_test_query_db.baseall group by abs(k3) order by abs(k3);"""
         check{result, exception, startTime, endTime ->
             assertTrue(exception != null)
             logger.info(exception.message)
@@ -43,7 +43,7 @@ suite("test_group_concat") {
     }
 
     test {
-        sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char), ":" order by abs(k1), k2) FROM test_query_db.baseall group by abs(k3) order by abs(k3);"""
+        sql"""SELECT abs(k3), group_concat(distinct cast(abs(k2) as char), ":" order by abs(k1), k2) FROM nereids_test_query_db.baseall group by abs(k3) order by abs(k3);"""
         check{result, exception, startTime, endTime ->
             assertTrue(exception != null)
             logger.info(exception.message)
@@ -51,7 +51,7 @@ suite("test_group_concat") {
     }
 
     qt_select """
-                SELECT count(distinct k7), group_concat(k6 order by k6) FROM test_query_db.baseall;
+                SELECT count(distinct k7), group_concat(k6 order by k6) FROM nereids_test_query_db.baseall;
               """
 
     sql """drop table if exists table_group_concat;"""

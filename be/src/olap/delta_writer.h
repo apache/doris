@@ -116,6 +116,7 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
+    int64_t active_memtable_mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
@@ -123,12 +124,6 @@ public:
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
     int32_t schema_hash() { return _tablet->schema_hash(); }
-
-    void save_mem_consumption_snapshot();
-
-    int64_t get_memtable_consumption_inflush() const;
-
-    int64_t get_memtable_consumption_snapshot() const;
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
@@ -180,13 +175,6 @@ private:
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
-
-    // memory consumption snapshot for current delta_writer, only
-    // used for std::sort
-    int64_t _mem_consumption_snapshot = 0;
-    // memory consumption snapshot for current memtable, only
-    // used for std::sort
-    int64_t _memtable_consumption_snapshot = 0;
 
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;

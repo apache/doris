@@ -77,8 +77,8 @@ When disk capacity **more than** `storage_flood_stage_usage_percent`, **or** dis
 **Flood Stage:**
 
 ```
-capacity_used_percent_flood_stage: default value is 95 (95%).
-capacity_min_left_bytes_flood_stage: default value is 1GB.
+storage_flood_stage_usage_percent: default value is 90 (90%).
+storage_flood_stage_left_capacity_bytes: default value is 1GB.
 ```
 
 When disk capacity **more than** `storage_flood_stage_usage_percent`, **and** disk free capacity **less than** `storage_flood_stage_left_capacity_bytes`, the following operations on this disk will be prohibited:

@@ -35,6 +35,7 @@ import com.google.common.collect.Lists;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -60,6 +61,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private long lastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
+    private static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -69,8 +71,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name, InitCatalogLog.Type.HMS);
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -213,7 +216,20 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
-        return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+
+        try {
+            return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+        } catch (IllegalStateException e) {
+            // Need a fallback to handle this because this error state can not be recovered until restarting FE
+            if (HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE.equals(e.getMessage())) {
+                lastSyncedEventId = getCurrentEventId();
+                refreshCatalog(hmsExternalCatalog);
+                LOG.warn("Notification events are missing, maybe an event can not be handled "
+                        + "or processing rate is too low, fallback to refresh the catalog");
+                return null;
+            }
+            throw e;
+        }
     }
 
     private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {
@@ -259,6 +275,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).setNewFileCache();
+        }
+    }
+
+    @Override
+    public void setDefaultProps() {
+        if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
+            // always allow fallback to simple auth, so to support both kerberos and simple auth
+            catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
     }
 }

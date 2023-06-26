@@ -80,7 +80,11 @@ public class TableProperty implements Writable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean enableSingleReplicaCompaction = false;
+
     private boolean storeRowColumn = false;
+
+    private boolean skipWriteIndexOnLoad = false;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
@@ -173,14 +177,41 @@ public class TableProperty implements Writable {
         return disableAutoCompaction;
     }
 
+    public TableProperty buildEnableSingleReplicaCompaction() {
+        enableSingleReplicaCompaction = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION, "false"));
+        return this;
+    }
+
+    public boolean enableSingleReplicaCompaction() {
+        return enableSingleReplicaCompaction;
+    }
+
     public TableProperty buildStoreRowColumn() {
         storeRowColumn = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        // Remove deprecated prefix and try again
+        String deprecatedPrefix = "deprecated_";
+        if (!storeRowColumn && PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.startsWith(deprecatedPrefix)) {
+            storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.substring(deprecatedPrefix.length()), "false"));
+        }
         return this;
     }
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildSkipWriteIndexOnLoad() {
+        skipWriteIndexOnLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, "false"));
+        return this;
+    }
+
+    public boolean skipWriteIndexOnLoad() {
+        return skipWriteIndexOnLoad;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -402,7 +433,9 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
-                .buildDisableAutoCompaction();
+                .buildSkipWriteIndexOnLoad()
+                .buildDisableAutoCompaction()
+                .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

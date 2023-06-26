@@ -42,7 +42,6 @@ import java.util.Map;
  * The new replica can be a rollup replica, or a shadow replica of schema change.
  */
 public class AlterReplicaTask extends AgentTask {
-
     private long baseTabletId;
     private long newReplicaId;
     private int baseSchemaHash;

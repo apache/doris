@@ -65,7 +65,7 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 // from object column and casted to the new type from slot_descs.
 // Also if column in block is empty, it will be filled
 // with num_rows of default values
-void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type);
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type);
 
 /// If both of types are signed/unsigned integers and size of left field type
 /// is less than right type, we don't need to convert field,

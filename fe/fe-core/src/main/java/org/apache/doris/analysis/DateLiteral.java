@@ -51,6 +51,7 @@ import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoField;
+import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
 import java.util.List;
@@ -98,23 +99,32 @@ public class DateLiteral extends LiteralExpr {
 
     static {
         try {
-            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
-            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
-            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
-            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter();
+            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                    .toFormatter();
+                    .toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
@@ -313,7 +323,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = dateTime.getMonthValue();
         this.day = dateTime.getDayOfMonth();
         this.type = type;
-        if (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2)) {
+        if (type.isDatetime() || type.isDatetimeV2()) {
             this.hour = dateTime.getHour();
             this.minute = dateTime.getMinute();
             this.second = dateTime.getSecond();
@@ -434,8 +444,9 @@ public class DateLiteral extends LiteralExpr {
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
             if (microsecond != 0 && type.isDatetime()) {
-                LOG.warn("Microseconds is not supported by Datetime type and hence is ignored."
-                        + "Please change to Datetimev2 to use it.");
+                int dotIndex = s.lastIndexOf(".");
+                int scale = s.length() - dotIndex - 1;
+                type = ScalarType.createDatetimeV2Type(scale);
             }
             this.type = type;
             if (checkRange() || checkDate()) {
@@ -922,30 +933,33 @@ public class DateLiteral extends LiteralExpr {
                     case 'T': // %T Time, 24-hour (HH:mm:ss)
                         builder.appendPattern("HH:mm:ss");
                         break;
-                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
                         builder.appendValue(ChronoField.ALIGNED_WEEK_OF_YEAR, 2);
                         break;
-                    case 'x':
-                    case 'Y': // %Y Year, numeric, four digits
-                        // %x Year for the week, where Monday is the first day of the week,
-                        // numeric, four digits; used with %v
-                        builder.appendValue(ChronoField.YEAR, 4);
+                    case 'v': // %v Week (01..53), where Monday is the first day of the week; used with %x
+                        builder.appendValue(IsoFields.WEEK_OF_WEEK_BASED_YEAR, 2);
                         break;
                     case 'W': // %W Weekday name (Sunday..Saturday)
                         builder.appendText(ChronoField.DAY_OF_WEEK, TextStyle.FULL);
+                        break;
+                    case 'x': // %x Year for the week where Monday is the first day of the week,
+                        builder.appendValue(IsoFields.WEEK_BASED_YEAR, 4);
+                        break;
+                    case 'X':
+                    case 'Y': // %Y Year, numeric, four digits
+                        // %X Year for the week, where Sunday is the first day of the week,
+                        // numeric, four digits; used with %v
+                        builder.appendValue(ChronoField.YEAR, 4);
                         break;
                     case 'y': // %y Year, numeric (two digits)
                         builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
                         break;
                     // TODO(Gabriel): support microseconds in date literal
+                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
                     case 'f': // %f Microseconds (000000..999999)
-                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
                     case 'U': // %U Week (00..53), where Sunday is the first day of the week
                     case 'u': // %u Week (00..53), where Monday is the first day of the week
-                    case 'V': // %V Week (01..53), where Sunday is the first day of the week; used with %X
-                    case 'X': // %X Year for the week where Sunday is the first day of the week,
-                        // numeric, four digits; used with %V
-                    case 'D': // %D Day of the month with English suffix (0th, 1st, 2nd, 3rd, …)
+                    case 'w': // %w Day of the week (0=Sunday..6=Saturday)
                         throw new AnalysisException(String.format("%%%s not supported in date format string",
                                 character));
                     case '%': // %% A literal "%" character
@@ -987,7 +1001,9 @@ public class DateLiteral extends LiteralExpr {
         final int second = getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE, 0);
         final int microSeconds = getOrDefault(accessor, ChronoField.MICRO_OF_SECOND, 0);
 
-        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds);
+        // LocalDateTime of(int year, int month, int dayOfMonth, int hour, int minute,
+        // int second, int nanoOfSecond)
+        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds * 1000);
     }
 
     public DateLiteral plusYears(int year) throws AnalysisException {

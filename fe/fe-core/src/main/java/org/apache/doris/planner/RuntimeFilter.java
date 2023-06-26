@@ -33,11 +33,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,12 +72,12 @@ public final class RuntimeFilter {
     // The position of expr in the join condition
     private final int exprOrder;
     // Expr (lhs of join predicate) from which the targetExprs_ are generated.
-    private final Expr origTargetExpr;
+    private final List<Expr> origTargetExprs;
     // Runtime filter targets
     private final List<RuntimeFilterTarget> targets = new ArrayList<>();
     // Slots from base table tuples that have value transfer from the slots
     // of 'origTargetExpr'. The slots are grouped by tuple id.
-    private final Map<TupleId, List<SlotId>> targetSlotsByTid;
+    private final List<Map<TupleId, List<SlotId>>> targetSlotsByTid;
     // If true, the join node building this filter is executed using a broadcast join;
     // set in the DistributedPlanner.createHashJoinFragment()
     private boolean isBroadcastJoin;
@@ -86,7 +88,8 @@ public final class RuntimeFilter {
     private long ndvEstimate = -1;
     // Size of the filter (in Bytes). Should be greater than zero for bloom filters.
     private long filterSizeBytes = 0;
-    public long expectFilterSizeBytes = 0;
+
+    private long expectFilterSizeBytes = 0;
     // If true, the filter is produced by a broadcast join and there is at least one
     // destination scan node which is in the same fragment as the join; set in
     // DistributedPlanner.createHashJoinFragment().
@@ -102,6 +105,8 @@ public final class RuntimeFilter {
     private TRuntimeFilterType runtimeFilterType;
 
     private boolean bitmapFilterNotIn = false;
+
+    private boolean useRemoteRfOpt = true;
 
     /**
      * Internal representation of a runtime filter target.
@@ -135,14 +140,14 @@ public final class RuntimeFilter {
     }
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
-            Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots, TRuntimeFilterType type,
+            List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
             RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
         this.srcExpr = srcExpr;
         this.exprOrder = exprOrder;
-        this.origTargetExpr = origTargetExpr;
-        this.targetSlotsByTid = targetSlots;
+        this.origTargetExprs = ImmutableList.copyOf(origTargetExprs);
+        this.targetSlotsByTid = ImmutableList.copyOf(targetSlots);
         this.runtimeFilterType = type;
         this.ndvEstimate = buildSizeNdv;
         computeNdvEstimate();
@@ -151,9 +156,9 @@ public final class RuntimeFilter {
 
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
-            int exprOrder, Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
+            int exprOrder, List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
             TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
-        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr,
+        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExprs,
                 targetSlots, type, filterSizeLimits, buildSizeNdv);
     }
 
@@ -180,6 +185,17 @@ public final class RuntimeFilter {
 
     public void setBitmapFilterNotIn(boolean bitmapFilterNotIn) {
         this.bitmapFilterNotIn = bitmapFilterNotIn;
+    }
+
+    public void computeUseRemoteRfOpt() {
+        for (RuntimeFilterTarget target : targets) {
+            useRemoteRfOpt = useRemoteRfOpt && hasRemoteTargets && runtimeFilterType == TRuntimeFilterType.BLOOM
+                    && target.expr instanceof SlotRef;
+        }
+    }
+
+    public boolean getUseRemoteRfOpt() {
+        return useRemoteRfOpt;
     }
 
     /**
@@ -222,11 +238,11 @@ public final class RuntimeFilter {
         return srcExpr;
     }
 
-    public Expr getOrigTargetExpr() {
-        return origTargetExpr;
+    public List<Expr> getOrigTargetExprs() {
+        return origTargetExprs;
     }
 
-    public Map<TupleId, List<SlotId>> getTargetSlots() {
+    public List<Map<TupleId, List<SlotId>>> getTargetSlots() {
         return targetSlotsByTid;
     }
 
@@ -314,7 +330,7 @@ public final class RuntimeFilter {
         }
 
         return new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
-                targetExpr, targetSlots, type, filterSizeLimits, -1L);
+                ImmutableList.of(targetExpr), ImmutableList.of(targetSlots), type, filterSizeLimits, -1L);
     }
 
     public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
@@ -350,7 +366,8 @@ public final class RuntimeFilter {
             }
 
             RuntimeFilter runtimeFilter =
-                    new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder, targetExpr, targetSlots,
+                    new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
+                            ImmutableList.of(targetExpr), ImmutableList.of(targetSlots),
                             type, filterSizeLimits, -1L);
             runtimeFilter.setBitmapFilterNotIn(((BitmapFilterPredicate) joinPredicate).isNotIn());
             return runtimeFilter;
@@ -546,17 +563,26 @@ public final class RuntimeFilter {
      * Considering that the `IN` filter may be converted to the `Bloom FIlter` when crossing fragments,
      * the bloom filter size is always calculated.
      */
-    private void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+    public void calculateFilterSize(RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         if (ndvEstimate == -1) {
             filterSizeBytes = filterSizeLimits.defaultVal;
             return;
         }
-        double fpp = FeConstants.default_bloom_filter_fpp;
-        int logFilterSize = getMinLogSpaceForBloomFilter(ndvEstimate, fpp);
-        filterSizeBytes = 1L << logFilterSize;
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        if (sessionVariable.useRuntimeFilterDefaultSize) {
+            filterSizeBytes = filterSizeLimits.defaultVal;
+            return;
+        }
+        filterSizeBytes = expectRuntimeFilterSize(ndvEstimate);
         expectFilterSizeBytes = filterSizeBytes;
         filterSizeBytes = Math.max(filterSizeBytes, filterSizeLimits.minVal);
         filterSizeBytes = Math.min(filterSizeBytes, filterSizeLimits.maxVal);
+    }
+
+    public static long expectRuntimeFilterSize(long ndv) {
+        double fpp = FeConstants.default_bloom_filter_fpp;
+        int logFilterSize = getMinLogSpaceForBloomFilter(ndv, fpp);
+        return 1L << logFilterSize;
     }
 
     /**
@@ -619,5 +645,10 @@ public final class RuntimeFilter {
                 +      "Target(s): "
                 +      Joiner.on(", ").join(targets) + " "
                 + "Selectivity: " + getSelectivity();
+    }
+
+
+    public long getExpectFilterSizeBytes() {
+        return expectFilterSizeBytes;
     }
 }

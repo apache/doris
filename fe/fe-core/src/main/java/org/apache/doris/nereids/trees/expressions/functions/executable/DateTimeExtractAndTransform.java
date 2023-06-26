@@ -38,7 +38,7 @@ import java.time.format.DateTimeParseException;
 
 /**
  * executable function:
- * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second
+ * year, quarter, month, week, dayOfYear, dayOfweek, dayOfMonth, hour, minute, second, microsecond
  */
 public class DateTimeExtractAndTransform {
     /**
@@ -168,7 +168,7 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
-     * Executable datetime extract hour
+     * Executable datetime extract second
      */
     @ExecFunction(name = "second", argTypes = {"DATETIME"}, returnType = "INT")
     public static Expression second(DateTimeLiteral date) {
@@ -178,6 +178,14 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "second", argTypes = {"DATETIMEV2"}, returnType = "INT")
     public static Expression second(DateTimeV2Literal date) {
         return new IntegerLiteral(((int) date.getSecond()));
+    }
+
+    /**
+     * Executable datetime extract microsecond
+     */
+    @ExecFunction(name = "microsecond", argTypes = {"DATETIMEV2"}, returnType = "INT")
+    public static Expression microsecond(DateTimeV2Literal date) {
+        return new IntegerLiteral(((int) date.getMicroSecond()));
     }
 
     /**
@@ -294,9 +302,9 @@ public class DateTimeExtractAndTransform {
         return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
-    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
+    @ExecFunction(name = "date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression date(DateTimeV2Literal dateTime) throws AnalysisException {
-        return new DateLiteral(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
+        return new DateV2Literal(dateTime.getYear(), dateTime.getMonth(), dateTime.getDay());
     }
 
     /**
@@ -448,18 +456,10 @@ public class DateTimeExtractAndTransform {
                 .plusSeconds(second.getValue())
                 .atZone(ZoneId.of("UTC+0"))
                 .toOffsetDateTime()
-                .atZoneSameInstant(ZoneId.systemDefault());
+                .atZoneSameInstant(DateUtils.getTimeZone());
         return dateFormat(new DateTimeLiteral(dateTime.getYear(), dateTime.getMonthValue(),
                         dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond()),
                 format);
-    }
-
-    /**
-     * date transformation function: unix_timestamp
-     */
-    @ExecFunction(name = "unix_timestamp", argTypes = {}, returnType = "INT")
-    public static Expression unixTimestamp() {
-        return new IntegerLiteral(getTimestamp(LocalDateTime.now()));
     }
 
     /**
@@ -509,18 +509,9 @@ public class DateTimeExtractAndTransform {
         }
         return ((int) Duration.between(
                 specialLowerBound,
-                dateTime
-                .atZone(ZoneId.systemDefault())
-                .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                .toLocalDateTime()).getSeconds());
-    }
-
-    /**
-     * date transformation function: utc_timestamp
-     */
-    @ExecFunction(name = "utc_timestamp", argTypes = {}, returnType = "INT")
-    public static Expression utcTimestamp() {
-        return DateTimeLiteral.fromJavaDateType(LocalDateTime.now());
+                dateTime.atZone(DateUtils.getTimeZone())
+                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
+                        .toLocalDateTime()).getSeconds());
     }
 
     /**
@@ -579,5 +570,15 @@ public class DateTimeExtractAndTransform {
     public static Expression strToDate(VarcharLiteral str, VarcharLiteral format) {
         return DateTimeLiteral.fromJavaDateType(DateUtils.getTime(DateUtils.formatBuilder(format.getValue())
                         .toFormatter(), str.getValue()));
+    }
+
+    @ExecFunction(name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static Expression timestamp(DateTimeLiteral datetime) {
+        return datetime;
+    }
+
+    @ExecFunction(name = "timestamp", argTypes = {"DATETIMEV2"}, returnType = "DATETIMEV2")
+    public static Expression timestamp(DateTimeV2Literal datetime) {
+        return datetime;
     }
 }

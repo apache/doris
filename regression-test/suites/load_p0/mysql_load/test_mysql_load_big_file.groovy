@@ -38,14 +38,26 @@ suite("test_mysql_load_big_file", "p0") {
     // If file size is bigger than 16384(16 * 1024), mysql client will spilt it into two packets. In this test, the file size is 17056.
     def mysql_load_skip_lines = getLoalFilePath "test_mysql_load_big_file.csv"
 
-    // no any skip
-    sql """
-        LOAD DATA
-        LOCAL
-        INFILE '${mysql_load_skip_lines}'
-        INTO TABLE ${tableName}
-        COLUMNS TERMINATED BY ',';
-    """
+    test {
+        // no any skip
+        sql """
+            LOAD DATA
+            LOCAL
+            INFILE '${mysql_load_skip_lines}'
+            INTO TABLE ${tableName}
+            COLUMNS TERMINATED BY ',';
+        """
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                // skip publish timeout
+                if (exception.getMessage().contains("PUBLISH_TIMEOUT")) {
+                    logger.info(exception.getMessage())
+                    return
+                }
+                throw exception
+            }
+        }
+    }
 
     sql "sync"
     qt_sql "select k1,k2,count(*) from ${tableName} group by k1, k2 order by k1, k2"

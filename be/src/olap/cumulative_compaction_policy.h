@@ -33,7 +33,7 @@ namespace doris {
 class Tablet;
 struct Version;
 
-const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
+inline std::string_view CUMULATIVE_SIZE_BASED_POLICY = "size_based";
 
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
 /// It defines the policy to do cumulative compaction. It has different derived classes, which implements
@@ -96,7 +96,7 @@ public:
                                             int64_t* cumulative_point) = 0;
 
     /// Fetch cumulative policy name
-    virtual std::string name() = 0;
+    virtual std::string_view name() = 0;
 };
 
 /// SizeBased cumulative compaction policy implementation. SizeBased policy which derives CumulativeCompactionPolicy is a optimized
@@ -146,7 +146,7 @@ public:
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
     uint32_t calc_cumulative_compaction_score(Tablet* tablet) override;
 
-    std::string name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
+    std::string_view name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
 
 private:
     /// calculate promotion size using current base rowset meta size and promotion configs

@@ -65,9 +65,9 @@ public class CheckAnalysisTest {
         UnboundFunction func = new UnboundFunction("now", Lists.newArrayList(new IntegerLiteral(1)));
         Plan plan = new LogicalOneRowRelation(
                 ImmutableList.of(new Alias(func, "unboundFunction")));
-        CheckAnalysis checkAnalysis = new CheckAnalysis();
+        CheckBound checkBound = new CheckBound();
         Assertions.assertThrows(AnalysisException.class, () ->
-                checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
+                checkBound.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));
     }
 
 }

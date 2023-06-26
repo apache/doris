@@ -102,6 +102,8 @@ run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
+run_sql "analyze database ${DB};"
+echo '============================================'
 echo "Time Unit: ms"
 
 touch result.csv

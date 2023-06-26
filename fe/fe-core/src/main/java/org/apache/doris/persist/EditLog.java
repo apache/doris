@@ -69,7 +69,6 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.DropMTMVJob;
 import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -79,7 +78,8 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
-import org.apache.doris.resource.resourcegroup.ResourceGroup;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -841,7 +841,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_CATALOG: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayCreateCatalog(log, true);
+                    env.getCatalogMgr().replayCreateCatalog(log);
                     break;
                 }
                 case OperationType.OP_DROP_CATALOG: {
@@ -916,8 +916,6 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CHANGE_MTMV_TASK: {
-                    final ChangeMTMVTask changeTask = (ChangeMTMVTask) journal.getData();
-                    env.getMTMVJobManager().replayUpdateTask(changeTask);
                     break;
                 }
                 case OperationType.OP_DROP_MTMV_TASK: {
@@ -962,7 +960,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalTable(log);
+                    env.getCatalogMgr().replayCreateExternalTableFromEvent(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_DB: {
@@ -990,24 +988,53 @@ public class EditLog {
                     env.getCatalogMgr().replayRefreshExternalPartitions(log);
                     break;
                 }
-                case OperationType.OP_CREATE_RESOURCE_GROUP: {
-                    final ResourceGroup resourceGroup = (ResourceGroup) journal.getData();
-                    env.getResourceGroupMgr().replayCreateResourceGroup(resourceGroup);
+                case OperationType.OP_CREATE_WORKLOAD_GROUP: {
+                    final WorkloadGroup workloadGroup = (WorkloadGroup) journal.getData();
+                    env.getWorkloadGroupMgr().replayCreateWorkloadGroup(workloadGroup);
                     break;
                 }
-                case OperationType.OP_DROP_RESOURCE_GROUP: {
-                    final DropResourceGroupOperationLog operationLog =
-                            (DropResourceGroupOperationLog) journal.getData();
-                    env.getResourceGroupMgr().replayDropResourceGroup(operationLog);
+                case OperationType.OP_DROP_WORKLOAD_GROUP: {
+                    final DropWorkloadGroupOperationLog operationLog =
+                            (DropWorkloadGroupOperationLog) journal.getData();
+                    env.getWorkloadGroupMgr().replayDropWorkloadGroup(operationLog);
                     break;
                 }
-                case OperationType.OP_ALTER_RESOURCE_GROUP: {
-                    final ResourceGroup resource = (ResourceGroup) journal.getData();
-                    env.getResourceGroupMgr().replayAlterResourceGroup(resource);
+                case OperationType.OP_ALTER_WORKLOAD_GROUP: {
+                    final WorkloadGroup resource = (WorkloadGroup) journal.getData();
+                    env.getWorkloadGroupMgr().replayAlterWorkloadGroup(resource);
                     break;
                 }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
+                    break;
+                }
+                case OperationType.OP_CREATE_ANALYSIS_JOB: {
+                    env.getAnalysisManager().replayCreateAnalysisJob((AnalysisInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_CREATE_ANALYSIS_TASK: {
+                    env.getAnalysisManager().replayCreateAnalysisTask((AnalysisInfo) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DELETE_ANALYSIS_JOB: {
+                    env.getAnalysisManager().replayDeleteAnalysisJob((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_DELETE_ANALYSIS_TASK: {
+                    env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ALTER_DATABASE_PROPERTY: {
+                    AlterDatabasePropertyInfo alterDatabasePropertyInfo = (AlterDatabasePropertyInfo) journal.getData();
+                    LOG.info("replay alter database property: {}", alterDatabasePropertyInfo);
+                    env.replayAlterDatabaseProperty(alterDatabasePropertyInfo.getDbName(),
+                            alterDatabasePropertyInfo.getProperties());
+                    break;
+                }
+                case OperationType.OP_GC_BINLOG: {
+                    BinlogGcInfo binlogGcInfo = (BinlogGcInfo) journal.getData();
+                    LOG.info("replay gc binlog: {}", binlogGcInfo);
+                    env.replayGcBinlog(binlogGcInfo);
                     break;
                 }
                 default: {
@@ -1525,16 +1552,16 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
-    public void logAlterResourceGroup(ResourceGroup resourceGroup) {
-        logEdit(OperationType.OP_ALTER_RESOURCE_GROUP, resourceGroup);
+    public void logAlterWorkloadGroup(WorkloadGroup workloadGroup) {
+        logEdit(OperationType.OP_ALTER_WORKLOAD_GROUP, workloadGroup);
     }
 
-    public void logCreateResourceGroup(ResourceGroup resourceGroup) {
-        logEdit(OperationType.OP_CREATE_RESOURCE_GROUP, resourceGroup);
+    public void logCreateWorkloadGroup(WorkloadGroup workloadGroup) {
+        logEdit(OperationType.OP_CREATE_WORKLOAD_GROUP, workloadGroup);
     }
 
-    public void logDropResourceGroup(DropResourceGroupOperationLog operationLog) {
-        logEdit(OperationType.OP_DROP_RESOURCE_GROUP, operationLog);
+    public void logDropWorkloadGroup(DropWorkloadGroupOperationLog operationLog) {
+        logEdit(OperationType.OP_DROP_WORKLOAD_GROUP, operationLog);
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
@@ -1677,10 +1704,6 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
     }
 
-    public void logChangeMTMVTask(ChangeMTMVTask changeTaskRecord) {
-        logEdit(OperationType.OP_CHANGE_MTMV_TASK, changeTaskRecord);
-    }
-
     public void logDropMTMVTasks(List<String> taskIds) {
         logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
     }
@@ -1759,5 +1782,29 @@ public class EditLog {
 
     public void logCleanQueryStats(CleanQueryStatsInfo log) {
         logEdit(OperationType.OP_CLEAN_QUERY_STATS, log);
+    }
+
+    public void logCreateAnalysisTasks(AnalysisInfo log) {
+        logEdit(OperationType.OP_CREATE_ANALYSIS_TASK, log);
+    }
+
+    public void logCreateAnalysisJob(AnalysisInfo log) {
+        logEdit(OperationType.OP_CREATE_ANALYSIS_JOB, log);
+    }
+
+    public void logDeleteAnalysisJob(AnalyzeDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_ANALYSIS_JOB, log);
+    }
+
+    public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
+        logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
+    }
+
+    public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
+        logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
+    }
+
+    public void logGcBinlog(BinlogGcInfo log) {
+        logEdit(OperationType.OP_GC_BINLOG, log);
     }
 }
