@@ -159,6 +159,15 @@ public class TupleDescriptor {
         return null;
     }
 
+    public boolean hasVariantCol() {
+        for (SlotDescriptor slotDesc : slots) {
+            if (slotDesc.getColumn() != null && slotDesc.getColumn().getType().isVariantType()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public TableIf getTable() {
         return table;
     }

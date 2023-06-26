@@ -44,7 +44,9 @@
 #include "util/once.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
+#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 
@@ -98,6 +100,16 @@ struct ColumnIteratorOptions {
         CHECK_NOTNULL(stats);
     }
 };
+
+struct StreamReader {
+    vectorized::ColumnPtr column;
+    std::unique_ptr<ColumnIterator> iterator;
+    std::shared_ptr<const vectorized::IDataType> type;
+    bool inited = false;
+    size_t rows_read = 0;
+};
+
+using SubstreamCache = vectorized::SubcolumnsTree<StreamReader>;
 
 // There will be concurrent users to read the same column. So
 // we should do our best to reduce resource usage through share
@@ -474,6 +486,50 @@ private:
     std::unique_ptr<ColumnIterator> _val_iterator;
 };
 
+// Cache the sub column iterators and columns to reduce data read amplification
+class CachedStreamIterator : public ColumnIterator {
+public:
+    CachedStreamIterator(SubstreamCache* stream_cache, const vectorized::PathInData& path)
+            : _stream_cache(stream_cache), _path(path) {}
+
+    ~CachedStreamIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    Status seek_to_ordinal(ordinal_t ord) override;
+
+    ordinal_t get_current_ordinal() const override { LOG(FATAL) << "Not implemented"; }
+
+    Status seek_to_first() override { LOG(FATAL) << "Not implemented"; }
+
+    void attatch_node(const SubstreamCache::Node* n) {
+        CHECK(n);
+        _attatched_nodes.push_back(n);
+    }
+
+private:
+    // process read
+    template <typename NodeFunction>
+    Status process(NodeFunction&& node_func, size_t nrows) {
+        // Read all sub columns, and merge with root column
+        for (const SubstreamCache::Node* node : _attatched_nodes) {
+            RETURN_IF_ERROR(node_func(node));
+        }
+        _rows_read += nrows;
+        return Status::OK();
+    }
+    SubstreamCache* _stream_cache;
+    vectorized::PathInData _path;
+    size_t _rows_read = 0;
+    // could duplicate with nodes under _path, since node_func is idempotent
+    std::vector<const SubstreamCache::Node*> _attatched_nodes;
+};
+
 class StructFileColumnIterator final : public ColumnIterator {
 public:
     explicit StructFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
@@ -596,6 +652,38 @@ private:
     int32_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
+};
+
+class VariantColumnIterator : public ColumnIterator {
+public:
+    VariantColumnIterator() = delete;
+
+    explicit VariantColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+
+    ~VariantColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
+
+    Status seek_to_first() override { return _inner_iter->seek_to_first(); }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        return _inner_iter->seek_to_ordinal(ord_idx);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
+
+private:
+    std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 // This iterator is used to read default value column

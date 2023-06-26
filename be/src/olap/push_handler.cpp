@@ -139,6 +139,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         TabletSchema tablet_schema;
         tablet_schema.copy_from(*tablet->tablet_schema());
         if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
+            // TODO(lhy) handle variant
             tablet_schema.clear_columns();
             for (const auto& column_desc : request.columns_desc) {
                 tablet_schema.append_column(TabletColumn(column_desc));
@@ -164,6 +165,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
         tablet_schema->clear_columns();
+        // TODO(lhy) handle variant
         for (const auto& column_desc : request.columns_desc) {
             tablet_schema->append_column(TabletColumn(column_desc));
         }
@@ -424,7 +426,7 @@ Status PushBrokerReader::_init_src_block() {
     for (auto& slot : _src_slot_descs) {
         vectorized::DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
-        if (it == _name_to_col_type.end() || _is_dynamic_schema) {
+        if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
             data_type = vectorized::DataTypeFactory::instance().create_data_type(
                     slot->type(), slot->is_nullable());
@@ -447,9 +449,6 @@ Status PushBrokerReader::_init_src_block() {
 }
 
 Status PushBrokerReader::_cast_to_input_block() {
-    if (_is_dynamic_schema) {
-        return Status::OK();
-    }
     size_t idx = 0;
     for (auto& slot_desc : _src_slot_descs) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
@@ -550,11 +549,6 @@ Status PushBrokerReader::_init_expr_ctxes() {
             return Status::InternalError("Unknown source slot descriptor, slot_id={}", slot_id);
         }
         _src_slot_descs.emplace_back(it->second);
-
-        if (it->second->type().is_variant_type() &&
-            it->second->col_name() == BeConsts::DYNAMIC_COLUMN_NAME) {
-            _is_dynamic_schema = true;
-        }
     }
     _row_desc.reset(new RowDescriptor(_runtime_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),

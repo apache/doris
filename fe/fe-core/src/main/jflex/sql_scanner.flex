@@ -280,6 +280,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("join", new Integer(SqlParserSymbols.KW_JOIN));
         keywordMap.put("json", new Integer(SqlParserSymbols.KW_JSON));
         keywordMap.put("jsonb", new Integer(SqlParserSymbols.KW_JSONB));
+        keywordMap.put("variant", new Integer(SqlParserSymbols.KW_VARIANT));
         keywordMap.put("key", new Integer(SqlParserSymbols.KW_KEY));
         keywordMap.put("keys", new Integer(SqlParserSymbols.KW_KEYS));
         keywordMap.put("kill", new Integer(SqlParserSymbols.KW_KILL));

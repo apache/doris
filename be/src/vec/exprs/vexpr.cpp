@@ -47,7 +47,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vschema_change_expr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
@@ -203,10 +202,6 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         }
         case TExprNodeType::TUPLE_IS_NULL_PRED: {
             expr = VTupleIsNullPredicate::create_shared(expr_node);
-            break;
-        }
-        case TExprNodeType::SCHEMA_CHANGE_EXPR: {
-            expr = VSchemaChangeExpr::create_shared(expr_node);
             break;
         }
         default:

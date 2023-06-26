@@ -428,6 +428,7 @@ terminal String
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
+    KW_VARIANT,
     KW_KEY,
     KW_KEYS,
     KW_KILL,
@@ -743,6 +744,7 @@ nonterminal String sequence_col_clause;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
   compound_predicate, in_predicate, like_predicate, exists_predicate, match_predicate;
 nonterminal ArrayList<Expr> opt_partition_by_clause;
+nonterminal ArrayList<String> sub_column_lables;
 nonterminal Expr having_clause;
 nonterminal ArrayList<OrderByElement> order_by_elements, order_by_clause;
 nonterminal OrderByElement order_by_element;
@@ -948,6 +950,7 @@ precedence nonassoc KW_WITH;
 
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
+precedence left COLON;
 precedence left SET_VAR;
 precedence left KW_OR;
 precedence left KW_AND;
@@ -6198,6 +6201,8 @@ type ::=
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_VARIANT
+  {: RESULT = ScalarType.createVariantType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
      RESULT = type;
@@ -6981,6 +6986,18 @@ compound_predicate ::=
   {: RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null); :}
   ;
 
+sub_column_lables ::=
+    ident: subcol
+    {:
+        RESULT = Lists.newArrayList(subcol);
+    :}
+    | sub_column_lables:list DOT ident:subcol
+    {:
+        list.add(subcol);
+        RESULT = list;
+    :}
+    ;
+
 column_ref ::=
   ident:col
   {: RESULT = new SlotRef(null, col); :}
@@ -6991,6 +7008,16 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
+
+  | ident:pcol COLON sub_column_lables:lables
+  {: RESULT = new SlotRef(null, pcol, lables); :} 
+  // table_name:tblName DOT IDENT:pcol causes reduce/reduce conflicts
+  | ident:tbl DOT ident:pcol COLON sub_column_lables:lables
+  {: RESULT = new SlotRef(new TableName(null, null, tbl), pcol, lables); :}
+  | ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_lables:lables
+  {: RESULT = new SlotRef(new TableName(null, db, tbl), pcol, lables); :}
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_lables:lables
+  {: RESULT = new SlotRef(new TableName(ctl, db, tbl), pcol, lables); :}
   ;
 
 column_ref_list ::=

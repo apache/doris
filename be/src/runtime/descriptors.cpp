@@ -63,7 +63,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _field_idx(-1),
           _is_materialized(tdesc.isMaterialized),
           _is_key(tdesc.is_key),
-          _need_materialize(tdesc.need_materialize) {}
+          _need_materialize(tdesc.need_materialize),
+          _column_paths(tdesc.column_paths) {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),

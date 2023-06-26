@@ -146,7 +146,8 @@ Status NewOlapScanner::init() {
         TOlapScanNode& olap_scan_node = ((NewOlapScanNode*)_parent)->_olap_scan_node;
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
+            _tablet->tablet_schema()->num_variant_columns() == 0) {
             schema_key = SchemaCache::get_schema_key(tablet_id, olap_scan_node.columns_desc,
                                                      olap_scan_node.schema_version,
                                                      SchemaCache::Type::TABLET_SCHEMA);
@@ -173,8 +174,10 @@ Status NewOlapScanner::init() {
             if (olap_scan_node.__isset.indexes_desc) {
                 _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
             }
+            if (_tablet_schema->num_variant_columns() > 0) {
+                _tablet_schema->flatten_variant_cols();
+            }
         }
-
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
             if (_tablet_reader_params.rs_splits.empty()) {
@@ -259,6 +262,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
                  _parent->get_push_down_agg_type() != TPushAggOp::COUNT_ON_INDEX);
     }
 
+    RETURN_IF_ERROR(_init_variant_columns());
     RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.tablet = _tablet;
@@ -414,6 +418,52 @@ Status NewOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
+vectorized::PathInData NewOlapScanner::_build_path(SlotDescriptor* slot) {
+    PathInDataBuilder path_builder;
+    const std::string& col_name = slot->col_name_lower_case();
+    auto delimeter_index = col_name.find(".");
+    std::string_view root_name = delimeter_index == std::string::npos
+                                         ? col_name
+                                         : std::string_view(col_name.data(), delimeter_index);
+    path_builder = path_builder.append(root_name, false);
+    for (const std::string& path : slot->column_paths()) {
+        path_builder.append(path, false);
+    }
+    return path_builder.build();
+}
+
+Status NewOlapScanner::_init_variant_columns() {
+    // Parent column has path info to distinction from each other
+    for (auto slot : _output_tuple_desc->slots()) {
+        if (!slot->is_materialized()) {
+            continue;
+        }
+        if (!slot->need_materialize()) {
+            continue;
+        }
+        if (slot->type().is_variant_type()) {
+            // Such columns are not exist in frontend schema info, so we need to
+            // add them into tablet_schema for later column indexing.
+            TabletColumn subcol;
+            subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+            subcol.set_name(slot->col_name());
+            subcol.set_is_nullable(true);
+            subcol.set_unique_id(slot->col_unique_id());
+            PathInData path = _build_path(slot);
+            subcol.set_path_info(path);
+            if (_tablet_schema->field_index(path) < 0) {
+                _tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            }
+        } else if (!slot->column_paths().empty()) {
+            // Extracted materialized columns update it's path info
+            PathInData path = _build_path(slot);
+            int index = _tablet_schema->field_index(slot->col_unique_id());
+            _tablet_schema->mutable_columns()[index].set_path_info(path);
+        }
+    }
+    return Status::OK();
+}
+
 Status NewOlapScanner::_init_return_columns() {
     for (auto slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -422,9 +472,15 @@ Status NewOlapScanner::_init_return_columns() {
         if (!slot->need_materialize()) {
             continue;
         }
-        int32_t index = slot->col_unique_id() >= 0
-                                ? _tablet_schema->field_index(slot->col_unique_id())
-                                : _tablet_schema->field_index(slot->col_name());
+
+        // variant column using path to index a column
+        int32_t index = 0;
+        if (slot->type().is_variant_type()) {
+            index = _tablet_schema->field_index(_build_path(slot));
+        } else {
+            index = slot->col_unique_id() >= 0 ? _tablet_schema->field_index(slot->col_unique_id())
+                                               : _tablet_schema->field_index(slot->col_name());
+        }
 
         if (index < 0) {
             return Status::InternalError(

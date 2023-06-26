@@ -421,6 +421,10 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
+    }
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
@@ -476,7 +480,6 @@ public:
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;
-    TypeIndex get_data_type() const override { return TypeId<T>::value; }
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);

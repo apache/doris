@@ -798,6 +798,12 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
+    public ArrayList<List<String>> getSubColLabels() {
+        Preconditions.checkState(operands.size() > 0);
+        return operands.get(0).getQueryStmt().getSubColLabels();
+    }
+
+    @Override
     public void setNeedToSql(boolean needToSql) {
         super.setNeedToSql(needToSql);
         for (SetOperand operand : operands) {

@@ -46,6 +46,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h" // for TypeInfo
@@ -60,10 +61,12 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
@@ -168,6 +171,14 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
                 map_reader->_sub_readers[3] = std::move(null_reader);
             }
             *reader = std::move(map_reader);
+            return Status::OK();
+        }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            // Read variant only root data using a single ColumnReader
+            std::unique_ptr<ColumnReader> reader_local(
+                    new ColumnReader(opts, meta, num_rows, file_reader));
+            RETURN_IF_ERROR(reader_local->init());
+            *reader = std::move(reader_local);
             return Status::OK();
         }
         default:
@@ -621,6 +632,10 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             }
             *iterator = new MapFileColumnIterator(this, null_iterator, ofcIter, key_iterator,
                                                   val_iterator);
+            return Status::OK();
+        }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            *iterator = new VariantColumnIterator(new FileColumnIterator(this));
             return Status::OK();
         }
         default:
@@ -1389,6 +1404,11 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         }
         break;
     }
+    case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+        auto& obj = static_cast<vectorized::ColumnObject&>(*dst);
+        obj.incr_num_rows(n);
+        break;
+    }
     default: {
         char* data_ptr = (char*)mem_value;
         size_t data_len = type_size;
@@ -1416,6 +1436,92 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     } else {
         insert_default_data(_type_info.get(), _type_size, _mem_value.data(), dst, n);
     }
+}
+
+Status VariantColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                         bool* has_null) {
+    auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
+    if (obj.is_null_root()) {
+        obj.create_root();
+    }
+    auto root_column = obj.get_root();
+    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
+    obj.incr_num_rows(*n);
+    return Status::OK();
+}
+
+Status VariantColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                             vectorized::MutableColumnPtr& dst) {
+    auto& obj = assert_cast<vectorized::ColumnObject&>(*dst);
+    if (obj.is_null_root()) {
+        obj.create_root();
+    }
+    auto root_column = obj.get_root();
+    RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
+    obj.incr_num_rows(count);
+    return Status::OK();
+}
+
+Status CachedStreamIterator::init(const ColumnIteratorOptions& opts) {
+    for (const SubstreamCache::Node* node : _attatched_nodes) {
+        if (!node->data.inited) {
+            RETURN_IF_ERROR(node->data.iterator->init(opts));
+            // avoid duplicated init
+            const_cast<SubstreamCache::Node*>(node)->data.inited = true;
+        }
+    }
+    return Status::OK();
+}
+
+Status CachedStreamIterator::seek_to_ordinal(ordinal_t ord) {
+    for (const SubstreamCache::Node* node : _attatched_nodes) {
+        CHECK(node->data.inited);
+        RETURN_IF_ERROR(node->data.iterator->seek_to_ordinal(ord));
+    }
+    return Status::OK();
+}
+
+Status CachedStreamIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                            vectorized::MutableColumnPtr& dst) {
+    return process(
+            [&](const SubstreamCache::Node* node) {
+                if (node->data.column == nullptr) {
+                    const_cast<SubstreamCache::Node*>(node)->data.column =
+                            node->data.type->create_column();
+                }
+                if (node->data.column->empty()) {
+                    VLOG_DEBUG << fmt::format(
+                            "path {}, current_row: {}, subcolumn_row: {}, type {}, read_rows: {}",
+                            node->path.get_path(), _rows_read, node->data.rows_read,
+                            node->data.type->get_name(), count);
+                    vectorized::MutableColumnPtr column = node->data.column->assume_mutable();
+                    RETURN_IF_ERROR(node->data.iterator->read_by_rowids(rowids, count, column));
+                }
+                return Status::OK();
+            },
+            count);
+}
+
+Status CachedStreamIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                        bool* has_null) {
+    return process(
+            [&](const SubstreamCache::Node* node) {
+                if (node->data.column == nullptr) {
+                    const_cast<SubstreamCache::Node*>(node)->data.column =
+                            node->data.type->create_column();
+                }
+                if (_rows_read >= node->data.rows_read) {
+                    vectorized::MutableColumnPtr column = node->data.column->assume_mutable();
+                    RETURN_IF_ERROR(node->data.iterator->next_batch(n, column, has_null));
+                    const_cast<SubstreamCache::Node*>(node)->data.rows_read += *n;
+                    VLOG_DEBUG << fmt::format(
+                            "path {}, current_row: {}, subcolumn_row: {}, type {}, read_rows: {}",
+                            node->path.get_path(), _rows_read, node->data.rows_read,
+                            node->data.type->get_name(), *n);
+                }
+                return Status::OK();
+            },
+            *n);
 }
 
 } // namespace segment_v2

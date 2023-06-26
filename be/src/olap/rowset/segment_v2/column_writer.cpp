@@ -353,6 +353,13 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             *writer = std::move(writer_local);
             return Status::OK();
         }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            // Use ScalarColumnWriter to write it's only root data
+            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
+                    new ScalarColumnWriter(opts, std::move(field), file_writer));
+            *writer = std::move(writer_local);
+            return Status::OK();
+        }
         default:
             return Status::NotSupported("unsupported type for ColumnWriter: {}",
                                         std::to_string(int(field->type())));

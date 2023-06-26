@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -57,27 +58,33 @@ public:
     TPrimitiveType::type get_type_as_tprimitive_type() const override {
         return TPrimitiveType::VARIANT;
     }
+    doris::FieldType get_type_as_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_VARIANT;
+    }
     MutableColumnPtr create_column() const override { return ColumnObject::create(is_nullable); }
     bool is_object() const override { return true; }
     bool equals(const IDataType& rhs) const override;
     bool hasNullableSubcolumns() const { return is_nullable; }
     bool get_is_parametric() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     bool have_subtypes() const override { return true; };
+    bool can_be_inside_nullable() const override { return false; }
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
-    std::string to_string(const IColumn& column, size_t row_num) const override {
-        const auto& column_object = assert_cast<const ColumnObject&>(column);
-        return "Variant: " + column_object.get_keys_str();
-    }
+    std::string to_string(const IColumn& column, size_t row_num) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
     const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-    [[noreturn]] Field get_default() const override {
-        LOG(FATAL) << "Method getDefault() is not implemented for data type " << get_name();
-    }
+    Field get_default() const override { return VariantMap(); }
 
-    [[noreturn]] Field get_field(const TExprNode& node) const override {
-        LOG(FATAL) << "Unimplemented get_field for object";
+    Field get_field(const TExprNode& node) const override {
+        if (node.__isset.string_literal) {
+            return node.string_literal.value;
+        }
+        if (node.node_type == TExprNodeType::NULL_LITERAL) {
+            return Field();
+        }
+        LOG(FATAL) << "Unkown literal " << node;
+        return {};
     }
 
     DataTypeSerDeSPtr get_serde() const override {

@@ -56,6 +56,7 @@ public class SlotRef extends Expr {
     private String col;
     // Used in toSql
     private String label;
+    private List<String> subColLables;
 
     // results of analysis
     protected SlotDescriptor desc;
@@ -72,6 +73,14 @@ public class SlotRef extends Expr {
         this.label = "`" + col + "`";
     }
 
+    public SlotRef(TableName tblName, String col, List<String> subColLables) {
+        super();
+        this.tblName = tblName;
+        this.col = col;
+        this.label = "`" + col + "`";
+        this.subColLables = subColLables;
+    }
+
     // C'tor for a "pre-analyzed" ref to slot that doesn't correspond to
     // a table's column.
     public SlotRef(SlotDescriptor desc) {
@@ -85,6 +94,7 @@ public class SlotRef extends Expr {
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
+        this.subColLables = desc.getSubColLables();
         analysisDone();
     }
 
@@ -108,6 +118,7 @@ public class SlotRef extends Expr {
         label = other.label;
         desc = other.desc;
         tupleId = other.tupleId;
+        subColLables = other.subColLables;
     }
 
     @Override
@@ -201,7 +212,7 @@ public class SlotRef extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerColumnRef(tblName, col);
+        desc = analyzer.registerColumnRef(tblName, col, subColLables);
         type = desc.getType();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
@@ -227,6 +238,7 @@ public class SlotRef extends Expr {
         helper.add("col", col);
         helper.add("label", label);
         helper.add("tblName", tblName != null ? tblName.toSql() : "null");
+        helper.add("subColLables", subColLables);
         return helper.toString();
     }
 
@@ -306,6 +318,12 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public List<String> toSubColumnLabel() {
+        // return tblName == null ? col : tblName.getTbl() + "." + col;
+        return subColLables;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
@@ -356,6 +374,13 @@ public class SlotRef extends Expr {
             return false;
         }
         if (col != null && !col.equalsIgnoreCase(other.col)) {
+            return false;
+        }
+        if ((subColLables == null) != (other.subColLables == null)) {
+            return false;
+        }
+        if (subColLables != null
+                && String.join(".", subColLables).equals(String.join(".", other.subColLables))) {
             return false;
         }
         return true;

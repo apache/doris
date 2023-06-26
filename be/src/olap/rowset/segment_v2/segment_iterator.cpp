@@ -66,10 +66,12 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -81,6 +83,7 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -254,6 +257,7 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
+    _is_finalized.resize(_schema->columns().size(), false);
     return Status::OK();
 }
 
@@ -368,16 +372,16 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
-        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-        if (_column_iterators.count(unique_id) < 1) {
+        // int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_column_iterators.count(cid) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[unique_id]));
+                                                          &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
-            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
 
@@ -437,11 +441,14 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
     for (auto& cid : cids) {
+        if (!_segment->is_same_file_col_type_with_expected(cid, *_schema)) {
+            continue;
+        }
         // get row ranges by bf index of this column,
         RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-        uint32_t unique_cid = _schema->unique_id(cid);
-        RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_bloom_filter(
+        // uint32_t unique_cid = _schema->unique_id(cid);
+        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_bloom_filter(
                 _opts.col_id_to_predicates.at(cid).get(), &column_bf_row_ranges));
         RowRanges::ranges_intersection(bf_row_ranges, column_bf_row_ranges, &bf_row_ranges);
     }
@@ -453,10 +460,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
     // second filter data by zone map
     for (auto& cid : cids) {
+        if (!_segment->is_same_file_col_type_with_expected(cid, *_schema)) {
+            continue;
+        }
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-        RETURN_IF_ERROR(_column_iterators[_schema->unique_id(cid)]->get_row_ranges_by_zone_map(
+        RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                 _opts.col_id_to_predicates.at(cid).get(),
                 _opts.del_predicates_for_zone_map.count(cid) > 0
                         ? &(_opts.del_predicates_for_zone_map.at(cid))
@@ -471,7 +481,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     if (_opts.use_topn_opt) {
         auto query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
-        if (runtime_predicate) {
+        if (runtime_predicate && _segment->is_same_file_col_type_with_expected(
+                                         runtime_predicate->column_id(), *_schema)) {
             int32_t unique_id =
                     _opts.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
@@ -500,8 +511,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         for (auto cid : cids) {
             RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-            uint32_t unique_cid = _schema->unique_id(cid);
-            RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_dict(
+            // uint32_t unique_cid = _schema->unique_id(cid);
+            RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_dict(
                     _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
             RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
         }
@@ -1043,7 +1054,7 @@ Status SegmentIterator::_init_return_column_iterators() {
 
     for (auto cid : _schema->column_ids()) {
         if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
-            _column_iterators[_schema->column(cid)->unique_id()].reset(
+            _column_iterators[cid].reset(
                     new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
@@ -1060,10 +1071,13 @@ Status SegmentIterator::_init_return_column_iterators() {
             tmp_is_pred_column[cid] = true;
         }
 
-        int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-        if (_column_iterators.count(unique_id) < 1) {
+        // int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_column_iterators.count(cid) < 1) {
+            SubstreamCache* stream_cache = _opts.io_ctx.reader_type == ReaderType::READER_QUERY
+                                                   ? &_substream_cache
+                                                   : nullptr;
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[unique_id]));
+                                                          &_column_iterators[cid], stream_cache));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
@@ -1072,7 +1086,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             // If the col is predicate column, then should read the last page to check
             // if the column is full dict encoding
             iter_opts.is_predicate_column = tmp_is_pred_column[cid];
-            RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
     return Status::OK();
@@ -1274,7 +1288,7 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
         if (!_need_read_data(cid)) {
             continue;
         }
-        RETURN_IF_ERROR(_column_iterators[_schema->unique_id(cid)]->seek_to_ordinal(pos));
+        RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
     }
     return Status::OK();
 }
@@ -1495,7 +1509,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
             field_type == FieldType::OLAP_FIELD_TYPE_STRING) {
             return config::enable_low_cardinality_optimize &&
                    _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
-                   _column_iterators[_schema->unique_id(cid)]->is_all_dict_encoding();
+                   _column_iterators[cid]->is_all_dict_encoding();
         } else if (field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
             return false;
         }
@@ -1554,7 +1568,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
         if (_prune_column(cid, column, true, rows_read)) {
             continue;
         }
-        RETURN_IF_ERROR(_column_iterators[_schema->unique_id(cid)]->next_batch(&rows_read, column));
+        RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
         if (nrows != rows_read) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
                                                             rows_read);
@@ -1563,28 +1577,202 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
     return Status::OK();
 }
 
+void SegmentIterator::_reset_stream_cache() {
+    if (_opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return;
+    }
+    for (auto& leave : _substream_cache) {
+        // TODO reuse
+        if (leave->data.column) {
+            leave->data.column = nullptr;
+        }
+    }
+    _is_finalized.assign(_is_finalized.size(), false);
+}
+
+void SegmentIterator::_clear_stream_cache() {
+    if (_opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return;
+    }
+    for (auto& leave : _substream_cache) {
+        if (leave->data.column) {
+            leave->data.column->assume_mutable()->clear();
+        }
+    }
+    _is_finalized.assign(_is_finalized.size(), false);
+}
+
+Status SegmentIterator::_finalize_stream_cache(const std::vector<ColumnId>& column_ids) {
+    if (_opts.io_ctx.reader_type != ReaderType::READER_QUERY) {
+        return Status::OK();
+    }
+    for (int cid : column_ids) {
+        const Field* desc = _schema->column(cid);
+        if (!desc->path().empty() && !_is_finalized[cid]) {
+            const auto* node = _substream_cache.find_exact(desc->path());
+            // No such node and cid is an materialized column but not exist in file, read and parse from sparse column
+            auto root_path = vectorized::PathInData({desc->path().get_parts()[0]});
+            auto root_node = _substream_cache.find_leaf(root_path);
+            // Root may not exist when segment does not contain this column
+            if (node == nullptr && root_node) {
+                CHECK(root_node->data.column->is_variant());
+                vectorized::MutableColumnPtr extracted_column;
+                const auto& root =
+                        assert_cast<const vectorized::ColumnObject&>(*root_node->data.column);
+                // extract root value with path, we can't modify the original root column
+                // since some other column may depend on it.
+                RETURN_IF_ERROR(
+                        assert_cast<const vectorized::ColumnObject&>(*root_node->data.column)
+                                .extract_root( // trim the root name, eg. v.a.b -> a.b
+                                        desc->path().pop_front(), extracted_column));
+                auto variant = vectorized::ColumnObject::create(true /*always nullable*/);
+                variant->create_root(root.get_root_type(), std::move(extracted_column));
+                _current_return_columns[cid] = std::move(variant);
+                CHECK_EQ(root_node->data.column->size(), _current_return_columns[cid]->size());
+            } else if (node && (!node->is_scalar_without_children())) {
+                // None scalar or has children columns, need merge subcolumns into a variant column
+                auto variant_ptr =
+                        vectorized::ColumnObject::create(true /*nullable*/, false /*without root*/);
+                auto& variant = assert_cast<vectorized::ColumnObject&>(*variant_ptr);
+                std::vector<const SubstreamCache::Node*> leaves;
+                vectorized::PathsInData leaves_paths;
+                SubstreamCache::get_leaves_of_node(node, leaves, leaves_paths);
+                auto root_path = vectorized::PathInData({desc->path().get_parts()[0]});
+
+                int size = 0;
+                auto add_subcolum = [&](const vectorized::PathInData& path,
+                                        const SubstreamCache::Node* node) {
+                    if (!variant.has_subcolumn(path)) {
+                        variant.add_sub_column(path, 0);
+                    }
+                    CHECK(node->data.column) << "path: " << node->path.get_path();
+                    vectorized::MutableColumnPtr column = node->data.column->assume_mutable();
+                    auto vnode = variant.get_subcolumn(path);
+                    size = column->size();
+                    vnode->insertRangeFrom(
+                            vectorized::ColumnObject::Subcolumn {std::move(column), node->data.type,
+                                                                 column->is_nullable(), false},
+                            0, size);
+                };
+                for (size_t i = 0; i < leaves_paths.size(); ++i) {
+                    auto node = leaves[i];
+                    CHECK(node->data.column) << "path: " << node->path.get_path();
+                    if (node->path == root_path) {
+                        // Directly extract from root and add to variant
+                        CHECK(node->data.column->is_variant());
+                        const auto& root =
+                                assert_cast<const vectorized::ColumnObject&>(*node->data.column);
+                        variant.add_sub_column(desc->path().pop_front(),
+                                               root.get_root()->assume_mutable(),
+                                               root.get_root_type());
+                        continue;
+                    }
+                    // trim the root name, eg. v.a.b -> a.b
+                    add_subcolum(node->path.pop_front(), node);
+                }
+                // TODO select v:b -> v.b / v.b.c but v.d maybe in v
+                // if (node->path == root_path) {
+                //     // Extract from root and add to variant
+                //     // extract root value with path
+                //     CHECK(node->data.column->is_variant());
+                //     vectorized::MutableColumnPtr extracted_column;
+                //     const auto& root =
+                //             assert_cast<const vectorized::ColumnObject&>(*node->data.column);
+                //     RETURN_IF_ERROR(
+                //             root.extract_root(desc->path().pop_front(), extracted_column));
+                //     variant.add_sub_column(desc->path().pop_front(),
+                //                            std::move(extracted_column), root.get_root_type());
+                //     continue;
+                // }
+                variant.set_num_rows(size);
+                DCHECK_EQ(variant.size(), size);
+                _current_return_columns[cid] = std::move(variant_ptr);
+            }
+            if (_current_return_columns[cid]->is_variant()) {
+                _current_return_columns[cid]->finalize();
+            }
+            _is_finalized[cid] = true;
+        }
+    }
+    return Status::OK();
+}
+
+// In this scenario,  select v, v:A from tbl where v:A > 10.
+// However, this specific column 'v:A' is not materialized in this segment and may reside in a sparse column.
+// To ensure data integrity, we need to filter the data for later processing,
+// otherwise, the row numbers will not match as expected.
+// Here we just filter none predicate column, predicate column is filtered in `_output_column_by_sel_idx`
+Status SegmentIterator::_filter_stream_cache(uint16_t* sel_rowid_idx, uint16_t selected_size,
+                                             const std::vector<ColumnId>& filtered_cids,
+                                             vectorized::Block* block) {
+    if (_substream_cache.empty()) {
+        return Status::OK();
+    }
+    std::set<ColumnId> filtered(filtered_cids.begin(), filtered_cids.end());
+    for (auto& leave : _substream_cache) {
+        if (leave->data.column && leave->data.column->size() > 0 &&
+            // filter more columns
+            leave->data.column->size() != selected_size) {
+            VLOG_DEBUG << fmt::format("_filter_stream_cache, rows: {}, path:{}, selected_size:{}",
+                                      leave->data.column->size(), leave->path.get_path(),
+                                      selected_size);
+            vectorized::ColumnPtr res_ptr = leave->data.type->create_column();
+            RETURN_IF_ERROR(leave->data.column->assume_mutable()->filter_by_selector(
+                    sel_rowid_idx, selected_size, res_ptr->assume_mutable().get()));
+            // leave->data.column.swap(res_ptr);
+            // if (leave->data.cid >= 0) {
+            //     _current_return_columns[leave->data.cid] = leave->data.column->assume_mutable();
+            // }
+            // TODO avoid copy
+            leave->data.column->assume_mutable()->clear();
+            leave->data.column->assume_mutable()->insert_range_from(*res_ptr, 0, res_ptr->size());
+            VLOG_DEBUG << fmt::format("_filter_stream_cache, rows: {}, path:{}, selected_size:{}",
+                                      leave->data.column->size(), leave->path.get_path(),
+                                      selected_size);
+        }
+    }
+    return Status::OK();
+}
+
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
     block->clear_column_data(_schema->num_column_ids());
-
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
         auto column_desc = _schema->column(cid);
-        // the column in block must clear() here to insert new data
-        if (_is_pred_column[cid] ||
-            i >= block->columns()) { //todo(wb) maybe we can release it after output block
-            current_columns[cid]->clear();
-        } else { // non-predicate column
-            current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-
-            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
-                current_columns[cid]->set_date_type();
-            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
-                current_columns[cid]->set_datetime_type();
-            } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
-                current_columns[cid]->set_decimalv2_type();
-            }
+        if (!_segment->is_same_file_col_type_with_expected(cid, *_schema)) {
+            // Will be converted to PredicateColumnType<T> if it's a predicate column
+            auto file_column_type = _segment->get_data_type_of(*column_desc);
+            VLOG_DEBUG << fmt::format("Recreate column with expected type {}, file column type {}",
+                                      block->get_by_position(i).type->get_name(),
+                                      file_column_type->get_name());
+            // TODO reuse
+            current_columns[cid] = file_column_type->create_column();
             current_columns[cid]->reserve(_opts.block_row_max);
+        } else {
+            // the column in block must clear() here to insert new data
+            if (_is_pred_column[cid] ||
+                i >= block->columns()) { //todo(wb) maybe we can release it after output block
+                current_columns[cid]->clear();
+            } else { // non-predicate column
+                current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+                if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
+                    current_columns[cid]->set_date_type();
+                } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
+                    current_columns[cid]->set_datetime_type();
+                } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                    current_columns[cid]->set_decimalv2_type();
+                }
+                current_columns[cid]->reserve(_opts.block_row_max);
+            }
+        }
+        if (!column_desc->path().empty()) {
+            const auto* node = _substream_cache.find_leaf(column_desc->path());
+            // Read directly into current_columns[cid] without aditional copy
+            if (node && node->children.empty()) {
+                auto* mnode = const_cast<SubstreamCache::Node*>(node);
+                mnode->data.column = current_columns[cid]->get_ptr();
+            }
         }
     }
 }
@@ -1770,8 +1958,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         if (_prune_column(cid, (*mutable_columns)[cid], true, select_size)) {
             continue;
         }
-        RETURN_IF_ERROR(_column_iterators[_schema->unique_id(cid)]->read_by_rowids(
-                rowids.data(), select_size, _current_return_columns[cid]));
+        RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
+                                                               _current_return_columns[cid]));
     }
 
     return Status::OK();
@@ -1779,6 +1967,40 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     RETURN_IF_CATCH_EXCEPTION({ return _next_batch_internal(block); });
+    return Status::OK();
+}
+
+Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& col_ids) {
+    for (ColumnId i : col_ids) {
+        if (_current_return_columns[i] == nullptr || _converted_column_ids[i]) {
+            continue;
+        }
+        if (!_segment->is_same_file_col_type_with_expected(i, *_schema)) {
+            const Field* field_type = _schema->column(i);
+            vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
+            vectorized::DataTypePtr file_column_type = _segment->get_data_type_of(*field_type);
+            vectorized::ColumnPtr expected;
+            vectorized::ColumnPtr original =
+                    _current_return_columns[i]->assume_mutable()->get_ptr();
+            RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
+                                                                 expected_type, &expected));
+            // wrap predicate column
+            if (_is_pred_column[i]) {
+                vectorized::MutableColumnPtr new_pred_column =
+                        Schema::get_predicate_column_ptr(*field_type, _opts.io_ctx.reader_type);
+                new_pred_column->insert_range_from(*expected, 0, expected->size());
+                _current_return_columns[i] = std::move(new_pred_column);
+                // TODO set datetime type
+            } else {
+                _current_return_columns[i] = expected->assume_mutable();
+            }
+            _converted_column_ids[i] = 1;
+            VLOG_DEBUG << fmt::format("Convert {} fom file column type {} to {}, num_rows {}",
+                                      field_type->path().get_path(), file_column_type->get_name(),
+                                      expected_type->get_name(),
+                                      _current_return_columns[i]->size());
+        }
+    }
     return Status::OK();
 }
 
@@ -1794,6 +2016,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             _block_rowids.resize(_opts.block_row_max);
         }
         _current_return_columns.resize(_schema->columns().size());
+        _converted_column_ids.resize(_schema->columns().size(), 0);
         for (size_t i = 0; i < _schema->num_column_ids(); i++) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
@@ -1813,12 +2036,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
+                ;
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
     }
-
     _init_current_block(block, _current_return_columns);
+    Defer __clean([&]() { _reset_stream_cache(); });
+    _converted_column_ids.assign(_schema->columns().size(), 0);
 
     _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
@@ -1850,11 +2075,16 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
             }
         }
+        _reset_stream_cache();
         block->clear_column_data();
         return Status::EndOfFile("no more data in segment");
     }
 
+    RETURN_IF_ERROR(_convert_to_expected_type(_first_read_column_ids));
+
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
+        RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
+        RETURN_IF_ERROR(_finalize_stream_cache(_non_predicate_columns));
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
     } else {
@@ -1863,6 +2093,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
         if (_is_need_vec_eval || _is_need_short_eval) {
             _convert_dict_code_for_predicate_if_necessary();
+            RETURN_IF_ERROR(_finalize_stream_cache(_first_read_column_ids));
 
             // step 1: evaluate vectorization predicate
             selected_size = _evaluate_vectorization_predicate(sel_rowid_idx, selected_size);
@@ -1873,6 +2104,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             //          In SSB test, it make no difference; So need more scenarios to test
             selected_size = _evaluate_short_circuit_predicate(sel_rowid_idx, selected_size);
 
+            // Filter in case of missmatched output row count, clear all substream columns
+            if (selected_size <= 0) {
+                _clear_stream_cache();
+            }
             if (selected_size > 0) {
                 // step 3.1: output short circuit and predicate column
                 // when lazy materialization enables, _first_read_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
@@ -1881,6 +2116,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids,
                                                           sel_rowid_idx, selected_size));
 
+                // Filter after output column by selected row index, this could avoid duplicated column filter
+                RETURN_IF_ERROR(_filter_stream_cache(sel_rowid_idx, selected_size,
+                                                     _first_read_column_ids, block));
                 // step 3.2: read remaining expr column and evaluate it.
                 if (_is_need_expr_eval) {
                     // The predicate column contains the remaining expr column, no need second read.
@@ -1894,6 +2132,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                             _second_read_column_ids.end()) {
                             _replace_version_col(selected_size);
                         }
+                        RETURN_IF_ERROR(_convert_to_expected_type(_second_read_column_ids));
+                        RETURN_IF_ERROR(_finalize_stream_cache(_second_read_column_ids));
                         for (auto cid : _second_read_column_ids) {
                             auto loc = _schema_block_id_map[cid];
                             block->replace_by_position(loc,
@@ -1923,6 +2163,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                     }
                 }
             } else if (_is_need_expr_eval) {
+                RETURN_IF_ERROR(_convert_to_expected_type(_second_read_column_ids));
                 for (auto cid : _second_read_column_ids) {
                     auto loc = _schema_block_id_map[cid];
                     block->replace_by_position(loc, std::move(_current_return_columns[cid]));
@@ -1930,6 +2171,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
         } else if (_is_need_expr_eval) {
             DCHECK(!_first_read_column_ids.empty());
+            RETURN_IF_ERROR(_finalize_stream_cache(_first_read_column_ids));
             // first read all rows are insert block, initialize sel_rowid_idx to all rows.
             for (auto cid : _first_read_column_ids) {
                 auto loc = _schema_block_id_map[cid];
@@ -1975,9 +2217,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             }
             return Status::OK();
         }
-
+        if (selected_size <= 0) {
+            _clear_stream_cache();
+        }
         // step4: read non_predicate column
         if (selected_size > 0) {
+            // Filter after output column by selected row index, this could avoid duplicated column filter
+            RETURN_IF_ERROR(_filter_stream_cache(sel_rowid_idx, selected_size,
+                                                 _second_read_column_ids, block));
             RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
                                                     sel_rowid_idx, selected_size,
                                                     &_current_return_columns));
@@ -1985,8 +2232,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                           _schema->version_col_idx()) != _non_predicate_columns.end()) {
                 _replace_version_col(selected_size);
             }
+            RETURN_IF_ERROR(_finalize_stream_cache(_non_predicate_columns));
         }
 
+        RETURN_IF_ERROR(_convert_to_expected_type(_non_predicate_columns));
         // step5: output columns
         _output_non_pred_columns(block);
 
@@ -1997,6 +2246,14 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
+
+    VLOG_DEBUG << "dump block: " << block->dump_data();
+    // #ifndef NDEBUG
+    //     size_t rows = block->rows();
+    //     for (const auto& col : block->get_columns()) {
+    //         CHECK_EQ(rows, col->size());
+    //     }
+    // #endif
 
     if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
         _update_max_row(block);

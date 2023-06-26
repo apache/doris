@@ -139,6 +139,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     // because the absence of a schema version can result in reading a stale version
     // of the schema after a schema change.
     if (_context->tablet_schema->schema_version() < 0 ||
+        _context->tablet_schema->num_variant_columns() > 0 ||
         (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
         SchemaCache::instance()->insert_schema(schema_key, _input_schema);

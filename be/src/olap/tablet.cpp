@@ -122,6 +122,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -269,8 +270,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
     if (_tablet_meta->all_rs_metas().empty() || !_tablet_meta->all_rs_metas()[0]->tablet_schema()) {
         _max_version_schema = BaseTablet::tablet_schema();
     } else {
-        _max_version_schema =
-                rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas())->tablet_schema();
+        _max_version_schema = tablet_schema_with_max_schema_version(_tablet_meta->all_rs_metas());
     }
     DCHECK(_max_version_schema);
 
@@ -614,9 +614,9 @@ const RowsetSharedPtr Tablet::rowset_with_max_version() const {
     return iter->second;
 }
 
-RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
+TabletSchemaSPtr Tablet::tablet_schema_with_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
-    return *std::max_element(
+    RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(
             rowset_metas.begin(), rowset_metas.end(),
             [](const RowsetMetaSharedPtr& a, const RowsetMetaSharedPtr& b) {
                 return !a->tablet_schema()
@@ -626,6 +626,18 @@ RowsetMetaSharedPtr Tablet::rowset_meta_with_max_schema_version(
                                           : a->tablet_schema()->schema_version() <
                                                     b->tablet_schema()->schema_version());
             });
+    TabletSchemaSPtr target_schema = max_schema_version_rs->tablet_schema();
+    if (target_schema->num_variant_columns() > 0) {
+        // For variant columns tablet schema need to be the merged wide tablet schema
+        std::vector<TabletSchemaSPtr> schemas;
+        std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
+                       [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
+        target_schema = std::make_shared<TabletSchema>();
+        // TODO(lhy) maybe slow?
+        vectorized::schema_util::get_least_common_schema(schemas, target_schema);
+        VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
+    }
+    return target_schema;
 }
 
 RowsetSharedPtr Tablet::_rowset_with_largest_size() {
@@ -2638,6 +2650,12 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
+}
+
+void Tablet::update_by_least_common_schema(const TabletSchemaSPtr& least_common_schema) {
+    std::lock_guard wrlock(_meta_lock);
+    CHECK(_max_version_schema->schema_version() >= least_common_schema->schema_version());
+    _max_version_schema = least_common_schema;
 }
 
 // fetch value by row column

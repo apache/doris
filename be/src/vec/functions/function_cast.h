@@ -53,12 +53,14 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -79,6 +81,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
@@ -645,6 +648,7 @@ struct ConvertImplNumberToJsonb {
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
+        auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -659,14 +663,19 @@ struct ConvertImplGenericToJsonb {
             VectorBufferWriter write_buffer(*tmp_col.get());
             type.to_string(col_from, i, write_buffer);
             write_buffer.commit();
-            // write string to jsonb
             writer.reset();
-            writer.writeStartString();
             auto str_ref = tmp_col->get_data_at(0);
-            writer.writeString(str_ref.data, str_ref.size);
-            writer.writeEndString();
-            column_string->insert_data(writer.getOutput()->getBuffer(),
-                                       writer.getOutput()->getSize());
+            ReadBuffer read_buffer((char*)(str_ref.data), str_ref.size);
+            // first try to parse string
+            Status st = data_type_to->from_string(read_buffer, column_string.get());
+            if (!st.ok()) {
+                // write raw string to jsonb
+                writer.writeStartString();
+                writer.writeString(str_ref.data, str_ref.size);
+                writer.writeEndString();
+                column_string->insert_data(writer.getOutput()->getBuffer(),
+                                           writer.getOutput()->getSize());
+            }
         }
 
         block.replace_by_position(result, std::move(column_string));
@@ -1864,6 +1873,81 @@ private:
         }
     }
 
+    struct ConvertImplGenericFromVariant {
+        static Status execute(FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, const size_t result,
+                              size_t input_rows_count) {
+            auto& data_type_to = block.get_by_position(result).type;
+            const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+            auto& col_from = col_with_type_and_name.column;
+            auto& variant = assert_cast<const ColumnObject&>(*col_from);
+            ColumnPtr col_to = data_type_to->create_column();
+            if (!variant.is_finalized()) {
+                variant.assume_mutable()->finalize();
+            }
+            if (variant.is_scalar_variant()) {
+                ColumnPtr nested = variant.get_root();
+                auto nested_from_type = variant.get_root_type();
+                DCHECK(!data_type_to->is_nullable());
+                // dst type nullable has been removed, so we should remove the inner nullable of root column
+                RETURN_IF_ERROR(schema_util::cast_column(
+                        {remove_nullable(nested), remove_nullable(nested_from_type), ""},
+                        data_type_to, &col_to));
+                // fill nullmap of dst
+                // Note: here we should return the nullable result column
+                col_to = wrap_in_nullable(
+                        col_to, Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
+                        {0}, 1, input_rows_count);
+            } else {
+                // Could not cast to any other types when it hierarchical like '{"a" : 1}'
+                if (!data_type_to->is_nullable() && !WhichDataType(data_type_to).is_string()) {
+                    return Status::InvalidArgument(fmt::format("Could not cast from variant to {}",
+                                                               data_type_to->get_name()));
+                }
+                if (WhichDataType(data_type_to).is_string()) {
+                    return ConvertImplGenericToString::execute2(context, block, arguments, result,
+                                                                input_rows_count);
+                } else {
+                    assert_cast<ColumnNullable&>(*col_to->assume_mutable())
+                            .insert_many_defaults(input_rows_count);
+                }
+            }
+
+            block.replace_by_position(result, std::move(col_to));
+            return Status::OK();
+        }
+    };
+
+    struct ConvertImplGenericToVariant {
+        static Status execute(FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, const size_t result,
+                              size_t input_rows_count) {
+            // auto& data_type_to = block.get_by_position(result).type;
+            const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+            auto& from_type = col_with_type_and_name.type;
+            auto& col_from = col_with_type_and_name.column;
+
+            // set variant root column/type to from column/type
+            auto variant = ColumnObject::create(true /*always nullable*/);
+            variant->create_root(from_type, col_from->assume_mutable());
+
+            block.replace_by_position(result, std::move(variant));
+            return Status::OK();
+        }
+    };
+
+    // create cresponding variant value to wrap from_type
+    WrapperType create_variant_wrapper(const DataTypePtr& from_type,
+                                       const DataTypeObject& to_type) const {
+        return &ConvertImplGenericToVariant::execute;
+    }
+
+    // create cresponding type convert from variant
+    WrapperType create_variant_wrapper(const DataTypeObject& from_type,
+                                       const DataTypePtr& to_type) const {
+        return &ConvertImplGenericFromVariant::execute;
+    }
+
     //TODO(Amory) . Need support more cast for key , value for map
     WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
         switch (from_type->get_type_id()) {
@@ -1969,7 +2053,11 @@ private:
             };
         }
 
-        constexpr bool skip_not_null_check = false;
+        bool skip_not_null_check = false;
+        if (from_nested->is_nullable() && WhichDataType(to_type).is_variant_type()) {
+            /// Disable check for variant. Will check that column doesn't contain NULL in wrapper below.
+            skip_not_null_check = true;
+        }
 
         auto wrapper =
                 prepare_remove_nullable(context, from_nested, to_nested, skip_not_null_check);
@@ -2069,6 +2157,12 @@ private:
         else if (WhichDataType(from_type).is_nothing())
             return create_nothing_wrapper(to_type.get());
 
+        if (to_type->get_type_id() == TypeIndex::VARIANT) {
+            return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
+        }
+        if (from_type->get_type_id() == TypeIndex::VARIANT) {
+            return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
+        }
         if (from_type->get_type_id() == TypeIndex::JSONB) {
             return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type);
         }

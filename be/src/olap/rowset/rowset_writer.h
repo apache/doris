@@ -119,8 +119,7 @@ public:
 
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
-    virtual vectorized::schema_util::LocalSchemaChangeRecorder*
-    mutable_schema_change_recorder() = 0;
+    virtual RowsetWriterContext& mutable_context() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

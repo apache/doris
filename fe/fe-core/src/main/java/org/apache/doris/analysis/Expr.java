@@ -1004,6 +1004,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return toSql();
     }
 
+    public List<String> toSubColumnLabel() {
+        return Lists.newArrayList();
+    }
+
     // Convert this expr, including all children, to its Thrift representation.
     public TExpr treeToThrift() {
         TExpr result = new TExpr();

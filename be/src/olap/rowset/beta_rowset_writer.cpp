@@ -53,7 +53,9 @@
 #include "segcompaction.h"
 #include "util/slice.h"
 #include "util/time.h"
-#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
+#include "vec/columns/column.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/schema_util.h" // variant column
 #include "vec/core/block.h"
 
 namespace doris {
@@ -125,9 +127,6 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    _context.schema_change_recorder =
-            std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
-
     return Status::OK();
 }
 
@@ -559,21 +558,9 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
 
-    // schema changed during this load
-    if (_context.schema_change_recorder->has_extended_columns()) {
-        DCHECK(_context.tablet_schema->is_dynamic_schema())
-                << "Load can change local schema only in dynamic table";
-        TabletSchemaSPtr new_schema = std::make_shared<TabletSchema>();
-        new_schema->copy_from(*_context.tablet_schema);
-        for (auto const& [_, col] : _context.schema_change_recorder->copy_extended_columns()) {
-            new_schema->append_column(col);
-        }
-        new_schema->set_schema_version(_context.schema_change_recorder->schema_version());
-        if (_context.schema_change_recorder->schema_version() >
-            _context.tablet_schema->schema_version()) {
-            _context.tablet->update_max_version_schema(new_schema);
-        }
-        _rowset_meta->set_tablet_schema(new_schema);
+    // update rowset meta tablet schema if tablet schema updated
+    if (_context.tablet_schema->num_variant_columns() > 0) {
+        _rowset_meta->set_tablet_schema(_context.tablet_schema);
     }
 
     RowsetSharedPtr rowset;

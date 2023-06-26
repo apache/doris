@@ -1033,8 +1033,6 @@ DECLARE_Int32(max_depth_in_bkd_tree);
 DECLARE_Bool(inverted_index_compaction_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
-// semi-structure configs
-DECLARE_Bool(enable_parse_multi_dimession_array);
 
 // max depth of expression tree allowed.
 DECLARE_Int32(max_depth_of_expr_tree);
@@ -1104,6 +1102,12 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
+// Whether flatten nested arrays in variant column
+// Notice: TEST ONLY
+DECLARE_mBool(enable_flatten_nested_for_variant);
+// Threshold of a column as sparse column
+// Notice: TEST ONLY
+DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
 
 // whether to enable hdfs hedged read.
 // If set to true, it will be enabled even if user not enable it when creating catalog

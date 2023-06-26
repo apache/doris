@@ -227,8 +227,7 @@ struct TypeDescriptor {
     }
 
     bool is_complex_type() const {
-        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP ||
-               type == TYPE_VARIANT;
+        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
     }
 
     bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
