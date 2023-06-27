@@ -330,7 +330,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
     CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns());
+          block->columns() < _tablet_schema->num_columns())
+            << "block columns: " << block->columns()
+            << ", num key columns: " << _tablet_schema->num_key_columns()
+            << ", total schema columns: " << _tablet_schema->num_columns();
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
