@@ -32,7 +32,7 @@ import java.time.LocalDateTime;
 public class DateTimeV2Literal extends DateTimeLiteral {
 
     public DateTimeV2Literal(String s) {
-        this(DateTimeV2Type.MAX, s);
+        this(DateTimeV2Type.forTypeFromString(s), s);
     }
 
     public DateTimeV2Literal(DateTimeV2Type dateType, String s) {
@@ -130,11 +130,12 @@ public class DateTimeV2Literal extends DateTimeLiteral {
      * convert java LocalDateTime object to DateTimeV2Literal object.
      */
     public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+        long value = (long) Math.pow(10, DateTimeV2Type.MAX_SCALE - precision);
         return isDateOutOfRange(dateTime)
                 ? new NullLiteral(DateTimeV2Type.of(precision))
-                : new DateTimeV2Literal(DateTimeV2Type.of(precision),
-                        dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
-                        dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                        dateTime.getNano() / (long) Math.pow(10, 9 - precision));
+                : new DateTimeV2Literal(DateTimeV2Type.of(precision), dateTime.getYear(),
+                        dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
+                        dateTime.getMinute(), dateTime.getSecond(),
+                        (dateTime.getNano() / 1000) / value * value);
     }
 }

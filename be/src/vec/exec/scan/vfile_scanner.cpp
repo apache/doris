@@ -348,13 +348,12 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
-        // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
+        // remove nullable here, let the get_function decide whether nullable
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                remove_nullable(return_type)->get_type_id());
         ColumnsWithTypeAndName arguments {
-                arg,
-                {DataTypeString().create_column_const(
-                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
-                 std::make_shared<DataTypeString>(), ""}};
+                arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast =
                 SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
         idx = _src_block_name_to_idx[slot_desc->col_name()];
@@ -585,10 +584,18 @@ Status VFileScanner::_get_next_reader() {
         _current_range_path = range.path;
 
         // create reader for specific format
-        // TODO: add json, avro
         Status init_status;
-        // TODO: use data lake type
-        switch (_params.format_type) {
+        TFileFormatType::type format_type = _params.format_type;
+        // JNI reader can only push down column value range
+        bool push_down_predicates = !_is_load && _params.format_type != TFileFormatType::FORMAT_JNI;
+        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
+            range.table_format_params.table_format_type == "hudi") {
+            if (range.table_format_params.hudi_params.delta_logs.empty()) {
+                // fall back to native reader if there is no log file
+                format_type = TFileFormatType::FORMAT_PARQUET;
+            }
+        }
+        switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
             if (_real_tuple_desc->table_desc()->table_type() ==
                 ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
@@ -625,7 +632,7 @@ Status VFileScanner::_get_next_reader() {
                 SCOPED_TIMER(_open_reader_timer);
                 RETURN_IF_ERROR(parquet_reader->open());
             }
-            if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
+            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
                     RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
@@ -660,7 +667,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                     _profile, _state, _params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
-            if (!_is_load && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
+            if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
                 for (size_t i = 0; i != _conjuncts.size(); ++i) {
                     RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));

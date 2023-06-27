@@ -122,6 +122,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collections;
@@ -137,7 +139,12 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_AGGREGATE_EXPAND_RATIO = 1.05;
+
+    public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
+
+    private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
     private final GroupExpression groupExpression;
 
     private boolean forbidUnknownColStats = false;
@@ -529,7 +536,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         } else if (isPlayNereidsDump) {
             return ColumnStatistic.UNKNOWN;
         } else {
-            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(table.getId(), colName);
+            long catalogId;
+            long dbId;
+            try {
+                catalogId = table.getDatabase().getCatalog().getId();
+                dbId = table.getDatabase().getId();
+            } catch (Exception e) {
+                // Use -1 for catalog id and db id when failed to get them from metadata.
+                // This is OK because catalog id and db id is not in the hashcode function of ColumnStatistics cache
+                // and the table id is globally unique.
+                LOG.debug(String.format("Fail to get catalog id and db id for table %s", table.getName()));
+                catalogId = -1;
+                dbId = -1;
+            }
+            return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                catalogId, dbId, table.getId(), colName);
         }
     }
 
@@ -646,45 +667,66 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return stats.withRowCount(Math.min(stats.getRowCount(), limit.getLimit()));
     }
 
-    private Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
-        // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
-        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
-        Statistics childStats = groupExpression.childStatistics(0);
-        double resultSetCount = 1;
-        if (!groupByExpressions.isEmpty()) {
-            Map<Expression, ColumnStatistic> childSlotToColumnStats = childStats.columnStatistics();
-            double inputRowCount = childStats.getRowCount();
-            if (inputRowCount != 0) {
-                List<ColumnStatistic> groupByKeyStats = groupByExpressions.stream()
-                        .filter(childSlotToColumnStats::containsKey)
-                        .map(childSlotToColumnStats::get)
-                        .filter(s -> !s.isUnKnown)
-                        .collect(Collectors.toList());
-                if (groupByKeyStats.isEmpty()) {
-                    //all column stats are unknown, use default ratio
-                    resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
-                } else {
-                    resultSetCount = groupByKeyStats.stream().map(s -> s.ndv)
-                            .max(Double::compare).get();
+    private double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
+        double rowCount = 1;
+        Map<Expression, ColumnStatistic> groupByColStats = new HashMap<>();
+        for (Expression groupByExpr : groupByExpressions) {
+            ColumnStatistic colStats = childStats.findColumnStatistics(groupByExpr);
+            if (colStats == null) {
+                colStats = ExpressionEstimation.estimate(groupByExpr, childStats);
+            }
+            groupByColStats.put(groupByExpr, colStats);
+        }
+        int groupByCount = groupByExpressions.size();
+        if (groupByColStats.values().stream().anyMatch(ColumnStatistic::isUnKnown)) {
+            if (groupByCount > 0) {
+                rowCount *= DEFAULT_AGGREGATE_RATIO * Math.pow(DEFAULT_AGGREGATE_EXPAND_RATIO, groupByCount - 1);
+            }
+            if (rowCount > childStats.getRowCount()) {
+                rowCount = childStats.getRowCount();
+            }
+        } else {
+            if (groupByCount > 0) {
+                List<Double> groupByNdvs = groupByColStats.values().stream()
+                        .map(colStats -> colStats.ndv)
+                        .sorted().collect(Collectors.toList());
+                rowCount = groupByNdvs.get(0);
+                for (int groupByIndex = 1; groupByIndex < groupByCount; ++groupByIndex) {
+                    rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
+                            AGGREGATE_COLUMN_CORRELATION_COEFFICIENT, groupByIndex + 1D));
+                    if (rowCount > childStats.getRowCount()) {
+                        rowCount = childStats.getRowCount();
+                        break;
+                    }
                 }
             }
         }
-        resultSetCount = Math.min(resultSetCount, childStats.getRowCount());
+        rowCount = Math.max(1, rowCount);
+        rowCount = Math.min(rowCount, childStats.getRowCount());
+        return rowCount;
+    }
+
+    private Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        Statistics childStats = groupExpression.childStatistics(0);
+        double rowCount = estimateGroupByRowCount(groupByExpressions, childStats);
         Map<Expression, ColumnStatistic> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
-        double factor = childStats.getRowCount() / resultSetCount;
+        double factor = childStats.getRowCount() / rowCount;
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
             builder.setMinValue(columnStat.minValue / factor);
             builder.setMaxValue(columnStat.maxValue / factor);
-            builder.setNdv(resultSetCount);
-            builder.setDataSize(resultSetCount * outputExpression.getDataType().width());
+            if (columnStat.ndv > rowCount) {
+                builder.setNdv(rowCount);
+            }
+            builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
-        return new Statistics(resultSetCount, slotToColumnStats, childStats.getWidth(),
+        return new Statistics(rowCount, slotToColumnStats, childStats.getWidth(),
                 childStats.getPenalty() + childStats.getRowCount());
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
     }

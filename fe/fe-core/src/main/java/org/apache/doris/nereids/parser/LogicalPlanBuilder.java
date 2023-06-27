@@ -193,6 +193,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
@@ -314,14 +315,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitInsertIntoQuery(InsertIntoQueryContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         String labelName = ctx.labelName == null ? null : ctx.labelName.getText();
-        List<String> colNames = ctx.cols == null ? null : visitIdentifierList(ctx.cols);
-        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
-        UnboundOlapTableSink<?> sink = new UnboundOlapTableSink<>(tableName, colNames, ImmutableList.of(),
-                partitions, visitQuery(ctx.query()));
+        List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
+        UnboundOlapTableSink<?> sink = new UnboundOlapTableSink<>(
+                tableName,
+                colNames,
+                ImmutableList.of(),
+                partitions,
+                visitQuery(ctx.query()));
         if (ctx.explain() != null) {
             return withExplain(sink, ctx.explain());
         }
-        return new InsertIntoTableCommand(sink, labelName);
+        return new InsertIntoTableCommand(sink, Optional.ofNullable(labelName));
     }
 
     @Override
@@ -344,7 +349,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        List<String> partitions = ctx.partition == null ? null : visitIdentifierList(ctx.partition);
+        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
         LogicalPlan query = withTableAlias(withCheckPolicy(
                 new UnboundRelation(RelationUtil.newRelationId(), tableName)), ctx.tableAlias());
         if (ctx.USING() != null) {
@@ -355,7 +360,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query), ctx.explain());
+        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query),
+                ctx.explain());
     }
 
     /**
@@ -1020,7 +1026,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Expression visitCast(DorisParser.CastContext ctx) {
-        DataType dataType = typedVisit(ctx.dataType());
+        List<String> types = typedVisit(ctx.dataType());
+        DataType dataType = DataType.convertPrimitiveFromStrings(types, true);
         Expression cast = ParserUtils.withOrigin(ctx, () ->
                 new Cast(getExpression(ctx.expression()), dataType));
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
@@ -1182,9 +1189,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String type = ctx.type.getText().toUpperCase();
         switch (type) {
             case "DATE":
-                return new DateLiteral(value);
+                return Config.enable_date_conversion ? new DateV2Literal(value) : new DateLiteral(value);
             case "TIMESTAMP":
-                return new DateTimeLiteral(value);
+                return Config.enable_date_conversion ? new DateTimeV2Literal(value) : new DateTimeLiteral(value);
             case "DATEV2":
                 return new DateV2Literal(value);
             default:
@@ -1880,11 +1887,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
+    public List<String> visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
         String dataType = ctx.identifier().getText().toLowerCase(Locale.ROOT);
         List<String> l = Lists.newArrayList(dataType);
         ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
-        return DataType.convertPrimitiveFromStrings(l);
+        return l;
     }
 
     private Expression parseFunctionWithOrderKeys(String functionName, boolean isDistinct,

@@ -136,7 +136,7 @@ public class JdbcMySQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
-            List<String> primaryKeys = getPrimaryKeys(dbName, tableName);
+            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
@@ -196,30 +196,23 @@ public class JdbcMySQLClient extends JdbcClient {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
                     field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, null, -1, null,
-                    null, null, null));
+                    true, null, -1, null));
         }
         return dorisTableSchema;
     }
 
-    @Override
-    protected List<String> getPrimaryKeys(String dbName, String tableName) {
-        List<String> primaryKeys = Lists.newArrayList();
-        Connection conn = null;
+    protected List<String> getPrimaryKeys(DatabaseMetaData databaseMetaData, String catalogName,
+                                          String dbName, String tableName) throws SQLException {
         ResultSet rs = null;
-        try {
-            conn = getConnection();
-            DatabaseMetaData databaseMetaData = conn.getMetaData();
-            rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
-            while (rs.next()) {
-                String columnName = rs.getString("COLUMN_NAME");
-                primaryKeys.add(columnName);
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to get primary keys for table", e);
-        } finally {
-            close(rs, conn);
+        List<String> primaryKeys = Lists.newArrayList();
+
+        rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
+        while (rs.next()) {
+            String columnName = rs.getString("COLUMN_NAME");
+            primaryKeys.add(columnName);
         }
+        rs.close();
+
         return primaryKeys;
     }
 
@@ -242,10 +235,11 @@ public class JdbcMySQLClient extends JdbcClient {
                     return Type.BIGINT;
                 case "BIGINT":
                     return Type.LARGEINT;
-                case "DECIMAL":
+                case "DECIMAL": {
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
                     return createDecimalOrStringType(precision, scale);
+                }
                 case "DOUBLE":
                     // As of MySQL 8.0.17, the UNSIGNED attribute is deprecated
                     // for columns of type FLOAT, DOUBLE, and DECIMAL (and any synonyms)
@@ -278,19 +272,28 @@ public class JdbcMySQLClient extends JdbcClient {
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME":
-            case "DATETIMEV2": // for jdbc catalog connecting Doris database
+            // for jdbc catalog connecting Doris database
+            case "DATETIMEV2": {
                 // mysql can support microsecond
-                // todo(gaoxin): Get real precision of DATETIMEV2
-                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                // use columnSize to calculate the precision of timestamp/datetime
+                int columnSize = fieldSchema.getColumnSize();
+                int scale = columnSize > 19 ? columnSize - 20 : 0;
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
-            case "DECIMALV3": // for jdbc catalog connecting Doris database
+            // for jdbc catalog connecting Doris database
+            case "DECIMALV3": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 return createDecimalOrStringType(precision, scale);
+            }
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);

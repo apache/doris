@@ -111,7 +111,7 @@ public abstract class DataType implements AbstractDataType {
      * @param types data type in string representation
      * @return data type in Nereids
      */
-    public static DataType convertPrimitiveFromStrings(List<String> types) {
+    public static DataType convertPrimitiveFromStrings(List<String> types, boolean tryConvert) {
         String type = types.get(0).toLowerCase().trim();
         switch (type) {
             case "bool":
@@ -133,7 +133,7 @@ public abstract class DataType implements AbstractDataType {
             case "double":
                 return DoubleType.INSTANCE;
             case "decimal":
-                if (Config.enable_decimal_conversion) {
+                if (Config.enable_decimal_conversion && tryConvert) {
                     switch (types.size()) {
                         case 1:
                             return DecimalV3Type.SYSTEM_DEFAULT;
@@ -198,7 +198,8 @@ public abstract class DataType implements AbstractDataType {
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
             case "date":
-                return DateType.INSTANCE;
+                return Config.enable_date_conversion && tryConvert ? DateV2Type.INSTANCE
+                        : DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
@@ -206,7 +207,9 @@ public abstract class DataType implements AbstractDataType {
             case "datetime":
                 switch (types.size()) {
                     case 1:
-                        return DateTimeType.INSTANCE;
+                        return Config.enable_date_conversion && tryConvert
+                                ? DateTimeV2Type.SYSTEM_DEFAULT
+                                : DateTimeType.INSTANCE;
                     case 2:
                         return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                     default:
@@ -243,7 +246,8 @@ public abstract class DataType implements AbstractDataType {
      */
     public static DataType convertFromString(String type) {
         try {
-            return PARSER.parseDataType(type);
+            List<String> types = PARSER.parseDataType(type);
+            return DataType.convertPrimitiveFromStrings(types, false);
         } catch (Exception e) {
             // TODO: remove it when Nereids parser support array
             if (type.startsWith("array")) {

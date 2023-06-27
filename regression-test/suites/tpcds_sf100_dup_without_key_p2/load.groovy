@@ -73,5 +73,6 @@ suite('load') {
             rowCount = sql "select count(*) from ${table}"
         }
         assertEquals(rows, rowCount[0][0])
+        sql """ ANALYZE TABLE $table WITH SYNC """
     }
 }

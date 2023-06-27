@@ -203,6 +203,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
@@ -1112,6 +1113,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMd5Sum(Md5Sum md5Sum, C context) {
         return visitScalarFunction(md5Sum, context);
+    }
+
+    default R visitMicrosecond(Microsecond microsecond, C context) {
+        return visitScalarFunction(microsecond, context);
     }
 
     default R visitMinute(Minute minute, C context) {

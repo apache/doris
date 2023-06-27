@@ -1012,6 +1012,7 @@ visible_functions = {
         [['hour'], 'TINYINT', ['DATETIMEV2'], ''],
         [['minute'], 'TINYINT', ['DATETIMEV2'], ''],
         [['second'], 'TINYINT', ['DATETIMEV2'], ''],
+        [['microsecond'], 'INT', ['DATETIMEV2'], ''],
 
         [['year'], 'SMALLINT', ['DATEV2'], ''],
         [['month'], 'TINYINT', ['DATEV2'], ''],
@@ -1940,6 +1941,14 @@ visible_functions = {
         [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE']
     ],
 
+    #ip functions
+    "IP": [
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
+    ],
+
     "NonNullalbe": [
         [['non_nullable'], 'BOOLEAN', ['BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
         [['non_nullable'], 'TINYINT', ['TINYINT'], 'ALWAYS_NOT_NULLABLE'],
@@ -2044,5 +2053,5 @@ null_result_with_one_null_param_functions = [
     'ST_Contains'
 ]
 
-invisible_functions = {
-}
+invisible_functions = [
+]

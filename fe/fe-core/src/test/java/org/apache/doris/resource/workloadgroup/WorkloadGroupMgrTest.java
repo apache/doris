@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
@@ -49,6 +51,9 @@ public class WorkloadGroupMgrTest {
     @Mocked
     private Env env;
 
+    @Mocked
+    AccessControllerManager accessControllerManager;
+
     private AtomicLong id = new AtomicLong(10);
 
     @Before
@@ -73,6 +78,14 @@ public class WorkloadGroupMgrTest {
                 Env.getCurrentEnv();
                 minTimes = 0;
                 result = env;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessControllerManager;
+
+                accessControllerManager.checkWorkloadGroupPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
             }
         };
     }

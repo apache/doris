@@ -399,10 +399,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
                  &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
                  this](int32_t column_uniq_id) {
-                    compact_column(
+                    auto st = compact_column(
                             _cur_tablet_schema->get_inverted_index(column_uniq_id)->index_id(),
                             src_segment_num, dest_segment_num, src_index_files, dest_index_files,
                             fs, index_writer_path, tablet_path, trans_vec, dest_segment_num_rows);
+                    if (!st.ok()) {
+                        LOG(ERROR) << "failed to do index compaction"
+                                   << ". tablet=" << _tablet->full_name()
+                                   << ". column uniq id=" << column_uniq_id << ". index_id= "
+                                   << _cur_tablet_schema->get_inverted_index(column_uniq_id)
+                                              ->index_id();
+                    }
                 });
 
         LOG(INFO) << "succeed to do index compaction"
@@ -462,7 +469,43 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
         for (auto& index : _cur_tablet_schema->indexes()) {
             if (index.index_type() == IndexType::INVERTED) {
                 auto unique_id = index.col_unique_ids()[0];
-                if (field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
+                //NOTE: here src_rs may be in building index progress, so it would not contain inverted index info.
+                bool all_have_inverted_index = std::all_of(
+                        _input_rowsets.begin(), _input_rowsets.end(), [&](const auto& src_rs) {
+                            BetaRowsetSharedPtr rowset =
+                                    std::static_pointer_cast<BetaRowset>(src_rs);
+                            if (rowset == nullptr) {
+                                return false;
+                            }
+                            auto fs = rowset->rowset_meta()->fs();
+
+                            auto index_meta =
+                                    rowset->tablet_schema()->get_inverted_index(unique_id);
+                            if (index_meta == nullptr) {
+                                return false;
+                            }
+                            for (auto i = 0; i < rowset->num_segments(); i++) {
+                                auto segment_file = rowset->segment_file_path(i);
+                                std::string inverted_index_src_file_path =
+                                        InvertedIndexDescriptor::get_index_file_name(
+                                                segment_file, index_meta->index_id());
+                                bool exists = false;
+                                if (fs->exists(inverted_index_src_file_path, &exists) !=
+                                    Status::OK()) {
+                                    LOG(ERROR)
+                                            << inverted_index_src_file_path << " fs->exists error";
+                                    return false;
+                                }
+                                if (!exists) {
+                                    LOG(WARNING) << inverted_index_src_file_path
+                                                 << " is not exists, will skip index compaction";
+                                    return false;
+                                }
+                            }
+                            return true;
+                        });
+                if (all_have_inverted_index &&
+                    field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {
                     ctx.skip_inverted_index.insert(unique_id);
                 }
             }
