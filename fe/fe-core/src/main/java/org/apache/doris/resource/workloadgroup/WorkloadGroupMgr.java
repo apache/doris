@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -240,6 +241,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             throw new DdlException("Dropping default workload group " + workloadGroupName + " is not allowed");
         }
 
+        // if a workload group exists in user property, it should not be dropped
+        // user need to reset user property first
+        Pair<Boolean, String> ret = Env.getCurrentEnv().getAuth().isWorkloadGroupInUse(workloadGroupName);
+        if (ret.first) {
+            throw new DdlException("workload group " + workloadGroupName + " is set for user " + ret.second);
+        }
+
         writeLock();
         try {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
@@ -266,6 +274,15 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             idToWorkloadGroup.put(workloadGroup.getId(), workloadGroup);
         } finally {
             writeUnlock();
+        }
+    }
+
+    public boolean isWorkloadGroupExists(String workloadGroupName) {
+        readLock();
+        try {
+            return nameToWorkloadGroup.containsKey(workloadGroupName);
+        } finally {
+            readUnlock();
         }
     }
 
