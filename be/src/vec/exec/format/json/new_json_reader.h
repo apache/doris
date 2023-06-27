@@ -265,6 +265,7 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
+    int32_t _cur_parsed_variant_rows = 0;
 };
 
 } // namespace vectorized

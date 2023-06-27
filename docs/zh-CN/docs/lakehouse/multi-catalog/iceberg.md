@@ -55,58 +55,49 @@ CREATE CATALOG iceberg PROPERTIES (
 
 使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
 
-- Hive Metastore 作为元数据服务
+#### Hive Metastore
 
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        'type'='iceberg',
-        'iceberg.catalog.type'='hms',
-        'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
-        'hadoop.username' = 'hive',
-        'dfs.nameservices'='your-nameservice',
-        'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-        'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-        'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-        'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
-    );
-    ```
-
-- Glue Catalog 作为元数据服务
-
-    ```sql
-    CREATE CATALOG glue PROPERTIES (
-        "type"="iceberg",
-        "iceberg.catalog.type" = "glue",
-        "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-        "glue.access_key" = "ak",
-        "glue.secret_key" = "sk"
-    );
-    ```
-
-    Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
-
-- REST Catalog 作为元数据服务
-
-    该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
-    
-    ```sql
-    CREATE CATALOG iceberg PROPERTIES (
-        'type'='iceberg',
-        'iceberg.catalog.type'='rest',
-        'uri' = 'http://172.21.0.1:8181',
-    );
-    ```
-
-若数据存放在S3上，properties中可以使用以下参数
-
-```
-"s3.access_key" = "ak"
-"s3.secret_key" = "sk"
-"s3.endpoint" = "http://endpoint-uri"
-"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
 ```
 
-#### Google Dataproc Metastore 作为元数据服务
+#### AWS Glue
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
+);
+```
+
+Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+
+#### REST Catalog
+
+该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181',
+);
+```
+
+#### Google Dataproc Metastore
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -122,6 +113,17 @@ CREATE CATALOG iceberg PROPERTIES (
 ```
 
 `hive.metastore.uris`: Dataproc Metastore 服务开放的接口，在 Metastore 管理页面获取 ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
+### Iceberg On S3
+
+若数据存放在S3上，properties中可以使用以下参数
+
+```
+"s3.access_key" = "ak"
+"s3.secret_key" = "sk"
+"s3.endpoint" = "http://endpoint-uri"
+"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
+```
 
 ## 列类型映射
 

@@ -110,7 +110,8 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     @Override
     public PhysicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, getLogicalProperties(), children.get(0));
+        return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override

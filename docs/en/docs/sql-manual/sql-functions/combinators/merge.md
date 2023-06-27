@@ -1,11 +1,11 @@
 ---
 {
-    "title": "ENABLE-FEATURE",
+    "title": "MERGE",
     "language": "en"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,15 +24,27 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ENABLE-FEATURE
+## MERGE
 
-### Description
+<version since="2.0.0">
+</version>
 
-### Example
 
-### Keywords
+### description
+#### Syntax
 
-    ENABLE, FEATURE
+`AGGREGATE_FUNCTION_MERGE(agg_state)`
+The aggregated intermediate results are aggregated and calculated to obtain the actual result.
+The type of the result is consistent with `AGGREGATE_FUNCTION`.
 
-### Best Practice
-
+### example
+```
+mysql [test]>select avg_merge(avg_state(1)) from d_table;
++-------------------------+
+| avg_merge(avg_state(1)) |
++-------------------------+
+|                       1 |
++-------------------------+
+```
+### keywords
+AGG_STATE, MERGE

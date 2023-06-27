@@ -75,6 +75,8 @@ set workload_group = 'g2'.
 ```
 session variable `workload_group` takes precedence over user property `default_workload_group`, in case `workload_group` is empty, the query will be bound to `default_workload_group`, in case session variable ` workload_group` is not empty, the query will be bound to `workload_group`.
 
+If you are a non-admin user, you need to execute [SHOW-WORKLOAD-GROUPS](../sql-manual/sql-reference/Show-Statements/SHOW-WORKLOAD-GROUPS.md) to check if the current user can see the workload group, if not, the workload group may not exist or the current user does not have permission to execute the query. If you cannot see the workload group, the workload group may not exist or the current user does not have privileges. To authorize the workload group, refer to: [grant statement](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md).
+
 5. Execute the query, which will be associated with the g1 workload group.
 
 ### Query queue Function
