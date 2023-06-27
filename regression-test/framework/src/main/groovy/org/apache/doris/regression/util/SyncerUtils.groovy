@@ -25,6 +25,8 @@ import org.apache.doris.thrift.TBeginTxnRequest
 import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TCommitTxnRequest
 import org.apache.doris.thrift.TCommitTxnResult
+import org.apache.doris.thrift.TGetMasterTokenRequest
+import org.apache.doris.thrift.TGetMasterTokenResult
 import org.apache.doris.thrift.TGetSnapshotRequest
 import org.apache.doris.thrift.TGetSnapshotResult
 import org.apache.doris.thrift.TIngestBinlogRequest
@@ -113,5 +115,12 @@ class SyncerUtils {
         request.setMeta(context.getSnapshotResult.getMeta())
         request.setJobInfo(context.getSnapshotResult.getJobInfo())
         return clientImpl.client.restoreSnapshot(request)
+    }
+
+    static TGetMasterTokenResult getMasterToken(FrontendClientImpl clientImpl, SyncerContext context) throws TException {
+        TGetMasterTokenRequest request = new TGetMasterTokenRequest()
+        request.setUser(context.user)
+        request.setPassword(context.passwd)
+        return clientImpl.client.getMasterToken(request)
     }
 }
