@@ -91,7 +91,7 @@ struct ToBitmap {
     static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                          std::vector<BitmapValue>& res_data, NullMap& null_map,
                          size_t input_rows_count) {
-        res_data.reserve(input_rows_count);
+        res_data.resize(input_rows_count);
         if (offsets.size() == 0 && input_rows_count == 1) {
             // For NULL constant
             res_data.emplace_back();
