@@ -1953,6 +1953,14 @@ visible_functions = {
         [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE']
     ],
 
+    #ip functions
+    "IP": [
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['TINYINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['SMALLINT'], 'ALWAYS_NULLABLE'],
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['INT'], 'ALWAYS_NULLABLE'],
+        [['ipv4numtostring','inet_ntoa'], 'VARCHAR', ['BIGINT'], 'ALWAYS_NULLABLE'],
+    ],
+
     "NonNullalbe": [
         [['non_nullable'], 'BOOLEAN', ['BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
         [['non_nullable'], 'TINYINT', ['TINYINT'], 'ALWAYS_NOT_NULLABLE'],

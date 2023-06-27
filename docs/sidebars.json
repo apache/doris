@@ -730,6 +730,14 @@
                                 "sql-manual/sql-functions/window-functions/WINDOW-FUNCTION-WINDOW-FUNNEL"
                             ]
                         },
+                        {
+                            "type": "category",
+                            "label": "IP Functions",
+                            "items": [
+                                "sql-manual/sql-functions/ip-functions/IPV4-NUM-TO-STRING",
+                                "sql-manual/sql-functions/ip-functions/INET_NTOA"
+                            ]
+                        },
                         "sql-manual/sql-functions/cast",
                         "sql-manual/sql-functions/digital-masking",
                         "sql-manual/sql-functions/width-bucket"
