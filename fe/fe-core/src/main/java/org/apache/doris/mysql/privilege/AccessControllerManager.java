@@ -214,6 +214,14 @@ public class AccessControllerManager {
         return sysAccessController.checkResourcePriv(currentUser, resourceName, wanted);
     }
 
+    public boolean checkWorkloadGroupPriv(ConnectContext ctx, String workloadGroupName, PrivPredicate wanted) {
+        return checkWorkloadGroupPriv(ctx.getCurrentUserIdentity(), workloadGroupName, wanted);
+    }
+
+    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        return sysAccessController.checkWorkloadGroupPriv(currentUser, workloadGroupName, wanted);
+    }
+
     // ==== Other ====
     public boolean checkPrivByAuthInfo(ConnectContext ctx, AuthorizationInfo authInfo, PrivPredicate wanted) {
         if (authInfo == null) {

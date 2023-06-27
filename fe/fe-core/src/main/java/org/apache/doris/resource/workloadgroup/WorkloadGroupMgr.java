@@ -21,14 +21,18 @@ import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -102,7 +106,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public List<TPipelineWorkloadGroup> getWorkloadGroup(ConnectContext context) throws UserException {
-        String groupName = getWorkloadGroupName(context);
+        String groupName = getWorkloadGroupNameAndCheckPriv(context);
         List<TPipelineWorkloadGroup> workloadGroups = Lists.newArrayList();
         readLock();
         try {
@@ -118,7 +122,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public QueryQueue getWorkloadGroupQueryQueue(ConnectContext context) throws UserException {
-        String groupName = getWorkloadGroupName(context);
+        String groupName = getWorkloadGroupNameAndCheckPriv(context);
         readLock();
         try {
             WorkloadGroup workloadGroup = nameToWorkloadGroup.get(groupName);
@@ -131,13 +135,18 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    private String getWorkloadGroupName(ConnectContext context) {
+    private String getWorkloadGroupNameAndCheckPriv(ConnectContext context) throws AnalysisException {
         String groupName = context.getSessionVariable().getWorkloadGroup();
         if (Strings.isNullOrEmpty(groupName)) {
             groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(context.getQualifiedUser());
         }
         if (Strings.isNullOrEmpty(groupName)) {
             groupName = DEFAULT_GROUP_NAME;
+        }
+        if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(context, groupName, PrivPredicate.USAGE)) {
+            ErrorReport.reportAnalysisException(
+                    "Access denied; you need (at least one of) the %s privilege(s) to use workload group '%s'.",
+                    ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "USAGE/ADMIN", groupName);
         }
         return groupName;
     }
@@ -322,7 +331,11 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             readLock();
             try {
                 for (WorkloadGroup workloadGroup : idToWorkloadGroup.values()) {
-                    // need to check workload group privs
+                    if (!Objects.isNull(ConnectContext.get()) && !Env.getCurrentEnv().getAccessManager()
+                            .checkWorkloadGroupPriv(ConnectContext.get(), workloadGroup.getName(),
+                                    PrivPredicate.SHOW_WORKLOAD_GROUP)) {
+                        continue;
+                    }
                     workloadGroup.getProcNodeData(result);
                 }
             } finally {

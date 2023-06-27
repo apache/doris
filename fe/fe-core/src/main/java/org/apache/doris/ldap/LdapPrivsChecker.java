@@ -72,10 +72,25 @@ public class LdapPrivsChecker {
                 resourceName, wanted);
     }
 
+    public static boolean hasWorkloadGroupPrivFromLdap(UserIdentity currentUser, String workloadGroupName,
+            PrivPredicate wanted) {
+        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkWorkloadGroupPriv(
+                workloadGroupName, wanted);
+    }
+
     public static PrivBitSet getResourcePrivFromLdap(UserIdentity currentUser, String resourceName) {
         PrivBitSet savedPrivs = PrivBitSet.of();
         if (hasLdapPrivs(currentUser)) {
             getUserLdapPrivs(currentUser.getQualifiedUser()).getResourcePrivTable().getPrivs(resourceName, savedPrivs);
+        }
+        return savedPrivs;
+    }
+
+    public static PrivBitSet getWorkloadGroupPrivFromLdap(UserIdentity currentUser, String workloadGroupName) {
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (hasLdapPrivs(currentUser)) {
+            getUserLdapPrivs(currentUser.getQualifiedUser()).getWorkloadGroupPrivTable()
+                    .getPrivs(workloadGroupName, savedPrivs);
         }
         return savedPrivs;
     }
