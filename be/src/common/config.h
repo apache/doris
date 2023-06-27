@@ -1045,6 +1045,10 @@ DECLARE_Int32(rocksdb_max_write_buffer_number);
 
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
+// the max expiration time of kerberos ticket.
+// If a hdfs filesytem with kerberos authentication live longer
+// than this time, it will be expired.
+DECLARE_mInt64(kerberos_expiration_time_seconds);
 
 #ifdef BE_TEST
 // test s3
