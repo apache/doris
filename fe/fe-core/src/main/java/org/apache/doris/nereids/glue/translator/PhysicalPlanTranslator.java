@@ -1434,7 +1434,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     extractExecSlot(expr, requiredOtherConjunctsSlotIdSet);
                 }
                 requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
-                requiredByProjectSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
                 for (ExprId exprId : requiredExprIds) {
                     SlotId slotId = ((HashJoinNode) hashJoinNode).getHashOutputExprSlotIdMap().get(exprId);
                     Preconditions.checkState(slotId != null);
