@@ -223,7 +223,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        addRequestPropertyToChildren(PhysicalProperties.ANY);
         return null;
     }
 
