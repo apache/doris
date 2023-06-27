@@ -16,65 +16,235 @@
 // under the License.
 
 suite('test_default_limit') {
-    sql 'use test_query_db'
+    sql 'use nereids_test_query_db'
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
-    def res = sql 'select * from baseall'
-    assertTrue(res.size() == 16)
+    for (int i = 0; i < 2; ++i) {
+        if (i == 0) {
+            sql 'set enable_pipeline_engine=false'
+        } else if (i == 1) {
+            sql 'set enable_pipeline_engine=true'
+        }
 
-    sql 'set default_order_by_limit = 10'
-    sql 'set sql_select_limit = 5'
+        def res = sql 'select * from baseall'
+        assertTrue(res.size() == 16)
 
-    res = sql 'select * from baseall'
-    assertTrue(res.size() == 5)
-    res = sql 'select * from baseall order by k1'
-    assertTrue(res.size() == 5)
-    res = sql 'select * from baseall limit 7'
-    assertTrue(res.size() == 7)
+        sql 'set default_order_by_limit = 10'
+        sql 'set sql_select_limit = 5'
 
-    sql 'set default_order_by_limit = 5'
-    sql 'set sql_select_limit = 10'
+        res = sql 'select * from baseall'
+        assertTrue(res.size() == 5)
+        res = sql 'select * from baseall order by k1'
+        assertTrue(res.size() == 5)
+        res = sql 'select * from baseall limit 7'
+        assertTrue(res.size() == 7)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall'
-    assertTrue(res.size() == 10)
-    res = sql 'select * from baseall order by k1'
-    assertTrue(res.size() == 5)
-    res = sql 'select * from baseall limit 7'
-    assertTrue(res.size() == 7)
+        sql 'set default_order_by_limit = 5'
+        sql 'set sql_select_limit = 10'
 
-    sql 'set sql_select_limit = -1'
+        res = sql 'select * from baseall'
+        assertTrue(res.size() == 10)
+        res = sql 'select * from baseall order by k1'
+        assertTrue(res.size() == 5)
+        res = sql 'select * from baseall limit 7'
+        assertTrue(res.size() == 7)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 10)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall'
-    assertTrue(res.size() == 16)
-    res = sql 'select * from baseall limit 7'
-    assertTrue(res.size() == 7)
+        sql 'set sql_select_limit = -1'
 
-    sql 'set sql_select_limit = -10'
+        res = sql 'select * from baseall'
+        assertTrue(res.size() == 16)
+        res = sql 'select * from baseall limit 7'
+        assertTrue(res.size() == 7)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 16)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall'
-    assertTrue(res.size() == 16)
-    res = sql 'select * from baseall limit 7'
-    assertTrue(res.size() == 7)
+        sql 'set sql_select_limit = -10'
 
-    sql 'set sql_select_limit = 0'
+        res = sql 'select * from baseall'
+        assertTrue(res.size() == 16)
+        res = sql 'select * from baseall limit 7'
+        assertTrue(res.size() == 7)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 16)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall'
-    assertTrue(res.size() == 0)
-    res = sql 'select * from baseall limit 7'
-    assertTrue(res.size() == 7)
+        sql 'set sql_select_limit = 0'
 
-    sql 'set sql_select_limit = 5'
-    sql 'set default_order_by_limit = -1'
+        res = sql 'select * from baseall'
+        assertTrue(res.size() == 0)
+        res = sql 'select * from baseall limit 7'
+        assertTrue(res.size() == 7)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 0)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall order by k1'
-    assertEquals(res.size(), 5)
+        sql 'set sql_select_limit = 5'
+        sql 'set default_order_by_limit = -1'
 
-    sql 'set default_order_by_limit = -10'
+        res = sql 'select * from baseall order by k1'
+        assertEquals(res.size(), 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall order by k1'
-    assertTrue(res.size() == 5)
+        sql 'set default_order_by_limit = -10'
 
-    sql 'set default_order_by_limit = 0'
+        res = sql 'select * from baseall order by k1'
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
 
-    res = sql 'select * from baseall order by k1'
-    assertTrue(res.size() == 0)
+        sql 'set default_order_by_limit = 0'
+
+        res = sql 'select * from baseall order by k1'
+        assertTrue(res.size() == 0)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+        '''
+        assertTrue(res.size() == 5)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2
+        '''
+        assertTrue(res.size() == 0)
+        res = sql '''
+            with cte as (
+                select * from test, bigtable where test.k1 = bigtable.k1
+            )
+            select * from baseall, (select k1 from cte) c where c.k1 = baseall.k1
+            order by c.k1, c.k2 limit 8
+        '''
+        assertTrue(res.size() == 8)
+    }
 }
