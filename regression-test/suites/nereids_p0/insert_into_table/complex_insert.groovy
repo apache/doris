@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite('complex_insert') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
@@ -200,10 +202,8 @@ suite('complex_insert') {
         distributed by hash(k1) buckets 3
         properties("replication_num" = "1");
     '''
-
-    sql '''
-        create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;
-    '''
+    
+    createMV("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
     sql 'sync'

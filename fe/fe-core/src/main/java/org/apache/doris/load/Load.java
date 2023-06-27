@@ -542,8 +542,7 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false, false,
-                false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, null, false, false);
     }
 
     /*
@@ -553,12 +552,11 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
-            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad,
-            boolean isPartialUpdate)
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean isPartialUpdate)
             throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer, srcTupleDesc, slotDescByName,
-                srcSlotIds, formatType, hiddenColumns, useVectorizedLoad, true, isPartialUpdate);
+                srcSlotIds, formatType, hiddenColumns, true, isPartialUpdate);
     }
 
     /*
@@ -572,7 +570,7 @@ public class Load {
     private static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
             Map<String, Pair<String, List<String>>> columnToHadoopFunction, Map<String, Expr> exprsByName,
             Analyzer analyzer, TupleDescriptor srcTupleDesc, Map<String, SlotDescriptor> slotDescByName,
-            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns, boolean useVectorizedLoad,
+            List<Integer> srcSlotIds, TFileFormatType formatType, List<String> hiddenColumns,
             boolean needInitSlotAndAnalyzeExprs, boolean isPartialUpdate) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
@@ -686,8 +684,7 @@ public class Load {
                 exprSrcSlotName.add(slotColumnName);
             }
         }
-        // excludedColumns is columns that should be varchar type
-        Set<String> excludedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+
         // init slot desc add expr map, also transform hadoop functions
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
@@ -704,48 +701,25 @@ public class Load {
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                // only support parquet format now
-                if (useVectorizedLoad  && formatType == TFileFormatType.FORMAT_PARQUET
-                        && tblColumn != null) {
-                    // in vectorized load
-                    // example: k1 is DATETIME in source file, and INT in schema, mapping exper is k1=year(k1)
-                    // we can not determine whether to use the type in the schema or the type inferred from expr
-                    // so use varchar type as before
-                    if (exprSrcSlotName.contains(columnName)) {
-                        // columns in expr args should be varchar type
-                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                        excludedColumns.add(realColName);
-                        // example k1, k2 = k1 + 1, k1 is not nullable, k2 is nullable
-                        // so we can not determine columns in expr args whether not nullable or nullable
-                        // slot in expr args use nullable as before
-                        slotDesc.setIsNullable(true);
-                    } else {
-                        // columns from files like parquet files can be parsed as the type in table schema
-                        slotDesc.setType(tblColumn.getType());
-                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
-                        // non-nullable column is allowed in vectorized load with parquet format
-                        slotDesc.setIsNullable(tblColumn.isAllowNull());
-                    }
+
+                if (formatType == TFileFormatType.FORMAT_JSON
+                            && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+                    // Dynamic table does not require conversion from VARCHAR to corresponding data types.
+                    // Some columns are self-described and their types are dynamically generated.
+                    slotDesc.setType(tblColumn.getType());
+                    slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                    slotDesc.setIsNullable(tblColumn.isAllowNull());
                 } else {
-                    if (formatType == TFileFormatType.FORMAT_JSON
-                                && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
-                        // Dynamic table does not require conversion from VARCHAR to corresponding data types.
-                        // Some columns are self-described and their types are dynamically generated.
-                        slotDesc.setType(tblColumn.getType());
-                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
-                        slotDesc.setIsNullable(tblColumn.isAllowNull());
-                    } else {
-                        // columns default be varchar type
-                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                        // ISSUE A: src slot should be nullable even if the column is not nullable.
-                        // because src slot is what we read from file, not represent to real column value.
-                        // If column is not nullable, error will be thrown when filling the dest slot,
-                        // which is not nullable.
-                        slotDesc.setIsNullable(true);
-                    }
+                    // columns default be varchar type
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    // ISSUE A: src slot should be nullable even if the column is not nullable.
+                    // because src slot is what we read from file, not represent to real column value.
+                    // If column is not nullable, error will be thrown when filling the dest slot,
+                    // which is not nullable.
+                    slotDesc.setIsNullable(true);
                 }
+
                 slotDesc.setIsMaterialized(true);
                 srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
@@ -786,30 +760,15 @@ public class Load {
         }
 
         LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
-        // we only support parquet format now
-        // use implicit deduction to convert columns
-        // that are not in the doris table from varchar to a more appropriate type
-        if (useVectorizedLoad && formatType == TFileFormatType.FORMAT_PARQUET) {
-            // analyze all exprs
-            Map<String, Expr> cloneExprsByName = Maps.newHashMap(exprsByName);
-            Map<String, Expr> cloneMvDefineExpr = Maps.newHashMap(mvDefineExpr);
-            analyzeAllExprs(tbl, analyzer, cloneExprsByName, cloneMvDefineExpr, slotDescByName, useVectorizedLoad);
-            // columns that only exist in mapping expr args, replace type with inferred from exprs,
-            // if there are more than one, choose the last except varchar type
-            // for example:
-            // k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME
-            replaceVarcharWithCastType(cloneExprsByName, srcTupleDesc, excludedColumns);
-        }
 
         // in vectorized load, reanalyze exprs with castExpr type
         // otherwise analyze exprs with varchar type
-        analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName, useVectorizedLoad);
+        analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName);
         LOG.debug("after init column, exprMap: {}", exprsByName);
     }
 
     private static void analyzeAllExprs(Table tbl, Analyzer analyzer, Map<String, Expr> exprsByName,
-                                            Map<String, Expr> mvDefineExpr, Map<String, SlotDescriptor> slotDescByName,
-                                            boolean useVectorizedLoad) throws UserException {
+            Map<String, Expr> mvDefineExpr, Map<String, SlotDescriptor> slotDescByName) throws UserException {
         // analyze all exprs
         for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
             ExprSubstitutionMap smap = new ExprSubstitutionMap();
@@ -886,50 +845,6 @@ public class Load {
             expr.analyze(analyzer);
 
             exprsByName.put(entry.getKey(), expr);
-        }
-    }
-
-    /**
-     * columns that only exist in mapping expr args, replace type with inferred from exprs.
-     *
-     * @param excludedColumns columns that the type should not be inferred from expr.
-     *                         1. column exists in both schema and expr args.
-     */
-    private static void replaceVarcharWithCastType(Map<String, Expr> exprsByName, TupleDescriptor srcTupleDesc,
-                                               Set<String> excludedColumns) throws UserException {
-        // if there are more than one, choose the last except varchar type.
-        // for example:
-        // k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME.
-        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
-            List<CastExpr> casts = Lists.newArrayList();
-            // exclude explicit cast. for example: cast(k1 as date)
-            entry.getValue().collect(Expr.IS_VARCHAR_SLOT_REF_IMPLICIT_CAST, casts);
-            if (casts.isEmpty()) {
-                continue;
-            }
-
-            for (CastExpr cast : casts) {
-                Expr child = cast.getChild(0);
-                Type type = cast.getType();
-                if (type.isVarchar()) {
-                    continue;
-                }
-
-                SlotRef slotRef = (SlotRef) child;
-                String columnName = slotRef.getColumn().getName();
-                if (excludedColumns.contains(columnName)) {
-                    continue;
-                }
-
-                // replace src slot desc with cast return type
-                int slotId = slotRef.getSlotId().asInt();
-                SlotDescriptor srcSlotDesc = srcTupleDesc.getSlot(slotId);
-                if (srcSlotDesc == null) {
-                    throw new UserException("Unknown source slot descriptor. id: " + slotId);
-                }
-                srcSlotDesc.setType(type);
-                srcSlotDesc.setColumn(new Column(columnName, type));
-            }
         }
     }
 

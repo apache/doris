@@ -183,7 +183,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             if (!res.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << res.to_string();
-                return Status::Error<ErrorCode::ROWSET_READER_INIT>();
+                return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
             std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
@@ -333,7 +333,7 @@ Status IndexBuilder::_add_data(const std::string& column_name,
 }
 
 Status IndexBuilder::handle_inverted_index_data() {
-    LOG(INFO) << "begint to handle_inverted_index_data";
+    LOG(INFO) << "begin to handle_inverted_index_data";
     DCHECK(_input_rowsets.size() == _output_rowsets.size());
     for (auto i = 0; i < _output_rowsets.size(); ++i) {
         SegmentCacheHandle segment_cache_handle;
@@ -347,7 +347,7 @@ Status IndexBuilder::handle_inverted_index_data() {
 }
 
 Status IndexBuilder::do_build_inverted_index() {
-    LOG(INFO) << "begine to do_build_inverted_index, tablet=" << _tablet->tablet_id()
+    LOG(INFO) << "begin to do_build_inverted_index, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
     if (_alter_inverted_indexes.empty()) {
         return Status::OK();
@@ -403,6 +403,7 @@ Status IndexBuilder::do_build_inverted_index() {
         LOG(WARNING) << "failed to update_inverted_index_info. "
                      << "tablet=" << _tablet->tablet_id() << ", error=" << st;
         gc_output_rowset();
+        return st;
     }
 
     // create inverted index file for output rowset
@@ -411,6 +412,7 @@ Status IndexBuilder::do_build_inverted_index() {
         LOG(WARNING) << "failed to handle_inverted_index_data. "
                      << "tablet=" << _tablet->tablet_id() << ", error=" << st;
         gc_output_rowset();
+        return st;
     }
 
     // modify rowsets in memory
@@ -419,8 +421,9 @@ Status IndexBuilder::do_build_inverted_index() {
         LOG(WARNING) << "failed to modify rowsets in memory. "
                      << "tablet=" << _tablet->tablet_id() << ", error=" << st;
         gc_output_rowset();
+        return st;
     }
-    return st;
+    return Status::OK();
 }
 
 Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {

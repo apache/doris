@@ -107,7 +107,8 @@ public class PhysicalCTEAnchor<
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalCTEAnchor<>(cteId, getLogicalProperties(), children.get(0), children.get(1));
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
+            statistics, children.get(0), children.get(1));
     }
 
     @Override

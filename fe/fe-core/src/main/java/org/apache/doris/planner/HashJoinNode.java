@@ -37,7 +37,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -88,17 +87,11 @@ public class HashJoinNode extends JoinNodeBase {
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
 
-        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
-        if (VectorizedUtil.isVectorized()) {
-            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-                tupleIds.addAll(inner.getTupleIds());
-            } else {
-                tupleIds.addAll(outer.getTupleIds());
-                tupleIds.addAll(inner.getTupleIds());
-            }
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
         } else {
             tupleIds.addAll(outer.getTupleIds());
             tupleIds.addAll(inner.getTupleIds());
@@ -131,17 +124,11 @@ public class HashJoinNode extends JoinNodeBase {
         tblRefIds.addAll(outer.getTblRefIds());
         tblRefIds.addAll(inner.getTblRefIds());
 
-        // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
-        if (VectorizedUtil.isVectorized()) {
-            if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
-                tupleIds.addAll(outer.getTupleIds());
-            } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
-                tupleIds.addAll(inner.getTupleIds());
-            } else {
-                tupleIds.addAll(outer.getTupleIds());
-                tupleIds.addAll(inner.getTupleIds());
-            }
+        if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+            tupleIds.addAll(outer.getTupleIds());
+        } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
+            tupleIds.addAll(inner.getTupleIds());
         } else {
             tupleIds.addAll(outer.getTupleIds());
             tupleIds.addAll(inner.getTupleIds());
@@ -279,10 +266,7 @@ public class HashJoinNode extends JoinNodeBase {
                 newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
 
-        // Only for Vec: create new tuple for join result
-        if (VectorizedUtil.isVectorized()) {
-            computeOutputTuple(analyzer);
-        }
+        computeOutputTuple(analyzer);
     }
 
     @Override

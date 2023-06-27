@@ -28,6 +28,7 @@ import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
+import org.apache.arrow.vector.TimeStampNanoVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
@@ -162,9 +163,15 @@ public class MaxComputeColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getDateTime() {
         skippedIfNull();
-        DateMilliVector datetimeCol = (DateMilliVector) column;
-        LocalDateTime v = datetimeCol.getObject(idx++);
-        return v == null ? LocalDateTime.MIN : v;
+        LocalDateTime result;
+        if (column instanceof DateMilliVector) {
+            DateMilliVector datetimeCol = (DateMilliVector) column;
+            result = datetimeCol.getObject(idx++);
+        } else {
+            TimeStampNanoVector datetimeCol = (TimeStampNanoVector) column;
+            result = datetimeCol.getObject(idx++);
+        }
+        return result == null ? LocalDateTime.MIN : result;
     }
 
     @Override
