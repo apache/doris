@@ -154,6 +154,11 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+            std::shared_ptr<FunctionJsonbParseState> state =
+                    std::make_shared<FunctionJsonbParseState>();
+            context->set_function_state(FunctionContext::FRAGMENT_LOCAL, state);
+        }
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             if (context->is_col_constant(1)) {
                 const auto default_value_col = context->get_constant_col(1)->column_ptr;
@@ -161,8 +166,8 @@ public:
 
                 JsonbErrType error = JsonbErrType::E_NONE;
                 if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
-                    std::shared_ptr<FunctionJsonbParseState> state =
-                            std::make_shared<FunctionJsonbParseState>();
+                    FunctionJsonbParseState* state = reinterpret_cast<FunctionJsonbParseState*>(
+                            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
                     if (!state->default_value_parser.parse(default_value.data,
                                                            default_value.size)) {
