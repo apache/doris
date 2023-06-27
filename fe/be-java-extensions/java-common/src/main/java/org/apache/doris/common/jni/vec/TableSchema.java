@@ -22,6 +22,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -37,11 +38,11 @@ public class TableSchema {
         this.objectMapper = new ObjectMapper();
     }
 
-    public String getTableSchema() {
+    public String getTableSchema() throws IOException {
         try {
             return objectMapper.writeValueAsString(schemaColumns);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            throw new IOException(e);
         }
     }
 
