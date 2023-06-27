@@ -378,8 +378,8 @@ private:
     bool _store_row_column = false;
     bool _skip_write_index_on_load = false;
     std::string _compaction_policy;
-    int64_t _time_series_compaction_goal_size_mbytes = 1024;
-    int64_t _time_series_compaction_file_count_threshold = 10000;
+    int64_t _time_series_compaction_goal_size_mbytes = 512;
+    int64_t _time_series_compaction_file_count_threshold = 2000;
     int64_t _time_series_compaction_time_threshold_seconds = 3600;
 
     bool _is_partial_update;

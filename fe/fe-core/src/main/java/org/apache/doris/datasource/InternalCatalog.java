@@ -2014,20 +2014,20 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.setCompactionPolicy(compactionPolicy);
 
         // set time series compaction goal size
-        long timeSeriesCompactionGoalSizeMbytes = 1024;
+        long timeSeriesCompactionGoalSizeMbytes = 512;
         try {
             timeSeriesCompactionGoalSizeMbytes = PropertyAnalyzer
-                                        .analyzeTimeSeriesCompactionGoalSizeMbytes(properties, 1024);
+                                        .analyzeTimeSeriesCompactionGoalSizeMbytes(properties, 512);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
         olapTable.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);
 
         // set time series compaction file count threshold
-        long timeSeriesCompactionFileCountThreshold = 10000;
+        long timeSeriesCompactionFileCountThreshold = 2000;
         try {
             timeSeriesCompactionFileCountThreshold = PropertyAnalyzer
-                                    .analyzeTimeSeriesCompactionFileCountThreshold(properties, 10000);
+                                    .analyzeTimeSeriesCompactionFileCountThreshold(properties, 2000);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

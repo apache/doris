@@ -405,6 +405,10 @@ struct TTabletMetaInfo {
     7: optional i64 storage_policy_id
     8: optional Types.TReplicaId replica_id
     9: optional TBinlogConfig binlog_config
+    10: optional string compaction_policy
+    11: optional i64 time_series_compaction_goal_size_mbytes = -1
+    12: optional i64 time_series_compaction_file_count_threshold = -1
+    13: optional i64 time_series_compaction_time_threshold_seconds = -1
 }
 
 struct TUpdateTabletMetaInfoReq {

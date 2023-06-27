@@ -412,7 +412,7 @@ Set table properties. The following attributes are currently supported:
 
     Time series compaction policy will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
 
-    `"time_series_compaction_goal_size_mbytes" = "1024"`
+    `"time_series_compaction_goal_size_mbytes" = "512"`
 
 * `time_series_compaction_file_count_threshold`
 
@@ -420,7 +420,7 @@ Set table properties. The following attributes are currently supported:
 
     If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
 
-    `"time_series_compaction_file_count_threshold" = "10000"`
+    `"time_series_compaction_file_count_threshold" = "2000"`
 
 * `time_series_compaction_time_threshold_seconds`
 
