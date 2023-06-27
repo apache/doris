@@ -36,7 +36,6 @@ using RowsetWriterUniquePtr = std::unique_ptr<RowsetWriter>;
 class IndexBuilder {
 public:
     IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
-                 const std::vector<TOlapTableIndex> exist_indexes,
                  const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                  bool is_drop_op = false);
     ~IndexBuilder();
@@ -65,7 +64,6 @@ private:
 private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
-    std::vector<TOlapTableIndex> _exist_indexes;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
     bool _is_drop_op;
     std::unordered_map<std::string, std::set<int32_t>> _rowset_alter_index_column_ids;
