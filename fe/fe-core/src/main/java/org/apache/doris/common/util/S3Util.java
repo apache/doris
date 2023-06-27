@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.FeConstants;
 
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -26,22 +27,28 @@ public class S3Util {
     private static final Logger LOG = LogManager.getLogger(S3Util.class);
 
     public static boolean isObjStorage(String location) {
-        return isS3CompatibleObjStorage(location) || location.startsWith(FeConstants.FS_PREFIX_OBS);
+        return isObjStorageUseS3Client(location)
+                || location.startsWith(FeConstants.FS_PREFIX_COS)
+                || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                || location.startsWith(FeConstants.FS_PREFIX_OBS);
     }
 
-    private static boolean isS3CompatibleObjStorage(String location) {
+    private static boolean isObjStorageUseS3Client(String location) {
         return location.startsWith(FeConstants.FS_PREFIX_S3)
                 || location.startsWith(FeConstants.FS_PREFIX_S3A)
                 || location.startsWith(FeConstants.FS_PREFIX_S3N)
                 || location.startsWith(FeConstants.FS_PREFIX_GCS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS);
+                || location.startsWith(FeConstants.FS_PREFIX_BOS);
     }
 
+    /**
+     * The converted path is used for FE to get metadata
+     * @param location origin location
+     * @return metadata location path. just convert when storage is compatible with s3 client.
+     */
     public static  String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
-        if (isS3CompatibleObjStorage(location)) {
+        if (isObjStorageUseS3Client(location)) {
             int pos = location.indexOf("://");
             if (pos == -1) {
                 throw new RuntimeException("No '://' found in location: " + location);
@@ -51,4 +58,21 @@ public class S3Util {
         return location;
     }
 
+    /**
+     * The converted path is used for BE
+     * @param path origin split path
+     * @return BE scan range path
+     */
+    public static Path convertToS3IfNecessary(Path path) {
+        String location = path.toString();
+        // All storage will use s3 client on BE.
+        if (isObjStorage(location)) {
+            int pos = location.indexOf("://");
+            if (pos == -1) {
+                throw new RuntimeException("No '://' found in location: " + location);
+            }
+            location = "s3" + location.substring(pos);
+        }
+        return new Path(location);
+    }
 }
