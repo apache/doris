@@ -497,6 +497,15 @@
                         },
                         {
                             "type": "category",
+                            "label": "Combinators",
+                            "items": [
+                                "sql-manual/sql-functions/combinators/state",
+                                "sql-manual/sql-functions/combinators/merge",
+                                "sql-manual/sql-functions/combinators/union"
+                            ]
+                        },
+                        {
+                            "type": "category",
                             "label": "Aggregate Functions",
                             "items": [
                                 "sql-manual/sql-functions/aggregate-functions/collect_set",
@@ -1029,7 +1038,8 @@
                                 "sql-manual/sql-reference/Data-Types/ARRAY",
                                 "sql-manual/sql-reference/Data-Types/MAP",
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
-                                "sql-manual/sql-reference/Data-Types/JSON"
+                                "sql-manual/sql-reference/Data-Types/JSON",
+                                "sql-manual/sql-reference/Data-Types/AGG_STATE"
                             ]
                         },
                         {
