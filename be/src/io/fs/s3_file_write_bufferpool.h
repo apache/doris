@@ -38,9 +38,7 @@ namespace io {
 struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     using Callback = std::function<void()>;
 
-    S3FileBuffer(ThreadPool* pool) {
-        _thread_pool = pool;
-    }
+    S3FileBuffer(ThreadPool* pool) { _thread_pool = pool; }
     ~S3FileBuffer() = default;
 
     void rob_buffer(std::shared_ptr<S3FileBuffer>& other) {
@@ -124,7 +122,8 @@ public:
 
     // should be called one and only once
     // at startup
-    void init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size, doris::ThreadPool* thread_pool);
+    void init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
+              doris::ThreadPool* thread_pool);
 
     static S3FileBufferPool* GetInstance() {
         static S3FileBufferPool _pool;

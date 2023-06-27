@@ -60,11 +60,11 @@ void S3FileBuffer::submit() {
         _stream_ptr = std::make_shared<StringViewStream>(_buf.data, _size);
     }
 
-    _thread_pool->submit_func(
-            [buf = this->shared_from_this()]() { buf->_on_upload(); });
+    _thread_pool->submit_func([buf = this->shared_from_this()]() { buf->_on_upload(); });
 }
 
-void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size, doris::ThreadPool* thread_pool) {
+void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
+                            doris::ThreadPool* thread_pool) {
     // the nums could be one configuration
     size_t buf_num = s3_write_buffer_whole_size / s3_write_buffer_size;
     DCHECK((s3_write_buffer_size >= 5 * 1024 * 1024) &&
