@@ -602,7 +602,6 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
-            //
             // Here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
             // of publish phase.
             // All rowsets which need to recalculate have been published so we don't need to acquire lock.
@@ -611,9 +610,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
                     _tablet, txn_tablet_map);
 
-
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
-            // This part is to calculate 7-7's delete bitmap.
             int64_t cur_max_version = _tablet->max_version().second;
             RowsetIdUnorderedSet rowset_ids = _tablet->all_rs_id(cur_max_version);
             rowset_ids.insert(_output_rowset->rowset_id());
@@ -621,6 +618,16 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 for (const auto& tablet_load_it : it.second) {
                     const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
                     DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
+                    RowLocation src;
+                    std::shared_ptr<Rowset> rowset = tablet_txn_info.rowset;
+                    src.rowset_id = rowset->rowset_id();
+                    for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+                        src.segment_id = seg_id;
+                        _tablet->convert_rowid(rowset, *tablet_txn_info.delete_bitmap, src,
+                                               _rowid_conversion, version.second, UINT64_MAX,
+                                               &missed_rows, &location_map,
+                                               &output_rowset_delete_bitmap);
+                    }
                     tablet_txn_info.delete_bitmap->merge(output_delete_bitmap);
                     // Step3: write back updated delete bitmap and tablet info.
                     StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
@@ -629,7 +636,6 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                             tablet_txn_info.delete_bitmap, rowset_ids);
                 }
             }
-            //
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.

@@ -3310,7 +3310,6 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
         DeleteBitmap* output_rowset_delete_bitmap) {
     RowLocation src;
-    RowLocation dst;
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
@@ -3320,29 +3319,39 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
                                                  {rowset->rowset_id(), seg_id, end_version},
                                                  &subset_map);
             // traverse all versions and convert rowid
-            for (auto iter = subset_map.delete_bitmap.begin();
-                 iter != subset_map.delete_bitmap.end(); ++iter) {
-                auto cur_version = std::get<2>(iter->first);
-                for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
-                    src.row_id = *index;
-                    if (rowid_conversion.get(src, &dst) != 0) {
-                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
-                                      << " src loaction: |" << src.rowset_id << "|"
-                                      << src.segment_id << "|" << src.row_id
-                                      << " version: " << cur_version;
-                        missed_rows->insert(src);
-                        continue;
-                    }
-                    VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
-                               << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
-                               << " src location: |" << src.rowset_id << "|" << src.segment_id
-                               << "|" << src.row_id << " start version: " << start_version
-                               << "end version" << end_version;
-                    (*location_map)[rowset].emplace_back(src, dst);
-                    output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
-                                                     dst.row_id);
-                }
+            convert_rowid(rowset, subset_map, src, rowid_conversion, start_version, end_version,
+                          missed_rows, location_map, output_rowset_delete_bitmap);
+        }
+    }
+}
+
+void Tablet::convert_rowid(
+        const shared_ptr<Rowset>& rowset, const DeleteBitmap& subset_map, RowLocation& src,
+        const RowIdConversion& rowid_conversion, const uint64_t& start_version,
+        const uint64_t& end_version, std::set<RowLocation>* missed_rows,
+        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
+        DeleteBitmap* output_rowset_delete_bitmap) {
+    RowLocation dst;
+    for (auto iter = subset_map.delete_bitmap.begin(); iter != subset_map.delete_bitmap.end();
+         ++iter) {
+        auto cur_version = std::get<2>(iter->first);
+        for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
+            src.row_id = *index;
+            if (rowid_conversion.get(src, &dst) != 0) {
+                VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
+                              << " src loaction: |" << src.rowset_id << "|" << src.segment_id << "|"
+                              << src.row_id << " version: " << cur_version;
+                missed_rows->insert(src);
+                continue;
             }
+            VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
+                       << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
+                       << " src location: |" << src.rowset_id << "|" << src.segment_id << "|"
+                       << src.row_id << " start version: " << start_version << "end version"
+                       << end_version;
+            (*location_map)[rowset].emplace_back(src, dst);
+            output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
+                                             dst.row_id);
         }
     }
 }
