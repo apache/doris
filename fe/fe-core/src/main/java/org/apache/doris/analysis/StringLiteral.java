@@ -181,12 +181,12 @@ public class StringLiteral extends LiteralExpr {
      * @throws AnalysisException if the given string can't be transformed into a
      *                           date value.
      */
-    public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
+    public LiteralExpr convertToDate(Type targetType) {
         LiteralExpr newLiteral = null;
         try {
             newLiteral = new DateLiteral(value, targetType);
             newLiteral.checkValueValid();
-        } catch (IllegalFormatException e) {
+        } catch (AnalysisException e) {
             LOG.info("{} is illegal value for date-like type, insert null instead", value);
             return NullLiteral.create(targetType);
         }

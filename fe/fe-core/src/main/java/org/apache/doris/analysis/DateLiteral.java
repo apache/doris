@@ -463,7 +463,7 @@ public class DateLiteral extends LiteralExpr {
         } catch (Exception ex) {
             throw new AnalysisException("date literal [" + s + "] is invalid: " + ex.getMessage());
         }
-        checkValueValid();
+        checkValueValid(); // will throw IllegalFormatException if invalid.
         if (checkRange() || checkDate()) {
             throw new IllegalFormatException("datetime value is out of range");
         }
