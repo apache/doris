@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 
@@ -81,7 +82,11 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                 rowList.set(1, "DATE");
             }
             if (column.getOriginType().isDatetimeV2()) {
-                rowList.set(1, "DATETIME");
+                StringBuilder typeStr = new StringBuilder("DATETIME");
+                if (((ScalarType) column.getOriginType()).getScalarScale() > 0) {
+                    typeStr.append("(").append(((ScalarType) column.getOriginType()).getScalarScale()).append(")");
+                }
+                rowList.set(1, typeStr.toString());
             }
             result.addRow(rowList);
         }
