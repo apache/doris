@@ -150,7 +150,7 @@ bool MemInfo::process_minor_gc() {
 
     Defer defer {[&]() {
         je_purge_all_arena_dirty_pages();
-        LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+        LOG(INFO) << fmt::format("End Minor GC, Free Memory {} Bytes. cost(us): {}", freed_mem,
                                  watch.elapsed_time() / 1000);
     }};
 
@@ -193,7 +193,7 @@ bool MemInfo::process_full_gc() {
 
     Defer defer {[&]() {
         je_purge_all_arena_dirty_pages();
-        LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes. cost(us): {}", freed_mem,
+        LOG(INFO) << fmt::format("End Full GC Free, Memory {} Bytes. cost(us): {}", freed_mem,
                                  watch.elapsed_time() / 1000);
     }};
 
