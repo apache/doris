@@ -1006,6 +1006,15 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 - 类型：boolean
 - 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
 
+#### `enable_strong_consistency_read`
+
+默认值：false
+
+该变量可以作为全局配置项和session variable生效。
+
+- 类型：boolean
+- 描述：用以开启强一致性读。在强一致性的需求场景下可将该将该变量设置为true，使导入数据在查询时实时可见。
+
 ### 导入与导出
 
 #### `enable_vectorized_load`
