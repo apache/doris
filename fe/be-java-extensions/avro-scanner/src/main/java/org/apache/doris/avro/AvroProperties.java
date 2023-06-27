@@ -33,5 +33,8 @@ public class AvroProperties {
     protected static final String S3_SECRET_KEY = "s3.secret_key";
     protected static final String S3_ENDPOINT = "s3.endpoint";
     protected static final String S3_REGION = "s3.region";
+    protected static final String HIVE_SERDE = "hive.serde";
+    protected static final String COLUMNS = "columns";
+    protected static final String COLUMNS2TYPES = "columns.types";
 
 }

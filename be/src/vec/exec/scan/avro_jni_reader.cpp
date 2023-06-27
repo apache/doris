@@ -75,10 +75,12 @@ Status AvroJNIReader::init_fetch_table_reader(
     }
 
     TFileType::type type = _params.file_type;
-    std::map<String, String> required_param = {{"required_fields", required_fields.str()},
-                                               {"columns_types", columns_types.str()},
-                                               {"file_type", std::to_string(type)},
-                                               {"is_get_table_schema", "false"}};
+    std::map<String, String> required_param = {
+            {"required_fields", required_fields.str()},
+            {"columns_types", columns_types.str()},
+            {"file_type", std::to_string(type)},
+            {"is_get_table_schema", "false"},
+            {"hive.serde", "org.apache.hadoop.hive.serde2.avro.AvroSerDe"}};
     switch (type) {
     case TFileType::FILE_HDFS:
         required_param.insert(std::make_pair("uri", _params.hdfs_params.hdfs_conf.data()->value));
@@ -112,22 +114,52 @@ Status AvroJNIReader::get_parsed_schema(std::vector<std::string>* col_names,
     std::string table_schema_str;
     RETURN_IF_ERROR(_jni_connector->get_table_schema(table_schema_str));
 
-    int hash_pod = table_schema_str.find('#');
-    int len = table_schema_str.length();
-    std::string schema_name_str = table_schema_str.substr(0, hash_pod);
-    std::string schema_type_str = table_schema_str.substr(hash_pod + 1, len);
-    std::vector<std::string> schema_name = split(schema_name_str, ",");
-    std::vector<std::string> schema_type = split(schema_type_str, ",");
-
-    for (int i = 0; i < schema_name.size(); ++i) {
-        col_names->emplace_back(schema_name[i]);
-        int schema_type_number = std::stoi(schema_type[i]);
-        ::doris::TPrimitiveType::type type =
-                static_cast< ::doris::TPrimitiveType::type>(schema_type_number);
-        PrimitiveType ptype = thrift_to_type(type);
-        col_types->emplace_back(ptype);
+    rapidjson::Document document;
+    document.Parse(table_schema_str.c_str());
+    if (document.IsArray()) {
+        for (int i = 0; i < document.Size(); ++i) {
+            rapidjson::Value& column_schema = document[i];
+            col_names->push_back(column_schema["name"].GetString());
+            col_types->push_back(convert_to_doris_type(column_schema));
+        }
     }
     return _jni_connector->close();
+}
+
+TypeDescriptor AvroJNIReader::convert_to_doris_type(const rapidjson::Value& column_schema) {
+    ::doris::TPrimitiveType::type schema_type =
+            static_cast< ::doris::TPrimitiveType::type>(column_schema["type"].GetInt());
+    switch (schema_type) {
+    case TPrimitiveType::INT:
+    case TPrimitiveType::STRING:
+    case TPrimitiveType::BIGINT:
+    case TPrimitiveType::BOOLEAN:
+    case TPrimitiveType::DOUBLE:
+    case TPrimitiveType::FLOAT:
+        return TypeDescriptor(thrift_to_type(schema_type));
+    case TPrimitiveType::ARRAY: {
+        TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
+        list_type.add_sub_type(convert_complex_type(column_schema["childColumn"].GetObject()));
+        return list_type;
+    }
+    case TPrimitiveType::MAP: {
+        TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
+
+        // The default type of AVRO MAP structure key is STRING
+        map_type.add_sub_type(PrimitiveType::TYPE_STRING);
+        map_type.add_sub_type(convert_complex_type(column_schema["childColumn"].GetObject()));
+        return map_type;
+    }
+    default:
+        return TypeDescriptor(PrimitiveType::INVALID_TYPE);
+    }
+}
+
+TypeDescriptor AvroJNIReader::convert_complex_type(
+        const rapidjson::Document::ConstObject child_schema) {
+    ::doris::TPrimitiveType::type child_schema_type =
+            static_cast< ::doris::TPrimitiveType::type>(child_schema["type"].GetInt());
+    return TypeDescriptor(thrift_to_type(child_schema_type));
 }
 
 } // namespace doris::vectorized

@@ -19,60 +19,64 @@ package org.apache.doris.common.jni.vec;
 
 import org.apache.doris.thrift.TPrimitiveType;
 
-import com.google.common.annotations.VisibleForTesting;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.List;
 
 /**
  * Used to parse the file structure of table-value-function type.
  * like avro file.
  */
 public class TableSchema {
+    private final List<SchemaColumn> schemaColumns;
+    private final ObjectMapper objectMapper;
 
-    private final String[] fields;
-    private final TPrimitiveType[] schemaTypes;
-    private final Integer fieldSize;
-    private String tableSchema;
-
-    public TableSchema(String[] fields, TPrimitiveType[] schemaTypes) {
-        this.fields = fields;
-        this.schemaTypes = schemaTypes;
-        this.fieldSize = fields.length;
-        fillSchema();
-    }
-
-    /**
-     * Fill schema.
-     * Format like: field1,field2,field3#type1,type2,type3
-     */
-    public void fillSchema() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < fieldSize; i++) {
-            if (i != 0) {
-                sb.append(",");
-            }
-            sb.append(fields[i]);
-        }
-        sb.append("#");
-        for (int i = 0; i < fieldSize; i++) {
-            if (i != 0) {
-                sb.append(",");
-            }
-            sb.append(schemaTypes[i].getValue());
-        }
-        tableSchema = sb.toString();
+    public TableSchema(List<SchemaColumn> schemaColumns) {
+        this.schemaColumns = schemaColumns;
+        this.objectMapper = new ObjectMapper();
     }
 
     public String getTableSchema() {
-        return tableSchema;
+        try {
+            return objectMapper.writeValueAsString(schemaColumns);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
     }
 
-    @VisibleForTesting
-    public String[] getFields() {
-        return fields;
-    }
+    public static class SchemaColumn {
+        private String name;
+        private int type;
+        private SchemaColumn childColumn;
 
-    @VisibleForTesting
-    public TPrimitiveType[] getSchemaTypes() {
-        return schemaTypes;
+        public SchemaColumn() {
+
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public SchemaColumn getChildColumn() {
+            return childColumn;
+        }
+
+        public int getType() {
+            return type;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public void setType(TPrimitiveType type) {
+            this.type = type.getValue();
+        }
+
+        public void addChildColumn(SchemaColumn childColumn) {
+            this.childColumn = childColumn;
+        }
     }
 
 }

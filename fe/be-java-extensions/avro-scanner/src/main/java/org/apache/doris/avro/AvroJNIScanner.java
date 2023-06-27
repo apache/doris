@@ -21,6 +21,7 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.common.jni.vec.TableSchema.SchemaColumn;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -28,12 +29,25 @@ import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.common.JavaUtils;
+import org.apache.hadoop.hive.serde.serdeConstants;
+import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
+import org.apache.hadoop.hive.serde2.Deserializer;
+import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.StructField;
+import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Properties;
+import java.util.stream.Collectors;
 
 public class AvroJNIScanner extends JniScanner {
 
@@ -42,11 +56,17 @@ public class AvroJNIScanner extends JniScanner {
     private final String uri;
     private final Map<String, String> requiredParams;
     private final Integer fetchSize;
+    private int[] requiredColumnIds;
     private String[] columnTypes;
     private String[] requiredFields;
     private ColumnType[] requiredTypes;
     private AvroReader avroReader;
-    private boolean isGetTableSchema = false;
+    private final boolean isGetTableSchema;
+    private StructObjectInspector rowInspector;
+    private Deserializer deserializer;
+    private StructField[] structFields;
+    private ObjectInspector[] fieldInspectors;
+    private String serde;
 
     /**
      * Call by JNI for get table data or get table schema
@@ -66,19 +86,61 @@ public class AvroJNIScanner extends JniScanner {
             this.requiredFields = requiredParams.get(AvroProperties.REQUIRED_FIELDS)
                     .split(AvroProperties.FIELDS_DELIMITER);
             this.requiredTypes = new ColumnType[requiredFields.length];
-            buildParams();
+            this.serde = requiredParams.get(AvroProperties.HIVE_SERDE);
+            this.structFields = new StructField[requiredFields.length];
+            this.fieldInspectors = new ObjectInspector[requiredFields.length];
         }
     }
 
-    private void buildParams() {
+    private void init() throws Exception {
+        requiredColumnIds = new int[requiredFields.length];
         for (int i = 0; i < requiredFields.length; i++) {
             ColumnType columnType = ColumnType.parseType(requiredFields[i], columnTypes[i]);
             requiredTypes[i] = columnType;
+            requiredColumnIds[i] = i;
         }
+
+        Properties properties = createProperties();
+        deserializer = getDeserializer(new Configuration(), properties, this.serde);
+        rowInspector = (StructObjectInspector) deserializer.getObjectInspector();
+
+        for (int i = 0; i < requiredFields.length; i++) {
+            StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
+            structFields[i] = field;
+            fieldInspectors[i] = field.getFieldObjectInspector();
+        }
+    }
+
+    public Properties createProperties() {
+        Properties properties = new Properties();
+        properties.setProperty(ColumnProjectionUtils.READ_COLUMN_IDS_CONF_STR,
+                Arrays.stream(this.requiredColumnIds).mapToObj(String::valueOf).collect(Collectors.joining(",")));
+        properties.setProperty(ColumnProjectionUtils.READ_COLUMN_NAMES_CONF_STR, String.join(",", requiredFields));
+        properties.setProperty(AvroProperties.COLUMNS, String.join(",", requiredFields));
+        properties.setProperty(AvroProperties.COLUMNS2TYPES, String.join(",", columnTypes));
+        properties.setProperty(serdeConstants.SERIALIZATION_LIB, this.serde);
+        return properties;
+    }
+
+    private Deserializer getDeserializer(Configuration configuration, Properties properties, String name)
+            throws Exception {
+        Class<? extends Deserializer> deserializerClass = Class.forName(name, true, JavaUtils.getClassLoader())
+                .asSubclass(Deserializer.class);
+        Deserializer deserializer = deserializerClass.getConstructor().newInstance();
+        deserializer.initialize(configuration, properties);
+        return deserializer;
     }
 
     @Override
     public void open() throws IOException {
+        try {
+            if (!isGetTableSchema) {
+                init();
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to init avro scanner. ", e);
+            throw new IOException(e);
+        }
         switch (fileType) {
             case FILE_HDFS:
                 this.avroReader = new HDFSFileReader(uri);
@@ -104,7 +166,9 @@ public class AvroJNIScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
-        avroReader.close();
+        if (Objects.nonNull(avroReader)) {
+            avroReader.close();
+        }
     }
 
     @Override
@@ -120,7 +184,7 @@ public class AvroJNIScanner extends JniScanner {
                 if (fieldData == null) {
                     appendData(i, null);
                 } else {
-                    AvroColumnValue fieldValue = new AvroColumnValue(fieldData, requiredTypes[i]);
+                    AvroColumnValue fieldValue = new AvroColumnValue(fieldInspectors[i], fieldData);
                     appendData(i, fieldValue);
                 }
             }
@@ -131,38 +195,53 @@ public class AvroJNIScanner extends JniScanner {
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         Schema schema = avroReader.getSchema();
         List<Field> schemaFields = schema.getFields();
-        TPrimitiveType[] schemaTypes = new TPrimitiveType[schemaFields.size()];
-        String[] fields = new String[schemaFields.size()];
-        for (int i = 0; i < schemaFields.size(); i++) {
-            fields[i] = schemaFields.get(i).name();
-            Schema.Type type = schemaFields.get(i).schema().getType();
-            switch (type) {
-                case STRING:
-                    schemaTypes[i] = TPrimitiveType.STRING;
-                    break;
-                case INT:
-                    schemaTypes[i] = TPrimitiveType.INT;
-                    break;
-                case LONG:
-                    schemaTypes[i] = TPrimitiveType.BIGINT;
-                    break;
-                case BOOLEAN:
-                    schemaTypes[i] = TPrimitiveType.BOOLEAN;
-                    break;
-                case FLOAT:
-                    schemaTypes[i] = TPrimitiveType.FLOAT;
-                    break;
-                case DOUBLE:
-                    schemaTypes[i] = TPrimitiveType.DOUBLE;
-                    break;
-                case ARRAY:
-                case MAP:
-                default:
-                    throw new UnsupportedOperationException("avro format: " + type.getName() + " is not supported.");
+        List<SchemaColumn> schemaColumns = new ArrayList<>();
+        for (Field schemaField : schemaFields) {
+            Schema avroSchema = schemaField.schema();
+            String columnName = schemaField.name().toLowerCase(Locale.ROOT);
 
-            }
+            SchemaColumn schemaColumn = new SchemaColumn();
+            TPrimitiveType tPrimitiveType = serializeSchemaType(avroSchema, schemaColumn);
+            schemaColumn.setName(columnName);
+            schemaColumn.setType(tPrimitiveType);
+            schemaColumns.add(schemaColumn);
         }
-        return new TableSchema(fields, schemaTypes);
+        return new TableSchema(schemaColumns);
+    }
+
+    private TPrimitiveType serializeSchemaType(Schema avroSchema, SchemaColumn schemaColumn)
+            throws UnsupportedOperationException {
+        Schema.Type type = avroSchema.getType();
+        switch (type) {
+            case NULL:
+                return TPrimitiveType.NULL_TYPE;
+            case STRING:
+                return TPrimitiveType.STRING;
+            case INT:
+                return TPrimitiveType.INT;
+            case BOOLEAN:
+                return TPrimitiveType.BOOLEAN;
+            case LONG:
+                return TPrimitiveType.BIGINT;
+            case FLOAT:
+                return TPrimitiveType.FLOAT;
+            case BYTES:
+                return TPrimitiveType.BINARY;
+            case DOUBLE:
+                return TPrimitiveType.DOUBLE;
+            case ARRAY:
+                SchemaColumn arrayChildColumn = new SchemaColumn();
+                schemaColumn.addChildColumn(arrayChildColumn);
+                arrayChildColumn.setType(serializeSchemaType(avroSchema.getElementType(), arrayChildColumn));
+                return TPrimitiveType.ARRAY;
+            case MAP:
+                SchemaColumn mapChildColumn = new SchemaColumn();
+                schemaColumn.addChildColumn(mapChildColumn);
+                mapChildColumn.setType(serializeSchemaType(avroSchema.getValueType(), mapChildColumn));
+                return TPrimitiveType.MAP;
+            default:
+                throw new UnsupportedOperationException("avro format: " + type.getName() + " is not supported.");
+        }
     }
 
 }
