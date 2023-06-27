@@ -189,7 +189,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             if (!res.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << res.to_string();
-                return Status::Error<ErrorCode::ROWSET_READER_INIT>();
+                return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
             std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
