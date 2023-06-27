@@ -230,8 +230,6 @@ public class DdlExecutor {
             env.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof DropRepositoryStmt) {
             env.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
-        } else if (ddlStmt instanceof SyncStmt) {
-            return;
         } else if (ddlStmt instanceof TruncateTableStmt) {
             env.truncateTable((TruncateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRepairTableStmt) {

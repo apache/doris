@@ -67,6 +67,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
@@ -724,6 +725,8 @@ public class StmtExecutor {
                 handleLoadStmt();
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
+            } else if (parsedStmt instanceof SyncStmt) {
+                syncJournal();
             } else if (parsedStmt instanceof DdlStmt) {
                 if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
                     handleDeleteStmt();
@@ -787,12 +790,21 @@ public class StmtExecutor {
     }
 
     private void syncJournalIfNeeded() throws Exception {
-        final Env env = context.getEnv();
         if (!context.getSessionVariable().enableStrongConsistencyRead
-                || !Config.enable_strong_consistency_read || env.isMaster()) {
+                || !Config.enable_strong_consistency_read) {
             return;
         }
-        // fetch master's max journal id and wait for replay
+        syncJournal();
+    }
+
+    /**
+     * fetch master's max journal id and wait for edit log replaying
+     */
+    private void syncJournal() throws Exception {
+        final Env env = context.getEnv();
+        if (env.isMaster()) {
+            return;
+        }
         String masterHost = env.getMasterHost();
         int masterRpcPort = env.getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
