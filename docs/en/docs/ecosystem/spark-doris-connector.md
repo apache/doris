@@ -309,13 +309,9 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | CHAR       | DataTypes.StringType             |
 | LARGEINT   | DataTypes.StringType             |
 | VARCHAR    | DataTypes.StringType             |
-| DECIMALV2  | DecimalType                      |
+| DECIMAL    | DecimalType                      |
 | TIME       | DataTypes.DoubleType             |
 | HLL        | Unsupported datatype             |
 | Bitmap     | Unsupported datatype             |
-| DATEV2     | DataTypes.StringType<sup>2</sup> |
-| DATETIMEV2 | DataTypes.StringType<sup>2</sup> |
-| DECIMALV3  | DecimalType<sup>2</sup>          |
 
-* Note1: In Connector, `DATE` and` DATETIME` are mapped to `String`. Due to the processing logic of the Doris underlying storage engine, when the time type is used directly, the time range covered cannot meet the demand. So use `String` type to directly return the corresponding time readable text.
-* Note2: In Connector 1.2.0, `DATEV2`, `DATETIMEV2` and `DECIMALV3`, it can only be written in versions below Doris 2.0, and above 2.0, it is used normally.
+* Note: In Connector, `DATE` and` DATETIME` are mapped to `String`. Due to the processing logic of the Doris underlying storage engine, when the time type is used directly, the time range covered cannot meet the demand. So use `String` type to directly return the corresponding time readable text.
