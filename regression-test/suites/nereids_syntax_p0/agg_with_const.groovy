@@ -49,4 +49,9 @@ suite("agg_with_const") {
          select count(2) + 1, sum(2) + sum(2) from agg_with_const_tbl
     """
 
+    explain {
+        sql """select count(*) from ( select distinct col1 as a0, null as a1, null as a2 from agg_with_const_tbl)t"""
+        contains "projections: NULL"
+    }
+
 }
