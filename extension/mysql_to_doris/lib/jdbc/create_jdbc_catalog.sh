@@ -34,6 +34,6 @@ PROPERTIES (
   "user"="'${mysql_username}'",
   "password"="'${mysql_password}'",
   "jdbc_url"="jdbc:mysql://'${mysql_host}:${mysql_port}/${doris_jdbc_default_db}'?useSSL=false",
-  "driver_url"="'${doris_jdcb_driver_url}'",
+  "driver_url"="'${doris_jdbc_driver_url}'",
   "driver_class"="'${doris_jdbc_driver_class}'"
 ); ' >> $path

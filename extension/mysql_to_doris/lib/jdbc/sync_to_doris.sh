@@ -35,7 +35,7 @@ for table in $(cat ${home_dir}/conf/mysql_tables | grep -v '#' | awk -F '\n' '{p
         m_d=$(echo $table | awk -F '.' '{print $1}')
         m_t=$(echo $table | awk -F '.' '{print $2}')
         # get mysql table columns
-        columns=$(echo "SELECT group_concat(COLUMN_NAME) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '$m_d' AND TABLE_NAME = '$m_t';" | mysql -N -h"${mysql_host}" -P"${mysql_port}" -u"${mysql_username}" -p"${mysql_password}")
+        columns=$(echo "SELECT group_concat(concat('\`',COLUMN_NAME,'\`')) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = '$m_d' AND TABLE_NAME = '$m_t';" | mysql -N -h"${mysql_host}" -P"${mysql_port}" -u"${mysql_username}" -p"${mysql_password}")
         let idx++
         i_t=$(cat ${home_dir}/conf/doris_tables | grep -v '#' | awk "NR==$idx{print}" | sed 's/ //g' | sed 's/\./`.`/g')
         echo "INSERT INTO \`${i_t}\` (${columns}) SELECT ${columns} FROM \`${doris_jdbc_catalog}\`.\`${m_d}\`.\`${m_t}\`;" >> $path

@@ -58,7 +58,7 @@ doris_password=<your_doris_password>
 doris_odbc_name=<your_doris_odbc_driver_name>
 doris_jdbc_catalog=<jdbc_catalog_name>
 doris_jdbc_default_db=<jdbc_default_database>
-doris_jdcb_driver_url=<jdcb_driver_url>
+doris_jdbc_driver_url=<jdbc_driver_url>
 doris_jdbc_driver_class=<jdbc_driver_class>
 
 # mysql env
