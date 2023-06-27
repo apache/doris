@@ -1356,22 +1356,7 @@ public class FunctionSet<T> {
                     "",
                     null,
                     "",
-                    ""));
-
-            addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
-                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
-                    "",
-                    "",
-                    null,
-                    "",
                     "", true));
-            addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
-                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
-                    "",
-                    "",
-                    null,
-                    "",
-                    ""));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
                     Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
