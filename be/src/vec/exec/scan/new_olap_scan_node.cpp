@@ -333,6 +333,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
     if (_state->enable_profile()) {
         _runtime_profile->add_info_string("PushDownPredicates",
                                           olap_filters_to_string(_olap_filters));
+        _enable_value_predicates_rowset_number =
+                ADD_COUNTER(_runtime_profile, "EnableValuePredicatesRowsetNumber", TUnit::UNIT);
         _runtime_profile->add_info_string("KeyRanges", _scan_keys.debug_string());
         _runtime_profile->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
     }
@@ -435,7 +437,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                 message += conjunct->root()->debug_string();
             }
         }
-        _runtime_profile->add_info_string("RemainedDownPredicates", message);
+        _runtime_profile->add_info_string("RemainedPredicates", message);
     }
 
     if (!_olap_scan_node.output_column_unique_ids.empty()) {

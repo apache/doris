@@ -189,6 +189,8 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
+
+    RuntimeProfile::Counter* _enable_value_predicates_rowset_number = nullptr;
 };
 
 } // namespace doris::vectorized

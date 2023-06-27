@@ -611,6 +611,10 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(olap_parent->_total_segment_counter, stats.total_segment_number);
+    if (olap_parent->_enable_value_predicates_rowset_number) {
+        COUNTER_UPDATE(olap_parent->_enable_value_predicates_rowset_number,
+                       stats.enable_value_predicates_rowset_number);
+    }
 
     // Update metrics
     DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);

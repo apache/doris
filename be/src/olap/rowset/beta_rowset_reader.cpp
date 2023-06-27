@@ -192,6 +192,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                         single_column_block_predicate);
             }
         }
+        _stats->enable_value_predicates_rowset_number++;
     }
     _read_options.use_page_cache = read_context->use_page_cache;
     _read_options.tablet_schema = read_context->tablet_schema;
