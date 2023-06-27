@@ -34,7 +34,7 @@ suite("test_show_create_table", "query") {
             DISTRIBUTED BY HASH(datek1) BUCKETS 5 properties("replication_num" = "1");
         """
         
-        def res = select "show create table `${tb_name}`"
+        def res = sql "show create table `${tb_name}`"
         assertTrue(res != 0)
 
         sql """drop table if exists ${tb_name} """
