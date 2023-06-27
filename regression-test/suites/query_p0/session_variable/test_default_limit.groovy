@@ -16,9 +16,7 @@
 // under the License.
 
 suite('test_default_limit') {
-    sql 'use nereids_test_query_db'
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
+    sql 'use test_query_db'
 
     for (int i = 0; i < 2; ++i) {
         if (i == 0) {
