@@ -165,19 +165,24 @@ Status DeltaWriter::init() {
     // check tablet version number
     if (!config::disable_auto_compaction &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
-        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE) &&
+        !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // tablet that under alter process might not start compaction for some reason，so version number may be too many
         // and load task failed. so skip version number check.
-        _tablet->tablet_state() != TABLET_NOTREADY) {
-        //trigger compaction
-        StorageEngine::instance()->submit_compaction_task(
-                _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-        if (_tablet->version_count() > config::max_tablet_version_num) {
-            LOG(WARNING) << "failed to init delta writer. version count: "
-                         << _tablet->version_count()
-                         << ", exceed limit: " << config::max_tablet_version_num
-                         << ". tablet: " << _tablet->full_name();
-            return Status::Error<TOO_MANY_VERSION>();
+        if (_tablet->tablet_state() == TABLET_NOTREADY) {
+            if (_tablet->can_do_compaction(_tablet->data_dir()->path_hash(), CompactionType::CUMULATIVE_COMPACTION)) {
+                //trigger compaction
+                StorageEngine::instance()->submit_compaction_task(_tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+            }
+        } else {
+            //trigger compaction
+            StorageEngine::instance()->submit_compaction_task(_tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+            if (_tablet->version_count() > config::max_tablet_version_num) {
+                LOG(WARNING) << "failed to init delta writer. version count: "
+                             << _tablet->version_count()
+                             << ", exceed limit: " << config::max_tablet_version_num
+                             << ". tablet: " << _tablet->full_name();
+                return Status::Error<TOO_MANY_VERSION>();
+            }
         }
     }
 
