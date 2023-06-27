@@ -38,7 +38,9 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
                                const std::map<std::string, std::string>& conf_map,
                                BaseBenchmark** bm) {
     if (fs_type == "s3") {
-        if (op_type == "open_read") {
+        if (op_type == "create_write") {
+            *bm = new S3CreateWriteBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "open_read") {
             *bm = new S3OpenReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "single_read") {
             *bm = new S3SingleReadBenchmark(threads, iterations, file_size, conf_map);

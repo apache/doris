@@ -33,23 +33,29 @@ class HdfsOpenReadBenchmark : public BaseBenchmark {
 public:
     HdfsOpenReadBenchmark(int threads, int iterations, size_t file_size,
                           const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsReadBenchmark", threads, iterations, file_size, 3, conf_map) {}
+            : BaseBenchmark("HdfsReadBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~HdfsOpenReadBenchmark() = default;
 
-    Status init() override { return Status::OK(); }
+    virtual void set_default_file_size() {
+        if (_file_size <= 0) {
+            _file_size = 10 * 1024 * 1024; // default 10MB
+        }
+    }
 
     Status run(benchmark::State& state) override {
+        auto file_path = get_file_path(state);
+
+        auto start = std::chrono::high_resolution_clock::now();
         std::shared_ptr<io::FileSystem> fs;
         io::FileReaderSPtr reader;
-        bm_log("begin to init {}", _name);
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-
-        auto file_path = get_file_path(state);
         RETURN_IF_ERROR(
                 FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader, reader_opts));
-        bm_log("finish to init {}", _name);
-
+        auto end = std::chrono::high_resolution_clock::now();
+        auto elapsed_seconds =
+                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
+        state.counters["OpenReaderTime(S)"] = elapsed_seconds.count();
         return read(state, reader);
     }
 };
@@ -62,6 +68,10 @@ public:
             : HdfsOpenReadBenchmark(threads, iterations, file_size, conf_map) {}
     virtual ~HdfsSingleReadBenchmark() = default;
 
+    virtual void set_default_file_size() override {
+        // do nothing, default is 0, which means it will read the whole file
+    }
+
     virtual std::string get_file_path(benchmark::State& state) override {
         std::string file_path = _conf_map["file_path"];
         bm_log("file_path: {}", file_path);
@@ -73,16 +83,14 @@ class HdfsCreateWriteBenchmark : public BaseBenchmark {
 public:
     HdfsCreateWriteBenchmark(int threads, int iterations, size_t file_size,
                              const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsCreateWriteBenchmark", threads, iterations, file_size, 3,
-                            conf_map) {}
+            : BaseBenchmark("HdfsCreateWriteBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~HdfsCreateWriteBenchmark() = default;
-
-    Status init() override { return Status::OK(); }
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
-        bm_log("file_path: {}", file_path);
-
+        if (_file_size <= 0) {
+            _file_size = 10 * 1024 * 1024; // default 10MB
+        }
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
         THdfsParams hdfs_params = parse_properties(_conf_map);
@@ -96,32 +104,28 @@ class HdfsRenameBenchmark : public BaseBenchmark {
 public:
     HdfsRenameBenchmark(int threads, int iterations, size_t file_size,
                         const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsRenameBenchmark", threads, 1, file_size, 1, conf_map) {}
+            : BaseBenchmark("HdfsRenameBenchmark", threads, iterations, file_size, conf_map) {
+        // rename can only do once
+        set_repetition(1);
+    }
     virtual ~HdfsRenameBenchmark() = default;
 
-    Status init() override { return Status::OK(); }
-
     Status run(benchmark::State& state) override {
-        bm_log("begin to run {}", _name);
-        std::string base_dir = _conf_map["base_dir"];
+        auto file_path = get_file_path(state);
+        auto new_file_path = file_path + "_new";
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
-        auto new_file_path = fmt::format("{}/test_{}_new", base_dir, state.thread_index());
-        bm_log("file_path: {}", file_path);
-
-        auto start = std::chrono::high_resolution_clock::now();
         std::shared_ptr<io::HdfsFileSystem> fs;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+
+        auto start = std::chrono::high_resolution_clock::now();
         RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
-
         state.counters["RenameCost"] =
                 benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+
         return Status::OK();
     }
 };
@@ -130,32 +134,26 @@ class HdfsExistsBenchmark : public BaseBenchmark {
 public:
     HdfsExistsBenchmark(int threads, int iterations, size_t file_size,
                         const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsExistsBenchmark", threads, iterations, file_size, 3, conf_map) {}
+            : BaseBenchmark("HdfsExistsBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~HdfsExistsBenchmark() = default;
 
-    Status init() override { return Status::OK(); }
-
     Status run(benchmark::State& state) override {
-        bm_log("begin to run {}", _name);
-        std::string base_dir = _conf_map["base_dir"];
+        auto file_path = get_file_path(state);
+
+        std::shared_ptr<io::HdfsFileSystem> fs;
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
-        bm_log("file_path: {}", file_path);
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
         bool res = false;
         RETURN_IF_ERROR(fs->exists(file_path, &res));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
-
         state.counters["ExistsCost"] =
                 benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+
         return Status::OK();
     }
 };

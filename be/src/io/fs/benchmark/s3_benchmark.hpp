@@ -32,7 +32,7 @@ class S3Benchmark : public BaseBenchmark {
 public:
     S3Benchmark(const std::string& name, int threads, int iterations, size_t file_size,
                 const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark(name, threads, iterations, file_size, 3, conf_map) {}
+            : BaseBenchmark(name, threads, iterations, file_size, conf_map) {}
     virtual ~S3Benchmark() = default;
 
     Status get_fs(const std::string& path) {
@@ -50,19 +50,26 @@ protected:
 
 class S3OpenReadBenchmark : public S3Benchmark {
 public:
-    S3iOpenReadBenchmark(int threads, int iterations, size_t file_size, const std::map<std::string, std::string>& conf_map)
+    S3OpenReadBenchmark(int threads, int iterations, size_t file_size,
+                        const std::map<std::string, std::string>& conf_map)
             : S3Benchmark("S3ReadBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~S3OpenReadBenchmark() = default;
+
+    virtual void set_default_file_size() {
+        if (_file_size <= 0) {
+            _file_size = 10 * 1024 * 1024; // default 10MB
+        }
+    }
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
         RETURN_IF_ERROR(get_fs(file_path));
-         
+
         io::FileReaderSPtr reader;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         RETURN_IF_ERROR(FileFactory::create_s3_reader(
                 _conf_map, file_path, reinterpret_cast<std::shared_ptr<io::FileSystem>*>(&_fs),
-                &_reader, reader_opts));
+                &reader, reader_opts));
 
         return read(state, reader);
     }
@@ -72,9 +79,11 @@ public:
 class S3SingleReadBenchmark : public S3OpenReadBenchmark {
 public:
     S3SingleReadBenchmark(int threads, int iterations, size_t file_size,
-                            const std::map<std::string, std::string>& conf_map)
-            : S3OpenReadBenchmark("S3SingleReadBenchmark", threads, iterations, file_size, conf_map) {}
+                          const std::map<std::string, std::string>& conf_map)
+            : S3OpenReadBenchmark(threads, iterations, file_size, conf_map) {}
     virtual ~S3SingleReadBenchmark() = default;
+
+    virtual void set_default_file_size() override {}
 
     virtual std::string get_file_path(benchmark::State& state) override {
         std::string file_path = _conf_map["file_path"];
@@ -86,31 +95,32 @@ public:
 class S3CreateWriteBenchmark : public S3Benchmark {
 public:
     S3CreateWriteBenchmark(int threads, int iterations, size_t file_size,
-                             const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("S3CreateWriteBenchmark", threads, iterations, file_size, 3,
-                            conf_map) {}
+                           const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3CreateWriteBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~S3CreateWriteBenchmark() = default;
-
-    Status init() override { return Status::OK(); }
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
+        if (_file_size <= 0) {
+            _file_size = 10 * 1024 * 1024; // default 10MB
+        }
         RETURN_IF_ERROR(get_fs(file_path));
 
         io::FileWriterPtr writer;
-        RETURN_IF_ERROR(fs->create_file(file_path, &writer));
+        RETURN_IF_ERROR(_fs->create_file(file_path, &writer));
         return write(state, writer.get());
     }
 };
 
 class S3ListBenchmark : public S3Benchmark {
 public:
-    S3ListBenchmark(int threads, int iterations, size_t file_size, const std::map<std::string, std::string>& conf_map)
+    S3ListBenchmark(int threads, int iterations, size_t file_size,
+                    const std::map<std::string, std::string>& conf_map)
             : S3Benchmark("S3ListBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~S3ListBenchmark() = default;
 
     virtual std::string get_file_path(benchmark::State& state) override {
-        return _conf_map["file_path"];
+        return _conf_map["base_dir"];
     }
 
     Status run(benchmark::State& state) override {
@@ -120,45 +130,55 @@ public:
         auto start = std::chrono::high_resolution_clock::now();
         std::vector<FileInfo> files;
         bool exists = true;
-        RETURN_IF_ERROR(_fs->list(_conf_map["file"], true, &files, &exists));
+        RETURN_IF_ERROR(_fs->list(file_path, true, &files, &exists));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
         state.counters["ListCost"] =
-        benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert); 
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+
+        std::stringstream ss;
+        int i = 0;
+        for (auto& file_info : files) {
+            if (i > 2) {
+                break;
+            }
+            ++i;
+            ss << "[" << file_info.file_name << ", " << file_info.file_size << ", "
+               << file_info.is_file << "] ";
+        }
+        bm_log("list files: {}", ss.str());
+
+        return Status::OK();
     }
 };
 
 class S3RenameBenchmark : public S3Benchmark {
 public:
     S3RenameBenchmark(int threads, int iterations, size_t file_size,
-                        const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("HdfsRenameBenchmark", threads, 1, file_size, 1, conf_map) {}
-    virtual ~HdfsRenameBenchmark() = default;
+                      const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3RenameBenchmark", threads, iterations, file_size, conf_map) {
+        // rename can only do once
+        set_repetition(1);
+    }
 
-    Status init() override { return Status::OK(); }
+    virtual ~S3RenameBenchmark() = default;
 
     Status run(benchmark::State& state) override {
         auto file_path = get_file_path(state);
+        auto new_file_path = file_path + "_new";
         RETURN_IF_ERROR(get_fs(file_path));
 
-        auto new_file_path = file_path + "_new";
-        bm_log("file_path: {}", file_path);
-
-        bm_log("begin to run {}", _name);
         auto start = std::chrono::high_resolution_clock::now();
-        RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
+        RETURN_IF_ERROR(_fs->rename(file_path, new_file_path));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
-
         state.counters["RenameCost"] =
                 benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+
         return Status::OK();
     }
 };
@@ -166,8 +186,8 @@ public:
 class S3ExistsBenchmark : public S3Benchmark {
 public:
     S3ExistsBenchmark(int threads, int iterations, size_t file_size,
-                        const std::map<std::string, std::string>& conf_map)
-            : S3Benchmark("HdfsExistsBenchmark", threads, iterations, file_size, 3, conf_map) {}
+                      const std::map<std::string, std::string>& conf_map)
+            : S3Benchmark("S3ExistsBenchmark", threads, iterations, file_size, conf_map) {}
     virtual ~S3ExistsBenchmark() = default;
 
     Status run(benchmark::State& state) override {
@@ -176,16 +196,14 @@ public:
 
         auto start = std::chrono::high_resolution_clock::now();
         bool res = false;
-        RETURN_IF_ERROR(fs->exists(file_path, &res));
+        RETURN_IF_ERROR(_fs->exists(file_path, &res));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
-
         state.counters["ExistsCost"] =
                 benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+
         return Status::OK();
     }
 };

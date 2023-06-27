@@ -27,6 +27,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_writer.h"
+#include "util/slice.h"
 
 namespace doris::io {
 
@@ -44,24 +47,22 @@ void bm_log(const std::string& fmt, Args&&... args) {
 class BaseBenchmark {
 public:
     BaseBenchmark(const std::string& name, int threads, int iterations, size_t file_size,
-                  int repetitions, const std::map<std::string, std::string>& conf_map)
+                  const std::map<std::string, std::string>& conf_map)
             : _name(name),
               _threads(threads),
               _iterations(iterations),
               _file_size(file_size),
-              _repetitions(repetitions),
               _conf_map(conf_map) {}
     virtual ~BaseBenchmark() = default;
 
     virtual Status init() { return Status::OK(); }
     virtual Status run(benchmark::State& state) { return Status::OK(); }
 
+    void set_repetition(int rep) { _repetitions = rep; }
+
     void register_bm() {
         auto bm = benchmark::RegisterBenchmark(_name.c_str(), [&](benchmark::State& state) {
-            Status st;
-            if (state.thread_index() == 0) {
-                st = this->init();
-            }
+            Status st = this->init();
             if (st != Status::OK()) {
                 bm_log("Benchmark {} init error: {}", _name, st.to_string());
                 return;
@@ -94,15 +95,20 @@ public:
 
     virtual std::string get_file_path(benchmark::State& state) {
         std::string base_dir = _conf_map["base_dir"];
-        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
+        std::string file_path;
+        if (base_dir.ends_with("/")) {
+            file_path = fmt::format("{}test_{}", base_dir, state.thread_index());
+        } else {
+            file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
+        }
         bm_log("file_path: {}", file_path);
         return file_path;
     }
 
     Status read(benchmark::State& state, FileReaderSPtr reader) {
-        bm_log("begin to run {}", _name);
+        bm_log("begin to read {}", _name);
         size_t buffer_size =
-            _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
+                _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
         std::vector<char> buffer;
         buffer.resize(buffer_size);
         doris::Slice data = {buffer.data(), buffer.size()};
@@ -132,22 +138,25 @@ public:
             offset += bytes_read;
             remaining_size -= bytes_read;
         }
-        bm_log("finish to run {}", _name);
         auto end = std::chrono::high_resolution_clock::now();
-
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
-        state.counters["ReadRate"] = benchmark::Counter(read_size, benchmark::Counter::kIsRate);
+        state.counters["ReadRate(B/S)"] =
+                benchmark::Counter(read_size, benchmark::Counter::kIsRate);
+        state.counters["ReadTotal(B)"] = read_size;
+        state.counters["ReadTime(S)"] = elapsed_seconds.count();
 
         if (reader != nullptr) {
             reader->close();
         }
+        bm_log("finish to read {}, size {}, seconds: {}", _name, read_size,
+               elapsed_seconds.count());
         return status;
     }
 
     Status write(benchmark::State& state, FileWriter* writer) {
+        bm_log("begin to write {}, size: {}", _name, _file_size);
         size_t write_size = _file_size;
         size_t buffer_size =
                 _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
@@ -156,7 +165,6 @@ public:
         buffer.resize(buffer_size);
         doris::Slice data = {buffer.data(), buffer.size()};
 
-        bm_log("beginto run {}", _name);
         Status status;
         auto start = std::chrono::high_resolution_clock::now();
         while (remaining_size > 0) {
@@ -172,15 +180,17 @@ public:
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
         state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
-
-        state.counters["WriteRate"] = benchmark::Counter(write_size, benchmark::Counter::kIsRate);
+        state.counters["WriteRate(B/S)"] =
+                benchmark::Counter(write_size, benchmark::Counter::kIsRate);
+        state.counters["WriteTotal(B)"] = write_size;
+        state.counters["WriteTime(S)"] = elapsed_seconds.count();
 
         if (writer != nullptr) {
             writer->close();
         }
+        bm_log("finish to write {}, size: {}, seconds: {}", _name, write_size,
+               elapsed_seconds.count());
         return status;
     }
 
@@ -189,7 +199,7 @@ protected:
     int _threads;
     int _iterations;
     size_t _file_size;
-    int _repetitions = 1;
+    int _repetitions = 3;
     std::map<std::string, std::string> _conf_map;
 };
 
