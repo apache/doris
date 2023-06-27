@@ -342,7 +342,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink,
             PlanTranslatorContext context) {
-        PlanFragment rootFragment = fileSink.child().accept(this, context);
+        PlanFragment rootFragment = fileSink.accept(this, context);
         OutFileClause outFile = new OutFileClause(
                 fileSink.getFilePath(),
                 fileSink.getFormat(),
