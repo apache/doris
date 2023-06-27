@@ -611,9 +611,9 @@ Status ScalarColumnWriter::write_data() {
         PagePointer dict_pp;
         std::vector<OwnedSlice> slices;
         slices.emplace_back(std::move(dict_body));
-        RETURN_IF_ERROR(PageIO::compress_and_write_page(
-                _compress_codec, _opts.compression_min_space_saving, _file_writer,
-                slices, footer, &dict_pp));
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec,
+                                                        _opts.compression_min_space_saving,
+                                                        _file_writer, slices, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
     return Status::OK();

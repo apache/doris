@@ -94,10 +94,9 @@ Status PageIO::write_page(io::FileWriter* writer, std::vector<OwnedSlice>& body,
     footer.SerializeToString(&footer_buf);
     put_fixed32_le(&footer_buf, static_cast<uint32_t>(footer_buf.size()));
 
-    std::vector<OwnedSlice> &page = body;
+    std::vector<OwnedSlice>& page = body;
     faststring footer_and_checksum;
     footer_and_checksum.assign_copy(footer_buf);
-    
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];

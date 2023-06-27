@@ -58,7 +58,8 @@ public:
 
     uint64_t size() { return _key_buf.size() + _offset_buf.size(); }
 
-    Status finalize(uint32_t num_rows, std::vector<OwnedSlice>* body, segment_v2::PageFooterPB* footer);
+    Status finalize(uint32_t num_rows, std::vector<OwnedSlice>* body,
+                    segment_v2::PageFooterPB* footer);
 
 private:
     uint32_t _segment_id;
