@@ -55,6 +55,8 @@ public interface ColumnValue {
 
     String getString();
 
+    byte[] getStringAsBytes();
+
     LocalDate getDate();
 
     LocalDateTime getDateTime();
