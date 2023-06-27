@@ -188,7 +188,8 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
-                _failed_channels_msgs.emplace(the_tablet_id, _failed_channels_msgs[the_tablet_id] + err + ", host: " + host);
+                _failed_channels_msgs.emplace(the_tablet_id, _failed_channels_msgs[the_tablet_id] +
+                                                                     err + ", host: " + host);
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
                     _intolerable_failure_status =
                             Status::InternalError(_failed_channels_msgs[the_tablet_id]);
@@ -448,7 +449,8 @@ Status VNodeChannel::open_wait() {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
                 _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                               "destination error: " + error.msg(), error.tablet_id());
+                                               "destination error: " + error.msg(),
+                                               error.tablet_id());
             }
 
             Status st = _index_channel->check_intolerable_failure();
