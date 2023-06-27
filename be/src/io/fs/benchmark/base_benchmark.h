@@ -147,11 +147,11 @@ public:
         state.counters["ReadTotal(B)"] = read_size;
         state.counters["ReadTime(S)"] = elapsed_seconds.count();
 
-        if (reader != nullptr) {
-            reader->close();
+        if (status.ok() && reader != nullptr) {
+            status = reader->close();
         }
-        bm_log("finish to read {}, size {}, seconds: {}", _name, read_size,
-               elapsed_seconds.count());
+        bm_log("finish to read {}, size {}, seconds: {}, status: {}", _name, read_size,
+               elapsed_seconds.count(), status);
         return status;
     }
 
@@ -177,6 +177,10 @@ public:
             }
             remaining_size -= size;
         }
+        if (status.ok() && writer != nullptr) {
+            status = writer->close();
+        }
+
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -186,11 +190,8 @@ public:
         state.counters["WriteTotal(B)"] = write_size;
         state.counters["WriteTime(S)"] = elapsed_seconds.count();
 
-        if (writer != nullptr) {
-            writer->close();
-        }
-        bm_log("finish to write {}, size: {}, seconds: {}", _name, write_size,
-               elapsed_seconds.count());
+        bm_log("finish to write {}, size: {}, seconds: {}, status: {}", _name, write_size,
+               elapsed_seconds.count(), status);
         return status;
     }
 

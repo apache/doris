@@ -107,14 +107,14 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     // caller of this buf could use this callback to do syncronization
     Callback _on_finish_upload = nullptr;
     Status _status;
-    size_t _offset;
-    size_t _size;
+    size_t _offset {0};
+    size_t _size {0};
     std::shared_ptr<std::iostream> _stream_ptr;
     // only served as one reserved buffer
     Slice _buf;
     size_t _append_offset {0};
     // not owned
-    ThreadPool* _thread_pool;
+    ThreadPool* _thread_pool = nullptr;
 };
 
 class S3FileBufferPool {
@@ -145,7 +145,7 @@ private:
     std::unique_ptr<char[]> _whole_mem_buffer;
     std::list<Slice> _free_raw_buffers;
     // not owned
-    ThreadPool* _thread_pool;
+    ThreadPool* _thread_pool = nullptr;
 };
 } // namespace io
 } // namespace doris
