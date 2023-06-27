@@ -788,7 +788,9 @@ public class StmtExecutor {
 
     private void syncJournalIfNeeded() throws Exception {
         final Env env = context.getEnv();
-        if (!context.getSessionVariable().enableStrongConsistencyRead || env.isMaster()) {
+        if (!context.getSessionVariable().enableStrongConsistencyRead ||
+                !Config.enable_strong_consistency_read|| env.isMaster()) {
+
             return;
         }
         // fetch master's max journal id and wait for replay

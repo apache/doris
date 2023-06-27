@@ -2023,4 +2023,10 @@ public class Config extends ConfigBase {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
             "Whether to disable creating catalog with WITH RESOURCE statement."})
     public static boolean disallow_create_catalog_with_resource = true;
+
+    @ConfField(description = {
+            "是否开启强一致性读。",
+            "Whether to enable strong consistency read."
+    })
+    public static boolean enable_strong_consistency_read = false;
 }
