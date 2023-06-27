@@ -33,41 +33,35 @@ public class MTMVUtilsTest {
     public static final String dbName = "test";
 
     public static final String MV_NAME = "mvName";
-    public static final String S_JOB = "SchedulerJob";
-    public static final String O_JOB = "OnceJob";
 
-
-
-    public static MTMVJob createDummyJob() {
-        MTMVJob job = new MTMVJob("dummy");
+    public static MTMVJob createDummyJob(String mvName, String jobName) {
+        MTMVJob job = new MTMVJob(jobName);
         job.setDBName(dbName);
-        job.setMVName(MV_NAME);
+        job.setMVName(mvName);
         return job;
     }
 
-    public static MTMVJob createOnceJob() {
-        MTMVJob job = new MTMVJob("");
+    public static MTMVJob createOnceJob(String mvName, String jobName) {
+        MTMVJob job = new MTMVJob(jobName);
         job.setTriggerMode(TriggerMode.ONCE);
         job.setDBName(dbName);
-        job.setName(O_JOB);
-        job.setMVName(MV_NAME);
+        job.setMVName(mvName);
         return job;
     }
 
-    public static MTMVJob createSchedulerJob() {
-        MTMVJob job = new MTMVJob("");
+    public static MTMVJob createSchedulerJob(String mvName, String jobName) {
+        MTMVJob job = new MTMVJob(jobName);
         JobSchedule jobSchedule = new JobSchedule(System.currentTimeMillis() / 1000, 1, TimeUnit.SECONDS);
         job.setSchedule(jobSchedule);
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setDBName(dbName);
-        job.setName(S_JOB);
-        job.setMVName(MV_NAME);
+        job.setMVName(mvName);
         return job;
     }
 
     @Test
     public void testGetDelaySeconds() {
-        MTMVJob job = MTMVUtilsTest.createDummyJob();
+        MTMVJob job = MTMVUtilsTest.createDummyJob("testGetDelaySecondsMv", "testGetDelaySecondsJob");
 
         // 2022-10-03 15:00:00
         JobSchedule jobSchedule = new JobSchedule(1664780400L, 1, TimeUnit.HOURS);
