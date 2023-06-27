@@ -49,13 +49,15 @@ public class ExternalMetaCacheMgr {
     private ThreadPoolExecutor fileCacheLoader;
 
     public ExternalMetaCacheMgr() {
+        // Use a bounded queue to avoid OOM
+        // The thread pool will wait at most 60 seconds when queue is full
         cacheLoader = ThreadPoolManager.newDaemonFixedThreadPool(
                     Config.max_external_cache_loader_thread_pool_size,
-                    Integer.MAX_VALUE,
+                Config.max_external_cache_loader_thread_pool_size * 100,
                 "ExternalCacheLoader", true);
         fileCacheLoader = ThreadPoolManager.newDaemonFixedThreadPool(
                     Config.max_file_cache_loader_thread_pool_size,
-                    Integer.MAX_VALUE,
+                Config.max_file_cache_loader_thread_pool_size * 100,
                 "FileCacheLoader", true);
     }
 
