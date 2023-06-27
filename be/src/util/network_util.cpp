@@ -97,7 +97,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
         }
 
         // add address if not exists
-        std::vector<string> address = std::string(addr_buf);
+        std::string address = std::string(addr_buf);
         if (std::find(addresses.begin(), addresses.end(), address) != addresses.end()) {
             LOG(WARNING)
                     << "Repeated ip addresses has been found for host: " << name
