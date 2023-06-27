@@ -693,10 +693,14 @@ Status ScalarColumnWriter::finish_current_page() {
     body.emplace_back(std::move(encoded_values));
 
     OwnedSlice nullmap;
+    size_t nullmap_size = 0;
+    bool has_null = false;
     if (_null_bitmap_builder != nullptr) {
         if (is_nullable() && _null_bitmap_builder->has_null()) {
             nullmap = _null_bitmap_builder->finish();
+            nullmap_size = nullmap.slice().size;
             body.emplace_back(std::move(nullmap));
+            has_null = true;
         }
         _null_bitmap_builder->reset();
     }
@@ -708,7 +712,7 @@ Status ScalarColumnWriter::finish_current_page() {
     auto data_page_footer = page->footer.mutable_data_page_footer();
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
-    data_page_footer->set_nullmap_size(nullmap.slice().size);
+    data_page_footer->set_nullmap_size(nullmap_size);
     if (_new_page_callback != nullptr) {
         _new_page_callback->put_extra_info_in_page(data_page_footer);
     }
@@ -721,7 +725,18 @@ Status ScalarColumnWriter::finish_current_page() {
     if (compressed_body.slice().empty()) {
         // page body is uncompressed
         page->data.emplace_back(std::move(encoded_values));
-        page->data.emplace_back(std::move(nullmap));
+        if (has_null) {
+            OwnedSlice tmp_map(std::move(body.back()));
+            body.pop_back();
+            OwnedSlice tmp_value(std::move(body.back()));
+            body.pop_back();
+            page->data.emplace_back(std::move(tmp_value));
+            page->data.emplace_back(std::move(tmp_map));
+        } else {
+            OwnedSlice tmp_value(std::move(body.back()));
+            body.pop_back();
+            page->data.emplace_back(std::move(tmp_value));
+        }
     } else {
         // page body is compressed
         page->data.emplace_back(std::move(compressed_body));
