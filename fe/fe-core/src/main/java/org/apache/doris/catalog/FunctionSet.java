@@ -1366,20 +1366,20 @@ public class FunctionSet<T> {
                     "",
                     "", true));
             addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
-                Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
-                "",
-                "",
-                null,
-                "",
-                ""));
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    ""));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
-                Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
-                "",
-                "",
-                null,
-                "",
-                "", true));
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
         }
 
         // Avg
