@@ -30,12 +30,10 @@
 namespace doris {
 
 IndexBuilder::IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
-                           const std::vector<TOlapTableIndex> exist_indexes,
                            const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                            bool is_drop_op)
         : _tablet(tablet),
           _columns(columns),
-          _exist_indexes(exist_indexes),
           _alter_inverted_indexes(alter_inverted_indexes),
           _is_drop_op(is_drop_op) {
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
@@ -63,7 +61,9 @@ Status IndexBuilder::update_inverted_index_info() {
         auto input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
         if (_is_drop_op) {
-            output_rs_tablet_schema->update_indexes_from_thrift(_exist_indexes);
+            for (auto t_inverted_index : _alter_inverted_indexes) {
+                output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
+            }
         } else {
             for (auto t_inverted_index : _alter_inverted_indexes) {
                 TabletIndex index;
