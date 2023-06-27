@@ -35,7 +35,8 @@ suite("test_dup_table_auto_inc_col") {
         )
     """
     qt_desc "desc ${table1}"
-    qt_sql "show create table ${table1};"
+    def res = sql "show create table ${table1};"
+    assertTrue(res != 0)
 
     // duplicate table with a auto-increment value column
     def table2 = "test_dup_tab_auto_inc_col2"
@@ -55,7 +56,8 @@ suite("test_dup_table_auto_inc_col") {
         )
     """
     qt_desc "desc ${table2}"
-    qt_sql "show create table ${table2};"
+    res = sql "show create table ${table2};"
+    assertTrue(res != 0)
 
     // duplicate table with two auto-increment columns
     def table3 = "test_dup_tab_auto_inc_col3"
