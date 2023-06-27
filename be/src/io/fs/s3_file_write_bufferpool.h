@@ -104,8 +104,8 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
     // caller of this buf could use this callback to do syncronization
     Callback _on_finish_upload = nullptr;
     Status _status;
-    size_t _offset;
-    size_t _size;
+    size_t _offset {0};
+    size_t _size {0};
     std::shared_ptr<std::iostream> _stream_ptr;
     // only served as one reserved buffer
     Slice _buf;
