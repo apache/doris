@@ -86,7 +86,7 @@ planType
 // identifier.
 
 outFileClause
-    : INTO OUTFILE filePath=STRING
+    : INTO OUTFILE filePath=constant
         (FORMAT AS format=identifier)?
         (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
     ;
