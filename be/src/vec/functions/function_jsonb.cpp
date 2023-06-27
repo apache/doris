@@ -178,7 +178,6 @@ public:
                                 JsonbErrMsg::getErrMsg(error));
                     }
                     state->has_const_default_value = true;
-                    context->set_function_state(FunctionContext::FRAGMENT_LOCAL, state);
                 }
             }
         }
