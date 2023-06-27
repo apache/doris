@@ -37,7 +37,7 @@ public class AddSqlSelectLimit extends PlanPreprocessor {
         ConnectContext ctx = context.getConnectContext();
         if (ctx != null) {
             long defaultLimit = ctx.getSessionVariable().sqlSelectLimit;
-            if (defaultLimit >= 0) {
+            if (defaultLimit >= 0 && defaultLimit < Long.MAX_VALUE) {
                 return new LogicalLimit<>(defaultLimit, 0, LimitPhase.GLOBAL, plan);
             }
         }
