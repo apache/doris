@@ -78,8 +78,10 @@ enum class JsonbParseErrorMode { FAIL = 0, RETURN_NULL, RETURN_VALUE, RETURN_INV
 template <NullalbeMode nullable_mode, JsonbParseErrorMode parse_error_handle_mode>
 class FunctionJsonbParseBase : public IFunction {
 private:
-    JsonbParser default_value_parser;
-    bool has_const_default_value = false;
+    struct FunctionJsonbParseState {
+        JsonbParser default_value_parser;
+        bool has_const_default_value = false;
+    };
 
 public:
     static constexpr auto name = "json_parse";
@@ -158,14 +160,21 @@ public:
                 const auto& default_value = default_value_col->get_data_at(0);
 
                 JsonbErrType error = JsonbErrType::E_NONE;
-                if (!default_value_parser.parse(default_value.data, default_value.size)) {
-                    error = default_value_parser.getErrorCode();
-                    return Status::InvalidArgument(
-                            "invalid default json value: {} , error: {}",
-                            std::string_view(default_value.data, default_value.size),
-                            JsonbErrMsg::getErrMsg(error));
+                if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
+                    std::shared_ptr<FunctionJsonbParseState> state =
+                            std::make_shared<FunctionJsonbParseState>();
+
+                    if (!state->default_value_parser.parse(default_value.data,
+                                                           default_value.size)) {
+                        error = state->default_value_parser.getErrorCode();
+                        return Status::InvalidArgument(
+                                "invalid default json value: {} , error: {}",
+                                std::string_view(default_value.data, default_value.size),
+                                JsonbErrMsg::getErrMsg(error));
+                    }
+                    state->has_const_default_value = true;
+                    context->set_function_state(FunctionContext::FRAGMENT_LOCAL, state);
                 }
-                has_const_default_value = true;
             }
         }
         return Status::OK();
@@ -257,10 +266,14 @@ public:
                     continue;
                 }
                 case JsonbParseErrorMode::RETURN_VALUE: {
-                    if (has_const_default_value) {
+                    FunctionJsonbParseState* state = reinterpret_cast<FunctionJsonbParseState*>(
+                            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                    if (state->has_const_default_value) {
                         col_to->insert_data(
-                                default_value_parser.getWriter().getOutput()->getBuffer(),
-                                (size_t)default_value_parser.getWriter().getOutput()->getSize());
+                                state->default_value_parser.getWriter().getOutput()->getBuffer(),
+                                (size_t)state->default_value_parser.getWriter()
+                                        .getOutput()
+                                        ->getSize());
                     } else {
                         auto val = block.get_by_position(arguments[1]).column->get_data_at(i);
                         if (parser.parse(val.data, val.size)) {
