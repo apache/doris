@@ -191,7 +191,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             if (Double.parseDouble(memoryLimit.substring(0, memoryLimit.length() - 1)) <= 0) {
                 throw new DdlException(memLimitErr);
             }
-        } catch (NumberFormatException  e) {
+        } catch (NumberFormatException e) {
             LOG.debug(memLimitErr, e);
             throw new DdlException(memLimitErr);
         }
