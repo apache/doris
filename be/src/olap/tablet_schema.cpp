@@ -637,6 +637,17 @@ void TabletSchema::append_index(TabletIndex index) {
     _indexes.push_back(std::move(index));
 }
 
+void TabletSchema::remove_index(int64_t index_id) {
+    std::vector<TabletIndex> indexes;
+    for (auto index : _indexes) {
+        if (index.index_id() == index_id) {
+            continue;
+        }
+        indexes.emplace_back(std::move(index));
+    }
+    _indexes = std::move(indexes);
+}
+
 void TabletSchema::clear_columns() {
     _field_name_to_index.clear();
     _field_id_to_index.clear();
