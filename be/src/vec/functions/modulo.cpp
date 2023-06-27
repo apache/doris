@@ -49,9 +49,9 @@ struct ModuloImpl {
         if (!is_null) {
             for (size_t i = 0; i < size; i++) {
                 if constexpr (std::is_floating_point_v<ResultType>) {
-                    c[i] = static_cast<ResultType>(a[i]) -
-                           trunc(static_cast<ResultType>(a[i]) / static_cast<ResultType>(b)) *
-                                   static_cast<ResultType>(b);
+                    c[i] = static_cast<double>(a[i]) -
+                           trunc(static_cast<double>(a[i]) / static_cast<double>(b)) *
+                                   static_cast<double>(b);
                 } else {
                     c[i] = a[i] % b;
                 }
@@ -66,8 +66,8 @@ struct ModuloImpl {
 
         if constexpr (std::is_floating_point_v<Result>) {
             return static_cast<ResultType>(a) -
-                   trunc(static_cast<ResultType>(a) / static_cast<ResultType>(b)) *
-                           static_cast<ResultType>(b);
+                   trunc(static_cast<double>(a) / static_cast<double>(b)) *
+                           static_cast<double>(b);
         } else {
             return a % b;
         }
