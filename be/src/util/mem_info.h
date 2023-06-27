@@ -99,7 +99,10 @@ public:
     }
 
     static inline int64_t get_je_all_arena_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
         return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
     }
 
     static inline void je_purge_all_arena_dirty_pages() {
