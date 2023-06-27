@@ -3326,7 +3326,7 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
 }
 
 void Tablet::convert_rowid(
-        const shared_ptr<Rowset>& rowset, const DeleteBitmap& subset_map, RowLocation& src,
+        const std::shared_ptr<Rowset>& rowset, const DeleteBitmap& subset_map, RowLocation& src,
         const RowIdConversion& rowid_conversion, const uint64_t& start_version,
         const uint64_t& end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
