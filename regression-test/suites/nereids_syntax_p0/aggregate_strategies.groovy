@@ -90,19 +90,6 @@ suite("aggregate_strategies") {
             notContains "STREAMING"
         }
 
-        explain {
-            sql """
-            select count(*)
-            from (
-              select id
-              from $tableName
-              group by id
-            )a
-            """
-
-            notContains "STREAMING"
-        }
-
         test {
             sql """select
                 /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/

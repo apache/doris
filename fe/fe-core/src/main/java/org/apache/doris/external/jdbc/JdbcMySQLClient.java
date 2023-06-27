@@ -136,7 +136,7 @@ public class JdbcMySQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
-            List<String> primaryKeys = getPrimaryKeys(dbName, tableName);
+            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
@@ -201,24 +201,18 @@ public class JdbcMySQLClient extends JdbcClient {
         return dorisTableSchema;
     }
 
-    @Override
-    protected List<String> getPrimaryKeys(String dbName, String tableName) {
-        List<String> primaryKeys = Lists.newArrayList();
-        Connection conn = null;
+    protected List<String> getPrimaryKeys(DatabaseMetaData databaseMetaData, String catalogName,
+                                          String dbName, String tableName) throws SQLException {
         ResultSet rs = null;
-        try {
-            conn = getConnection();
-            DatabaseMetaData databaseMetaData = conn.getMetaData();
-            rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
-            while (rs.next()) {
-                String columnName = rs.getString("COLUMN_NAME");
-                primaryKeys.add(columnName);
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to get primary keys for table", e);
-        } finally {
-            close(rs, conn);
+        List<String> primaryKeys = Lists.newArrayList();
+
+        rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
+        while (rs.next()) {
+            String columnName = rs.getString("COLUMN_NAME");
+            primaryKeys.add(columnName);
         }
+        rs.close();
+
         return primaryKeys;
     }
 
