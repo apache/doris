@@ -97,6 +97,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         req.setTabletId(tabletId);
         req.setSchemaHash(schemaHash);
         req.setIsDropOp(isDropOp);
+        // set jonId for debugging in BE
         req.setJobId(jobId);
 
         if (!alterInvertedIndexes.isEmpty()) {
