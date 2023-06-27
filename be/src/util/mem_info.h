@@ -103,8 +103,10 @@ public:
     }
 
     static inline void je_purge_all_arena_dirty_pages() {
+#ifdef USE_JEMALLOC
         // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
         jemallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+#endif
     }
 
     static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
