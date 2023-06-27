@@ -21,6 +21,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -47,6 +48,12 @@ public class AddSqlSelectLimit extends PlanPreprocessor {
     @Override
     public LogicalPlan visitLogicalLimit(LogicalLimit<? extends Plan> limit, StatementContext context) {
         return limit;
+    }
+
+    @Override
+    public LogicalPlan visitLogicalCTE(LogicalCTE<? extends Plan> cte, StatementContext context) {
+        Plan child = cte.child().accept(this, context);
+        return ((LogicalPlan) cte.withChildren(child));
     }
 
     @Override
