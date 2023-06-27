@@ -86,55 +86,31 @@ struct BitmapEmpty {
 
 struct ToBitmap {
     static constexpr auto name = "to_bitmap";
-    using ReturnType = DataTypeBitMap;
+    using ArgumentType = DataTypeString;
 
-    template <typename ColumnType>
-    static void vector(const ColumnType* col, MutableColumnPtr& col_res) {
-        execute<ColumnType, false>(col, nullptr, col_res);
-    }
-    template <typename ColumnType>
-    static void vector_nullable(const ColumnType* col, const NullMap& nullmap,
-                                MutableColumnPtr& col_res) {
-        execute<ColumnType, true>(col, &nullmap, col_res);
-    }
-    template <typename ColumnType, bool arg_is_nullable>
-    static void execute(const ColumnType* col, const NullMap* nullmap, MutableColumnPtr& col_res) {
-        if constexpr (std::is_same_v<ColumnType, ColumnString>) {
-            const ColumnString::Chars& data = col->get_chars();
-            const ColumnString::Offsets& offsets = col->get_offsets();
-
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
-            auto& res_data = res_column->get_data();
-            size_t size = offsets.size();
-
-            for (size_t i = 0; i < size; ++i) {
-                if (arg_is_nullable && ((*nullmap)[i])) {
-                    continue;
-                } else {
-                    const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-                    size_t str_size = offsets[i] - offsets[i - 1];
-                    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-                    uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                            raw_str, str_size, &parse_result);
-                    if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
-                        res_data[i].add(int_value);
-                    }
-                }
-            }
-        } else if constexpr (std::is_same_v<ColumnType, ColumnInt64>) {
-            auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
-            auto& res_data = res_column->get_data();
-            size_t size = col->size();
-
-            for (size_t i = 0; i < size; ++i) {
-                if constexpr (arg_is_nullable) {
-                    if ((*nullmap)[i]) {
-                        continue;
-                    }
-                }
-                res_data[i].add(col->get_data()[i]);
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res_data, NullMap& null_map,
+                         size_t input_rows_count) {
+        res_data.reserve(input_rows_count);
+        if (offsets.size() == 0 && input_rows_count == 1) {
+            // For NULL constant
+            res_data.emplace_back();
+            null_map[0] = 1;
+            return Status::OK();
+        }
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1];
+            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
+                                                                                &parse_result);
+            if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                res_data[i].add(int_value);
+            } else {
+                null_map[i] = 1;
             }
         }
+        return Status::OK();
     }
 };
 
@@ -311,6 +287,7 @@ public:
         auto& res = res_data_column->get_data();
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
+        // todo(zeno) int can avoid cast into string or char
         if constexpr (std::is_same_v<typename Impl::ArgumentType, DataTypeString>) {
             const auto& str_column = static_cast<const ColumnString&>(*argument_column);
             const ColumnString::Chars& data = str_column.get_chars();
@@ -1105,7 +1082,7 @@ public:
 };
 
 using FunctionBitmapEmpty = FunctionConst<BitmapEmpty, false>;
-using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
+using FunctionToBitmap = FunctionBitmapAlwaysNull<ToBitmap>;
 using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
 
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
