@@ -95,15 +95,17 @@ Status PageIO::write_page(io::FileWriter* writer, std::vector<OwnedSlice>& body,
     put_fixed32_le(&footer_buf, static_cast<uint32_t>(footer_buf.size()));
 
     std::vector<OwnedSlice>& page = body;
-    faststring footer_and_checksum;
-    footer_and_checksum.assign_copy(footer_buf);
+    faststring footer_str;
+    footer_str.assign_copy(footer_buf);
+    page.emplace_back(footer_str.build());
 
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
     uint32_t checksum = crc32c::Value(page);
     encode_fixed32_le(checksum_buf, checksum);
-    footer_and_checksum.append(checksum_buf, sizeof(uint32_t));
-    page.emplace_back(footer_and_checksum.build());
+    faststring checksum_str;
+    checksum_str.append(checksum_buf, sizeof(uint32_t));
+    page.emplace_back(checksum_str.build());
 
     uint64_t offset = writer->bytes_appended();
     RETURN_IF_ERROR(writer->appendv(&page[0], page.size()));
