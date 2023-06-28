@@ -14,25 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+suite("test_ip_functions") {
+    sql "set batch_size = 4096;"
 
-#pragma once
+    qt_sql "SELECT ipv4numtostring(-1);"
+    qt_sql "SELECT ipv4numtostring(2130706433);"
+    qt_sql "SELECT ipv4numtostring(4294967298);"
+    qt_sql "SELECT inet_ntoa(3232235521);"
 
-#include <cstddef>
-#include <cstdint>
-
-namespace doris {
-
-// Allocate memory from system allocator, this allocator can be configured
-// to allocate memory via mmap or malloc.
-class SystemAllocator {
-public:
-    static uint8_t* allocate(size_t length);
-
-    static void free(uint8_t* ptr);
-
-private:
-    static uint8_t* allocate_via_mmap(size_t length);
-    static uint8_t* allocate_via_malloc(size_t length);
-};
-
-} // namespace doris
+}

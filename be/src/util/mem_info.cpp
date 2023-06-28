@@ -41,7 +41,6 @@
 #include "olap/page_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
-#include "runtime/memory/chunk_allocator.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/task_group/task_group.h"
 #include "runtime/task_group/task_group_manager.h"
@@ -104,10 +103,6 @@ void MemInfo::refresh_allocator_mem() {
 void MemInfo::process_cache_gc(int64_t& freed_mem) {
     // TODO, free more cache, and should free a certain percentage of capacity, not all.
     int32_t min_free_size = 33554432; // 32M
-    if (ChunkAllocator::instance()->mem_consumption() > min_free_size) {
-        freed_mem += ChunkAllocator::instance()->mem_consumption();
-        ChunkAllocator::instance()->clear();
-    }
 
     if (StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE) >
         min_free_size) {

@@ -113,8 +113,9 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
-        return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
-                getLogicalProperties(), children.get(0));
+        return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols,
+                singleReplicaLoad, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, children.get(0));
     }
 
     @Override

@@ -35,6 +35,9 @@ import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.amazonaws.glue.catalog.util.AWSGlueConfig;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem;
+import org.apache.hadoop.fs.cosn.CosNConfigKeys;
+import org.apache.hadoop.fs.cosn.CosNFileSystem;
 import org.apache.hadoop.fs.obs.OBSConstants;
 import org.apache.hadoop.fs.obs.OBSFileSystem;
 import org.apache.hadoop.fs.s3a.Constants;
@@ -241,13 +244,46 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToOSSProperties(Map<String, String> props, CloudCredential credential) {
-        // Now we use s3 client to access
-        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
+        Map<String, String> ossProperties = Maps.newHashMap();
+        String endpoint = props.get(OssProperties.ENDPOINT);
+        if (endpoint.startsWith(OssProperties.OSS_PREFIX)) {
+            // may use oss.oss-cn-beijing.aliyuncs.com
+            endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
+        }
+        ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
+        ossProperties.put("fs.oss.impl.disable.cache", "true");
+        ossProperties.put("fs.oss.impl", AliyunOSSFileSystem.class.getName());
+        if (credential.isWhole()) {
+            ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_ID, credential.getAccessKey());
+            ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_SECRET, credential.getSecretKey());
+        }
+        if (credential.isTemporary()) {
+            ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.SECURITY_TOKEN, credential.getSessionToken());
+        }
+        for (Map.Entry<String, String> entry : props.entrySet()) {
+            if (entry.getKey().startsWith(OssProperties.OSS_FS_PREFIX)) {
+                ossProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return ossProperties;
     }
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
-        // Now we use s3 client to access
-        return convertToS3Properties(S3Properties.prefixToS3(props), credential);
+        Map<String, String> cosProperties = Maps.newHashMap();
+        cosProperties.put(CosNConfigKeys.COSN_ENDPOINT_SUFFIX_KEY, props.get(CosProperties.ENDPOINT));
+        cosProperties.put("fs.cosn.impl.disable.cache", "true");
+        cosProperties.put("fs.cosn.impl", CosNFileSystem.class.getName());
+        if (credential.isWhole()) {
+            cosProperties.put(CosNConfigKeys.COSN_SECRET_ID_KEY, credential.getAccessKey());
+            cosProperties.put(CosNConfigKeys.COSN_SECRET_KEY_KEY, credential.getSecretKey());
+        }
+        // session token is unsupported
+        for (Map.Entry<String, String> entry : props.entrySet()) {
+            if (entry.getKey().startsWith(CosProperties.COS_FS_PREFIX)) {
+                cosProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return cosProperties;
     }
 
     private static Map<String, String> convertToMinioProperties(Map<String, String> props, CloudCredential credential) {

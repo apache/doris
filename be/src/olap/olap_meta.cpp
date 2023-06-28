@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <rocksdb/env.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/status.h>
 #include <rocksdb/write_batch.h>
@@ -62,12 +63,24 @@ OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path) {}
 
 OlapMeta::~OlapMeta() = default;
 
+class RocksdbLogger : public rocksdb::Logger {
+public:
+    void Logv(const char* format, va_list ap) override {
+        char buf[1024];
+        vsnprintf(buf, sizeof(buf), format, ap);
+        LOG(INFO) << "[Rocksdb] " << buf;
+    }
+};
+
 Status OlapMeta::init() {
     // init db
     DBOptions options;
     options.IncreaseParallelism();
     options.create_if_missing = true;
     options.create_missing_column_families = true;
+    options.info_log = std::make_shared<RocksdbLogger>();
+    options.info_log_level = rocksdb::WARN_LEVEL;
+
     std::string db_path = _root_path + META_POSTFIX;
     std::vector<ColumnFamilyDescriptor> column_families;
     // default column family is required
@@ -76,6 +89,7 @@ Status OlapMeta::init() {
 
     // meta column family add prefix extractor to improve performance and ensure correctness
     ColumnFamilyOptions meta_column_family;
+    meta_column_family.max_write_buffer_number = config::rocksdb_max_write_buffer_number;
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
 

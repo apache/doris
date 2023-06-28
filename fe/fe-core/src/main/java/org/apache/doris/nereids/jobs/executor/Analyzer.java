@@ -35,7 +35,6 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
-import org.apache.doris.nereids.rules.rewrite.HideOneRowRelationUnderUnion;
 
 import java.util.List;
 
@@ -70,8 +69,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // please see rule BindSlotReference or BindFunction for example
                 new ProjectWithDistinctToAggregate(),
                 new ResolveOrdinalInOrderByAndGroupBy(),
-                new ReplaceExpressionByChildOutput(),
-                new HideOneRowRelationUnderUnion()
+                new ReplaceExpressionByChildOutput()
             ),
             topDown(
                 new FillUpMissingSlots(),

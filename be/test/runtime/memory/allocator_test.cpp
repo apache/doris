@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/system_allocator.h"
+#include "vec/common/allocator.h"
 
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -23,25 +23,39 @@
 #include <memory>
 
 #include "gtest/gtest_pred_impl.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 
+template <typename T>
+void test_allocator(T allocator) {
+    auto ptr = allocator.alloc(4096);
+    EXPECT_NE(nullptr, ptr);
+    ptr = allocator.realloc(ptr, 4096, 4096 * 1024);
+    EXPECT_NE(nullptr, ptr);
+    allocator.free(ptr, 4096 * 1024);
+
+    ptr = allocator.alloc(100);
+    EXPECT_NE(nullptr, ptr);
+    ptr = allocator.realloc(ptr, 100, 100 * 1024);
+    EXPECT_NE(nullptr, ptr);
+    allocator.free(ptr, 100 * 1024);
+}
+
 void test_normal() {
     {
-        auto ptr = SystemAllocator::allocate(4096);
-        EXPECT_NE(nullptr, ptr);
-        EXPECT_EQ(0, (uint64_t)ptr % 4096);
-        SystemAllocator::free(ptr);
-    }
-    {
-        auto ptr = SystemAllocator::allocate(100);
-        EXPECT_NE(nullptr, ptr);
-        EXPECT_EQ(0, (uint64_t)ptr % 4096);
-        SystemAllocator::free(ptr);
+        test_allocator(Allocator<false, false, false>());
+        test_allocator(Allocator<false, false, true>());
+        test_allocator(Allocator<false, true, false>());
+        test_allocator(Allocator<false, true, true>());
+        test_allocator(Allocator<true, false, false>());
+        test_allocator(Allocator<true, false, true>());
+        test_allocator(Allocator<true, true, false>());
+        test_allocator(Allocator<true, true, true>());
     }
 }
 
-TEST(SystemAllocatorTest, TestNormal) {
+TEST(AllocatorTest, TestNormal) {
     test_normal();
 }
 
