@@ -324,6 +324,10 @@ public class HMSExternalTable extends ExternalTable {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
     }
 
+    public String getHiveVersion() {
+        return ((HMSExternalCatalog) catalog).getHiveVersion();
+    }
+
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
     }

@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
+import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.HiveSplit.HiveSplitCreator;
@@ -91,7 +92,9 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        genSlotToSchemaIdMap();
+        if (HiveVersionUtil.isHive1(hmsTable.getHiveVersion())) {
+            genSlotToSchemaIdMap();
+        }
         String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
         if (inputFormat.contains("TextInputFormat")) {
             for (SlotDescriptor slot : desc.getSlots()) {
