@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 
 import org.junit.Assert;
@@ -79,6 +80,7 @@ public class PartitionKeyTest {
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767")),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), true);
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case2
@@ -86,6 +88,7 @@ public class PartitionKeyTest {
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("-32768")),
                                               Arrays.asList(tinyInt, smallInt));
+        Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case3
@@ -93,6 +96,7 @@ public class PartitionKeyTest {
                                               Arrays.asList(int32, bigInt));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("128"), new PartitionValue("-32768")),
                                               Arrays.asList(int32, bigInt));
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case4
@@ -100,6 +104,7 @@ public class PartitionKeyTest {
                                               Arrays.asList(largeInt, bigInt));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("12346")),
                                               Arrays.asList(largeInt, bigInt));
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case5
@@ -107,26 +112,34 @@ public class PartitionKeyTest {
                                               Arrays.asList(date, datetime));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("2014-12-12"), new PartitionValue("2014-12-12 10:00:01")),
                                               Arrays.asList(date, datetime));
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case6
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("-128")),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), false);
+        Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case7
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127")),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), true);
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case7
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767")),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), true);
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
+        // set enable_date_conversion to false
+        // so ScalarType.getDefaultDateType will not convert Type.DATE to Type.DATEV2
+        boolean previousVal = Config.enable_date_conversion;
+        Config.enable_date_conversion = false;
         // case8
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767"),
                 new PartitionValue("2147483647"), new PartitionValue("9223372036854775807"),
@@ -134,6 +147,7 @@ public class PartitionKeyTest {
                 new PartitionValue("9999-12-31"), new PartitionValue("9999-12-31 23:59:59")),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, true);
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case9
@@ -143,6 +157,7 @@ public class PartitionKeyTest {
                 new PartitionValue("0000-01-01"), new PartitionValue("0000-01-01 00:00:00")),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
+        Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case10
@@ -151,13 +166,16 @@ public class PartitionKeyTest {
                 new PartitionValue("0"), new PartitionValue("1970-01-01"), new PartitionValue("1970-01-01 00:00:00")),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
 
+        Config.enable_date_conversion = previousVal;
         // case11
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
                 Arrays.asList(charString, varchar));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
                 Arrays.asList(charString, varchar));
+        Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case12
@@ -165,6 +183,7 @@ public class PartitionKeyTest {
                 Arrays.asList(charString, varchar));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("shijiazhuang"), new PartitionValue("tianjin")),
                 Arrays.asList(charString, varchar));
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case13
@@ -172,6 +191,7 @@ public class PartitionKeyTest {
                 Arrays.asList(charString, varchar));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("tianjin")),
                 Arrays.asList(charString, varchar));
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case14
@@ -179,6 +199,7 @@ public class PartitionKeyTest {
                 Arrays.asList(bool));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
                 Arrays.asList(bool));
+        Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
 
         // case15
@@ -186,6 +207,7 @@ public class PartitionKeyTest {
                 Arrays.asList(bool));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
                 Arrays.asList(bool));
+        Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case16
@@ -193,6 +215,7 @@ public class PartitionKeyTest {
                 Arrays.asList(bool));
         pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
                 Arrays.asList(bool));
+        Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
     }
 
