@@ -76,7 +76,9 @@ public class AddSqlSelectLimit extends PlanPreprocessor {
                     sqlLimit = Long.MAX_VALUE;
                 }
                 defaultLimit = Math.min(sqlLimit, defaultLimit);
-                return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, sort);
+                if (defaultLimit < Long.MAX_VALUE) {
+                    return new LogicalLimit<>(defaultLimit, 0, LimitPhase.ORIGIN, sort);
+                }
             }
         }
         return sort;
