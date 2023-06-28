@@ -279,7 +279,7 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { Allocator::free_no_munmap(_slice.data); }
+    ~OwnedSlice() { Allocator::free(_slice.data); }
 
     const Slice& slice() const { return _slice; }
 
