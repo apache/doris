@@ -618,7 +618,6 @@ suite("test_date_function") {
                 last_day(birth2), last_day(birth3) 
                 from ${tableName};
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """

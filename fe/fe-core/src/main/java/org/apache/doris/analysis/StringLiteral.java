@@ -172,14 +172,10 @@ public class StringLiteral extends LiteralExpr {
 
     /**
      * Convert a string literal to a date literal
-     * In our planner, Datetime also use this function to analyze. So we need to
-     * double-check it's type.
      *
      * @param targetType is the desired type
-     * @return new converted literal, null if the given date was transformed into a
-     *         illegal date value.
-     * @throws AnalysisException if the given string can't be transformed into a
-     *                           date value.
+     * @return new converted literal, null if the given string is illegal for
+     *         targetType
      */
     public LiteralExpr convertToDate(Type targetType) {
         LiteralExpr newLiteral = null;
@@ -190,8 +186,6 @@ public class StringLiteral extends LiteralExpr {
             LOG.info("{} is illegal value for date-like type, insert null instead", value);
             return NullLiteral.create(targetType);
         }
-        // don't catch AnalysisException, which means the literal can't be analyse. It
-        // will make the whole process fail.
         return newLiteral;
     }
 

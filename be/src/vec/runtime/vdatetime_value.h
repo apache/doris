@@ -717,6 +717,7 @@ private:
               _year(year) {}
 };
 
+// this type is both for DateV2(without time) and DatetimeV2(with time)
 template <typename T>
 class DateV2Value {
 public:

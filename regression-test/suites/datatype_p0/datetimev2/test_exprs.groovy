@@ -25,7 +25,7 @@ suite("test_exprs") {
     CREATE TABLE IF NOT EXISTS `${table1}` (
       `col` datetimev2(3) NULL COMMENT ""
     ) ENGINE=OLAP
-    UNIQUE KEY(`col`)
+    DUPLICATE KEY(`col`)
     COMMENT "OLAP"
     DISTRIBUTED BY HASH(`col`) BUCKETS 8
     PROPERTIES (
@@ -36,7 +36,12 @@ suite("test_exprs") {
     """
 
     sql """insert into ${table1} values('2022-01-01 11:11:11.111'),
-            ('2022-01-01 11:11:11.222')
+            ('2022-01-01 11:11:11.222'),
+            ('20200202121212.'), /* no dash and ms length is zero */
+            ('2020-02-29T10:10:10.1234567'), /* T and cut-off */
+            ('2200-02-29T10:10:10.1234567'), /* illegal year */
+            ('20200202121212.100000000'), /* max length */
+            ('20200202121212.1111111111111111111111111111111111111111111111111111111111111111') /* too long */
     """
     qt_select_all "select * from ${table1} order by col"
 

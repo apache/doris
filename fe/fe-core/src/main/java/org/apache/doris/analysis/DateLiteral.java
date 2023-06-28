@@ -75,6 +75,9 @@ public class DateLiteral extends LiteralExpr {
     private static final int DATEKEY_LENGTH = 8;
     private static final int DATETIMEKEY_LENGTH = 14;
     private static final int MAX_MICROSECOND = 999999;
+    private static final int MIN_MICROSECOND_WIDTH = 0; // That's ok for only a float point in the end
+    private static final int MAX_MICROSECOND_WIDTH = 6; // now for DatetimeV2
+    private static final int MAX_ACCEPTABLE_MICROSECOND_WIDTH = 9; // hard limit by parser
 
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
@@ -109,21 +112,30 @@ public class DateLiteral extends LiteralExpr {
                     .withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
-                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, MIN_MICROSECOND_WIDTH,
+                            MAX_ACCEPTABLE_MICROSECOND_WIDTH, true)
                     .toFormatter()
                     .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, MIN_MICROSECOND_WIDTH,
+                                    MAX_ACCEPTABLE_MICROSECOND_WIDTH,
+                                    true)
                             .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, MIN_MICROSECOND_WIDTH,
+                                    MAX_ACCEPTABLE_MICROSECOND_WIDTH,
+                                    false)
                             .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, MIN_MICROSECOND_WIDTH,
+                                    MAX_ACCEPTABLE_MICROSECOND_WIDTH,
+                                    true)
                             .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, MIN_MICROSECOND_WIDTH,
+                                    MAX_ACCEPTABLE_MICROSECOND_WIDTH,
+                                    false)
                             .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
@@ -359,6 +371,7 @@ public class DateLiteral extends LiteralExpr {
             Preconditions.checkArgument(type.isDateType());
             TemporalAccessor dateTime = null;
             boolean parsed = false;
+            int count = 0;
             if (!s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 for (DateTimeFormatter formatter : formatterList) {
@@ -373,8 +386,22 @@ public class DateLiteral extends LiteralExpr {
                 if (!parsed) {
                     throw new AnalysisException("Invalid date value: " + s);
                 }
+                count = s.indexOf('.') + 1;
+                if (count == 0) {
+                    count = s.length();
+                }
             } else {
-                String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
+                String[] datePart = new String[] {};
+                if (s.contains(" ")) {
+                    datePart = s.split(" ")[0].split("-");
+                    count = s.split(" ")[0].length();
+                } else if (s.contains("T")) {
+                    datePart = s.split("T")[0].split("-");
+                    count = s.split("T")[0].length();
+                } else {
+                    datePart = s.split("-");
+                    count = s.length();
+                }
                 DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
                 if (datePart.length != 3) {
                     throw new AnalysisException("Invalid date value: " + s);
@@ -403,29 +430,45 @@ public class DateLiteral extends LiteralExpr {
                         builder.appendLiteral("-");
                     }
                 }
+
                 if (s.contains(" ")) {
                     builder.appendLiteral(" ");
+                    count++;
+                } else if (s.contains("T")) {
+                    builder.appendLiteral("T");
+                    count++;
                 }
-                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
-                if (timePart.length > 0 && (type.equals(Type.DATE) || type.equals(Type.DATEV2))) {
-                    throw new IllegalFormatException("Invalid date value: " + s);
-                }
-                if (timePart.length == 0 && (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2))) {
-                    throw new IllegalFormatException("Invalid datetime value: " + s);
+
+                String[] timePart = new String[] {};
+                if (s.contains(" ")) {
+                    timePart = s.split(" ")[1].split(":");
+                } else if (s.contains("T")) {
+                    timePart = s.split("T")[1].split(":");
                 }
                 for (int i = 0; i < timePart.length; i++) {
                     switch (i) {
                         case 0:
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "H")));
+                            count += timePart[i].length();
                             break;
                         case 1:
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "m")));
+                            count += timePart[i].length();
                             break;
                         case 2:
                             builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
                                     ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
                             if (timePart[i].contains(".")) {
-                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                                count += timePart[i].split("\\.")[0].length() + 1;
+                                // We accept as all it microsecond first. Then it will be cut off.
+                                if (s.length() - count > MIN_MICROSECOND_WIDTH) {
+                                    builder.appendFraction(ChronoField.MICRO_OF_SECOND, MIN_MICROSECOND_WIDTH,
+                                            s.length() - count, true);
+                                } else {
+                                    builder.appendLiteral(".");
+                                }
+                            } else {
+                                count = s.length();
                             }
                             break;
                         default:
@@ -433,12 +476,13 @@ public class DateLiteral extends LiteralExpr {
                     }
                     if (i < timePart.length - 1) {
                         builder.appendLiteral(":");
+                        count++;
                     }
                 }
                 // The default resolver style is 'SMART', which parses "2022-06-31" as "2022-06-30"
                 // and does not throw an exception. 'STRICT' is used here.
                 DateTimeFormatter formatter = builder.toFormatter().withResolverStyle(ResolverStyle.STRICT);
-                dateTime = formatter.parse(s);
+                dateTime = formatter.parse(s); // throws DateTimeParseException if parse failed.
                 parsed = true;
             }
 
@@ -446,15 +490,32 @@ public class DateLiteral extends LiteralExpr {
             year = getOrDefault(dateTime, ChronoField.YEAR, 0);
             month = getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR, 0);
             day = getOrDefault(dateTime, ChronoField.DAY_OF_MONTH, 0);
-            hour = getOrDefault(dateTime, ChronoField.HOUR_OF_DAY, 0);
-            minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
-            second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
-            microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
+            if (type.isDatetime() || type.isDatetimeV2()) {
+                hour = getOrDefault(dateTime, ChronoField.HOUR_OF_DAY, 0);
+                minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
+                second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
+                String msString = String.valueOf(getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0))
+                        .substring(0, Math.min(((ScalarType) type).decimalScale(), s.length() - count));
+                microsecond = msString.length() > 0 ? Integer.parseInt(msString) : 0;
+                // microsecond value will keep in length of max width.
+                if (((ScalarType) type).decimalScale() < MAX_MICROSECOND_WIDTH) {
+                    microsecond *= (int) Math.pow(10, MAX_MICROSECOND_WIDTH - ((ScalarType) type).decimalScale());
+                }
+            }
+
+            // This is a shortcut for old planner's function match. When it try to accept a
+            // parameter, there's a conversion sequence from string literal to DateLiteral
+            // with type Datetime first and only because of we can't distinguish Datetime
+            // and DatetimeV2 type before we analyse a literal. So in this case, we must
+            // consider the situation which the parameter is like DatetimeV2
+            // TODO: check if it's right when we insert into Datetime column a value with
+            // microsecond
             if (microsecond != 0 && type.isDatetime()) {
                 int dotIndex = s.lastIndexOf(".");
                 int scale = s.length() - dotIndex - 1;
                 type = ScalarType.createDatetimeV2Type(scale);
             }
+
             this.type = type;
         } catch (DateTimeParseException ex) {
             throw new IllegalFormatException("Illegal datetime value");
@@ -569,8 +630,10 @@ public class DateLiteral extends LiteralExpr {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type.isDatetimeV2()) {
             int scale = ((ScalarType) type).getScalarScale();
-            long ms = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))
-                    * (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))).longValue();
+            long ms = Double.valueOf(
+                    microsecond / (int) (Math.pow(10, MAX_MICROSECOND_WIDTH - ((ScalarType) type).getScalarScale()))
+                            * (Math.pow(10, MAX_MICROSECOND_WIDTH - ((ScalarType) type).getScalarScale())))
+                    .longValue();
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
                     year, month, day, hour, minute, second);
             if (ms == 0) {
@@ -589,10 +652,11 @@ public class DateLiteral extends LiteralExpr {
 
     public void roundCeiling(int newScale) {
         Preconditions.checkArgument(type.isDatetimeV2());
-        long remain = Double.valueOf(microsecond % (Math.pow(10, 6 - newScale))).longValue();
+        long remain = Double.valueOf(microsecond % (Math.pow(10, MAX_MICROSECOND_WIDTH - newScale))).longValue();
         if (remain != 0) {
-            microsecond = Double.valueOf((microsecond + (Math.pow(10, 6 - newScale)))
-                    / (int) (Math.pow(10, 6 - newScale)) * (Math.pow(10, 6 - newScale))).longValue();
+            microsecond = Double.valueOf((microsecond + (Math.pow(10, MAX_MICROSECOND_WIDTH - newScale)))
+                    / (int) (Math.pow(10, MAX_MICROSECOND_WIDTH - newScale))
+                    * (Math.pow(10, MAX_MICROSECOND_WIDTH - newScale))).longValue();
         }
         if (microsecond > MAX_MICROSECOND) {
             microsecond %= microsecond;
@@ -608,8 +672,8 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public void roundFloor(int newScale) {
-        microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - newScale))
-                * (Math.pow(10, 6 - newScale))).longValue();
+        microsecond = Double.valueOf(microsecond / (int) (Math.pow(10, MAX_MICROSECOND_WIDTH - newScale))
+                * (Math.pow(10, MAX_MICROSECOND_WIDTH - newScale))).longValue();
         type = ScalarType.createDatetimeV2Type(newScale);
     }
 
@@ -1088,6 +1152,7 @@ public class DateLiteral extends LiteralExpr {
         return microsecond;
     }
 
+    // TODO: check if they can be replace by int
     private long year;
     private long month;
     private long day;
@@ -1241,9 +1306,10 @@ public class DateLiteral extends LiteralExpr {
                         break;
                     // Micro second
                     case 'f':
-                        tmp = vp + Math.min(6, vend - vp);
+                        tmp = vp + Math.min(MIN_MICROSECOND_WIDTH, vend - vp);
                         intValue = strToLong(value.substring(vp, tmp));
-                        this.microsecond = (long) (intValue * Math.pow(10, 6 - Math.min(6, vend - vp)));
+                        this.microsecond = (long) (intValue
+                                * Math.pow(10, MAX_MICROSECOND_WIDTH - Math.min(MAX_MICROSECOND_WIDTH, vend - vp)));
                         timePartUsed = true;
                         microSecondPartUsed = true;
                         vp = tmp;
@@ -1652,7 +1718,7 @@ public class DateLiteral extends LiteralExpr {
             if (fieldIdx == 5) {
                 if (dateStr.charAt(pre) == '.') {
                     pre++;
-                    fieldLen = 6;
+                    fieldLen = MAX_MICROSECOND_WIDTH;
                 } else if (Character.isDigit(dateStr.charAt(pre))) {
                     fieldIdx++;
                     break;
@@ -1705,8 +1771,8 @@ public class DateLiteral extends LiteralExpr {
         } else {
             type = ScalarType.getDefaultDateType(Type.DATETIME);
             if (type.isDatetimeV2() && microsecond != 0) {
-                int scale = 6;
-                for (int i = 0; i < 6; i++) {
+                int scale = MAX_MICROSECOND_WIDTH;
+                for (int i = 0; i < MAX_MICROSECOND_WIDTH; i++) {
                     if (microsecond % Math.pow(10.0, i + 1) > 0) {
                         break;
                     } else {
@@ -1768,7 +1834,7 @@ public class DateLiteral extends LiteralExpr {
                 if (len > 7) {
                     microsecond = data.getInt();
                     // choose highest scale to keep microsecond value
-                    type = ScalarType.createDatetimeV2Type(6);
+                    type = ScalarType.createDatetimeV2Type(MAX_MICROSECOND_WIDTH);
                 }
             } else {
                 copy(MIN_DATETIME);
