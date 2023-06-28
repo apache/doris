@@ -46,7 +46,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -209,10 +208,7 @@ public class OriginalPlanner extends Planner {
                 && plannerContext.getStatement().getExplainOptions() == null) {
             collectQueryStat(singleNodePlan);
         }
-        // check and set flag for topn detail query opt
-        if (VectorizedUtil.isVectorized()) {
-            checkAndSetTopnOpt(singleNodePlan);
-        }
+        checkAndSetTopnOpt(singleNodePlan);
 
         if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
             // single-node execution; we're almost done
@@ -227,9 +223,7 @@ public class OriginalPlanner extends Planner {
 
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
-        if (VectorizedUtil.isVectorized()) {
-            pushSortToOlapScan();
-        }
+        pushSortToOlapScan();
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
@@ -268,9 +262,7 @@ public class OriginalPlanner extends Planner {
 
         pushDownResultFileSink(analyzer);
 
-        if (VectorizedUtil.isVectorized()) {
-            pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
-        }
+        pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;

@@ -1,11 +1,11 @@
 ---
 {
-    "title": "ENABLE-FEATURE",
-    "language": "zh-CN"
+    "title": "STATE",
+    "language": "en"
 }
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,15 +24,27 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ENABLE-FEATURE
+## STATE
 
-### Description
+<version since="2.0.0">
+</version>
 
-### Example
 
-### Keywords
+### description
+#### Syntax
 
-    ENABLE, FEATURE
+`AGGREGATE_FUNCTION_STATE(arg...)`
+Returns the intermediate result of the aggregation function, which can be used for subsequent aggregation or to obtain the actual calculation result through the merge combiner, or can be directly written into the agg_state type table and saved.
+The type of the result is agg_state, and the function signature in agg_state is `AGGREGATE_FUNCTION(arg...)`.
 
-### Best Practice
-
+### example
+```
+mysql [test]>select avg_merge(t) from (select avg_union(avg_state(1)) as t from d_table group by k1)p;
++----------------+
+| avg_merge(`t`) |
++----------------+
+|              1 |
++----------------+
+```
+### keywords
+AGG_STATE,STATE
