@@ -268,7 +268,7 @@ public class BaseController {
                         authInfo.fullUserName);
                 authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
             } else if (elements != null && elements.length == 2) {
-                authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);
+                authInfo.fullUserName = ClusterNamespace.getFullUser(elements[1], elements[0]);
                 authInfo.cluster = elements[1];
             }
             authInfo.password = authString.substring(index + 1);

@@ -134,7 +134,7 @@ public class UserIdentity implements Writable, GsonPostProcessable {
 
         FeNameFormat.checkUserName(user);
         if (!user.equals(Auth.ROOT_USER) && !user.equals(Auth.ADMIN_USER)) {
-            user = ClusterNamespace.getFullName(clusterName, user);
+            user = ClusterNamespace.getFullUser(clusterName, user);
         }
 
         if (Strings.isNullOrEmpty(host)) {

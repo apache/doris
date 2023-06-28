@@ -131,7 +131,7 @@ public class LdapAuthenticateTest {
                 if (res) {
                     auth.getCurrentUserIdentity((UserIdentity) any);
                     minTimes = 0;
-                    result = new UserIdentity(ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME), IP);
+                    result = new UserIdentity(ClusterNamespace.getFullUser(DEFAULT_CLUSTER, USER_NAME), IP);
                 } else {
                     auth.getCurrentUserIdentity((UserIdentity) any);
                     minTimes = 0;
@@ -155,7 +155,7 @@ public class LdapAuthenticateTest {
         setCheckPassword(true);
         setGetUserInfo(true);
         setGetCurrentUserIdentity(true);
-        String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
+        String qualifiedUser = ClusterNamespace.getFullUser(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertTrue(context.getIsTempUser());
     }
@@ -166,7 +166,7 @@ public class LdapAuthenticateTest {
         setCheckPassword(false);
         setGetUserInfo(true);
         setGetCurrentUserIdentity(true);
-        String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
+        String qualifiedUser = ClusterNamespace.getFullUser(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertFalse(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertFalse(context.getIsTempUser());
     }
@@ -177,7 +177,7 @@ public class LdapAuthenticateTest {
         setCheckPasswordException();
         setGetUserInfo(true);
         setGetCurrentUserIdentity(true);
-        String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
+        String qualifiedUser = ClusterNamespace.getFullUser(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertFalse(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertFalse(context.getIsTempUser());
     }
@@ -188,7 +188,7 @@ public class LdapAuthenticateTest {
         setCheckPassword(true);
         setGetUserInfo(false);
         setGetCurrentUserIdentity(true);
-        String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
+        String qualifiedUser = ClusterNamespace.getFullUser(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertTrue(context.getIsTempUser());
     }
@@ -199,7 +199,7 @@ public class LdapAuthenticateTest {
         setCheckPassword(true);
         setGetUserInfo(true);
         setGetCurrentUserIdentity(false);
-        String qualifiedUser = ClusterNamespace.getFullName(DEFAULT_CLUSTER, USER_NAME);
+        String qualifiedUser = ClusterNamespace.getFullUser(DEFAULT_CLUSTER, USER_NAME);
         Assert.assertTrue(LdapAuthenticate.authenticate(context, "123", qualifiedUser));
         Assert.assertTrue(context.getIsTempUser());
     }

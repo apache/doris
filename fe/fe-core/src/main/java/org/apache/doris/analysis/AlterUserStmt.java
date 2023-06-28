@@ -103,7 +103,7 @@ public class AlterUserStmt extends DdlStmt {
         }
 
         if (!Strings.isNullOrEmpty(role)) {
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+            role = ClusterNamespace.getFullUser(analyzer.getClusterName(), role);
             ops.add(OpType.SET_ROLE);
         }
 

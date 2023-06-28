@@ -54,7 +54,7 @@ public class RefreshLdapStmt extends DdlStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
             }
             if (!isAll) {
-                user = ClusterNamespace.getFullName(getClusterName(), user);
+                user = ClusterNamespace.getFullUser(getClusterName(), user);
             }
         } else {
             user = analyzer.getQualifiedUser();

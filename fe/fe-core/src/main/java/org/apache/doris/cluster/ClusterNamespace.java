@@ -37,6 +37,10 @@ public class ClusterNamespace {
         return linkString(cluster, name);
     }
 
+    public static String getFullUser(String cluster, String name) {
+        return linkUserString(cluster, name);
+    }
+
     public static String getClusterNameFromFullName(String fullName) {
         if (!checkName(fullName)) {
             return null;
@@ -60,6 +64,18 @@ public class ClusterNamespace {
     }
 
     private static String linkString(String cluster, String name) {
+        if (Strings.isNullOrEmpty(cluster) || Strings.isNullOrEmpty(name)) {
+            return null;
+        }
+        if (name.contains(CLUSTER_DELIMITER)) {
+            return name;
+        }
+        final StringBuilder sb = new StringBuilder(cluster);
+        sb.append(CLUSTER_DELIMITER).append(name);
+        return sb.toString();
+    }
+
+    private static String linkUserString(String cluster, String name) {
         if (Strings.isNullOrEmpty(cluster) || Strings.isNullOrEmpty(name)) {
             return null;
         }

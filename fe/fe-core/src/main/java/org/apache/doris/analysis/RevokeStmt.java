@@ -114,7 +114,7 @@ public class RevokeStmt extends DdlStmt {
             userIdent.analyze(analyzer.getClusterName());
         } else {
             FeNameFormat.checkRoleName(role, false /* can not be superuser */, "Can not revoke from role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+            role = ClusterNamespace.getFullUser(analyzer.getClusterName(), role);
         }
 
         if (tblPattern != null) {
@@ -127,7 +127,7 @@ public class RevokeStmt extends DdlStmt {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
                 FeNameFormat.checkRoleName(originalRoleName, false /* can not be admin */, "Can not revoke role");
-                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
+                roles.set(i, ClusterNamespace.getFullUser(analyzer.getClusterName(), originalRoleName));
             }
         }
 

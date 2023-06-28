@@ -61,7 +61,7 @@ public class ShowUserPropertyStmt extends ShowStmt {
             user = analyzer.getQualifiedUser();
             // user can see itself's property, no need to check privs
         } else {
-            user = ClusterNamespace.getFullName(getClusterName(), user);
+            user = ClusterNamespace.getFullUser(getClusterName(), user);
 
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");

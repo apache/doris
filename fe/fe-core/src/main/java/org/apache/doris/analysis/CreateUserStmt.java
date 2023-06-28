@@ -124,7 +124,7 @@ public class CreateUserStmt extends DdlStmt {
                 role = Role.ADMIN_ROLE;
             }
             FeNameFormat.checkRoleName(role, true /* can be admin */, "Can not granted user to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+            role = ClusterNamespace.getFullUser(analyzer.getClusterName(), role);
         }
 
         passwordOptions.analyze();

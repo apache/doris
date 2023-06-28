@@ -124,7 +124,7 @@ public class GrantStmt extends DdlStmt {
             userIdent.analyze(analyzer.getClusterName());
         } else {
             FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+            role = ClusterNamespace.getFullUser(analyzer.getClusterName(), role);
         }
 
         if (tblPattern != null) {
@@ -137,7 +137,7 @@ public class GrantStmt extends DdlStmt {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
                 FeNameFormat.checkRoleName(originalRoleName, false /* can not be admin */, "Can not grant role");
-                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
+                roles.set(i, ClusterNamespace.getFullUser(analyzer.getClusterName(), originalRoleName));
             }
         }
 

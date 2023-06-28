@@ -52,7 +52,7 @@ public class CreateRoleStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not create role");
-        role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+        role = ClusterNamespace.getFullUser(analyzer.getClusterName(), role);
 
         // check if current user has GRANT priv on GLOBAL level.
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {

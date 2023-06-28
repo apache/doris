@@ -922,7 +922,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, List<String> tables,
                                        String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
-        final String fullUserName = ClusterNamespace.getFullName(cluster, user);
+        final String fullUserName = ClusterNamespace.getFullUser(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
@@ -947,7 +947,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-        final String fullUserName = ClusterNamespace.getFullName(cluster, user);
+        final String fullUserName = ClusterNamespace.getFullUser(cluster, user);
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
         Preconditions.checkState(currentUser.size() == 1);

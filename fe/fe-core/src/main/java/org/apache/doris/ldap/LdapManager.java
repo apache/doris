@@ -205,7 +205,7 @@ public class LdapManager {
         List<String> ldapGroups = ldapClient.getGroups(userName);
         List<String> rolesNames = Lists.newArrayList();
         for (String group : ldapGroups) {
-            String qualifiedRole = ClusterNamespace.getFullName(clusterName, group);
+            String qualifiedRole = ClusterNamespace.getFullUser(clusterName, group);
             if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
                 rolesNames.add(qualifiedRole);
             }
