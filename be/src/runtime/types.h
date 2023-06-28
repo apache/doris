@@ -235,6 +235,8 @@ struct TypeDescriptor {
 
     bool is_array_type() const { return type == TYPE_ARRAY; }
 
+    bool is_hll_type() const { return type == TYPE_HLL; }
+
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
     bool is_variant_type() const { return type == TYPE_VARIANT; }

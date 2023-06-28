@@ -250,6 +250,10 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
         _vec_init_char_column_id();
     }
+
+    if (opts.output_columns != nullptr) {
+        _output_columns = *(opts.output_columns);
+    }
     return Status::OK();
 }
 
@@ -917,7 +921,20 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // TODO(xk) impl right logic
+    if (_output_columns.count(-1)) {
+        // if _output_columns contains -1, it means that the light
+        // weight schema change may not be enabled or other reasons
+        // caused the column unique_id not be set, to prevent errors
+        // occurring, return true here that column data needs to be read
+        return true;
+    }
+    int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
+        _output_columns.count(unique_id) < 1) {
+        VLOG_DEBUG << "SegmentIterator no need read data for column: "
+                   << _opts.tablet_schema->column_by_uid(unique_id).name();
+        return false;
+    }
     return true;
 }
 
@@ -966,6 +983,19 @@ Status SegmentIterator::_init_return_column_iterators() {
                     new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
+        std::set<ColumnId> del_cond_id_set;
+        _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+        std::vector<bool> tmp_is_pred_column;
+        tmp_is_pred_column.resize(_schema->columns().size(), false);
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        for (auto cid : del_cond_id_set) {
+            tmp_is_pred_column[cid] = true;
+        }
+
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
@@ -975,6 +1005,9 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
+            // If the col is predicate column, then should read the last page to check
+            // if the column is full dict encoding
+            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }

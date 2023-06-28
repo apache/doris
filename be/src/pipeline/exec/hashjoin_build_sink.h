@@ -39,6 +39,7 @@ class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilde
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
     bool can_write() override { return _node->can_sink_write(); }
+    bool is_pending_finish() const override { return !_node->ready_for_finish(); }
 };
 
 } // namespace pipeline

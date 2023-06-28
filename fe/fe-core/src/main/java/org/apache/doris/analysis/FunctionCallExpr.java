@@ -37,7 +37,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
@@ -336,11 +335,8 @@ public class FunctionCallExpr extends Expr {
         this(fnName, params, false);
         this.orderByElements = orderByElements;
         if (!orderByElements.isEmpty()) {
-            if (!VectorizedUtil.isVectorized()) {
-                throw new AnalysisException(
-                        "ORDER BY for arguments only support in vec exec engine");
-            } else if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
-                    fnName.getFunction().toLowerCase())) {
+            if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET
+                    .contains(fnName.getFunction().toLowerCase())) {
                 throw new AnalysisException(
                         "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
             }
@@ -1274,9 +1270,6 @@ public class FunctionCallExpr extends Expr {
             }
             // Prevent the cast type in vector exec engine
             Type type = getChild(0).type;
-            if (!VectorizedUtil.isVectorized()) {
-                type = getChild(0).type.getMaxResolutionType();
-            }
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] { type },
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
@@ -1686,6 +1679,7 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_popback")
                         || fnName.getFunction().equalsIgnoreCase("array_popfront")
                         || fnName.getFunction().equalsIgnoreCase("array_pushfront")
+                        || fnName.getFunction().equalsIgnoreCase("array_pushback")
                         || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                         || fnName.getFunction().equalsIgnoreCase("reverse")
                         || fnName.getFunction().equalsIgnoreCase("%element_slice%")
@@ -1841,6 +1835,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
                 || fnName.getFunction().equalsIgnoreCase("array_popfront")
                 || fnName.getFunction().equalsIgnoreCase("array_pushfront")
+                || fnName.getFunction().equalsIgnoreCase("array_pushback")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                 || fnName.getFunction().equalsIgnoreCase("array_shuffle")

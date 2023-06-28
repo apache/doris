@@ -38,7 +38,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.qe.ConnectContext;
@@ -109,6 +108,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
         // cast-to-types and that can lead to query failures, e.g., CTAS
         if (expr instanceof CastExpr) {
             CastExpr castExpr = (CastExpr) expr;
+            if (castExpr.isNotFold()) {
+                return castExpr;
+            }
             if (castExpr.getChild(0) instanceof NullLiteral) {
                 return castExpr.getChild(0);
             }
@@ -364,7 +366,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
-            tParams.setVecExec(VectorizedUtil.isVectorized());
+            tParams.setVecExec(true);
             tParams.setQueryOptions(tQueryOptions);
             tParams.setQueryId(context.queryId());
 

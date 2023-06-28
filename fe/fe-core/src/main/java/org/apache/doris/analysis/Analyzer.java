@@ -40,7 +40,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -62,6 +61,7 @@ import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.RewriteImplicitCastRule;
 import org.apache.doris.rewrite.RewriteInPredicateRule;
+import org.apache.doris.rewrite.RewriteIsNullIsNotNullRule;
 import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
@@ -430,6 +430,7 @@ public class Analyzer {
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteInPredicateRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
+            rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
@@ -953,11 +954,7 @@ public class Analyzer {
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
         boolean isNullable;
-        if (VectorizedUtil.isVectorized()) {
-            isNullable = col.isAllowNull();
-        } else {
-            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
-        }
+        isNullable = col.isAllowNull();
         result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);

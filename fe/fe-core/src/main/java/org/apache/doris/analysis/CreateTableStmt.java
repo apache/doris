@@ -429,7 +429,7 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
                     type = AggregateType.NONE;
                 }
-                if (enableUniqueKeyMergeOnWrite) {
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
                     type = AggregateType.NONE;
                 }
                 for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
@@ -528,7 +528,7 @@ public class CreateTableStmt extends DdlStmt {
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
                         || partitionDesc instanceof ColumnPartitionDesc) {
-                    partitionDesc.analyze(columnDefs, properties, keysDesc);
+                    partitionDesc.analyze(columnDefs, properties);
                 } else {
                     throw new AnalysisException("Currently only support range"
                             + " and list partition with engine type olap");
@@ -626,6 +626,10 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")
                 || engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("jdbc")) {
+            if (engineName.equals("odbc") && !Config.enable_odbc_table) {
+                throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
+                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
+            }
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;

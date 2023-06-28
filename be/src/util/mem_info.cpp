@@ -77,7 +77,6 @@ int64_t MemInfo::_s_process_full_gc_size = -1;
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
@@ -241,7 +240,8 @@ bool MemInfo::process_full_gc() {
 
 int64_t MemInfo::tg_hard_memory_limit_gc() {
     std::vector<taskgroup::TaskGroupPtr> task_groups;
-    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+
+    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
                 return !task_group->enable_memory_overcommit();
             },
@@ -261,7 +261,7 @@ int64_t MemInfo::tg_hard_memory_limit_gc() {
 
 int64_t MemInfo::tg_soft_memory_limit_gc(int64_t request_free_memory) {
     std::vector<taskgroup::TaskGroupPtr> task_groups;
-    taskgroup::TaskGroupManager::instance()->get_resource_groups(
+    ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
                 return task_group->enable_memory_overcommit();
             },

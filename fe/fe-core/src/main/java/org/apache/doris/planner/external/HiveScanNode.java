@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -38,6 +39,7 @@ import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.HiveSplit.HiveSplitCreator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -66,7 +68,7 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
-    private final HMSExternalTable hmsTable;
+    protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
     /**
@@ -103,8 +105,53 @@ public class HiveScanNode extends FileQueryScanNode {
 
         if (hmsTable.isHiveTransactionalTable()) {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
-                    ConnectContext.get().getQualifiedUser(), hmsTable);
+                    ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
+        }
+    }
+
+    protected List<HivePartition> getPartitions() throws AnalysisException {
+        long start = System.currentTimeMillis();
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+        // 1. get ListPartitionItems from cache
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = null;
+        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
+        if (!partitionColumnTypes.isEmpty()) {
+            hivePartitionValues = cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(),
+                    partitionColumnTypes);
+        }
+        if (hivePartitionValues != null) {
+            // 2. prune partitions by expr
+            Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+            this.totalPartitionNum = idToPartitionItem.size();
+            ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
+                    hmsTable.getPartitionColumns(), columnNameToRange,
+                    hivePartitionValues.getUidToPartitionRange(),
+                    hivePartitionValues.getRangeToId(),
+                    hivePartitionValues.getSingleColumnRangeMap(),
+                    true);
+            Collection<Long> filteredPartitionIds = pruner.prune();
+            this.readPartitionNum = filteredPartitionIds.size();
+            LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
+                    hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
+
+            // 3. get partitions from cache
+            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
+            for (Long id : filteredPartitionIds) {
+                ListPartitionItem listPartitionItem = (ListPartitionItem) idToPartitionItem.get(id);
+                partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
+            }
+            return cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
+        } else {
+            // unpartitioned table, create a dummy partition to save location and inputformat,
+            // so that we can unify the interface.
+            HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
+                    hmsTable.getRemoteTable().getSd().getInputFormat(),
+                    hmsTable.getRemoteTable().getSd().getLocation(), null);
+            this.totalPartitionNum = 1;
+            this.readPartitionNum = 1;
+            return Lists.newArrayList(dummyPartition);
         }
     }
 
@@ -114,50 +161,9 @@ public class HiveScanNode extends FileQueryScanNode {
         try {
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-            // 1. get ListPartitionItems from cache
-            HiveMetaStoreCache.HivePartitionValues hivePartitionValues = null;
-            List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
-            if (!partitionColumnTypes.isEmpty()) {
-                hivePartitionValues = cache.getPartitionValues(hmsTable.getDbName(), hmsTable.getName(),
-                    partitionColumnTypes);
-            }
             boolean useSelfSplitter = hmsTable.getCatalog().useSelfSplitter();
             List<Split> allFiles = Lists.newArrayList();
-            if (hivePartitionValues != null) {
-                // 2. prune partitions by expr
-                Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
-                this.totalPartitionNum = idToPartitionItem.size();
-                ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                        hmsTable.getPartitionColumns(), columnNameToRange,
-                        hivePartitionValues.getUidToPartitionRange(),
-                        hivePartitionValues.getRangeToId(),
-                        hivePartitionValues.getSingleColumnRangeMap(),
-                        true);
-                Collection<Long> filteredPartitionIds = pruner.prune();
-                this.readPartitionNum = filteredPartitionIds.size();
-                LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                        hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-
-                // 3. get partitions from cache
-                List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
-                for (Long id : filteredPartitionIds) {
-                    ListPartitionItem listPartitionItem = (ListPartitionItem) idToPartitionItem.get(id);
-                    partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
-                }
-                List<HivePartition> partitions = cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(),
-                        partitionValuesList);
-                // 4. get all files of partitions
-                getFileSplitByPartitions(cache, partitions, allFiles, useSelfSplitter);
-            } else {
-                // unpartitioned table, create a dummy partition to save location and inputformat,
-                // so that we can unify the interface.
-                HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
-                        hmsTable.getRemoteTable().getSd().getInputFormat(),
-                        hmsTable.getRemoteTable().getSd().getLocation(), null);
-                getFileSplitByPartitions(cache, Lists.newArrayList(dummyPartition), allFiles, useSelfSplitter);
-                this.totalPartitionNum = 1;
-                this.readPartitionNum = 1;
-            }
+            getFileSplitByPartitions(cache, getPartitions(), allFiles, useSelfSplitter);
             LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
                     allFiles.size(), hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
             return allFiles;
@@ -187,7 +193,8 @@ public class HiveScanNode extends FileQueryScanNode {
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                     allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
-                            isSplittable, fileCacheValue.getPartitionValues()));
+                            isSplittable, fileCacheValue.getPartitionValues(),
+                            new HiveSplitCreator(fileCacheValue.getAcidInfo())));
                 }
             }
         }
@@ -203,7 +210,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds);
+        return cache.getFilesByTransaction(partitions, validWriteIds, hiveTransaction.isFullAcid());
     }
 
     @Override

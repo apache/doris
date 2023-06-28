@@ -62,37 +62,41 @@ CteAnchor[cteId= ( CTEId#1=] )
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalProject
-------------------hashJoin[LEFT_SEMI_JOIN](catalog_sales.cs_bill_customer_sk = best_ss_customer.c_customer_sk)
---------------------PhysicalDistribute
-----------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
-------------------------hashJoin[LEFT_SEMI_JOIN](catalog_sales.cs_item_sk = frequent_ss_items.item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_sales]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------CteConsumer[cteId= ( CTEId#1=] )
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 5))
-------------------------------PhysicalOlapScan[date_dim]
+------------------hashJoin[RIGHT_SEMI_JOIN](catalog_sales.cs_item_sk = frequent_ss_items.item_sk)
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------CteConsumer[cteId= ( CTEId#4=] )
+------------------------CteConsumer[cteId= ( CTEId#1=] )
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------hashJoin[LEFT_SEMI_JOIN](catalog_sales.cs_bill_customer_sk = best_ss_customer.c_customer_sk)
+--------------------------PhysicalDistribute
+----------------------------hashJoin[INNER_JOIN](catalog_sales.cs_sold_date_sk = date_dim.d_date_sk)
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[catalog_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 5))
+------------------------------------PhysicalOlapScan[date_dim]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------CteConsumer[cteId= ( CTEId#4=] )
 ----------------PhysicalProject
-------------------hashJoin[RIGHT_SEMI_JOIN](web_sales.ws_bill_customer_sk = best_ss_customer.c_customer_sk)
+------------------hashJoin[RIGHT_SEMI_JOIN](web_sales.ws_item_sk = frequent_ss_items.item_sk)
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------CteConsumer[cteId= ( CTEId#4=] )
+------------------------CteConsumer[cteId= ( CTEId#1=] )
 --------------------PhysicalDistribute
-----------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
-------------------------hashJoin[LEFT_SEMI_JOIN](web_sales.ws_item_sk = frequent_ss_items.item_sk)
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[web_sales]
+----------------------PhysicalProject
+------------------------hashJoin[LEFT_SEMI_JOIN](web_sales.ws_bill_customer_sk = best_ss_customer.c_customer_sk)
+--------------------------PhysicalDistribute
+----------------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[web_sales]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 5))
+------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------CteConsumer[cteId= ( CTEId#1=] )
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 5))
-------------------------------PhysicalOlapScan[date_dim]
+------------------------------CteConsumer[cteId= ( CTEId#4=] )
 

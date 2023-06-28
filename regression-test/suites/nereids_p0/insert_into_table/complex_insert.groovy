@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
 suite('complex_insert') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
@@ -64,12 +66,15 @@ suite('complex_insert') {
     '''
 
     sql 'insert into dup_comp_t (id, kint, ksint) select id, kint, ksint from src'
+    sql 'sync'
     qt_sql_dup 'select * from dup_comp_t order by id, ksint'
 
     sql 'insert into agg_comp_t (id, kint, ksint) select id, kint, ksint from src'
+    sql 'sync'
     qt_sql_agg 'select * from agg_comp_t order by id, ksint'
 
     sql 'insert into uni_comp_t (id, kint, ksint) select id, kint, ksint from src'
+    sql 'sync'
     qt_sql_uni 'select * from uni_comp_t order by id, ksint'
 
     sql 'truncate table dup_comp_t'
@@ -80,6 +85,7 @@ suite('complex_insert') {
                 (select id, min(kbint) minv from src group by id, kbool) t2
             where t1.id = t2.id
     '''
+    sql 'sync'
     qt_sql_dup 'select * from dup_comp_t order by id, ksint, kint'
 
     sql 'truncate table agg_comp_t'
@@ -90,6 +96,7 @@ suite('complex_insert') {
                 (select id, min(kbint) minv from src group by id, kbool) t2
             where t1.id = t2.id
     '''
+    sql 'sync'
     qt_sql_agg 'select * from agg_comp_t order by id, ksint, kint'
 
     sql 'truncate table uni_comp_t'
@@ -100,6 +107,7 @@ suite('complex_insert') {
                 (select id, min(kbint) minv from src group by id, kbool) t2
             where t1.id = t2.id
     '''
+    sql 'sync'
     qt_sql_uni 'select * from uni_comp_t order by id, ksint, kint'
 
     sql 'drop table if exists t1'
@@ -169,15 +177,15 @@ suite('complex_insert') {
     '''
 
     sql 'insert into t1(id, c1, c2, c3) select id, c1 * 2, c2, c3 from t1'
-
+    sql 'sync'
     qt_sql_1 'select * from t1, t2, t3 order by t1.id, t1.id1, t2.id, t3.id'
 
     sql 'insert into t2(id, c1, c2, c3) select id, c1, c2 * 2, c3 from t2'
-
+    sql 'sync'
     qt_sql_2 'select * from t1, t2, t3 order by t1.id, t1.id1, t2.id, t3.id'
 
     sql 'insert into t2(c1, c3) select c1 + 1, c3 + 1 from (select id, c1, c3 from t1 order by id, c1 limit 10) t1, t3'
-
+    sql 'sync'
     qt_sql_3 'select * from t1, t2, t3 order by t1.id, t1.id1, t2.id, t3.id'
 
     sql 'drop table if exists agg_have_dup_base'
@@ -194,13 +202,11 @@ suite('complex_insert') {
         distributed by hash(k1) buckets 3
         properties("replication_num" = "1");
     '''
-
-    sql '''
-        create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;
-    '''
+    
+    createMV("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1;")
 
     sql 'insert into agg_have_dup_base select -4, -4, -4, \'d\''
-
+    sql 'sync'
     qt_mv 'select * from agg_have_dup_base'
 
 }

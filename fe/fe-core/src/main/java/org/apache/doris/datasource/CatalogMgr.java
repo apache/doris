@@ -63,6 +63,7 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -417,7 +418,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
-                for (Map.Entry<String, String> elem : catalog.getProperties().entrySet()) {
+                // use tree map to maintain display order, making it easier to view properties
+                Map<String, String> sortedMap = new TreeMap<>(catalog.getProperties()).descendingMap();
+                for (Map.Entry<String, String> elem : sortedMap.entrySet()) {
                     if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {
                         continue;
                     }
@@ -731,7 +734,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return ((ExternalCatalog) catalog).tableExistInLocal(dbName, tableName);
     }
 
-    public void createExternalTable(String dbName, String tableName, String catalogName, boolean ignoreIfExists)
+    public void createExternalTableFromEvent(String dbName, String tableName, String catalogName,
+            boolean ignoreIfExists)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -760,11 +764,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableName(tableName);
         log.setTableId(Env.getCurrentEnv().getNextId());
-        replayCreateExternalTable(log);
+        replayCreateExternalTableFromEvent(log);
         Env.getCurrentEnv().getEditLog().logCreateExternalTable(log);
     }
 
-    public void replayCreateExternalTable(ExternalObjectLog log) {
+    public void replayCreateExternalTableFromEvent(ExternalObjectLog log) {
         LOG.debug("ReplayCreateExternalTable,catalogId:[{}],dbId:[{}],tableId:[{}],tableName:[{}]", log.getCatalogId(),
                 log.getDbId(), log.getTableId(), log.getTableName());
         ExternalCatalog catalog = (ExternalCatalog) idToCatalog.get(log.getCatalogId());
@@ -779,7 +783,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         db.writeLock();
         try {
-            db.createTable(log.getTableName(), log.getTableId());
+            db.replayCreateTableFromEvent(log.getTableName(), log.getTableId());
         } finally {
             db.writeUnlock();
         }

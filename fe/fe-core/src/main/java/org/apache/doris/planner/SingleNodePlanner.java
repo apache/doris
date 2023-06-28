@@ -67,11 +67,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.HiveScanNode;
-import org.apache.doris.planner.external.HudiScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
+import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -615,7 +614,9 @@ public class SingleNodePlanner {
             List<SlotId> conjunctSlotIds = Lists.newArrayList();
             if (allConjuncts != null) {
                 for (Expr conjunct : allConjuncts) {
-                    conjunct.getIds(null, conjunctSlotIds);
+                    if (!conjunct.isAuxExpr()) {
+                        conjunct.getIds(null, conjunctSlotIds);
+                    }
                 }
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
@@ -1183,8 +1184,7 @@ public class SingleNodePlanner {
                 materializeTableResultForCrossJoinOrCountStar(ref, analyzer);
                 PlanNode plan = createTableRefNode(analyzer, ref, selectStmt);
                 turnOffPreAgg(aggInfo, selectStmt, analyzer, plan);
-                if (VectorizedUtil.isVectorized()
-                        && ConnectContext.get().getSessionVariable().enablePushDownNoGroupAgg) {
+                if (ConnectContext.get().getSessionVariable().enablePushDownNoGroupAgg) {
                     pushDownAggNoGrouping(aggInfo, selectStmt, analyzer, plan);
                 }
 
@@ -1232,8 +1232,7 @@ public class SingleNodePlanner {
             // selectStmt.seondSubstituteInlineViewExprs(analyzer.getChangeResSmap());
 
             turnOffPreAgg(aggInfo, selectStmt, analyzer, root);
-            if (VectorizedUtil.isVectorized()
-                    && ConnectContext.get().getSessionVariable().enablePushDownNoGroupAgg) {
+            if (ConnectContext.get().getSessionVariable().enablePushDownNoGroupAgg) {
                 pushDownAggNoGrouping(aggInfo, selectStmt, analyzer, root);
             }
 
@@ -1330,11 +1329,10 @@ public class SingleNodePlanner {
         return root;
     }
 
-    public boolean selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer)
-            throws UserException, MVSelectFailedException {
+    public boolean selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer) throws UserException {
         boolean selectFailed = false;
         boolean haveError = false;
-        String errorMsg = "select fail reason: ";
+        StringBuilder errorMsg = new StringBuilder("select fail reason: ");
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
@@ -1388,9 +1386,9 @@ public class SingleNodePlanner {
                         }
                     } catch (Exception e) {
                         if (haveError) {
-                            errorMsg += ",";
+                            errorMsg.append(",");
                         }
-                        errorMsg += e.getMessage();
+                        errorMsg.append(e.getMessage());
                         haveError = true;
                         tupleSelectFailed = true;
                     }
@@ -1409,7 +1407,7 @@ public class SingleNodePlanner {
             }
         }
         if (haveError) {
-            throw new MVSelectFailedException(errorMsg);
+            throw new MVSelectFailedException(errorMsg.toString());
         }
         return selectFailed;
     }
@@ -1669,17 +1667,6 @@ public class SingleNodePlanner {
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
 
-        if (analyzer.isOuterJoined(inlineViewRef.getId()) && !VectorizedUtil.isVectorized()) {
-            rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
-            // Exprs against non-matched rows of an outer join should always return NULL.
-            // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping
-            // must be performed on the composed smap, and not on the inline view's smap,
-            // because the rhs exprs must first be resolved against the physical output of
-            // 'planRoot' to correctly determine whether wrapping is necessary.
-            List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
-                    outputSmap.getRhs(), rootNode.getTupleIds(), null, analyzer);
-            outputSmap = new ExprSubstitutionMap(outputSmap.getLhs(), nullableRhs);
-        }
         // Set output smap of rootNode *before* creating a SelectNode for proper resolution.
         rootNode.setOutputSmap(outputSmap, analyzer);
         if (rootNode instanceof UnionNode && ((UnionNode) rootNode).isConstantUnion()) {
@@ -2766,6 +2753,12 @@ public class SingleNodePlanner {
                             }
                         }
                     }
+                }
+                GroupByClause groupByClause = stmt.getGroupByClause();
+                List<Expr> exprs = groupByClause.getGroupingExprs();
+                if (!exprs.contains(sourceExpr)) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
                 }
             }
 

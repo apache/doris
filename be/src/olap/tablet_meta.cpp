@@ -941,6 +941,22 @@ bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {
     return get_agg(bmk)->contains(row_id);
 }
 
+bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
+    std::shared_lock l(lock);
+    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+        auto& [k, bm] = *it;
+        if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
+            std::get<2>(k) > std::get<2>(bmk)) {
+            break;
+        }
+        if (bm.contains(row_id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int DeleteBitmap::set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
     std::lock_guard l(lock);
     auto [_, inserted] = delete_bitmap.insert_or_assign(bmk, segment_delete_bitmap);

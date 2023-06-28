@@ -57,6 +57,8 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_count_old(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_sum_old(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
@@ -68,6 +70,8 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_max_by(instance);
         register_aggregate_function_avg(instance);
         register_aggregate_function_count(instance);
+        register_aggregate_function_count_old(instance);
+        register_aggregate_function_sum_old(instance);
         register_aggregate_function_uniq(instance);
         register_aggregate_function_bit(instance);
         register_aggregate_function_bitmap(instance);

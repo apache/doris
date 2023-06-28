@@ -28,6 +28,7 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_UNKNOWN = "unknown";
     public static String INVERTED_INDEX_PARSER_NONE = "none";
     public static String INVERTED_INDEX_PARSER_STANDARD = "standard";
+    public static String INVERTED_INDEX_PARSER_UNICODE = "unicode";
     public static String INVERTED_INDEX_PARSER_ENGLISH = "english";
     public static String INVERTED_INDEX_PARSER_CHINESE = "chinese";
 
@@ -53,8 +54,9 @@ public class InvertedIndexUtil {
         if (colType.isStringType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
-                        || parser.equals(INVERTED_INDEX_PARSER_ENGLISH)
-                            || parser.equals(INVERTED_INDEX_PARSER_CHINESE))) {
+                        || parser.equals(INVERTED_INDEX_PARSER_UNICODE)
+                            || parser.equals(INVERTED_INDEX_PARSER_ENGLISH)
+                                || parser.equals(INVERTED_INDEX_PARSER_CHINESE))) {
                 throw new AnalysisException("INVERTED index parser: " + parser
                     + " is invalid for column: " + indexColName + " of type " + colType);
             }

@@ -252,7 +252,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         for (RuntimeFilter filter : filters) {
             Assertions.assertTrue(colNames.contains(Pair.of(
                     filter.getSrcExpr().toSql(),
-                    filter.getTargetExpr().getName())));
+                    filter.getTargetExprs().get(0).getName())));
         }
     }
 }

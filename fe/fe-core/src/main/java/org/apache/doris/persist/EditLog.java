@@ -960,7 +960,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_EXTERNAL_TABLE: {
                     final ExternalObjectLog log = (ExternalObjectLog) journal.getData();
-                    env.getCatalogMgr().replayCreateExternalTable(log);
+                    env.getCatalogMgr().replayCreateExternalTableFromEvent(log);
                     break;
                 }
                 case OperationType.OP_DROP_EXTERNAL_DB: {
@@ -1022,6 +1022,19 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_ANALYSIS_TASK: {
                     env.getAnalysisManager().replayDeleteAnalysisTask((AnalyzeDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ALTER_DATABASE_PROPERTY: {
+                    AlterDatabasePropertyInfo alterDatabasePropertyInfo = (AlterDatabasePropertyInfo) journal.getData();
+                    LOG.info("replay alter database property: {}", alterDatabasePropertyInfo);
+                    env.replayAlterDatabaseProperty(alterDatabasePropertyInfo.getDbName(),
+                            alterDatabasePropertyInfo.getProperties());
+                    break;
+                }
+                case OperationType.OP_GC_BINLOG: {
+                    BinlogGcInfo binlogGcInfo = (BinlogGcInfo) journal.getData();
+                    LOG.info("replay gc binlog: {}", binlogGcInfo);
+                    env.replayGcBinlog(binlogGcInfo);
                     break;
                 }
                 default: {
@@ -1785,5 +1798,13 @@ public class EditLog {
 
     public void logDeleteAnalysisTask(AnalyzeDeletionLog log) {
         logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
+    }
+
+    public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
+        logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
+    }
+
+    public void logGcBinlog(BinlogGcInfo log) {
+        logEdit(OperationType.OP_GC_BINLOG, log);
     }
 }

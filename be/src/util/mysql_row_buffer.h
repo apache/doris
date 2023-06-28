@@ -56,8 +56,6 @@ public:
     MysqlRowBuffer();
     ~MysqlRowBuffer();
 
-    MysqlRowBuffer(MysqlRowBuffer&& other);
-
     void reset() { _pos = _buf; }
 
     // Prepare for binary row buffer

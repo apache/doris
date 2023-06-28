@@ -32,6 +32,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 
 namespace doris {
@@ -163,8 +164,8 @@ public:
     bool can_write() const;
     bool is_pending_finish() const;
     void close();
-    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
+    void update_profile(RuntimeProfile* profile);
 
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
@@ -178,9 +179,9 @@ private:
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
+    // TODO: make all flat_hash_map to a STRUT
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;
-    phmap::flat_hash_map<InstanceLoId, PTransmitDataParams*> _instance_to_request;
-    phmap::flat_hash_map<InstanceLoId, PUniqueId> _instance_to_finst_id;
+    phmap::flat_hash_map<InstanceLoId, std::unique_ptr<PTransmitDataParams>> _instance_to_request;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_sending_by_pipeline;
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
@@ -191,16 +192,18 @@ private:
     // Sender instance id, unique within a fragment. StreamSender save the variable
     int _sender_id;
     int _be_number;
-
+    std::atomic<int64_t> _rpc_count = 0;
     PipelineFragmentContext* _context;
 
     Status _send_rpc(InstanceLoId);
     // must hold the _instance_to_package_queue_mutex[id] mutex to opera
-    void _construct_request(InstanceLoId id);
+    void _construct_request(InstanceLoId id, PUniqueId);
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
+    int64_t get_sum_rpc_time();
 };
 
 } // namespace pipeline

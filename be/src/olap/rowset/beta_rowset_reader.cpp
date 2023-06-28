@@ -130,7 +130,11 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     std::string schema_key = SchemaCache::get_schema_key(
             _read_options.tablet_id, _context->tablet_schema, read_columns,
             _context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
-    if ((_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
+    // It is necessary to ensure that there is a schema version when using a cache
+    // because the absence of a schema version can result in reading a stale version
+    // of the schema after a schema change.
+    if (_context->tablet_schema->schema_version() < 0 ||
+        (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
         _input_schema = std::make_shared<Schema>(_context->tablet_schema->columns(), read_columns);
         SchemaCache::instance()->insert_schema(schema_key, _input_schema);
     }
@@ -220,7 +224,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         auto s = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return Status::Error<ROWSET_READER_INIT>();
+            return Status::Error<ROWSET_READER_INIT>(s.to_string());
         }
         if (iter->empty()) {
             continue;
@@ -264,7 +268,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context,
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
         _iterator.reset();
-        return Status::Error<ROWSET_READER_INIT>();
+        return Status::Error<ROWSET_READER_INIT>(s.to_string());
     }
     return Status::OK();
 }

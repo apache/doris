@@ -60,6 +60,7 @@ import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -72,6 +73,7 @@ import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
+import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.CleanQueryStatsInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -593,7 +595,8 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DYNAMIC_PARTITION:
             case OperationType.OP_MODIFY_IN_MEMORY:
-            case OperationType.OP_MODIFY_REPLICATION_NUM: {
+            case OperationType.OP_MODIFY_REPLICATION_NUM:
+            case OperationType.OP_UPDATE_BINLOG_CONFIG: {
                 data = ModifyTablePropertyOperationLog.read(in);
                 isRead = true;
                 break;
@@ -813,6 +816,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DELETE_ANALYSIS_TASK: {
                 data = AnalyzeDeletionLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_DATABASE_PROPERTY: {
+                data = AlterDatabasePropertyInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_GC_BINLOG: {
+                data = BinlogGcInfo.read(in);
                 isRead = true;
                 break;
             }

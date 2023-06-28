@@ -30,14 +30,16 @@ By connecting to Hive Metastore, or a metadata service compatible with Hive Meta
 
 In addition to Hive, many other systems also use the Hive Metastore to store metadata. So through Hive Catalog, we can not only access Hive, but also access systems that use Hive Metastore as metadata storage. Such as Iceberg, Hudi, etc.
 
-## Limitations
+## Terms and Conditions
 
-1. Need to put core-site.xml, hdfs-site.xml in the conf directory of FE and BE.
+1. Need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE.
 2. hive supports version 1/2/3.
-3. Support Managed Table and External Table.
+3. Support Managed Table and External Table and part of Hive View.
 4. Can identify hive, iceberg, hudi metadata stored in Hive Metastore.
 
 ## Create Catalog
+
+### Hive On HDFS
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -93,16 +95,6 @@ Please place the `krb5.conf` file and `keytab` authentication file under all `BE
 
 The value of `hive.metastore.kerberos.principal` needs to be consistent with the property of the same name of the connected hive metastore, which can be obtained from `hive-site.xml`.
 
-Provide Hadoop KMS encrypted transmission information, examples are as follows:
-
-```sql
-CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
-);
-```
-
 ### Hive On JuiceFS
 
 Data is stored in JuiceFS, examples are as follows:
@@ -127,8 +119,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "s3.endpoint" = "s3.us-east-1.amazonaws.com",
-    "s3.access-key" = "ak",
-    "s3.secret-key" = "sk"
+    "s3.access_key" = "ak",
+    "s3.secret_key" = "sk"
     "use_path_style" = "true"
 );
 ```
@@ -146,8 +138,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "oss.endpoint" = "oss.oss-cn-beijing.aliyuncs.com",
-    "oss.access-key" = "ak",
-    "oss.secret-key" = "sk"
+    "oss.access_key" = "ak",
+    "oss.secret_key" = "sk"
 );
 ```
 
@@ -158,8 +150,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "obs.endpoint" = "obs.cn-north-4.myhuaweicloud.com",
-    "obs.access-key" = "ak",
-    "obs.secret-key" = "sk"
+    "obs.access_key" = "ak",
+    "obs.secret_key" = "sk"
 );
 ```
 
@@ -170,8 +162,8 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "cos.endpoint" = "cos.ap-beijing.myqcloud.com",
-    "cos.access-key" = "ak",
-    "cos.secret-key" = "sk"
+    "cos.access_key" = "ak",
+    "cos.secret_key" = "sk"
 );
 ```
 
@@ -182,14 +174,14 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.type" = "glue",
     "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-    "glue.access-key" = "ak",
-    "glue.secret-key" = "sk"
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
 );
 ```
 
 ## Metadata cache settings
 
-When creating a Catalog, you can use the parameter `file.meta.cache.ttl-second` to set the metadata File Cache automatic expiration time, or set this value to 0 to disable File Cache. The time unit is: second. Examples are as follows:
+When creating a Catalog, you can use the parameter `file.meta.cache.ttl-second` to set the automatic expiration time of the Hive partition file cache, or set this value to 0 to disable the partition file cache. The time unit is: second. Examples are as follows:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (

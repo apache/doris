@@ -610,50 +610,46 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
     auto num_rows = block.rows();
-
-    {
-        SCOPED_TIMER(_convert_tuple_timer);
-        if (_rows_buffer.size() < num_rows) {
-            _rows_buffer.resize(num_rows);
-        }
-
-        for (size_t i = 0; i != num_rows; ++i) {
-            _rows_buffer[i].reset();
-            if constexpr (is_binary_format) {
-                _rows_buffer[i].start_binary_row(_output_vexpr_ctxs.size());
-            }
-        }
-
-        for (int i = 0; status.ok() && i < _output_vexpr_ctxs.size(); ++i) {
-            const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
-            auto type_ptr = block.get_by_position(i).type;
-
-            DCHECK(num_rows == block.get_by_position(i).column->size())
-                    << fmt::format("block's rows({}) != column{}'s size({})", num_rows, i,
-                                   block.get_by_position(i).column->size());
-
-            RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(
-                    *column_ptr, output_object_data(), _rows_buffer, 0, 0, num_rows, col_const));
-
-            if (!status) {
-                LOG(WARNING) << "convert row to mysql result failed. block_struct="
-                             << block.dump_structure();
-                break;
-            }
-        }
-    }
+    result->result_batch.rows.resize(num_rows);
 
     uint64_t bytes_sent = 0;
-    // copy MysqlRowBuffer to Thrift
     {
-        SCOPED_TIMER(_copy_buffer_timer);
-        result->result_batch.rows.resize(num_rows);
-        for (int i = 0; i < num_rows; ++i) {
-            result->result_batch.rows[i].append(_rows_buffer[i].buf(), _rows_buffer[i].length());
-            bytes_sent += _rows_buffer[i].length();
+        SCOPED_TIMER(_convert_tuple_timer);
+        MysqlRowBuffer<is_binary_format> row_buffer;
+        if constexpr (is_binary_format) {
+            row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+        }
+
+        struct Arguments {
+            const IColumn* column;
+            bool is_const;
+            DataTypeSerDeSPtr serde;
+        };
+
+        std::vector<Arguments> arguments;
+        for (int i = 0; i < _output_vexpr_ctxs.size(); ++i) {
+            const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
+            auto serde = block.get_by_position(i).type->get_serde();
+            serde->set_return_object_as_string(output_object_data());
+            arguments.emplace_back(column_ptr.get(), col_const, serde);
+        }
+
+        for (size_t row_idx = 0; row_idx != num_rows; ++row_idx) {
+            for (int i = 0; i < _output_vexpr_ctxs.size(); ++i) {
+                RETURN_IF_ERROR(arguments[i].serde->write_column_to_mysql(
+                        *(arguments[i].column), row_buffer, row_idx, arguments[i].is_const));
+            }
+
+            // copy MysqlRowBuffer to Thrift
+            result->result_batch.rows[row_idx].append(row_buffer.buf(), row_buffer.length());
+            bytes_sent += row_buffer.length();
+            row_buffer.reset();
+            if constexpr (is_binary_format) {
+                row_buffer.start_binary_row(_output_vexpr_ctxs.size());
+            }
         }
     }
-    if (status) {
+    {
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
@@ -672,7 +668,6 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             LOG(WARNING) << "append result batch to sink failed.";
         }
     }
-
     return status;
 }
 

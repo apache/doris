@@ -18,8 +18,13 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.utframe.TestWithFeService;
@@ -61,10 +66,10 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic c = statisticsCache.getColumnStatistics(1, "col");
+        ColumnStatistic c = statisticsCache.getColumnStatistics(-1, -1, 1, "col");
         Assertions.assertTrue(c.isUnKnown);
         Thread.sleep(100);
-        c = statisticsCache.getColumnStatistics(1, "col");
+        c = statisticsCache.getColumnStatistics(-1, -1, 1, "col");
         Assertions.assertTrue(c.isUnKnown);
     }
 
@@ -125,10 +130,10 @@ public class CacheTest extends TestWithFeService {
             }
         };
         StatisticsCache statisticsCache = new StatisticsCache();
-        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(0, "col");
+        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, "col");
         Assertions.assertTrue(columnStatistic.isUnKnown);
         Thread.sleep(1000);
-        columnStatistic = statisticsCache.getColumnStatistics(0, "col");
+        columnStatistic = statisticsCache.getColumnStatistics(-1, -1, 0, "col");
         Assertions.assertEquals(1, columnStatistic.count);
         Assertions.assertEquals(2, columnStatistic.ndv);
         Assertions.assertEquals(10, columnStatistic.maxValue);
@@ -235,5 +240,61 @@ public class CacheTest extends TestWithFeService {
         Thread.sleep(10000);
         Histogram histogram = statisticsCache.getHistogram(0, "col");
         Assertions.assertNotNull(histogram);
+    }
+
+    @Test
+    public void testLoadFromMeta(@Mocked Env env,
+                                 @Mocked CatalogMgr mgr,
+                                 @Mocked HMSExternalCatalog catalog,
+                                 @Mocked HMSExternalDatabase db,
+                                 @Mocked HMSExternalTable table) throws Exception {
+        new MockUp<StatisticsUtil>() {
+
+            @Mock
+            public Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
+                return new Column("abc", PrimitiveType.BIGINT);
+            }
+
+            @Mock
+            public List<ResultRow> execStatisticQuery(String sql) {
+                return null;
+            }
+        };
+        new MockUp<Env>() {
+            @Mock
+            public Env getCurrentEnv() {
+                return env;
+            }
+        };
+
+        new Expectations() {
+            {
+                env.getCatalogMgr();
+                result = mgr;
+
+                mgr.getCatalog(1);
+                result = catalog;
+
+                catalog.getDbOrMetaException(1);
+                result = db;
+
+                db.getTableOrMetaException(1);
+                result = table;
+
+                table.getColumnStatistic();
+                result = new ColumnStatistic(1, 2, null, 3, 4, 5, 6, 7, 8, null, null, false, null);
+            }
+        };
+        StatisticsCache statisticsCache = new StatisticsCache();
+        ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
+        Thread.sleep(3000);
+        columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
+        Assertions.assertEquals(1, columnStatistic.count);
+        Assertions.assertEquals(2, columnStatistic.ndv);
+        Assertions.assertEquals(3, columnStatistic.avgSizeByte);
+        Assertions.assertEquals(4, columnStatistic.numNulls);
+        Assertions.assertEquals(5, columnStatistic.dataSize);
+        Assertions.assertEquals(6, columnStatistic.minValue);
+        Assertions.assertEquals(7, columnStatistic.maxValue);
     }
 }

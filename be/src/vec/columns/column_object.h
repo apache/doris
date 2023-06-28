@@ -298,6 +298,9 @@ public:
 
     void insert_default() override;
 
+    // Revise this column to specified num_rows
+    void revise_to(int num_rows);
+
     [[noreturn]] ColumnPtr replicate(const Offsets& offsets) const override {
         LOG(FATAL) << "should not call the method replicate in column object";
     }

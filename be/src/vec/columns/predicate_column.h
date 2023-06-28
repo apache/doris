@@ -343,7 +343,7 @@ public:
     void clear() override {
         data.clear();
         if (_arena != nullptr) {
-            _arena.reset(new Arena());
+            _arena->clear();
         }
     }
 
