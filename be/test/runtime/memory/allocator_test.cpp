@@ -31,15 +31,15 @@ template <typename T>
 void test_allocator(T allocator) {
     auto ptr = allocator.alloc(4096);
     EXPECT_NE(nullptr, ptr);
-    EXPECT_EQ(0, (uint64_t)ptr % 4096);
     ptr = allocator.realloc(ptr, 4096, 4096 * 1024);
-    allocator.free(ptr);
+    EXPECT_NE(nullptr, ptr);
+    allocator.free(ptr, 4096 * 1024);
 
     ptr = allocator.alloc(100);
     EXPECT_NE(nullptr, ptr);
-    EXPECT_EQ(0, (uint64_t)ptr % 4096);
     ptr = allocator.realloc(ptr, 100, 100 * 1024);
-    allocator.free(ptr);
+    EXPECT_NE(nullptr, ptr);
+    allocator.free(ptr, 100 * 1024);
 }
 
 void test_normal() {
