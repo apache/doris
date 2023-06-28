@@ -453,9 +453,24 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
             RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
                                                                          _delete_bitmap));
         }
+
+        // commit_phase_update_delete_bitmap() may generate new segments, we need to create a new
+        // transient rowset writer to write the new segments, then merge it back the original
+        // rowset.
+        std::unique_ptr<RowsetWriter> rowset_writer;
+        _tablet->create_transient_rowset_writer(_cur_rowset, &rowset_writer);
         RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
                 _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
-                _rowset_writer.get()));
+                rowset_writer.get()));
+        if (_cur_rowset->tablet_schema()->is_partial_update()) {
+            // build rowset writer and merge transient rowset
+            RETURN_IF_ERROR(rowset_writer->flush());
+            RowsetSharedPtr transient_rowset = rowset_writer->build();
+            _cur_rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+
+            // erase segment cache cause we will add a segment to rowset
+            SegmentLoader::instance()->erase_segment(_cur_rowset->rowset_id());
+        }
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
                                                             _req.load_id, _cur_rowset, false);
