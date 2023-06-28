@@ -26,9 +26,13 @@ under the License.
 
 
 # 简介
+
 `fs_benchmark_tool` 可以用于测试包括 hdfs 和对象存储在内的远端存储系统的基本服务性能，如读取、写入性能。该工具主要用于分析或排查远端存储系统的性能问题。
+
 # 编译与安装
+
 `fs_benchmark_tool` 是 BE 代码的一部分，默认不编译。如需编译，请执行以下命令：
+
 ```
 cd doris 
 BUILD_FS_BENCHMARK=ON ./build.sh  --be
@@ -41,7 +45,9 @@ lib/fs_benchmark_tool
 > 注意，`fs_benchmark_tool` 需在BE运行环境目录下使用，因为其依赖 BE 相关的 jar 包、环境变量等内容。
 
 # 使用
+
 命令格式：
+
 ```shell
 sh run-fs-benchmark.sh \
           --conf=配置文件 \
@@ -52,6 +58,7 @@ sh run-fs-benchmark.sh \
           --iterations= 迭代次数
 ```
 ## 参数解析
+
 `--conf`必选参数
 
 
@@ -60,11 +67,11 @@ sh run-fs-benchmark.sh \
 &emsp; 如连接`hdfs`，请将 `hdfs-site.xml`，`core-site.xml` 文件放置在 `be/conf` 目录下。
 
 &emsp; 除连接信息外，还有以下额外参数：
-- file_size：指定读取或写入文件的大小。
+- `file_size`：指定读取或写入文件的大小。
 
-- buffer_size：一次读取操作读取的文件块大小。
+- `buffer_size`：一次读取操作读取的文件块大小。
 
-- base_dir：指定读取或写入文件的 base 路径。
+- `base_dir`：指定读取或写入文件的 base 路径。
 
 `--fs_type`必选参数
 
@@ -136,6 +143,7 @@ HdfsReadBenchmark/iterations:1/repeats:3/manual_time/threads:1_min          3685
 # 示例
 
 ## HDFS
+
 命令：
 ```
 sh run-fs-benchmark.sh \
@@ -182,6 +190,7 @@ Found 3 items
 ```
 
 ## 对象存储
+
 命令：
 ```
 sh bin/run-fs-benchmark.sh \

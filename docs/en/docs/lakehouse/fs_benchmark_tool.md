@@ -27,9 +27,13 @@ under the License.
 
 
 # Introduction
- `fs_benchmark_tool` can be used to test the basic service performance of remote storage systems including hdfs and object storage, such as read and write performance. This tool is mainly used to analyze or troubleshoot the performance problems of remote storage systems.
+
+`fs_benchmark_tool` can be used to test the basic service performance of remote storage systems including hdfs and object storage, such as read and write performance. This tool is mainly used to analyze or troubleshoot the performance problems of remote storage systems.
+
 # Compile and install
- `fs_benchmark_tool` is part of the `BE` code and does not compile by default. To compile, execute the following command:
+
+`fs_benchmark_tool` is part of the `BE` code and does not compile by default. To compile, execute the following command:
+
 ```
 cd doris 
 BUILD_FS_BENCHMARK=ON ./build.sh  --be
@@ -42,7 +46,9 @@ lib/fs_benchmark_tool
 > Note that `fs_benchmark_tool` it needs to be used in the BE running environment directory, because it depends on the BE-related jar package, environment variables, etc.
 
 # Use
+
 Command format:
+
 ```shell
 sh run-fs-benchmark.sh \
           --conf= configuration file \
@@ -52,7 +58,9 @@ sh run-fs-benchmark.sh \
           --threads= the number of threads \
           --iterations= the number of iterations
 ```
+
 ## Parameter parsing
+
  `--conf` Required parameter
 
 
@@ -70,7 +78,7 @@ sh run-fs-benchmark.sh \
 
 `--fs_type` Required parameter
 
-&emsp;The type of file system on which the operation is required. Currently supported `hdfs`. `s3`.
+&emsp;The type of file system on which the operation is required. Currently supported `hdfs`,`s3`.
 
 `--operation` Required parameter
 
@@ -139,6 +147,7 @@ Focus `UserCounters` on information in:
 # Examples
 
 ## HDFS
+
 Command:
 ```
 sh run-fs-benchmark.sh \
@@ -185,6 +194,7 @@ Found 3 items
 ```
 
 ## Object storage
+
 Command:
 ```
 sh bin/run-fs-benchmark.sh \
