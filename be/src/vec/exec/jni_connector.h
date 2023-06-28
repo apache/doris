@@ -33,12 +33,13 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
 #include "runtime/types.h"
+#include "util/runtime_profile.h"
+#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
-class RuntimeProfile;
 class RuntimeState;
 
 namespace vectorized {
