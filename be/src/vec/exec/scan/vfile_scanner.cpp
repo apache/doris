@@ -61,6 +61,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/scan/avro_jni_reader.h"
 #include "vec/exec/scan/hudi_jni_reader.h"
 #include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -713,6 +714,12 @@ Status VFileScanner::_get_next_reader() {
                                                        _io_ctx.get(), _is_dynamic_schema);
             init_status =
                     ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_AVRO: {
+            _cur_reader = AvroJNIReader::create_unique(_state, _profile, _params, _file_slot_descs);
+            init_status = ((AvroJNIReader*)(_cur_reader.get()))
+                                  ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
         default:

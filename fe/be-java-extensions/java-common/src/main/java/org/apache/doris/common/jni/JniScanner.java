@@ -21,6 +21,7 @@ package org.apache.doris.common.jni;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.jni.vec.VectorTable;
 
 import java.io.IOException;
@@ -43,6 +44,9 @@ public abstract class JniScanner {
     // Scan data and save as vector table
     protected abstract int getNext() throws IOException;
 
+    // parse table schema
+    protected abstract TableSchema parseTableSchema() throws UnsupportedOperationException;
+
     protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, ScanPredicate[] predicates,
             int batchSize) {
         this.types = requiredTypes;
@@ -61,6 +65,11 @@ public abstract class JniScanner {
 
     public VectorTable getTable() {
         return vectorTable;
+    }
+
+    public String getTableSchema() throws IOException {
+        TableSchema tableSchema = parseTableSchema();
+        return tableSchema.getTableSchema();
     }
 
     public long getNextBatchMeta() throws IOException {
@@ -95,7 +104,7 @@ public abstract class JniScanner {
         return vectorTable.getMetaAddress();
     }
 
-    protected void resetTable() {
+    public void resetTable() {
         if (vectorTable != null) {
             vectorTable.reset();
         }
@@ -105,7 +114,7 @@ public abstract class JniScanner {
         vectorTable.releaseColumn(fieldId);
     }
 
-    protected void releaseTable() {
+    public void releaseTable() {
         if (vectorTable != null) {
             vectorTable.close();
         }
