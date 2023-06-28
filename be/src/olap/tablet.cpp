@@ -2699,12 +2699,11 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     return Status::OK();
 }
 
-Status Tablet::lookup_row_key(
-        const Slice& encoded_key, bool with_seq_col,
-        const std::vector<RowsetSharedPtr>& specified_rowsets, RowLocation* row_location,
-        uint32_t version,
-        std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId>& segment_caches,
-        RowsetSharedPtr* rowset) {
+Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+                              const std::vector<RowsetSharedPtr>& specified_rowsets,
+                              RowLocation* row_location, uint32_t version,
+                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                              RowsetSharedPtr* rowset) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     if (_schema->has_sequence_col() && with_seq_col) {
@@ -2713,7 +2712,8 @@ Status Tablet::lookup_row_key(
     Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
     RowLocation loc;
 
-    for (auto& rs : specified_rowsets) {
+    for (size_t i = 0; i < specified_rowsets.size(); i++) {
+        auto& rs = specified_rowsets[i];
         auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
         int num_segments = rs->num_segments();
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
@@ -2729,14 +2729,12 @@ Status Tablet::lookup_row_key(
             continue;
         }
 
-        auto iter = segment_caches.find(rs->rowset_id());
-        if (iter == segment_caches.end()) {
-            SegmentCacheHandle segment_cache_handle;
+        if (UNLIKELY(segment_caches[i] == nullptr)) {
+            segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), &segment_cache_handle, true));
-            iter = segment_caches.emplace(rs->rowset_id(), std::move(segment_cache_handle)).first;
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true));
         }
-        auto& segments = iter->second.get_segments();
+        auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
@@ -2845,7 +2843,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     // The data for each segment may be lookup multiple times. Creating a SegmentCacheHandle
     // will update the lru cache, and there will be obvious lock competition in multithreading
     // scenarios, so using a segment_caches to cache SegmentCacheHandle.
-    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     while (remaining > 0) {
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
