@@ -22,14 +22,16 @@
 
 namespace doris::vectorized {
 
-class RuntimeFilterConsumerNode : public ExecNode {
+class RuntimeFilterConsumer {
 public:
-    RuntimeFilterConsumerNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~RuntimeFilterConsumerNode() override = default;
+    RuntimeFilterConsumer(const int32_t filter_id,
+                          const std::vector<TRuntimeFilterDesc>& runtime_filters,
+                          const RowDescriptor& row_descriptor, VExprContextSPtrs& conjuncts);
+    ~RuntimeFilterConsumer() = default;
 
-    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(RuntimeState* state);
 
-    // Try append late arrived runtime filters.
+    // Try to append late arrived runtime filters.
     // Return num of filters which are applied already.
     Status try_append_late_arrival_runtime_filter(int* arrived_rf_num);
 
@@ -54,15 +56,23 @@ protected:
         IRuntimeFilter* runtime_filter;
     };
 
-    RuntimeState* _state;
-
     std::vector<RuntimeFilterContext> _runtime_filter_ctxs;
-
-    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
     doris::Mutex _rf_locks;
     phmap::flat_hash_set<VExprSPtr> _rf_vexpr_set;
+
+private:
+    RuntimeState* _state;
+
+    int32_t _filter_id;
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+
+    const RowDescriptor& _row_descriptor_ref;
+
+    VExprContextSPtrs& _conjuncts_ref;
+
     // True means all runtime filters are applied to scanners
     bool _is_all_rf_applied = true;
     bool _blocked_by_rf = false;
