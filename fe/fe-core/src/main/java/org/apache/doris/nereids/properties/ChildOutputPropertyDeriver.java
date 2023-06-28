@@ -97,6 +97,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      * ******************************************************************************************** */
 
     @Override
+    public PhysicalProperties visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
+        return PhysicalProperties.GATHER;
+    }
+
+    @Override
     public PhysicalProperties visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanContext context) {
         return PhysicalProperties.GATHER;
@@ -395,17 +400,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalWindow(PhysicalWindow<? extends Plan> window, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         return childrenOutputProperties.get(0);
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
-            PlanContext context) {
-        return PhysicalProperties.GATHER;
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
-        return PhysicalProperties.GATHER;
     }
 
     private boolean isSameHashValue(DataType originType, DataType castType) {
