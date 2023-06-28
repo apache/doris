@@ -38,17 +38,23 @@ public:
 
     Status init() override { return Status::OK(); }
 
+    virtual std::string get_file_path(benchmark::State& state) {
+        std::string base_dir = _conf_map["base_dir"];
+        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
+        bm_log("file_path: {}", file_path);
+        return file_path;
+    }
+
     Status run(benchmark::State& state) override {
         std::shared_ptr<io::FileSystem> fs;
         io::FileReaderSPtr reader;
         bm_log("begin to init {}", _name);
-        std::string base_dir = _conf_map["baseDir"];
         size_t buffer_size =
                 _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
-        bm_log("file_path: {}", file_path);
+
+        auto file_path = get_file_path(state);
         RETURN_IF_ERROR(
                 FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader, reader_opts));
         bm_log("finish to init {}", _name);
@@ -61,10 +67,13 @@ public:
         size_t offset = 0;
         size_t bytes_read = 0;
 
-        auto start = std::chrono::high_resolution_clock::now();
-        size_t read_size = _file_size;
+        size_t read_size = reader->size();
+        if (_file_size > 0) {
+            read_size = std::min(read_size, _file_size);
+        }
         long remaining_size = read_size;
 
+        auto start = std::chrono::high_resolution_clock::now();
         while (remaining_size > 0) {
             bytes_read = 0;
             size_t size = std::min(buffer_size, (size_t)remaining_size);
@@ -81,13 +90,13 @@ public:
             remaining_size -= bytes_read;
         }
         bm_log("finish to run {}", _name);
-
         auto end = std::chrono::high_resolution_clock::now();
 
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 
         state.SetIterationTime(elapsed_seconds.count());
+        state.counters["ReadRate"] = benchmark::Counter(read_size, benchmark::Counter::kIsRate);
 
         if (reader != nullptr) {
             reader->close();
@@ -96,41 +105,19 @@ public:
     }
 };
 
-class HdfsOpenBenchmark : public BaseBenchmark {
+// Read a single specified file
+class HdfsSingleReadBenchmark : public HdfsOpenReadBenchmark {
 public:
-    HdfsOpenBenchmark(int threads, int iterations, size_t file_size,
-                      const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsOpenBenchmark", threads, iterations, file_size, 3, conf_map) {}
-    virtual ~HdfsOpenBenchmark() = default;
+    HdfsSingleReadBenchmark(int threads, int iterations, size_t file_size,
+                            const std::map<std::string, std::string>& conf_map)
+            : HdfsOpenReadBenchmark(threads, iterations, file_size, conf_map) {}
+    virtual ~HdfsSingleReadBenchmark() = default;
 
-    Status init() override { return Status::OK(); }
-
-    Status run(benchmark::State& state) override {
-        bm_log("begin to run {}", _name);
-        auto start = std::chrono::high_resolution_clock::now();
-        std::string base_dir = _conf_map["baseDir"];
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
-        THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
+    virtual std::string get_file_path(benchmark::State& state) override {
+        std::string file_path = _conf_map["file_path"];
         bm_log("file_path: {}", file_path);
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        io::FileReaderSPtr reader;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
-        RETURN_IF_ERROR(fs->open_file(file_path, reader_opts, &reader));
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
-        state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
-
-        if (reader != nullptr) {
-            reader->close();
-        }
-        return Status::OK();
+        return file_path;
     }
-
-private:
 };
 
 class HdfsCreateWriteBenchmark : public BaseBenchmark {
@@ -141,24 +128,17 @@ public:
                             conf_map) {}
     virtual ~HdfsCreateWriteBenchmark() = default;
 
-    Status init() override {
-        std::string base_dir = _conf_map["baseDir"];
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
-        THdfsParams hdfs_params = parse_properties(_conf_map);
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
-        RETURN_IF_ERROR(fs->delete_directory(base_dir));
-        return Status::OK();
-    }
+    Status init() override { return Status::OK(); }
 
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
-        auto start = std::chrono::high_resolution_clock::now();
-        std::string base_dir = _conf_map["baseDir"];
+        std::string base_dir = _conf_map["base_dir"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
         auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
         bm_log("file_path: {}", file_path);
+
+        auto start = std::chrono::high_resolution_clock::now();
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
@@ -188,6 +168,8 @@ public:
         state.SetIterationTime(elapsed_seconds.count());
         bm_log("finish to run {}", _name);
 
+        state.counters["WriteRate"] = benchmark::Counter(write_size, benchmark::Counter::kIsRate);
+
         if (writer != nullptr) {
             writer->close();
         }
@@ -206,13 +188,14 @@ public:
 
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
-        auto start = std::chrono::high_resolution_clock::now();
-        std::string base_dir = _conf_map["baseDir"];
+        std::string base_dir = _conf_map["base_dir"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
         auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
         auto new_file_path = fmt::format("{}/test_{}_new", base_dir, state.thread_index());
         bm_log("file_path: {}", file_path);
+
+        auto start = std::chrono::high_resolution_clock::now();
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
@@ -224,41 +207,12 @@ public:
         state.SetIterationTime(elapsed_seconds.count());
         bm_log("finish to run {}", _name);
 
+        state.counters["RenameCost"] =
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
+
         if (writer != nullptr) {
             writer->close();
         }
-        return Status::OK();
-    }
-
-private:
-};
-
-class HdfsDeleteBenchmark : public BaseBenchmark {
-public:
-    HdfsDeleteBenchmark(int threads, int iterations, size_t file_size,
-                        const std::map<std::string, std::string>& conf_map)
-            : BaseBenchmark("HdfsDeleteBenchmark", threads, 1, file_size, 1, conf_map) {}
-    virtual ~HdfsDeleteBenchmark() = default;
-
-    Status init() override { return Status::OK(); }
-
-    Status run(benchmark::State& state) override {
-        bm_log("begin to run {}", _name);
-        auto start = std::chrono::high_resolution_clock::now();
-        std::string base_dir = _conf_map["baseDir"];
-        io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
-        THdfsParams hdfs_params = parse_properties(_conf_map);
-        auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
-        bm_log("file_path: {}", file_path);
-        std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
-        RETURN_IF_ERROR(fs->delete_file(file_path));
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-                std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-
-        state.SetIterationTime(elapsed_seconds.count());
-        bm_log("finish to run {}", _name);
         return Status::OK();
     }
 
@@ -276,12 +230,13 @@ public:
 
     Status run(benchmark::State& state) override {
         bm_log("begin to run {}", _name);
-        auto start = std::chrono::high_resolution_clock::now();
-        std::string base_dir = _conf_map["baseDir"];
+        std::string base_dir = _conf_map["base_dir"];
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
         auto file_path = fmt::format("{}/test_{}", base_dir, state.thread_index());
         bm_log("file_path: {}", file_path);
+
+        auto start = std::chrono::high_resolution_clock::now();
         std::shared_ptr<io::HdfsFileSystem> fs;
         RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
         bool res = false;
@@ -292,6 +247,9 @@ public:
 
         state.SetIterationTime(elapsed_seconds.count());
         bm_log("finish to run {}", _name);
+
+        state.counters["ExistsCost"] =
+                benchmark::Counter(1, benchmark::Counter::kIsRate | benchmark::Counter::kInvert);
         return Status::OK();
     }
 };

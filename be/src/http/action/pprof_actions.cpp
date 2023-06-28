@@ -42,7 +42,7 @@
 namespace doris {
 
 // pprof default sample time in seconds.
-static const std::string SECOND_KEY = "seconds";
+[[maybe_unused]] static const std::string SECOND_KEY = "seconds";
 static const int kPprofDefaultSampleSecs = 30;
 
 // Protect, only one thread can work

@@ -248,9 +248,14 @@ public class GroupExpression {
         return lowestCostTable.get(property).first;
     }
 
-    public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
-            PhysicalProperties requiredPropertySet) {
-        this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    public void putOutputPropertiesMap(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.put(requiredProperties, outputProperties);
+    }
+
+    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
     }
 
     /**
@@ -325,10 +330,10 @@ public class GroupExpression {
         }
         builder.append(" cost=").append(format.format((long) cost));
         builder.append(" estRows=").append(format.format(estOutputRowCount));
-        builder.append(" (plan=").append(plan.toString()).append(") children=[");
-        builder.append(Joiner.on(", ").join(
-                children.stream().map(Group::getGroupId).collect(Collectors.toList())));
-        builder.append("]");
+        builder.append(" children=[").append(Joiner.on(", ").join(
+                        children.stream().map(Group::getGroupId).collect(Collectors.toList())))
+                .append(" ]");
+        builder.append(" (plan=").append(plan.toString()).append(")");
         return builder.toString();
     }
 }

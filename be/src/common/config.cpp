@@ -994,7 +994,7 @@ DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "true");
+DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
 // In the case of time series compaction, the execution of compaction is adjusted
@@ -1042,6 +1042,9 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+
+// max_write_buffer_number for rocksdb
+DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 #ifdef BE_TEST
 // test s3

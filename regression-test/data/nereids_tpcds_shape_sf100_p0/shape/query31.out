@@ -36,8 +36,9 @@ CteAnchor[cteId= ( CTEId#6=] )
 --------------------------PhysicalProject
 ----------------------------filter((ws.d_year = 2000)d_qoy IN (1, 2, 3))
 ------------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalProject
---------------------PhysicalOlapScan[customer_address]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[customer_address]
 ----PhysicalQuickSort
 ------PhysicalDistribute
 --------PhysicalQuickSort

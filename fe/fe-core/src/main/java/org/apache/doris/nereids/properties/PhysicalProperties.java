@@ -34,9 +34,15 @@ public class PhysicalProperties {
 
     public static PhysicalProperties ANY = new PhysicalProperties();
 
+    public static PhysicalProperties STORAGE_ANY = new PhysicalProperties(DistributionSpecStorageAny.INSTANCE);
+
+    public static PhysicalProperties EXECUTION_ANY = new PhysicalProperties(DistributionSpecExecutionAny.INSTANCE);
+
     public static PhysicalProperties REPLICATED = new PhysicalProperties(DistributionSpecReplicated.INSTANCE);
 
     public static PhysicalProperties GATHER = new PhysicalProperties(DistributionSpecGather.INSTANCE);
+
+    public static PhysicalProperties STORAGE_GATHER = new PhysicalProperties(DistributionSpecStorageGather.INSTANCE);
 
     private final OrderSpec orderSpec;
 

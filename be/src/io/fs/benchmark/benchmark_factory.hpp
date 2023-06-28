@@ -50,12 +50,10 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
             *bm = new HdfsCreateWriteBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "open_read") {
             *bm = new HdfsOpenReadBenchmark(threads, iterations, file_size, conf_map);
-        } else if (op_type == "open") {
-            *bm = new HdfsOpenBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "single_read") {
+            *bm = new HdfsSingleReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "rename") {
             *bm = new HdfsRenameBenchmark(threads, iterations, file_size, conf_map);
-        } else if (op_type == "delete") {
-            *bm = new HdfsDeleteBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "exists") {
             *bm = new HdfsExistsBenchmark(threads, iterations, file_size, conf_map);
         } else {
@@ -80,7 +78,7 @@ public:
               _conf_map(conf_map) {}
 
     ~MultiBenchmark() {
-        for (auto bm : benchmarks) {
+        for (auto bm : _benchmarks) {
             delete bm;
         }
     }
@@ -113,12 +111,12 @@ public:
             return st;
         }
         bm->register_bm();
-        benchmarks.emplace_back(bm);
+        _benchmarks.emplace_back(bm);
         return Status::OK();
     }
 
 private:
-    std::vector<BaseBenchmark*> benchmarks;
+    std::vector<BaseBenchmark*> _benchmarks;
     std::string _type;
     std::string _operation;
     int64_t _threads;

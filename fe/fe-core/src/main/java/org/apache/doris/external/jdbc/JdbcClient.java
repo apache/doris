@@ -292,7 +292,6 @@ public abstract class JdbcClient {
             String catalogName = getCatalogName(conn);
             tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
-            List<String> primaryKeys = getPrimaryKeys(dbName, tableName);
             while (rs.next()) {
                 if (isTableModified(tableName, rs.getString("TABLE_NAME"))) {
                     continue;
@@ -301,7 +300,11 @@ public abstract class JdbcClient {
                 field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
-                field.setKey(primaryKeys.contains(field.getColumnName()));
+                /*
+                   We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
+                   we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
+                */
+                field.setKey(true);
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
@@ -387,19 +390,6 @@ public abstract class JdbcClient {
     protected ResultSet getColumns(DatabaseMetaData databaseMetaData, String catalogName, String schemaName,
                                    String tableName) throws SQLException {
         return databaseMetaData.getColumns(catalogName, schemaName, tableName, null);
-    }
-
-    /**
-     * We used this method to retrieve the key column of the JDBC table, but since we only tested mysql,
-     * we kept the default key behavior in the parent class and only overwrite it in the mysql subclass
-     */
-    protected List<String> getPrimaryKeys(String dbName, String tableName) {
-        List<String> primaryKeys = Lists.newArrayList();
-        List<JdbcFieldSchema> columns = getJdbcColumnsInfo(dbName, tableName);
-        for (JdbcFieldSchema column : columns) {
-            primaryKeys.add(column.getColumnName());
-        }
-        return primaryKeys;
     }
 
     @Data

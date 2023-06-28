@@ -300,17 +300,11 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     return query_status();
 }
 
-const std::string ERROR_FILE_NAME = "error_log";
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
     _exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
-    // std::stringstream ss;
-    // ss << load_dir() << "/" << ERROR_FILE_NAME
-    //     << "_" << std::hex << fragment_instance_id().hi
-    //     << "_" << fragment_instance_id().lo;
-    // _error_log_file_path = ss.str();
     std::string error_log_absolute_path =
             _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
     _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);

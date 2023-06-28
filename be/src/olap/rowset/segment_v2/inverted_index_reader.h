@@ -30,6 +30,7 @@
 #include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/tablet_schema.h"
 
 namespace lucene {
@@ -61,18 +62,6 @@ enum class InvertedIndexReaderType {
     FULLTEXT = 0,
     STRING_TYPE = 1,
     BKD = 2,
-};
-
-enum class InvertedIndexQueryType {
-    UNKNOWN_QUERY = -1,
-    EQUAL_QUERY = 0,
-    LESS_THAN_QUERY = 1,
-    LESS_EQUAL_QUERY = 2,
-    GREATER_THAN_QUERY = 3,
-    GREATER_EQUAL_QUERY = 4,
-    MATCH_ANY_QUERY = 5,
-    MATCH_ALL_QUERY = 6,
-    MATCH_PHRASE_QUERY = 7,
 };
 
 class InvertedIndexReader {

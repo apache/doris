@@ -133,28 +133,19 @@ void ScannerContext::_init_free_block(int pre_alloc_block_count, int real_block_
         auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(), real_block_size,
                                                       true /*ignore invalid slots*/);
         free_blocks_memory_usage += block->allocated_bytes();
-        _free_blocks.emplace_back(std::move(block));
+        _free_blocks.enqueue(std::move(block));
     }
     _free_blocks_memory_usage->add(free_blocks_memory_usage);
 }
 
 vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
                                                      bool get_block_not_empty) {
-    {
-        std::lock_guard l(_free_blocks_lock);
-        *has_free_block = _free_blocks_capacity > 0;
-        // Always reduce _free_blocks_capacity by one since we always return a block
-        if (_free_blocks_capacity > 0) {
-            --_free_blocks_capacity;
-        }
-
-        if (!_free_blocks.empty()) {
-            if (!get_block_not_empty || _free_blocks.back()->mem_reuse()) {
-                auto block = std::move(_free_blocks.back());
-                _free_blocks.pop_back();
-                _free_blocks_memory_usage->add(-block->allocated_bytes());
-                return block;
-            }
+    vectorized::BlockUPtr block;
+    if (_free_blocks.try_dequeue(block)) {
+        if (!get_block_not_empty || block->mem_reuse()) {
+            _free_blocks_capacity--;
+            _free_blocks_memory_usage->add(-block->allocated_bytes());
+            return block;
         }
     }
 
@@ -166,8 +157,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block,
 void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block) {
     block->clear_column_data();
     _free_blocks_memory_usage->add(block->allocated_bytes());
-    std::lock_guard l(_free_blocks_lock);
-    _free_blocks.emplace_back(std::move(block));
+    _free_blocks.enqueue(std::move(block));
     ++_free_blocks_capacity;
 }
 
@@ -315,8 +305,6 @@ void ScannerContext::clear_and_join(VScanNode* node, RuntimeState* state) {
     _close_and_clear_scanners(node, state);
 
     _blocks_queue.clear();
-    std::unique_lock lock(_free_blocks_lock);
-    _free_blocks.clear();
 }
 
 bool ScannerContext::no_schedule() {
@@ -331,8 +319,9 @@ std::string ScannerContext::debug_string() {
             " limit: {}, _num_running_scanners: {}, _num_scheduling_ctx: {}, _max_thread_num: {},"
             " _block_per_scanner: {}, _cur_bytes_in_queue: {}, MAX_BYTE_OF_QUEUE: {}",
             ctx_id, _scanners.size(), _blocks_queue.size(), _process_status.ok(), _should_stop,
-            _is_finished, _free_blocks.size(), limit, _num_running_scanners, _num_scheduling_ctx,
-            _max_thread_num, _block_per_scanner, _cur_bytes_in_queue, _max_bytes_in_queue);
+            _is_finished, _free_blocks.size_approx(), limit, _num_running_scanners,
+            _num_scheduling_ctx, _max_thread_num, _block_per_scanner, _cur_bytes_in_queue,
+            _max_bytes_in_queue);
 }
 
 void ScannerContext::reschedule_scanner_ctx() {

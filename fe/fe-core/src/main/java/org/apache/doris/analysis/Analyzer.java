@@ -40,7 +40,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -955,11 +954,7 @@ public class Analyzer {
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
         boolean isNullable;
-        if (VectorizedUtil.isVectorized()) {
-            isNullable = col.isAllowNull();
-        } else {
-            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
-        }
+        isNullable = col.isAllowNull();
         result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);
