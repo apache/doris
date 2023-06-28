@@ -22,9 +22,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 export DORIS_HOME="${ROOT}/../.."
 
-# build broker doesn't need cpp compiler,
-# set NEED_CPP_COMPILER=0 to skip compiler check in env.sh
-export NEED_CPP_COMPILER=0
 . "${DORIS_HOME}/env.sh"
 
 export BROKER_HOME="${ROOT}"
