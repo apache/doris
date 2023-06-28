@@ -90,16 +90,20 @@ FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
         : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
 
 Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    _fn = std::make_unique<RPCFnImpl>(_tfn);
-
-    if (!_fn->available()) {
-        return Status::InternalError("rpc env init error");
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        std::shared_ptr<RPCFnImpl> fn = std::make_shared<RPCFnImpl>(_tfn);
+        if (!fn->available()) {
+            return Status::InternalError("rpc env init error");
+        }
+        context->set_function_state(FunctionContext::FRAGMENT_LOCAL, fn);
     }
     return Status::OK();
 }
 
 Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                             size_t result, size_t input_rows_count, bool dry_run) {
-    return _fn->vec_call(context, block, arguments, result, input_rows_count);
+    RPCFnImpl* fn = reinterpret_cast<RPCFnImpl*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    return fn->vec_call(context, block, arguments, result, input_rows_count);
 }
 } // namespace doris::vectorized
