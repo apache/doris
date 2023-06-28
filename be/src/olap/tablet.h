@@ -402,12 +402,11 @@ public:
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
-    Status lookup_row_key(
-            const Slice& encoded_key, bool with_seq_col,
-            const std::vector<RowsetSharedPtr>& specified_rowsets, RowLocation* row_location,
-            uint32_t version,
-            std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId>& segment_caches,
-            RowsetSharedPtr* rowset = nullptr);
+    Status lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+                          const std::vector<RowsetSharedPtr>& specified_rowsets,
+                          RowLocation* row_location, uint32_t version,
+                          std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                          RowsetSharedPtr* rowset = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
