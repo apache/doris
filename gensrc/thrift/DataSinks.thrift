@@ -153,6 +153,18 @@ struct TDataStreamSink {
   2: required Partitions.TDataPartition output_partition
 
   3: optional bool ignore_not_found
+
+    // per-destination projections
+    4: optional list<Exprs.TExpr> output_exprs
+
+    // project output tuple id
+    5: optional Types.TTupleId output_tuple_id
+
+    // per-destination filters
+    6: optional list<Exprs.TExpr> conjuncts
+
+    // per-destination runtime filters
+    7: optional list<PlanNodes.TRuntimeFilterDesc> runtime_filters
 }
 
 struct TMultiCastDataStreamSink {
