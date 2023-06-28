@@ -114,58 +114,40 @@ if [[ -z "${DORIS_TOOLCHAIN}" ]]; then
     fi
 fi
 
-if [[ -z "${NEED_CPP_COMPILER}" ]]; then
-    NEED_CPP_COMPILER=1
-fi
-
-if [[ "${NEED_CPP_COMPILER}" -eq 1 ]]; then
-    if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
-        # set GCC HOME
-        if [[ -z "${DORIS_GCC_HOME}" ]]; then
-            DORIS_GCC_HOME="$(dirname "$(command -v gcc)")"/..
-            export DORIS_GCC_HOME
-        fi
-
-        gcc_ver="$("${DORIS_GCC_HOME}/bin/gcc" -dumpfullversion -dumpversion)"
-        required_ver="11.0.0"
-        if [[ ! "$(printf '%s\n' "${required_ver}" "${gcc_ver}" | sort -V | head -n1)" = "${required_ver}" ]]; then
-            echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
-            exit 1
-        fi
-        export CC="${DORIS_GCC_HOME}/bin/gcc"
-        export CXX="${DORIS_GCC_HOME}/bin/g++"
-        if test -x "${DORIS_GCC_HOME}/bin/ld"; then
-            export DORIS_BIN_UTILS="${DORIS_GCC_HOME}/bin/"
-        fi
-        ENABLE_PCH='OFF'
-    elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
-        # set CLANG HOME
-        if [[ -z "${DORIS_CLANG_HOME}" ]]; then
-            DORIS_CLANG_HOME="$(dirname "$(command -v clang)")"/..
-            export DORIS_CLANG_HOME
-        fi
-
-        clang_ver="$("${DORIS_CLANG_HOME}/bin/clang" -dumpfullversion -dumpversion)"
-        required_ver="16.0.0"
-        if [[ ! "$(printf '%s\n' "${required_ver}" "${clang_ver}" | sort -V | head -n1)" = "${required_ver}" ]]; then
-            echo "Error: CLANG version (${clang_ver}) must be greater than or equal to ${required_ver}"
-            exit 1
-        fi
-        export CC="${DORIS_CLANG_HOME}/bin/clang"
-        export CXX="${DORIS_CLANG_HOME}/bin/clang++"
-        if test -x "${DORIS_CLANG_HOME}/bin/ld.lld"; then
-            export DORIS_BIN_UTILS="${DORIS_CLANG_HOME}/bin/"
-        fi
-        if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
-            export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
-        fi
-        if [[ -z "${ENABLE_PCH}" ]]; then
-            ENABLE_PCH='ON'
-        fi
-    else
-        echo "Error: unknown DORIS_TOOLCHAIN=${DORIS_TOOLCHAIN}, currently only 'gcc' and 'clang' are supported"
-        exit 1
+if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
+    # set GCC HOME
+    if [[ -z "${DORIS_GCC_HOME}" ]]; then
+        DORIS_GCC_HOME="$(dirname "$(command -v gcc)")"/..
+        export DORIS_GCC_HOME
     fi
+
+    export CC="${DORIS_GCC_HOME}/bin/gcc"
+    export CXX="${DORIS_GCC_HOME}/bin/g++"
+    if test -x "${DORIS_GCC_HOME}/bin/ld"; then
+        export DORIS_BIN_UTILS="${DORIS_GCC_HOME}/bin/"
+    fi
+    ENABLE_PCH='OFF'
+elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
+    # set CLANG HOME
+    if [[ -z "${DORIS_CLANG_HOME}" ]]; then
+        DORIS_CLANG_HOME="$(dirname "$(command -v clang)")"/..
+        export DORIS_CLANG_HOME
+    fi
+
+    export CC="${DORIS_CLANG_HOME}/bin/clang"
+    export CXX="${DORIS_CLANG_HOME}/bin/clang++"
+    if test -x "${DORIS_CLANG_HOME}/bin/ld.lld"; then
+        export DORIS_BIN_UTILS="${DORIS_CLANG_HOME}/bin/"
+    fi
+    if [[ -f "${DORIS_CLANG_HOME}/bin/llvm-symbolizer" ]]; then
+        export ASAN_SYMBOLIZER_PATH="${DORIS_CLANG_HOME}/bin/llvm-symbolizer"
+    fi
+    if [[ -z "${ENABLE_PCH}" ]]; then
+        ENABLE_PCH='ON'
+    fi
+else
+    echo "Error: unknown DORIS_TOOLCHAIN=${DORIS_TOOLCHAIN}, currently only 'gcc' and 'clang' are supported"
+    exit 1
 fi
 
 export CCACHE_COMPILERCHECK=content
