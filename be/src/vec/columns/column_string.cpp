@@ -109,6 +109,14 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
 
 void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
                                        const int* indices_end) {
+    size_t append_length = 0;
+    const ColumnString& src_col = assert_cast<const ColumnString&>(src);
+    const auto* offset = src_col.offsets.data();
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        append_length += offset[*x] - offset[*x - 1];
+    }
+    offsets.reserve(offsets.size() + indices_end - indices_begin);
+    chars.reserve(chars.size() + append_length);
     for (auto x = indices_begin; x != indices_end; ++x) {
         if (*x == -1) {
             ColumnString::insert_default();
