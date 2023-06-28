@@ -134,7 +134,7 @@ void MemTrackerLimiter::make_process_snapshots(std::vector<MemTracker::Snapshot>
         process_mem_sum += it.second->current_value();
     }
 
-    snapshot.type = "tc/jemalloc_cache";
+    snapshot.type = "tc/jemalloc_free_memory";
     snapshot.label = "";
     snapshot.limit = -1;
     snapshot.cur_consumption = MemInfo::allocator_cache_mem();
