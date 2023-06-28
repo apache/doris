@@ -724,7 +724,6 @@ Status ScalarColumnWriter::finish_current_page() {
                                                body_slices, &compressed_body));
     if (compressed_body.slice().empty()) {
         // page body is uncompressed
-        page->data.emplace_back(std::move(encoded_values));
         if (has_null) {
             OwnedSlice tmp_map(std::move(body.back()));
             body.pop_back();
