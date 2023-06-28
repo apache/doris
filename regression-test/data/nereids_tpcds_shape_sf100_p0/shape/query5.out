@@ -17,10 +17,12 @@ PhysicalTopN
 ----------------------------hashJoin[INNER_JOIN](salesreturns.store_sk = store.s_store_sk)
 ------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
 --------------------------------PhysicalUnion
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_returns]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_date <= 2000-09-02)(date_dim.d_date >= 2000-08-19))
@@ -36,10 +38,12 @@ PhysicalTopN
 ----------------------------hashJoin[INNER_JOIN](salesreturns.page_sk = catalog_page.cp_catalog_page_sk)
 ------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
 --------------------------------PhysicalUnion
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_sales]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[catalog_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))
@@ -55,14 +59,16 @@ PhysicalTopN
 ----------------------------hashJoin[INNER_JOIN](salesreturns.wsr_web_site_sk = web_site.web_site_sk)
 ------------------------------hashJoin[INNER_JOIN](salesreturns.date_sk = date_dim.d_date_sk)
 --------------------------------PhysicalUnion
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[web_sales]
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = web_sales.ws_item_sk)(web_returns.wr_order_number = web_sales.ws_order_number)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_sales]
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_returns]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN](web_returns.wr_item_sk = web_sales.ws_item_sk)(web_returns.wr_order_number = web_sales.ws_order_number)
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[web_returns]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((date_dim.d_date >= 2000-08-19)(date_dim.d_date <= 2000-09-02))

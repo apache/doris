@@ -31,8 +31,9 @@ PhysicalTopN
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[customer]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer_address]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[customer_address]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[customer_demographics]

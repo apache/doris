@@ -248,9 +248,14 @@ public class GroupExpression {
         return lowestCostTable.get(property).first;
     }
 
-    public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
-            PhysicalProperties requiredPropertySet) {
-        this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    public void putOutputPropertiesMap(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.put(requiredProperties, outputProperties);
+    }
+
+    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
     }
 
     /**
