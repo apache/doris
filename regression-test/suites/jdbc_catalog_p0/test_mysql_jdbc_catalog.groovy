@@ -50,6 +50,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String test_insert2 = "test_insert2";
         String auto_default_t = "auto_default_t";
         String dt = "dt";
+        String dt_null = "dt_null";
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -57,7 +58,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
@@ -103,6 +104,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_information_schema """ show tables from information_schema; """
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
+        order_qt_dt_null """select * from ${dt_null} order by 1; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
