@@ -407,6 +407,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
 - **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
 
+Note: flink-sql-connector-mysql-cdc-2.3.0.jar needs to be added in the $FLINK_HOME/bin directory
+
 ### Example
 ```
 <FLINK_HOME>/bin/flink run \
