@@ -1067,6 +1067,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, leftSlotDescriptor);
                 } else {
                     sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                        hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptor.getId());
+                        hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), leftSlotDescriptor.getId());
+                    }
                 }
                 leftIntermediateSlotDescriptor.add(sd);
             }
@@ -1083,6 +1087,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.getDescTable().copySlotDescriptor(intermediateDescriptor, rightSlotDescriptor);
                 } else {
                     sd = context.createSlotDesc(intermediateDescriptor, sf);
+                    if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                        hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptor.getId());
+                        hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), rightSlotDescriptor.getId());
+                    }
                 }
                 rightIntermediateSlotDescriptor.add(sd);
             }
@@ -1100,6 +1108,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(leftSlotDescriptor.getId());
+                        hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), leftSlotDescriptor.getId());
                     }
                 }
                 leftIntermediateSlotDescriptor.add(sd);
@@ -1117,6 +1126,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     sd = context.createSlotDesc(intermediateDescriptor, sf);
                     if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
                         hashJoinNode.addSlotIdToHashOutputSlotIds(rightSlotDescriptor.getId());
+                        hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), rightSlotDescriptor.getId());
                     }
                 }
                 rightIntermediateSlotDescriptor.add(sd);
@@ -1124,8 +1134,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         if (hashJoin.getMarkJoinSlotReference().isPresent()) {
-            outputSlotReferences.add(hashJoin.getMarkJoinSlotReference().get());
-            context.createSlotDesc(intermediateDescriptor, hashJoin.getMarkJoinSlotReference().get());
+            SlotReference sf = hashJoin.getMarkJoinSlotReference().get();
+            outputSlotReferences.add(sf);
+            context.createSlotDesc(intermediateDescriptor, sf);
+            if (hashOutputSlotReferenceMap.get(sf.getExprId()) != null) {
+                SlotRef markJoinSlotId = context.findSlotRef(sf.getExprId());
+                Preconditions.checkState(markJoinSlotId != null);
+                hashJoinNode.addSlotIdToHashOutputSlotIds(markJoinSlotId.getSlotId());
+                hashJoinNode.getHashOutputExprSlotIdMap().put(sf.getExprId(), markJoinSlotId.getSlotId());
+            }
         }
 
         // set slots as nullable for outer join
@@ -1390,16 +1407,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(NamedExpression::toSlot)
                 .collect(Collectors.toList());
 
-        // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
-        // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
-        // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
-        if (inputPlanNode instanceof JoinNodeBase) {
-            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
-            JoinNodeBase hashJoinNode = (JoinNodeBase) inputPlanNode;
-            hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
-            hashJoinNode.setvSrcToOutputSMap(execExprList);
-            return inputFragment;
-        }
         List<Expr> predicateList = inputPlanNode.getConjuncts();
         Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
         for (Expr expr : execExprList) {
@@ -1409,6 +1416,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Expr expr : predicateList) {
             extractExecSlot(expr, requiredSlotIdSet);
         }
+        // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
+        // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
+        // TODO: HashJoinNode's be implementation is not support projection yet, remove this after when supported.
+        if (inputPlanNode instanceof JoinNodeBase) {
+            TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
+            JoinNodeBase hashJoinNode = (JoinNodeBase) inputPlanNode;
+            hashJoinNode.setvOutputTupleDesc(tupleDescriptor);
+            hashJoinNode.setvSrcToOutputSMap(execExprList);
+            // prune the hashOutputSlotIds
+            if (hashJoinNode instanceof HashJoinNode) {
+                ((HashJoinNode) hashJoinNode).getHashOutputSlotIds().clear();
+                Set<ExprId> requiredExprIds = Sets.newHashSet();
+                Set<SlotId> requiredOtherConjunctsSlotIdSet = Sets.newHashSet();
+                List<Expr> otherConjuncts = ((HashJoinNode) hashJoinNode).getOtherJoinConjuncts();
+                for (Expr expr : otherConjuncts) {
+                    extractExecSlot(expr, requiredOtherConjunctsSlotIdSet);
+                }
+                requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                requiredSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
+                for (ExprId exprId : requiredExprIds) {
+                    SlotId slotId = ((HashJoinNode) hashJoinNode).getHashOutputExprSlotIdMap().get(exprId);
+                    Preconditions.checkState(slotId != null);
+                    ((HashJoinNode) hashJoinNode).addSlotIdToHashOutputSlotIds(slotId);
+                }
+            }
+            return inputFragment;
+        }
+
         if (inputPlanNode instanceof TableFunctionNode) {
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
