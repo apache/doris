@@ -291,12 +291,16 @@ CREATE TABLE `doris_test`.`auto_default_t` (
     PRIMARY KEY (`id`)
 ) engine=innodb charset=utf8;
 
-create table doris_test.dt (
-  `timestamp0` timestamp(0),
-  `timestamp1` timestamp(1),
-  `timestamp2` timestamp(2),
-  `timestamp3` timestamp(3),
-  `timestamp4` timestamp(4),
-  `timestamp5` timestamp(5),
-  `timestamp6` timestamp(6)
-) engine=innodb charset=utf8;
+CREATE TABLE doris_test.dt (
+  `timestamp0` timestamp(0) DEFAULT CURRENT_TIMESTAMP(0),
+  `timestamp1` timestamp(1) DEFAULT CURRENT_TIMESTAMP(1),
+  `timestamp2` timestamp(2) DEFAULT CURRENT_TIMESTAMP(2),
+  `timestamp3` timestamp(3) DEFAULT CURRENT_TIMESTAMP(3),
+  `timestamp4` timestamp(4) DEFAULT CURRENT_TIMESTAMP(4),
+  `timestamp5` timestamp(5) DEFAULT CURRENT_TIMESTAMP(5),
+  `timestamp6` timestamp(6) DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=INNODB CHARSET=utf8;
+
+CREATE TABLE doris_test.dt_null (
+  `dt` datetime NOT NULL
+) ENGINE=INNODB CHARSET=utf8;
