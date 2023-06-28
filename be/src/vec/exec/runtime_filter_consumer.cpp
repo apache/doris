@@ -15,22 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/runtime_filter_consumer_node.h"
+#include "vec/exec/runtime_filter_consumer.h"
 
 namespace doris::vectorized {
 
-RuntimeFilterConsumerNode::RuntimeFilterConsumerNode(ObjectPool* pool, const TPlanNode& tnode,
-                                                     const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
+                                             const std::vector<TRuntimeFilterDesc>& runtime_filters,
+                                             const RowDescriptor& row_descriptor,
+                                             VExprContextSPtrs& conjuncts)
+        : _filter_id(filter_id),
+          _runtime_filter_descs(runtime_filters),
+          _row_descriptor_ref(row_descriptor),
+          _conjuncts_ref(conjuncts) {}
 
-Status RuntimeFilterConsumerNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ExecNode::init(tnode, state));
+Status RuntimeFilterConsumer::init(RuntimeState* state) {
     _state = state;
     RETURN_IF_ERROR(_register_runtime_filter());
     return Status::OK();
 }
 
-Status RuntimeFilterConsumerNode::_register_runtime_filter() {
+Status RuntimeFilterConsumer::_register_runtime_filter() {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
@@ -43,14 +47,14 @@ Status RuntimeFilterConsumerNode::_register_runtime_filter() {
             // 1. All BE and FE has been upgraded (e.g. opt_remote_rf)
             // 2. This filter is bloom filter (only bloom filter should be used for merging)
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), id(), false));
+                    filter_desc, _state->query_options(), _filter_id, false));
             RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, id(), &runtime_filter));
+                    filter_desc.filter_id, _filter_id, &runtime_filter));
         } else {
             RETURN_IF_ERROR(_state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, _state->query_options(), id(), false));
+                    filter_desc, _state->query_options(), _filter_id, false));
             RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, id(), &runtime_filter));
+                    filter_desc.filter_id, _filter_id, &runtime_filter));
         }
         _runtime_filter_ctxs.emplace_back(runtime_filter);
         _runtime_filter_ready_flag.emplace_back(false);
@@ -58,7 +62,7 @@ Status RuntimeFilterConsumerNode::_register_runtime_filter() {
     return Status::OK();
 }
 
-bool RuntimeFilterConsumerNode::runtime_filters_are_ready_or_timeout() {
+bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
     if (!_blocked_by_rf) {
         return true;
     }
@@ -72,7 +76,7 @@ bool RuntimeFilterConsumerNode::runtime_filters_are_ready_or_timeout() {
     return true;
 }
 
-Status RuntimeFilterConsumerNode::_acquire_runtime_filter(bool wait) {
+Status RuntimeFilterConsumer::_acquire_runtime_filter(bool wait) {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     VExprSPtrs vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
@@ -101,23 +105,23 @@ Status RuntimeFilterConsumerNode::_acquire_runtime_filter(bool wait) {
     return Status::OK();
 }
 
-Status RuntimeFilterConsumerNode::_append_rf_into_conjuncts(const VExprSPtrs& vexprs) {
+Status RuntimeFilterConsumer::_append_rf_into_conjuncts(const VExprSPtrs& vexprs) {
     if (vexprs.empty()) {
         return Status::OK();
     }
 
     for (auto& expr : vexprs) {
         VExprContextSPtr conjunct = VExprContext::create_shared(expr);
-        RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor));
+        RETURN_IF_ERROR(conjunct->prepare(_state, _row_descriptor_ref));
         RETURN_IF_ERROR(conjunct->open(_state));
         _rf_vexpr_set.insert(expr);
-        _conjuncts.emplace_back(conjunct);
+        _conjuncts_ref.emplace_back(conjunct);
     }
 
     return Status::OK();
 }
 
-Status RuntimeFilterConsumerNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
+Status RuntimeFilterConsumer::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
     if (_is_all_rf_applied) {
         *arrived_rf_num = _runtime_filter_descs.size();
         return Status::OK();
@@ -140,12 +144,12 @@ Status RuntimeFilterConsumerNode::try_append_late_arrival_runtime_filter(int* ar
             continue;
         } else if (_runtime_filter_ctxs[i].runtime_filter->is_ready()) {
             RETURN_IF_ERROR(_runtime_filter_ctxs[i].runtime_filter->get_prepared_exprs(
-                    &exprs, _row_descriptor, _state));
+                    &exprs, _row_descriptor_ref, _state));
             ++current_arrived_rf_num;
             _runtime_filter_ctxs[i].apply_mark = true;
         }
     }
-    // 2. Append unapplied runtime filters to vconjunct_ctx_ptr
+    // 2. Append unapplied runtime filters to _conjuncts
     if (!exprs.empty()) {
         RETURN_IF_ERROR(_append_rf_into_conjuncts(exprs));
     }
@@ -157,7 +161,7 @@ Status RuntimeFilterConsumerNode::try_append_late_arrival_runtime_filter(int* ar
     return Status::OK();
 }
 
-void RuntimeFilterConsumerNode::_prepare_rf_timer(RuntimeProfile* profile) {
+void RuntimeFilterConsumer::_prepare_rf_timer(RuntimeProfile* profile) {
     _acquire_runtime_filter_timer = ADD_TIMER(profile, "AcquireRuntimeFilterTime");
 }
 

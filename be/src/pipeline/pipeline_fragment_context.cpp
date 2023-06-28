@@ -776,7 +776,8 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
-                            next_operator_builder_id(), i, multi_cast_data_streamer);
+                            next_operator_builder_id(), i, multi_cast_data_streamer,
+                            thrift_sink.multi_cast_stream_sink.sinks[i]);
             new_pipeline->add_operator(source_op);
 
             // 3. create and set sink operator of data stream sender for new pipeline
