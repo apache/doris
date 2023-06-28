@@ -37,7 +37,7 @@ suite("test_ctl") {
     """
 
         def res = sql """SHOW CREATE TABLE `test_ctl1`"""
-        assertTrue(res != 0)
+        assertTrue(res.size() != 0)
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctl """
 

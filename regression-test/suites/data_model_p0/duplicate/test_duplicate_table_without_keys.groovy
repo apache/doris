@@ -41,7 +41,7 @@ suite("test_duplicate_table_without_keys") {
     order_qt_select_dup_table "select * from ${tbName1}"
     qt_desc_dup_table "desc ${tbName1}"
     def res = sql "show create table ${tbName1}"
-    assertTrue(res != 0)
+    assertTrue(res.size() != 0)
     sql "DROP TABLE ${tbName1}"
     
     def tbName2 = "test_default_data_model_no_keys"
@@ -62,20 +62,20 @@ suite("test_duplicate_table_without_keys") {
     order_qt_select_dup_table "select * from ${tbName2}"
     qt_desc_dup_table "desc ${tbName2}"
     res = sql "show create table ${tbName2}"
-    assertTrue(res != 0)
+    assertTrue(res.size() != 0)
 
     sql "ALTER TABLE ${tbName2} ADD COLUMN new_col1 INT DEFAULT \"0\" AFTER k3"
     order_qt_select_dup_table "select * from ${tbName2}"
     qt_desc_dup_table "desc ${tbName2}"
     res = sql "show create table ${tbName2}"
-    assertTrue(res != 0)
+    assertTrue(res.size() != 0)
 
     def tbName3 = "test_default_data_model_no_keys_like"
     sql "DROP TABLE IF EXISTS ${tbName3}"
     sql """create table ${tbName3} like ${tbName2}"""
     qt_desc_dup_table "desc ${tbName3}"
     res = sql "show create table ${tbName3}"    
-    assertTrue(res != 0)
+    assertTrue(res.size() != 0)
 
     sql "DROP TABLE ${tbName2}"
     sql "DROP TABLE ${tbName3}"

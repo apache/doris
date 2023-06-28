@@ -35,7 +35,7 @@ suite("test_show_create_table", "query") {
         """
         
         def res = sql "show create table `${tb_name}`"
-        assertTrue(res != 0)
+        assertTrue(res.size() != 0)
 
         sql """drop table if exists ${tb_name} """
         sql """
@@ -54,7 +54,7 @@ suite("test_show_create_table", "query") {
         """
         
         res = sql "show create table `${tb_name}`"
-        assertTrue(res != 0)
+        assertTrue(res.size() != 0)
 
     } finally {
 

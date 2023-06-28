@@ -73,7 +73,7 @@ suite("test_struct_show_create", "query") {
         create_test_table.call(testTable)
         qt_select_count "select count(k2), count(k3), count(k4), count(k5), count(6), count(k7), count(k8), count(k9), count(k10), count(11) from ${testTable}"
         def res = sql "show create table ${testTable}"
-        assertTrue(res != 0)
+        assertTrue(res.size() != 0)
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

@@ -51,7 +51,7 @@ suite("test_ctas") {
     """
 
         def res = sql """SHOW CREATE TABLE `test_ctas1`"""
-        assertTrue(res != 0)
+        assertTrue(res.size() != 0)
 
         qt_select """select count(*) from test_ctas1"""
 
@@ -65,7 +65,7 @@ suite("test_ctas") {
     """
 
         res = sql """SHOW CREATE TABLE `test_ctas2`"""
-        assertTrue(res != 0)
+        assertTrue(res.size() != 0)
 
         qt_select """select count(*) from test_ctas2"""
 
