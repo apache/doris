@@ -879,7 +879,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COMMENT",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/CANCEL-ALTER-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-STORAGE-POLICY",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE"
