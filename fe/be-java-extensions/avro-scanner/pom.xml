@@ -17,19 +17,22 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>be-java-extensions</artifactId>
         <groupId>org.apache.doris</groupId>
         <version>${revision}</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
-    <artifactId>hudi-scanner</artifactId>
+
+    <artifactId>avro-scanner</artifactId>
 
     <properties>
-        <doris.home>${basedir}/../../</doris.home>
-        <fe_ut_parallel>1</fe_ut_parallel>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencies>
@@ -37,53 +40,14 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
-            <exclusions>
-                <exclusion>
-                    <artifactId>fe-common</artifactId>
-                    <groupId>org.apache.doris</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
-
         <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-hadoop-mr-bundle</artifactId>
-            <version>${hudi.version}</version>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
             <exclusions>
-                <exclusion>
-                    <groupId>com.google.protobuf</groupId>
-                    <artifactId>protobuf-java</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>commons-lang</groupId>
-                    <artifactId>commons-lang</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.hudi</groupId>
-                    <artifactId>hudi-common</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.parquet</groupId>
-                    <artifactId>parquet-avro</artifactId>
-                </exclusion>
                 <exclusion>
                     <groupId>org.apache.avro</groupId>
-                    <artifactId>avro</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>hudi-hadoop-mr</artifactId>
-                    <groupId>org.apache.hudi</groupId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.facebook.presto.hive</groupId>
-            <artifactId>hive-apache</artifactId>
-            <version>${presto.hive.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
+                    <artifactId>avro-tools</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -100,12 +64,18 @@ under the License.
             <artifactId>hadoop-hdfs</artifactId>
         </dependency>
         <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
         </dependency>
     </dependencies>
+
+
     <build>
-        <finalName>hudi-scanner</finalName>
+        <finalName>avro-scanner</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

@@ -114,6 +114,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/scan/avro_jni_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -601,6 +602,14 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_AVRO: {
+            // file_slots is no use
+            std::vector<SlotDescriptor*> file_slots;
+            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
+                                                              file_slots);
+            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
