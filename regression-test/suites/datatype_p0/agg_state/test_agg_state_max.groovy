@@ -42,9 +42,9 @@ suite("test_agg_state_max") {
     qt_select """ select k1,max_merge(k2) from a_table group by k1 order by k1;
              """
 
-    sql """ DROP TABLE IF EXISTS a_table; """
+    sql """ DROP TABLE IF EXISTS a_table2; """
     sql """
-            create table a_table(
+            create table a_table2(
             k1 int not null,
             k2 agg_state max(int null)
         )
@@ -52,11 +52,11 @@ suite("test_agg_state_max") {
         distributed BY hash(k1)
         properties("replication_num" = "1");
         """
-    sql """insert into a_table values(100,max_state(null));"""
-    sql """insert into a_table
+    sql """insert into a_table2 values(100,max_state(null));"""
+    sql """insert into a_table2
             select e1/1000,max_state(e1) from 
                 (select 1 k1) as t lateral view explode_numbers(8000) tmp1 as e1;"""
 
-    qt_select """ select k1,max_merge(k2) from a_table group by k1 order by k1;
+    qt_select """ select k1,max_merge(k2) from a_table2 group by k1 order by k1;
              """
 }
