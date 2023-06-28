@@ -109,14 +109,43 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
 
 void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
                                        const int* indices_end) {
+    const ColumnString& src_str = assert_cast<const ColumnString&>(src);
+    size_t total_delta_chars_size = 0;
+    auto src_offset_data = src_str.offsets.data();
+    for (auto x = indices_begin; x != indices_end; ++x) {
+        if (*x != -1) {
+            total_delta_chars_size += src_offset_data[*x] - src_offset_data[*x - 1];
+        }
+    }
+    auto old_char_size = chars.size();
+    check_chars_length(old_char_size + total_delta_chars_size, offsets.size());
+
+    auto dst_offsets_pos = offsets.size();
+    chars.resize(old_char_size + total_delta_chars_size);
+    offsets.resize(offsets.size() + indices_end - indices_begin);
+
+    auto* src_data_ptr = src_str.chars.data();
+    auto* dst_data_ptr = chars.data();
+    auto* dst_offsets_data = offsets.data();
+
+    size_t dst_chars_pos = old_char_size;
     for (auto x = indices_begin; x != indices_end; ++x) {
         if (*x == -1) {
-            ColumnString::insert_default();
+            dst_offsets_data[dst_offsets_pos++] = dst_chars_pos;
         } else {
-            if (x + IColumn::PREFETCH_STEP < indices_end && (-1 != x[IColumn::PREFETCH_STEP])) {
-                ColumnString::prefetch(src, *(x + IColumn::PREFETCH_STEP));
+            const size_t size_to_append = src_offset_data[*x] - src_offset_data[*x - 1];
+
+            if (!size_to_append) {
+                /// shortcut for empty string
+                dst_offsets_data[dst_offsets_pos++] = dst_chars_pos;
+            } else {
+                const size_t offset = src_offset_data[*x - 1];
+
+                memcpy_small_allow_read_write_overflow15(dst_data_ptr + dst_chars_pos,
+                                                         src_data_ptr + offset, size_to_append);
+                dst_chars_pos += size_to_append;
+                dst_offsets_data[dst_offsets_pos++] = dst_chars_pos;
             }
-            ColumnString::insert_from(src, *x);
         }
     }
 }
