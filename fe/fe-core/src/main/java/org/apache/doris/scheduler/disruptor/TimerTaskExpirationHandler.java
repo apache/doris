@@ -74,7 +74,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
     public void onEventTask(TimerTaskEvent timerTaskEvent) {
         long jobId = timerTaskEvent.getJobId();
-        Job job = asyncJobManager.getEventJob(jobId);
+        Job job = asyncJobManager.getJob(jobId);
         if (job == null) {
             log.info("Event job is null, eventJobId: {}", jobId);
             return;
@@ -87,7 +87,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
         checkJobIsExpired(job);
         try {
             // TODO: We should record the result of the event task.
-            //Object result = eventJob.getExecutor().execute();
+            //Object result = job.getExecutor().execute();
             job.getExecutor().execute();
             job.setLatestCompleteExecuteTimestamp(System.currentTimeMillis());
         } catch (Exception e) {
