@@ -15,21 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "vec/functions/function_ip.h"
 
-#include <cstddef>
-#include <cstdint>
-
-namespace doris {
-
-// A chunk of continuous memory.
-// Almost all files depend on this struct, and each modification
-// will result in recompilation of all files. So, we put it in a
-// file to keep this file simple and infrequently changed.
-struct Chunk {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    int core_id = -1;
+namespace doris::vectorized {
+struct NameFunctionIPv4NumToString {
+    static constexpr auto name = "ipv4numtostring";
 };
 
-} // namespace doris
+void register_function_ip(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionIPv4NumToString<0, NameFunctionIPv4NumToString>>();
+    factory.register_alias(NameFunctionIPv4NumToString::name, "inet_ntoa");
+}
+} // namespace doris::vectorized

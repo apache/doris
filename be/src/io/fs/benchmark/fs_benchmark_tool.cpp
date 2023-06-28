@@ -21,12 +21,13 @@
 
 #include "io/fs/benchmark/benchmark_factory.hpp"
 
-DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs, local");
+DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs");
 DEFINE_string(operation, "create_write",
               "Supported Operations: create_write, open_read, open, rename, delete, exists");
-DEFINE_string(threads, "10", "Number of threads");
-DEFINE_string(iterations, "10", "Number of runs");
-DEFINE_string(file_size, "104857600", "File size");
+DEFINE_string(threads, "1", "Number of threads");
+DEFINE_string(iterations, "1", "Number of runs of each thread");
+DEFINE_string(repetitions, "1", "Number of iterations");
+DEFINE_string(file_size, "0", "File size for read/write opertions");
 DEFINE_string(conf, "", "config file");
 
 std::string get_usage(const std::string& progname) {
@@ -35,8 +36,9 @@ std::string get_usage(const std::string& progname) {
 
     ss << "Usage:\n";
     ss << progname
-       << " --fs_type=[fs_type] --operation=[op_type] --threads=10 --iterations=10 "
-          "--file_size=104857600\n";
+       << " --fs_type=[fs_type] --operation=[op_type] --threads=[num] --iterations=[num] "
+          "--repetitions=[num] "
+          "--file_size=[num]\n";
     ss << "\nfs_type:\n";
     ss << "     hdfs\n";
     ss << "     s3\n";
@@ -46,13 +48,15 @@ std::string get_usage(const std::string& progname) {
     ss << "\nthreads:\n";
     ss << "     num of threads\n";
     ss << "\niterations:\n";
-    ss << "     num of run\n";
+    ss << "     Number of runs of each thread\n";
+    ss << "\nrepetitions:\n";
+    ss << "     Number of iterations\n";
     ss << "\nfile_size:\n";
-    ss << "     file size\n";
+    ss << "     File size for read/write opertions\n";
     ss << "\nExample:\n";
     ss << progname
-       << " --conf my.conf --fs_type=s3 --operation=read --threads=10 --iterations=100 "
-          "--file_size=104857600\n";
+       << " --conf my.conf --fs_type=hdfs --operation=create_write --threads=2 --iterations=100 "
+          "--file_size=1048576\n";
     return ss.str();
 }
 

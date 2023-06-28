@@ -42,13 +42,13 @@ import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -139,6 +139,9 @@ import java.util.stream.Collectors;
  */
 public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double DEFAULT_AGGREGATE_RATIO = 0.5;
+    public static double DEFAULT_AGGREGATE_EXPAND_RATIO = 1.05;
+
+    public static double AGGREGATE_COLUMN_CORRELATION_COEFFICIENT = 0.75;
     public static double DEFAULT_COLUMN_NDV_RATIO = 0.5;
 
     private static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
@@ -251,7 +254,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
-        return computeOneRowRelation(oneRowRelation);
+        return computeOneRowRelation(oneRowRelation.getProjects());
     }
 
     @Override
@@ -393,7 +396,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, Void context) {
-        return computeOneRowRelation(oneRowRelation);
+        return computeOneRowRelation(oneRowRelation.getProjects());
     }
 
     @Override
@@ -664,45 +667,66 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return stats.withRowCount(Math.min(stats.getRowCount(), limit.getLimit()));
     }
 
-    private Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
-        // TODO: since we have no column stats here. just use a fix ratio to compute the row count.
-        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
-        Statistics childStats = groupExpression.childStatistics(0);
-        double resultSetCount = 1;
-        if (!groupByExpressions.isEmpty()) {
-            Map<Expression, ColumnStatistic> childSlotToColumnStats = childStats.columnStatistics();
-            double inputRowCount = childStats.getRowCount();
-            if (inputRowCount != 0) {
-                List<ColumnStatistic> groupByKeyStats = groupByExpressions.stream()
-                        .filter(childSlotToColumnStats::containsKey)
-                        .map(childSlotToColumnStats::get)
-                        .filter(s -> !s.isUnKnown)
-                        .collect(Collectors.toList());
-                if (groupByKeyStats.isEmpty()) {
-                    //all column stats are unknown, use default ratio
-                    resultSetCount = inputRowCount * DEFAULT_AGGREGATE_RATIO;
-                } else {
-                    resultSetCount = groupByKeyStats.stream().map(s -> s.ndv)
-                            .max(Double::compare).get();
+    private double estimateGroupByRowCount(List<Expression> groupByExpressions, Statistics childStats) {
+        double rowCount = 1;
+        Map<Expression, ColumnStatistic> groupByColStats = new HashMap<>();
+        for (Expression groupByExpr : groupByExpressions) {
+            ColumnStatistic colStats = childStats.findColumnStatistics(groupByExpr);
+            if (colStats == null) {
+                colStats = ExpressionEstimation.estimate(groupByExpr, childStats);
+            }
+            groupByColStats.put(groupByExpr, colStats);
+        }
+        int groupByCount = groupByExpressions.size();
+        if (groupByColStats.values().stream().anyMatch(ColumnStatistic::isUnKnown)) {
+            if (groupByCount > 0) {
+                rowCount *= DEFAULT_AGGREGATE_RATIO * Math.pow(DEFAULT_AGGREGATE_EXPAND_RATIO, groupByCount - 1);
+            }
+            if (rowCount > childStats.getRowCount()) {
+                rowCount = childStats.getRowCount();
+            }
+        } else {
+            if (groupByCount > 0) {
+                List<Double> groupByNdvs = groupByColStats.values().stream()
+                        .map(colStats -> colStats.ndv)
+                        .sorted().collect(Collectors.toList());
+                rowCount = groupByNdvs.get(0);
+                for (int groupByIndex = 1; groupByIndex < groupByCount; ++groupByIndex) {
+                    rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
+                            AGGREGATE_COLUMN_CORRELATION_COEFFICIENT, groupByIndex + 1D));
+                    if (rowCount > childStats.getRowCount()) {
+                        rowCount = childStats.getRowCount();
+                        break;
+                    }
                 }
             }
         }
-        resultSetCount = Math.min(resultSetCount, childStats.getRowCount());
+        rowCount = Math.max(1, rowCount);
+        rowCount = Math.min(rowCount, childStats.getRowCount());
+        return rowCount;
+    }
+
+    private Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        Statistics childStats = groupExpression.childStatistics(0);
+        double rowCount = estimateGroupByRowCount(groupByExpressions, childStats);
         Map<Expression, ColumnStatistic> slotToColumnStats = Maps.newHashMap();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
         // TODO: 1. Estimate the output unit size by the type of corresponding AggregateFunction
         //       2. Handle alias, literal in the output expression list
-        double factor = childStats.getRowCount() / resultSetCount;
+        double factor = childStats.getRowCount() / rowCount;
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
             builder.setMinValue(columnStat.minValue / factor);
             builder.setMaxValue(columnStat.maxValue / factor);
-            builder.setNdv(resultSetCount);
-            builder.setDataSize(resultSetCount * outputExpression.getDataType().width());
+            if (columnStat.ndv > rowCount) {
+                builder.setNdv(rowCount);
+            }
+            builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }
-        return new Statistics(resultSetCount, slotToColumnStats, childStats.getWidth(),
+        return new Statistics(rowCount, slotToColumnStats, childStats.getWidth(),
                 childStats.getPenalty() + childStats.getRowCount());
         // TODO: Update ColumnStats properly, add new mapping from output slot to ColumnStats
     }
@@ -736,9 +760,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(childStats.getRowCount(), columnsStats, childStats.getWidth(), childStats.getPenalty());
     }
 
-    private Statistics computeOneRowRelation(OneRowRelation oneRowRelation) {
-        Map<Expression, ColumnStatistic> columnStatsMap = oneRowRelation.getProjects()
-                .stream()
+    private Statistics computeOneRowRelation(List<NamedExpression> projects) {
+        Map<Expression, ColumnStatistic> columnStatsMap = projects.stream()
                 .map(project -> {
                     ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
                     // TODO: compute the literal size
@@ -765,13 +788,33 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computeUnion(SetOperation setOperation) {
-        List<Slot> head = groupExpression.child(0).getLogicalProperties().getOutput();
-        Statistics headStats = groupExpression.childStatistics(0);
+        // TODO: refactor this for one row relation
+        List<Slot> head = null;
+        Statistics headStats = null;
         List<List<Slot>> childOutputs =
                 groupExpression.children()
                         .stream().map(ge -> ge.getLogicalProperties().getOutput()).collect(Collectors.toList());
         List<Statistics> childStats =
                 groupExpression.children().stream().map(Group::getStatistics).collect(Collectors.toList());
+        if (setOperation instanceof Union) {
+            childOutputs.addAll(((Union) setOperation).getConstantExprsList().stream()
+                    .map(l -> l.stream().map(NamedExpression::toSlot).collect(Collectors.toList()))
+                    .collect(Collectors.toList()));
+            childStats.addAll(((Union) setOperation).getConstantExprsList().stream()
+                    .map(this::computeOneRowRelation)
+                    .collect(Collectors.toList()));
+            if (!((Union) setOperation).getConstantExprsList().isEmpty()) {
+                head = ((Union) setOperation).getConstantExprsList().get(0).stream()
+                        .map(NamedExpression::toSlot)
+                        .collect(Collectors.toList());
+                headStats = computeOneRowRelation(((Union) setOperation).getConstantExprsList().get(0));
+            }
+        }
+        if (head == null) {
+            head = groupExpression.child(0).getLogicalProperties().getOutput();
+            headStats = groupExpression.childStatistics(0);
+        }
+
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
         List<NamedExpression> unionOutput = setOperation.getOutputs();
         for (int i = 0; i < head.size(); i++) {

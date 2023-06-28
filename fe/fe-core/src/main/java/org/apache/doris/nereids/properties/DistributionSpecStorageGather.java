@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/chunk_allocator.h"
+package org.apache.doris.nereids.properties;
 
-#include <gtest/gtest.h>
+/**
+ * Gather distribution which put all data into one instance and
+ * the execution on it only could be done on the node storages its data.
+ */
+public class DistributionSpecStorageGather extends DistributionSpec {
 
-#include "common/config.h"
-#include "common/status.h"
-#include "runtime/memory/chunk.h"
-#include "util/cpu_info.h"
-#include "util/doris_metrics.h"
+    public static final DistributionSpecStorageGather INSTANCE = new DistributionSpecStorageGather();
 
-namespace doris {
+    public DistributionSpecStorageGather() {
+        super();
+    }
 
-TEST(ChunkAllocatorTest, Normal) {
-    for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
-        Chunk chunk;
-        EXPECT_TRUE(ChunkAllocator::instance()->allocate_align(size, &chunk).ok());
-        EXPECT_NE(nullptr, chunk.data);
-        EXPECT_EQ(size, chunk.size);
-        ChunkAllocator::instance()->free(chunk);
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecGather
+                || other instanceof DistributionSpecStorageGather
+                || other instanceof DistributionSpecAny;
     }
 }
-} // namespace doris

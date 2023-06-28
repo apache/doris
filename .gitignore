@@ -33,6 +33,7 @@ package-lock.json
 .cache
 .settings/
 **/.idea/
+!.idea/vcs.xml
 **/.vscode/
 **/.fleet/
 

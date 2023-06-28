@@ -121,7 +121,7 @@ class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupporte
                                                 DistributionSpec spec = dis.getDistributionSpec();
                                                 Assertions.assertTrue(spec instanceof DistributionSpecHash);
                                                 DistributionSpecHash hashSpec = (DistributionSpecHash) spec;
-                                                Assertions.assertEquals(ShuffleType.ENFORCED,
+                                                Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED,
                                                         hashSpec.getShuffleType());
                                                 return true;
                                             }), physicalDistribute()),

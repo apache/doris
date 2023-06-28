@@ -140,8 +140,9 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     }
 
     std::vector<std::string> split_parts = strings::Split(file, ".");
-    if (split_parts.size() != 3) {
-        return Status::InternalError("user function's name should be function_id.checksum.so");
+    if (split_parts.size() != 3 && split_parts.size() != 4) {
+        return Status::InternalError(
+                "user function's name should be function_id.checksum[.file_name].file_type");
     }
     int64_t function_id = std::stol(split_parts[0]);
     std::string checksum = split_parts[1];
@@ -176,7 +177,7 @@ Status UserFunctionCache::_load_cached_lib() {
             auto st = _load_entry_from_lib(sub_dir, file.file_name);
             if (!st.ok()) {
                 LOG(WARNING) << "load a library failed, dir=" << sub_dir
-                             << ", file=" << file.file_name;
+                             << ", file=" << file.file_name << ": " << st.to_string();
             }
             return true;
         };

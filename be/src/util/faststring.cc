@@ -43,7 +43,7 @@ void faststring::GrowArray(size_t newcapacity) {
     }
     capacity_ = newcapacity;
     if (data_ != initial_data_) {
-        Allocator::free_no_munmap(data_);
+        Allocator::free(data_);
     } else {
         ASAN_POISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
     }
@@ -57,13 +57,13 @@ void faststring::ShrinkToFitInternal() {
     if (len_ <= kInitialCapacity) {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, len_);
         memcpy(initial_data_, &data_[0], len_);
-        Allocator::free_no_munmap(data_);
+        Allocator::free(data_);
         data_ = initial_data_;
         capacity_ = kInitialCapacity;
     } else {
         std::unique_ptr<uint8_t[]> newdata(reinterpret_cast<uint8_t*>(Allocator::alloc(len_)));
         memcpy(&newdata[0], &data_[0], len_);
-        Allocator::free_no_munmap(data_);
+        Allocator::free(data_);
         data_ = newdata.release();
         capacity_ = len_;
     }

@@ -16,8 +16,9 @@ CteAnchor[cteId= ( CTEId#2=] )
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_year = 2002))
 --------------------------PhysicalOlapScan[date_dim]
---------------PhysicalProject
-----------------PhysicalOlapScan[customer_address]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer_address]
 --PhysicalTopN
 ----PhysicalDistribute
 ------PhysicalTopN

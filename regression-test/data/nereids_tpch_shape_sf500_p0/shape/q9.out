@@ -30,6 +30,7 @@ PhysicalQuickSort
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[nation]
-----------------PhysicalProject
-------------------PhysicalOlapScan[partsupp]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[partsupp]
 

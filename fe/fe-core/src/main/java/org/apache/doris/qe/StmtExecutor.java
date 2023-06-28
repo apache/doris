@@ -721,7 +721,7 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
+                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
                     handleDeleteStmt();
                 } else {
                     handleDdlStmt();

@@ -31,16 +31,18 @@ PhysicalTopN
 ------------------------------------------------PhysicalProject
 --------------------------------------------------filter((date_dim.d_year = 2002)(date_dim.d_moy = 3))
 ----------------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN](a.ca_address_sk = c.c_current_addr_sk)
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[customer]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[customer_address]
 ------------------PhysicalDistribute
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute
