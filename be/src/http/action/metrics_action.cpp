@@ -29,6 +29,7 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "runtime/exec_env.h"
+#include "util/mem_info.h"
 #include "util/metrics.h"
 
 namespace doris {
@@ -37,7 +38,9 @@ void MetricsAction::handle(HttpRequest* req) {
     const std::string& type = req->param("type");
     const std::string& with_tablet = req->param("with_tablet");
     std::string str;
-    if (type == "core") {
+    if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
+        str = "";
+    } else if (type == "core") {
         str = _metric_registry->to_core_string();
     } else if (type == "json") {
         str = _metric_registry->to_json(with_tablet == "true");
