@@ -25,57 +25,53 @@ suite("test_full_compaction") {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE ${tableName} (
-                `user_id` LARGEINT NOT NULL COMMENT "用户id",
-                `date` DATE NOT NULL COMMENT "数据灌入日期时间",
-                `datev2` DATEV2 NOT NULL COMMENT "数据灌入日期时间",
-                `datetimev2_1` DATETIMEV2(3) NOT NULL COMMENT "数据灌入日期时间",
-                `datetimev2_2` DATETIMEV2(6) NOT NULL COMMENT "数据灌入日期时间",
-                `city` VARCHAR(20) COMMENT "用户所在城市",
-                `age` SMALLINT COMMENT "用户年龄",
-                `sex` TINYINT COMMENT "用户性别",
-                `last_visit_date` DATETIME DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
-                `last_update_date` DATETIME DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次更新时间",
-                `datetime_val1` DATETIMEV2(3) DEFAULT "1970-01-01 00:00:00.111" COMMENT "用户最后一次访问时间",
-                `datetime_val2` DATETIME(6) DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次更新时间",
-                `last_visit_date_not_null` DATETIME NOT NULL DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
-                `cost` VARCHAR(20)  COMMENT "用户总消费",
-                `max_dwell_time` INT DEFAULT "0" COMMENT "用户最大停留时间",
-                `min_dwell_time` INT DEFAULT "99999" COMMENT "用户最小停留时间")
-            DUPLICATE KEY(`user_id`, `date`, `datev2`, `datetimev2_1`, `datetimev2_2`, `city`, `age`, `sex`) DISTRIBUTED BY HASH(`user_id`)
-            BUCKETS 1 PROPERTIES ( "replication_num" = "1" );
-        """
+                ( `user_id` INT NOT NULL, `value` INT NOT NULL)
+            UNIQUE KEY(`user_id`) 
+            DISTRIBUTED BY HASH(`user_id`) 
+            BUCKETS 1 
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "true");"""
 
+        // version1 (1,1)(2,2)
         sql """ INSERT INTO ${tableName} VALUES
-             (1, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-01', '2020-01-01', '2017-10-01 11:11:11.170000', '2017-10-01 11:11:11.110111', '2020-01-01', '1', 30, 20)
+            (1,1),(2,2)
             """
+        qt_1 """select * from ${tableName}"""
 
-        sql """
-            DELETE from ${tableName} where cost = '1'
-            """
 
+        // version2 (1,10)(2,20)
         sql """ INSERT INTO ${tableName} VALUES
-             (2, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2017-10-01 11:11:11.150000', '2017-10-01 11:11:11.130111', '2020-01-02', '2', 31, 21)
+            (1,10),(2,20)
             """
+        qt_2 """select * from ${tableName}"""
 
-        sql """
-            DELETE from ${tableName} where cost = '100'
-            """
 
+        // version3 (1,100)(2,200)
         sql """ INSERT INTO ${tableName} VALUES
-             (3, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.140000', '2017-10-01 11:11:11.120111', '2020-01-03', '3', 32, 20)
+            (1,100),(2,200)
             """
+        qt_3 """select * from ${tableName}"""
 
-        sql """
-            DELETE from ${tableName} where cost = '3'
-            """
 
+        // version4 (1,100)(2,200)(3,300)
         sql """ INSERT INTO ${tableName} VALUES
-             (4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.110000', '2017-10-01 11:11:11.110111', 'Beijing', 10, 1, '2020-01-03', '2020-01-03', '2017-10-01 11:11:11.100000', '2017-10-01 11:11:11.140111', '2020-01-03', '4', 32, 22)
+            (3,300)
             """
+        qt_4 """select * from ${tableName}"""
 
-        sql """
-            DELETE from ${tableName} where cost = '5'
-            """
+
+        // version5 (1,100)(2,200)(3,100)
+        sql """update ${tableName} set value = 100 where user_id = 3"""
+        qt_5 """select * from ${tableName}"""
+
+
+        // version6 (1,100)(2,200)
+        sql """delete from ${tableName} where user_id = 3"""
+        qt_6 """select * from ${tableName}"""
+
+
+        
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
