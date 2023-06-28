@@ -543,25 +543,6 @@ DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DECLARE_Int32(max_free_io_buffers);
 
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DECLARE_Bool(disable_mem_pools);
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DECLARE_mString(chunk_reserved_bytes_limit);
-// 1024, The minimum chunk allocator size (in bytes)
-DECLARE_Int32(min_chunk_reserved_bytes);
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DECLARE_mBool(disable_chunk_allocator_in_vec);
-
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
 DECLARE_Bool(enable_quadratic_probing);
