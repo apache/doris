@@ -15,21 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+
+import java.util.List;
 
 /**
- * Implementation rule that convert logical aggregation to physical hash aggregation.
+ * Common interface for logical/physical Union.
  */
-public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementationRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalOneRowRelation()
-                .then(relation -> new PhysicalOneRowRelation(
-                        relation.getProjects(), relation.getLogicalProperties()))
-                .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
-    }
+public interface Union extends SetOperation {
+
+    List<List<NamedExpression>> getConstantExprsList();
 }

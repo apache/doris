@@ -142,6 +142,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                                 } else {
                                     origSlot = (SlotReference) targetExpr;
                                 }
+                                if (!aliasTransferMap.containsKey(origSlot)) {
+                                    continue;
+                                }
                                 Slot olapScanSlot = aliasTransferMap.get(origSlot).second;
                                 PhysicalRelation scan = aliasTransferMap.get(origSlot).first;
                                 if (type == TRuntimeFilterType.IN_OR_BLOOM

@@ -20,7 +20,8 @@ PhysicalTopN
 ------------------------------PhysicalProject
 --------------------------------filter((date_dim.d_date <= 1998-05-06)(date_dim.d_date >= 1998-04-06))
 ----------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalProject
---------------------------filter(i_category IN ('Books', 'Sports', 'Men'))
-----------------------------PhysicalOlapScan[item]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter(i_category IN ('Books', 'Sports', 'Men'))
+------------------------------PhysicalOlapScan[item]
 
