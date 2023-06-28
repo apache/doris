@@ -15,23 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event;
+package org.apache.doris.scheduler;
 
-import org.apache.doris.event.registry.EventJobSchedulerRegister;
+import org.apache.doris.scheduler.registry.JobRegister;
 
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * This class provides a factory for creating instances of {@link EventJobSchedulerRegister}.
+ * This class provides a factory for creating instances of {@link JobRegister}.
  * The factory ensures that only one instance of the client is created in a lazy manner.
  */
-public class EventJobRegisterFactory {
-    private static final AtomicReference<EventJobSchedulerRegister> INSTANCE = new AtomicReference<>();
+public class JobRegisterFactory {
+    private static final AtomicReference<JobRegister> INSTANCE = new AtomicReference<>();
 
-    public static EventJobSchedulerRegister getInstance() {
-        EventJobSchedulerRegister instance = INSTANCE.get();
+    public static JobRegister getInstance() {
+        JobRegister instance = INSTANCE.get();
         if (instance == null) {
-            instance = new AsyncEventJobSchedulerRegister();
+            instance = new AsyncJobRegister();
             if (!INSTANCE.compareAndSet(null, instance)) {
                 instance = INSTANCE.get();
             }

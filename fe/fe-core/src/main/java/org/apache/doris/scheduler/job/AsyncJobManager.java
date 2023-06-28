@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.job;
+package org.apache.doris.scheduler.job;
 
-import org.apache.doris.event.disruptor.EventTaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
 
 import io.netty.util.HashedWheelTimer;
 import io.netty.util.Timeout;
@@ -32,9 +32,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-public class AsyncEventJobManager implements Closeable {
+public class AsyncJobManager implements Closeable {
 
-    private final ConcurrentHashMap<Long, EventJob> eventJobMap = new ConcurrentHashMap<>(128);
+    private final ConcurrentHashMap<Long, Job> jobMap = new ConcurrentHashMap<>(128);
 
     private long lastBatchSchedulerTimestamp;
 
@@ -49,99 +49,99 @@ public class AsyncEventJobManager implements Closeable {
     private boolean isClosed = false;
 
     /**
-     * key: eventId
-     * value: timeout list  for one event
+     * key: jobid
+     * value: timeout list  for one job
      * it's used to cancel task, if task has started, it can't be canceled
      */
-    private final ConcurrentHashMap<Long, Map<Long, Timeout>> eventTimeoutMap =
+    private final ConcurrentHashMap<Long, Map<Long, Timeout>> jobTimeoutMap =
             new ConcurrentHashMap<>(128);
 
     /**
-     * scheduler tasks, it's used to scheduler event job
+     * scheduler tasks, it's used to scheduler job
      */
     private final HashedWheelTimer dorisTimer = new HashedWheelTimer(1, TimeUnit.SECONDS,
             660);
 
     /**
      * Producer and Consumer model
-     * disruptor is used to handle event task
-     * disruptor will start a thread pool to handle event task
+     * disruptor is used to handle task
+     * disruptor will start a thread pool to handle task
      */
-    private final EventTaskDisruptor disruptor;
+    private final TimerTaskDisruptor disruptor;
 
-    public AsyncEventJobManager() {
+    public AsyncJobManager() {
         dorisTimer.start();
-        this.disruptor = new EventTaskDisruptor(this);
+        this.disruptor = new TimerTaskDisruptor(this);
         this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
         batchSchedulerTasks();
         cycleSystemSchedulerTasks();
     }
 
-    public Long registerEventJob(EventJob eventJob) {
-        if (!eventJob.checkJobParam()) {
-            log.warn("registerEventJob failed, eventJob: {} param is invalid", eventJob);
+    public Long registerJob(Job job) {
+        if (!job.checkJobParam()) {
+            log.warn("registerJob failed, job: {} param is invalid", job);
             return null;
         }
-        if (eventJob.getStartTimestamp() != 0L) {
-            eventJob.setNextExecuteTimestamp(eventJob.getStartTimestamp() + eventJob.getIntervalMilliSeconds());
+        if (job.getStartTimestamp() != 0L) {
+            job.setNextExecuteTimestamp(job.getStartTimestamp() + job.getIntervalMilliSeconds());
         } else {
-            eventJob.setNextExecuteTimestamp(System.currentTimeMillis() + eventJob.getIntervalMilliSeconds());
+            job.setNextExecuteTimestamp(System.currentTimeMillis() + job.getIntervalMilliSeconds());
         }
 
-        if (eventJob.getNextExecuteTimestamp() < BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp) {
-            List<Long> executeTimestamp = findEventsBetweenTime(eventJob, System.currentTimeMillis(),
+        if (job.getNextExecuteTimestamp() < BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp) {
+            List<Long> executeTimestamp = findTasksBetweenTime(job, System.currentTimeMillis(),
                     BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp,
-                    eventJob.getNextExecuteTimestamp());
+                    job.getNextExecuteTimestamp());
             if (!executeTimestamp.isEmpty()) {
                 for (Long timestamp : executeTimestamp) {
-                    putOneTask(eventJob.getEventJobId(), timestamp);
+                    putOneTask(job.getJobId(), timestamp);
                 }
             }
         }
 
-        eventJobMap.putIfAbsent(eventJob.getEventJobId(), eventJob);
-        return eventJob.getEventJobId();
+        jobMap.putIfAbsent(job.getJobId(), job);
+        return job.getJobId();
     }
 
-    public void unregisterEventJob(Long eventJobId) {
-        eventJobMap.remove(eventJobId);
+    public void unregisterJob(Long jobId) {
+        jobMap.remove(jobId);
     }
 
-    public boolean pauseEventJob(Long eventJobId) {
-        if (eventJobMap.get(eventJobId) == null) {
-            log.warn("pauseEventJob failed, eventJobId: {} not exist", eventJobId);
+    public boolean pauseJob(Long jobId) {
+        if (jobMap.get(jobId) == null) {
+            log.warn("pauseJob failed, jobId: {} not exist", jobId);
             return false;
         }
-        cancelAllEventTask(eventJobId);
-        eventJobMap.get(eventJobId).pause();
+        cancelJobAllTask(jobId);
+        jobMap.get(jobId).pause();
         return true;
     }
 
-    public boolean resumeEventJob(Long eventJobId) {
-        if (eventJobMap.get(eventJobId) == null) {
-            log.warn("resumeEventJob failed, eventJobId: {} not exist", eventJobId);
+    public boolean resumeJob(Long jobId) {
+        if (jobMap.get(jobId) == null) {
+            log.warn("resumeJob failed, jobId: {} not exist", jobId);
             return false;
         }
-        eventJobMap.get(eventJobId).resume();
+        jobMap.get(jobId).resume();
         return true;
     }
 
-    public boolean stopEventJob(Long eventJobId) {
-        if (eventJobMap.get(eventJobId) == null) {
-            log.warn("stopEventJob failed, eventJobId: {} not exist", eventJobId);
+    public boolean stopJob(Long jobId) {
+        if (jobMap.get(jobId) == null) {
+            log.warn("stopJob failed, jobId: {} not exist", jobId);
             return false;
         }
-        cancelAllEventTask(eventJobId);
-        eventJobMap.get(eventJobId).stop();
+        cancelJobAllTask(jobId);
+        jobMap.get(jobId).stop();
         return true;
     }
 
-    public EventJob getEventJob(Long eventJobId) {
-        return eventJobMap.get(eventJobId);
+    public Job getJob(Long jobId) {
+        return jobMap.get(jobId);
     }
 
-    public Map<Long, EventJob> getAllEventJob() {
-        return eventJobMap;
+    public Map<Long, Job> getAllJob() {
+        return jobMap;
     }
 
     public boolean batchSchedulerTasks() {
@@ -149,17 +149,17 @@ public class AsyncEventJobManager implements Closeable {
         return true;
     }
 
-    public List<Long> findEventsBetweenTime(EventJob eventJob, Long startTime, Long endTime, Long nextExecuteTime) {
+    public List<Long> findTasksBetweenTime(Job job, Long startTime, Long endTime, Long nextExecuteTime) {
         List<Long> jobExecuteTimes = new ArrayList<>();
         if (System.currentTimeMillis() < startTime) {
             return jobExecuteTimes;
         }
         while (endTime >= nextExecuteTime) {
-            if (eventJob.isTaskTimeExceeded()) {
+            if (job.isTaskTimeExceeded()) {
                 break;
             }
             jobExecuteTimes.add(nextExecuteTime);
-            nextExecuteTime = eventJob.getExecuteTimestampAndGeneratorNext();
+            nextExecuteTime = job.getExecuteTimestampAndGeneratorNext();
         }
         return jobExecuteTimes;
     }
@@ -168,18 +168,18 @@ public class AsyncEventJobManager implements Closeable {
      * We will get the task in the next time window, and then hand it over to the time wheel for timing trigger
      */
     private void executeJobIdsWithinLastTenMinutesWindow() {
-        if (eventJobMap.isEmpty()) {
+        if (jobMap.isEmpty()) {
             return;
         }
-        eventJobMap.forEach((k, v) -> {
+        jobMap.forEach((k, v) -> {
             if (v.isRunning() && (v.getNextExecuteTimestamp() + v.getIntervalMilliSeconds()
                     < lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS)) {
-                List<Long> executeTimes = findEventsBetweenTime(v, lastBatchSchedulerTimestamp,
+                List<Long> executeTimes = findTasksBetweenTime(v, lastBatchSchedulerTimestamp,
                         lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS,
                         v.getNextExecuteTimestamp());
                 if (!executeTimes.isEmpty()) {
                     for (Long executeTime : executeTimes) {
-                        putOneTask(v.getEventJobId(), executeTime);
+                        putOneTask(v.getJobId(), executeTime);
                     }
                 }
             }
@@ -189,7 +189,7 @@ public class AsyncEventJobManager implements Closeable {
 
     /**
      * We will cycle system scheduler tasks every 10 minutes.
-     * Events will be re-registered after the task is completed
+     * Jobs will be re-registered after the task is completed
      */
     private void cycleSystemSchedulerTasks() {
         dorisTimer.newTimeout(timeout -> {
@@ -198,46 +198,47 @@ public class AsyncEventJobManager implements Closeable {
         }, BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS, TimeUnit.MILLISECONDS);
     }
 
-    public void putOneTask(Long eventJobId, Long startExecuteTime) {
-        DorisTimerTask task = new DorisTimerTask(eventJobId, startExecuteTime, disruptor);
+    public void putOneTask(Long jobId, Long startExecuteTime) {
+        DorisTimerTask task = new DorisTimerTask(jobId, startExecuteTime, disruptor);
         if (isClosed) {
-            log.info("putOneTask failed, scheduler is closed, eventId: {}", task.getEventId());
+            log.info("putOneTask failed, scheduler is closed, jobId: {}", task.getJobId());
             return;
         }
         long delay = getDelaySecond(task.getStartTimestamp());
         Timeout timeout = dorisTimer.newTimeout(task, delay, TimeUnit.SECONDS);
         if (timeout == null) {
-            log.error("putOneTask failed, eventId: {}", task.getEventId());
+            log.error("putOneTask failed, jobId: {}", task.getJobId());
             return;
         }
-        if (eventTimeoutMap.containsKey(task.getEventId())) {
-            eventTimeoutMap.get(task.getEventId()).put(task.getTaskId(), timeout);
+        if (jobTimeoutMap.containsKey(task.getJobId())) {
+            jobTimeoutMap.get(task.getJobId()).put(task.getTaskId(), timeout);
             return;
         }
         Map<Long, Timeout> timeoutMap = new ConcurrentHashMap<>();
         timeoutMap.put(task.getTaskId(), timeout);
-        eventTimeoutMap.put(task.getEventId(), timeoutMap);
+        jobTimeoutMap.put(task.getJobId(), timeoutMap);
     }
 
-    // cancel all task for one event
+    // cancel all task for one job
     // if task has started, it can't be canceled
-    public void cancelAllEventTask(Long eventId) {
-        if (!eventTimeoutMap.containsKey(eventId)) {
+    public void cancelJobAllTask(Long jobId) {
+        if (!jobTimeoutMap.containsKey(jobId)) {
             return;
         }
 
-        eventTimeoutMap.get(eventId).values().forEach(timeout -> {
+        jobTimeoutMap.get(jobId).values().forEach(timeout -> {
             if (!timeout.isExpired() || timeout.isCancelled()) {
                 timeout.cancel();
             }
         });
     }
 
-    public void stopEventTask(Long eventId, Long taskId) {
-        if (!eventTimeoutMap.containsKey(eventId)) {
+    public void stopTask(Long jobId, Long taskId) {
+        if (!jobTimeoutMap.containsKey(jobId)) {
             return;
         }
-        eventTimeoutMap.get(eventId).remove(taskId);
+        cancelJobAllTask(jobId);
+        jobTimeoutMap.get(jobId).remove(taskId);
     }
 
     // get delay time, if startTimestamp is less than now, return 0

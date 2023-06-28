@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.constants;
+package org.apache.doris.scheduler.constants;
 
-public enum EventStatus {
+public enum JobStatus {
 
     /**
      * When the task is not started, the initial state will be triggered.

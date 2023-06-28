@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.disruptor;
+package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.event.constants.SystemEventJob;
-import org.apache.doris.event.job.AsyncEventJobManager;
-import org.apache.doris.event.job.EventJob;
+import org.apache.doris.scheduler.constants.SystemJob;
+import org.apache.doris.scheduler.job.AsyncJobManager;
+import org.apache.doris.scheduler.job.Job;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -34,20 +34,20 @@ import java.util.Objects;
  * The work handler also handles system events by scheduling batch scheduler tasks.
  */
 @Slf4j
-public class EventTaskWorkHandler implements WorkHandler<EventTask> {
+public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
 
     /**
      * The event job manager used to retrieve and execute event jobs.
      */
-    private AsyncEventJobManager asyncEventJobManager;
+    private AsyncJobManager asyncJobManager;
 
     /**
-     * Constructs a new {@link EventTaskWorkHandler} instance with the specified event job manager.
+     * Constructs a new {@link TimerTaskExpirationHandler} instance with the specified event job manager.
      *
-     * @param asyncEventJobManager The event job manager used to retrieve and execute event jobs.
+     * @param asyncJobManager The event job manager used to retrieve and execute event jobs.
      */
-    public EventTaskWorkHandler(AsyncEventJobManager asyncEventJobManager) {
-        this.asyncEventJobManager = asyncEventJobManager;
+    public TimerTaskExpirationHandler(AsyncJobManager asyncJobManager) {
+        this.asyncJobManager = asyncJobManager;
     }
 
     /**
@@ -58,7 +58,7 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
      * @param event The event task to be processed.
      */
     @Override
-    public void onEvent(EventTask event) {
+    public void onEvent(TimerTaskEvent event) {
         if (checkIsSystemEvent(event)) {
             onSystemEvent();
             return;
@@ -69,30 +69,30 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
     /**
      * Processes an event task by retrieving the associated event job and executing it if it is running.
      *
-     * @param eventTask The event task to be processed.
+     * @param timerTaskEvent The event task to be processed.
      */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    public void onEventTask(EventTask eventTask) {
-        long eventJobId = eventTask.getEventJobId();
-        EventJob eventJob = asyncEventJobManager.getEventJob(eventJobId);
-        if (eventJob == null) {
-            log.info("Event job is null, eventJobId: {}", eventJobId);
+    public void onEventTask(TimerTaskEvent timerTaskEvent) {
+        long jobId = timerTaskEvent.getJobId();
+        Job job = asyncJobManager.getEventJob(jobId);
+        if (job == null) {
+            log.info("Event job is null, eventJobId: {}", jobId);
             return;
         }
-        if (!eventJob.isRunning()) {
-            log.info("Event job is not running, eventJobId: {}", eventJobId);
+        if (!job.isRunning()) {
+            log.info("Event job is not running, eventJobId: {}", jobId);
             return;
         }
-        log.debug("Event job is running, eventJobId: {}", eventJobId);
-        checkJobIsExpired(eventJob);
+        log.debug("Event job is running, eventJobId: {}", jobId);
+        checkJobIsExpired(job);
         try {
             // TODO: We should record the result of the event task.
             //Object result = eventJob.getExecutor().execute();
-            eventJob.getExecutor().execute();
-            eventJob.setLatestCompleteExecuteTimestamp(System.currentTimeMillis());
+            job.getExecutor().execute();
+            job.setLatestCompleteExecuteTimestamp(System.currentTimeMillis());
         } catch (Exception e) {
-            log.error("Event job execute failed, eventJobId: {}", eventJobId, e);
-            eventJob.pause(e.getMessage());
+            log.error("Event job execute failed, jobId: {}", jobId, e);
+            job.pause(e.getMessage());
         }
     }
 
@@ -101,7 +101,7 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
      */
     private void onSystemEvent() {
         try {
-            asyncEventJobManager.batchSchedulerTasks();
+            asyncJobManager.batchSchedulerTasks();
         } catch (Exception e) {
             log.error("System batch scheduler execute failed", e);
         }
@@ -113,13 +113,13 @@ public class EventTaskWorkHandler implements WorkHandler<EventTask> {
      * @param event The event task to be checked.
      * @return true if the event task is a system event, false otherwise.
      */
-    private boolean checkIsSystemEvent(EventTask event) {
-        return Objects.equals(event.getEventJobId(), SystemEventJob.SYSTEM_SCHEDULER_EVENT_JOB.getId());
+    private boolean checkIsSystemEvent(TimerTaskEvent event) {
+        return Objects.equals(event.getJobId(), SystemJob.SYSTEM_SCHEDULER_JOB.getId());
     }
 
-    private void checkJobIsExpired(EventJob eventJob) {
-        if (eventJob.isExpired()) {
-            eventJob.pause();
+    private void checkJobIsExpired(Job job) {
+        if (job.isExpired()) {
+            job.pause();
         }
     }
 }

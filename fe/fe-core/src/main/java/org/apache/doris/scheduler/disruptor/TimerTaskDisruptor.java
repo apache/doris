@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.disruptor;
+package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.event.job.AsyncEventJobManager;
+import org.apache.doris.scheduler.job.AsyncJobManager;
 
 import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventTranslatorTwoArg;
@@ -42,9 +42,9 @@ import java.util.concurrent.TimeUnit;
  * <p>The work handler also handles system events by scheduling batch scheduler tasks.
  */
 @Slf4j
-public class EventTaskDisruptor implements Closeable {
+public class TimerTaskDisruptor implements Closeable {
 
-    private final Disruptor<EventTask> disruptor;
+    private final Disruptor<TimerTaskEvent> disruptor;
     private static final int DEFAULT_RING_BUFFER_SIZE = 1024;
 
     /**
@@ -69,19 +69,19 @@ public class EventTaskDisruptor implements Closeable {
      * The default {@link EventTranslatorTwoArg} to use for {@link #tryPublish(Long, Long)}.
      * This is used to avoid creating a new object for each publish.
      */
-    private static final EventTranslatorTwoArg<EventTask, Long, Long> TRANSLATOR
-            = (event, sequence, eventJobId, eventTaskId) -> {
-                event.setEventJobId(eventJobId);
-                event.setEventTaskId(eventTaskId);
+    private static final EventTranslatorTwoArg<TimerTaskEvent, Long, Long> TRANSLATOR
+            = (event, sequence, jobId, taskId) -> {
+                event.setJobId(jobId);
+                event.setTaskId(taskId);
             };
 
-    public EventTaskDisruptor(AsyncEventJobManager asyncEventJobManager) {
+    public TimerTaskDisruptor(AsyncJobManager asyncJobManager) {
         ThreadFactory producerThreadFactory = DaemonThreadFactory.INSTANCE;
-        disruptor = new Disruptor<>(EventTask.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
+        disruptor = new Disruptor<>(TimerTaskEvent.FACTORY, DEFAULT_RING_BUFFER_SIZE, producerThreadFactory,
                 ProducerType.SINGLE, new BlockingWaitStrategy());
-        WorkHandler<EventTask>[] workers = new EventTaskWorkHandler[DEFAULT_CONSUMER_COUNT];
+        WorkHandler<TimerTaskEvent>[] workers = new TimerTaskExpirationHandler[DEFAULT_CONSUMER_COUNT];
         for (int i = 0; i < DEFAULT_CONSUMER_COUNT; i++) {
-            workers[i] = new EventTaskWorkHandler(asyncEventJobManager);
+            workers[i] = new TimerTaskExpirationHandler(asyncJobManager);
         }
         disruptor.handleEventsWithWorkerPool(workers);
         disruptor.start();
@@ -105,16 +105,16 @@ public class EventTaskDisruptor implements Closeable {
         }
     }
 
-    public boolean tryPublish(EventTask eventTask) {
+    public boolean tryPublish(TimerTaskEvent timerTaskEvent) {
         if (isClosed) {
-            log.info("tryPublish failed, disruptor is closed, eventJobId: {}", eventTask.getEventJobId());
+            log.info("tryPublish failed, disruptor is closed, eventJobId: {}", timerTaskEvent.getJobId());
             return false;
         }
         try {
-            disruptor.publishEvent(TRANSLATOR, eventTask.getEventJobId(), eventTask.getEventTaskId());
+            disruptor.publishEvent(TRANSLATOR, timerTaskEvent.getJobId(), timerTaskEvent.getTaskId());
             return true;
         } catch (Exception e) {
-            log.error("tryPublish failed, eventJobId: {}", eventTask.getEventJobId(), e);
+            log.error("tryPublish failed, eventJobId: {}", timerTaskEvent.getJobId(), e);
             return false;
         }
     }

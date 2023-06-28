@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.disruptor;
+package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.event.executor.EventJobExecutor;
-import org.apache.doris.event.job.AsyncEventJobManager;
-import org.apache.doris.event.job.EventJob;
+import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.job.AsyncJobManager;
+import org.apache.doris.scheduler.job.Job;
 
 import lombok.extern.slf4j.Slf4j;
 import org.awaitility.Awaitility;
@@ -35,31 +35,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class AsyncJobManagerTest {
 
-    AsyncEventJobManager asyncEventJobManager;
+    AsyncJobManager asyncJobManager;
 
     private static AtomicInteger testExecuteCount = new AtomicInteger(0);
-    EventJob eventJob = new EventJob("test", 6000L, null,
+    Job job = new Job("test", 6000L, null,
             null, new TestExecutor());
 
     @BeforeEach
     public void init() {
         testExecuteCount.set(0);
-        asyncEventJobManager = new AsyncEventJobManager();
+        asyncJobManager = new AsyncJobManager();
     }
 
     @Test
     public void testCycleScheduler() {
-        asyncEventJobManager.registerEventJob(eventJob);
+        asyncJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(30, TimeUnit.SECONDS).until(() -> testExecuteCount.get() >= 3);
     }
 
     @Test
     public void testCycleSchedulerAndStop() {
-        asyncEventJobManager.registerEventJob(eventJob);
+        asyncJobManager.registerJob(job);
         long startTime = System.currentTimeMillis();
         Awaitility.await().atMost(8, TimeUnit.SECONDS).until(() -> testExecuteCount.get() >= 1);
-        asyncEventJobManager.unregisterEventJob(eventJob.getEventJobId());
+        asyncJobManager.unregisterJob(job.getJobId());
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(30, TimeUnit.SECONDS).until(() -> System.currentTimeMillis() >= startTime + 13000L);
         Assertions.assertEquals(1, testExecuteCount.get());
@@ -68,10 +68,10 @@ public class AsyncJobManagerTest {
 
     @Test
     public void testCycleSchedulerWithIncludeStartTimeAndEndTime() {
-        eventJob.setStartTimestamp(System.currentTimeMillis() + 6000L);
+        job.setStartTimestamp(System.currentTimeMillis() + 6000L);
         long endTimestamp = System.currentTimeMillis() + 19000L;
-        eventJob.setEndTimestamp(endTimestamp);
-        asyncEventJobManager.registerEventJob(eventJob);
+        job.setEndTimestamp(endTimestamp);
+        asyncJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
 
         Awaitility.await().atMost(60, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
@@ -82,8 +82,8 @@ public class AsyncJobManagerTest {
     @Test
     public void testCycleSchedulerWithIncludeEndTime() {
         long endTimestamp = System.currentTimeMillis() + 13000;
-        eventJob.setEndTimestamp(endTimestamp);
-        asyncEventJobManager.registerEventJob(eventJob);
+        job.setEndTimestamp(endTimestamp);
+        asyncJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(36, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= endTimestamp + 12000L);
@@ -94,8 +94,8 @@ public class AsyncJobManagerTest {
     public void testCycleSchedulerWithIncludeStartTime() {
 
         long startTimestamp = System.currentTimeMillis() + 6000L;
-        eventJob.setStartTimestamp(startTimestamp);
-        asyncEventJobManager.registerEventJob(eventJob);
+        job.setStartTimestamp(startTimestamp);
+        asyncJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(14, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= startTimestamp + 7000L);
@@ -104,10 +104,10 @@ public class AsyncJobManagerTest {
 
     @AfterEach
     public void after() throws IOException {
-        asyncEventJobManager.close();
+        asyncJobManager.close();
     }
 
-    class TestExecutor implements EventJobExecutor<Boolean> {
+    class TestExecutor implements JobExecutor<Boolean> {
         @Override
         public Boolean execute() {
             log.info("test execute count:{}", testExecuteCount.incrementAndGet());

@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.disruptor;
+package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.event.executor.EventJobExecutor;
-import org.apache.doris.event.job.AsyncEventJobManager;
-import org.apache.doris.event.job.EventJob;
+import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.job.AsyncJobManager;
+import org.apache.doris.scheduler.job.Job;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -33,36 +33,36 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-public class EventTaskDisruptorTest {
+public class TimerTaskDisruptorTest {
 
     @Tested
-    private EventTaskDisruptor eventTaskDisruptor;
+    private TimerTaskDisruptor timerTaskDisruptor;
 
     @Injectable
-    private AsyncEventJobManager asyncEventJobManager;
+    private AsyncJobManager asyncJobManager;
 
     private static boolean testEventExecuteFlag = false;
 
     @BeforeEach
     public void init() {
-        eventTaskDisruptor = new EventTaskDisruptor(asyncEventJobManager);
+        timerTaskDisruptor = new TimerTaskDisruptor(asyncJobManager);
     }
 
     @Test
     void testPublishEventAndConsumer() {
-        EventJob eventJob = new EventJob("test", 6000L, null,
+        Job job = new Job("test", 6000L, null,
                 null, new TestExecutor());
         new Expectations() {{
-                asyncEventJobManager.getEventJob(anyLong);
-                result = eventJob;
+                asyncJobManager.getJob(anyLong);
+                result = job;
             }};
-        eventTaskDisruptor.tryPublish(eventJob.getEventJobId(), UUID.randomUUID().getMostSignificantBits());
+        timerTaskDisruptor.tryPublish(job.getJobId(), UUID.randomUUID().getMostSignificantBits());
         Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
         Assertions.assertTrue(testEventExecuteFlag);
     }
 
 
-    class TestExecutor implements EventJobExecutor<Boolean> {
+    class TestExecutor implements JobExecutor<Boolean> {
         @Override
         public Boolean execute() {
             testEventExecuteFlag = true;
@@ -72,6 +72,6 @@ public class EventTaskDisruptorTest {
 
     @AfterEach
     public void after() {
-        eventTaskDisruptor.close();
+        timerTaskDisruptor.close();
     }
 }

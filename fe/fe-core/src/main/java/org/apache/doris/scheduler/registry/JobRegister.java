@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.registry;
+package org.apache.doris.scheduler.registry;
 
-import org.apache.doris.event.executor.EventJobExecutor;
+import org.apache.doris.scheduler.executor.JobExecutor;
 
 import java.io.IOException;
 
@@ -26,83 +26,83 @@ import java.io.IOException;
  * The implementation should trigger events in a timely manner using a specific algorithm.
  * The execution of the events may be asynchronous and not guarantee strict timing accuracy.
  */
-public interface EventJobSchedulerRegister {
+public interface JobRegister {
 
     /**
-     * Register a event job
+     * Register a job
      *
-     * @param name       event job name,it's not unique
-     * @param intervalMs event job interval, unit: ms
-     * @param executor   event job executor @See {@link EventJobExecutor}
+     * @param name        job name,it's not unique
+     * @param intervalMs  job interval, unit: ms
+     * @param executor    job executor @See {@link JobExecutor}
      * @return event job id
      */
-    Long registerEventJob(String name, Long intervalMs, EventJobExecutor executor);
+    Long registerJob(String name, Long intervalMs, JobExecutor executor);
 
     /**
-     * Register a event job
+     * Register a job
      *
-     * @param name           event job name,it's not unique
-     * @param intervalMs     event job interval, unit: ms
-     * @param startTimeStamp event job start time stamp, unit: ms
+     * @param name           job name,it's not unique
+     * @param intervalMs     job interval, unit: ms
+     * @param startTimeStamp job start time stamp, unit: ms
      *                       if startTimeStamp is null, event job will start immediately in the next cycle
      *                       startTimeStamp should be greater than current time
-     * @param executor       event job executor @See {@link EventJobExecutor}
-     * @return event job id
+     * @param executor       event job executor @See {@link JobExecutor}
+     * @return job id
      */
-    Long registerEventJob(String name, Long intervalMs, Long startTimeStamp, EventJobExecutor executor);
+    Long registerJob(String name, Long intervalMs, Long startTimeStamp, JobExecutor executor);
 
 
     /**
      * Register a event job
      *
-     * @param name           event job name,it's not unique
-     * @param intervalMs     event job interval, unit: ms
-     * @param startTimeStamp event job start time stamp, unit: ms
-     *                       if startTimeStamp is null, event job will start immediately in the next cycle
+     * @param name           job name,it's not unique
+     * @param intervalMs     job interval, unit: ms
+     * @param startTimeStamp job start time stamp, unit: ms
+     *                       if startTimeStamp is null, job will start immediately in the next cycle
      *                       startTimeStamp should be greater than current time
-     * @param endTimeStamp   event job end time stamp, unit: ms
-     *                       if endTimeStamp is null, event job will never stop
+     * @param endTimeStamp   job end time stamp, unit: ms
+     *                       if endTimeStamp is null, job will never stop
      *                       endTimeStamp must be greater than startTimeStamp and endTimeStamp should be greater
      *                       than current time
-     * @param executor       event job executor @See {@link EventJobExecutor}
+     * @param executor       event job executor @See {@link JobExecutor}
      * @return event job id
      */
-    Long registerEventJob(String name, Long intervalMs, Long startTimeStamp, Long endTimeStamp,
-                          EventJobExecutor executor);
+    Long registerJob(String name, Long intervalMs, Long startTimeStamp, Long endTimeStamp,
+                          JobExecutor executor);
 
     /**
-     * if event job is running, pause it
+     * if job is running, pause it
      * pause means event job will not be executed in the next cycle,but current cycle will not be interrupted
-     * we can resume it by {@link #resumeEventJob(Long)}
+     * we can resume it by {@link #resumeJob(Long)}
      *
      * @param eventId event job id
      *                if eventId not exist, return false
      * @return true if pause success, false if pause failed
      */
-    Boolean pauseEventJob(Long eventId);
+    Boolean pauseJob(Long jodId);
 
     /**
-     * if event job is running, stop it
+     * if job is running, stop it
      * stop means event job will not be executed in the next cycle and current cycle will be interrupted
      * stop not can be resumed, if you want to resume it, you should register it again
      * we will delete stopped event job
      *
-     * @param eventId event job id
+     * @param jobId event job id
      * @return true if stop success, false if stop failed
      */
-    Boolean stopEventJob(Long eventId);
+    Boolean stopJob(Long jobId);
 
     /**
-     * if event job is paused, resume it
+     * if job is paused, resume it
      *
-     * @param eventId event job id
+     * @param jobId job id
      * @return true if resume success, false if resume failed
      */
-    Boolean resumeEventJob(Long eventId);
+    Boolean resumeJob(Long jobId);
 
     /**
-     * close event job scheduler register
-     * close means event job scheduler register will not accept new event job
+     * close job scheduler register
+     * close means job scheduler register will not accept new job
      * Jobs that have not reached the trigger time will not be executed. Jobs that have reached the trigger time will
      * have an execution time of 5 seconds, and will not be executed if the time exceeds
      */

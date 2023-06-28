@@ -15,23 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.executor;
+package org.apache.doris.scheduler.disruptor;
+
+import com.lmax.disruptor.EventFactory;
+import lombok.Data;
 
 /**
- * This interface represents a callback for an event registration. All event registrations
- * must implement this interface to provide an execution method.
- *
- * @param <T> The result type of the event job execution.
+ * This class represents an event task that can be produced and consumed by the Disruptor.
+ * The event task contains the ID of the event job and the ID of the event task itself.
+ * The class also provides an event factory to create instances of {@link TimerTaskEvent}.
+ * <p>
+ * it's used by {@link TimerTaskDisruptor} and {@link TimerTaskExpirationHandler}
  */
-@FunctionalInterface
-public interface EventJobExecutor<T> {
+@Data
+public class TimerTaskEvent {
 
-    /**
-     * Executes the event job and returns the result.
-     * Exceptions will be caught internally, so there is no need to define or throw them separately.
-     *
-     * @return The result of the event job execution.
-     */
-    T execute();
+    private Long jobId;
+
+    private Long taskId;
+
+    public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
 }
-

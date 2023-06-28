@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.job;
+package org.apache.doris.scheduler.job;
 
-import org.apache.doris.event.disruptor.EventTaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
 
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
@@ -33,19 +33,19 @@ import java.util.UUID;
 @Getter
 public class DorisTimerTask implements TimerTask {
 
-    private final Long eventId;
+    private final Long jobId;
 
     // more fields should be added here and record in feature
     private final Long taskId = UUID.randomUUID().getMostSignificantBits();
 
     private final Long startTimestamp;
 
-    private final EventTaskDisruptor eventTaskDisruptor;
+    private final TimerTaskDisruptor timerTaskDisruptor;
 
-    public DorisTimerTask(Long eventId, Long startTimestamp, EventTaskDisruptor eventTaskDisruptor) {
-        this.eventId = eventId;
+    public DorisTimerTask(Long jobId, Long startTimestamp, TimerTaskDisruptor timerTaskDisruptor) {
+        this.jobId = jobId;
         this.startTimestamp = startTimestamp;
-        this.eventTaskDisruptor = eventTaskDisruptor;
+        this.timerTaskDisruptor = timerTaskDisruptor;
     }
 
     @Override
@@ -53,6 +53,6 @@ public class DorisTimerTask implements TimerTask {
         if (timeout.isCancelled()) {
             return;
         }
-        eventTaskDisruptor.tryPublish(eventId, taskId);
+        timerTaskDisruptor.tryPublish(jobId, taskId);
     }
 }

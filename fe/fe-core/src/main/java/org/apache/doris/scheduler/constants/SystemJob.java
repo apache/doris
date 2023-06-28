@@ -15,22 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.disruptor;
+package org.apache.doris.scheduler.constants;
 
-import com.lmax.disruptor.EventFactory;
-import lombok.Data;
+import lombok.Getter;
 
 /**
- * This class represents an event task that can be produced and consumed by the Disruptor.
- * The event task contains the ID of the event job and the ID of the event task itself.
- * The class also provides an event factory to create instances of {@link EventTask}.
+ * System scheduler event job
+ * They will start when scheduler starts
  */
-@Data
-public class EventTask {
+public enum SystemJob {
 
-    private Long eventJobId;
+    /**
+     * System cycle scheduler event job, it will start cycle scheduler
+     */
+    SYSTEM_SCHEDULER_JOB("system_scheduler_event_job", 1L);
 
-    private Long eventTaskId;
+    @Getter
+    private final String description;
+    @Getter
+    private final Long id;
 
-    public static final EventFactory<EventTask> FACTORY = EventTask::new;
+    SystemJob(String description, Long id) {
+        this.description = description;
+        this.id = id;
+    }
 }

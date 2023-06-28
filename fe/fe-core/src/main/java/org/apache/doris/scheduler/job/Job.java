@@ -15,51 +15,51 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.job;
+package org.apache.doris.scheduler.job;
 
-import org.apache.doris.event.constants.EventStatus;
-import org.apache.doris.event.executor.EventJobExecutor;
+import org.apache.doris.scheduler.constants.JobStatus;
+import org.apache.doris.scheduler.executor.JobExecutor;
 
 import lombok.Data;
 
 import java.util.UUID;
 
 /**
- * EventJob is the core of the event module, which is used to store the event information of the event module.
- * We can use the eventJobId to uniquely identify an eventJob.
- * The eventJobName is used to identify the eventJob, which is not unique.
- * The eventStatus is used to identify the status of the eventJob, which is used to control the execution of the
- * eventJob.
+ * Job is the core of the scheduler module, which is used to store the Job information of the job module.
+ * We can use the job to uniquely identify a Job.
+ * The jobName is used to identify the job, which is not unique.
+ * The jobStatus is used to identify the status of the Job, which is used to control the execution of the
+ * job.
  */
 @Data
-public class EventJob {
+public class Job {
 
-    public EventJob(String eventJobName, Long intervalMilliSeconds, Long startTimestamp, Long endTimestamp,
-                    EventJobExecutor executor) {
-        this.eventJobName = eventJobName;
+    public Job(String jobName, Long intervalMilliSeconds, Long startTimestamp, Long endTimestamp,
+               JobExecutor executor) {
+        this.jobName = jobName;
         this.executor = executor;
         this.intervalMilliSeconds = intervalMilliSeconds;
         this.startTimestamp = null == startTimestamp ? 0L : startTimestamp;
         this.endTimestamp = null == endTimestamp ? 0L : endTimestamp;
     }
 
-    private Long eventJobId = UUID.randomUUID().getMostSignificantBits();
+    private Long jobId = UUID.randomUUID().getMostSignificantBits();
 
-    private String eventJobName;
-
-    /**
-     * The status of the eventJob, which is used to control the execution of the eventJob.
-     *
-     * @see EventStatus
-     */
-    private EventStatus eventStatus = EventStatus.RUNNING;
+    private String jobName;
 
     /**
-     * The executor of the eventJob, which is used to execute the eventJob.
+     * The status of the job, which is used to control the execution of the job.
      *
-     * @see EventJobExecutor
+     * @see JobStatus
      */
-    private EventJobExecutor executor;
+    private JobStatus jobStatus = JobStatus.RUNNING;
+
+    /**
+     * The executor of the job.
+     *
+     * @see JobExecutor
+     */
+    private JobExecutor executor;
 
     private String user;
 
@@ -80,11 +80,11 @@ public class EventJob {
     private Long latestCompleteExecuteTimestamp = 0L;
 
     public boolean isRunning() {
-        return eventStatus == EventStatus.RUNNING;
+        return jobStatus == JobStatus.RUNNING;
     }
 
     public boolean isStopped() {
-        return eventStatus == EventStatus.STOPPED;
+        return jobStatus == JobStatus.STOPPED;
     }
 
     public boolean isExpired(long nextExecuteTimestamp) {
@@ -117,20 +117,20 @@ public class EventJob {
     }
 
     public void pause() {
-        this.eventStatus = EventStatus.PAUSED;
+        this.jobStatus = JobStatus.PAUSED;
     }
 
     public void pause(String errMsg) {
-        this.eventStatus = EventStatus.PAUSED;
+        this.jobStatus = JobStatus.PAUSED;
         this.errMsg = errMsg;
     }
 
     public void resume() {
-        this.eventStatus = EventStatus.RUNNING;
+        this.jobStatus = JobStatus.RUNNING;
     }
 
     public void stop() {
-        this.eventStatus = EventStatus.STOPPED;
+        this.jobStatus = JobStatus.STOPPED;
     }
 
     public boolean checkJobParam() {

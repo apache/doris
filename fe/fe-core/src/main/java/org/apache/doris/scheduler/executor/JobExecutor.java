@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.event.constants;
-
-import lombok.Getter;
+package org.apache.doris.scheduler.executor;
 
 /**
- * System scheduler event job
- * They will start when scheduler starts
+ * This interface represents a callback for an event registration. All event registrations
+ * must implement this interface to provide an execution method.
+ *
+ * @param <T> The result type of the event job execution.
  */
-public enum SystemEventJob {
+@FunctionalInterface
+public interface JobExecutor<T> {
 
     /**
-     * System cycle scheduler event job
+     * Executes the event job and returns the result.
+     * Exceptions will be caught internally, so there is no need to define or throw them separately.
+     *
+     * @return The result of the event job execution.
      */
-    SYSTEM_SCHEDULER_EVENT_JOB("system_scheduler_event_job", 1L);
-
-    @Getter
-    private final String description;
-    @Getter
-    private final Long id;
-
-    SystemEventJob(String description, Long id) {
-        this.description = description;
-        this.id = id;
-    }
+    T execute();
 }
+
