@@ -844,6 +844,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         cteProduce.setOutputExprs(outputs);
         context.getCteProduceFragments().put(cteId, cteProduce);
         context.getCteProduceMap().put(cteId, cteProducer);
+        if (context.getRuntimeTranslator().isPresent()) {
+            context.getRuntimeTranslator().get().getContext().getCteProduceMap().put(cteId, cteProducer);
+        }
         context.getPlanFragments().add(cteProduce);
         return child;
     }
