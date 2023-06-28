@@ -676,3 +676,15 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
     ```
 
     In the create Catalog `jdbc_url` the JDBC connection string finally increase `encrypt=false`, such as `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
+
+11. Error encountered when reading MySQL datetime type
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed:
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
+
+    This happens because JDBC can't handle the datetime format 0000-00-00 00:00:00. 
+    To address this, append zeroDateTimeBehavior=convertToNull to the jdbc_url when creating the Catalog, e.g., "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull". 
+    In this case, JDBC will convert 0000-00-00 00:00:00 to null, and then Doris will handle the DateTime column as a nullable type, allowing for successful reading.
