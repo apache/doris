@@ -15,21 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
-
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+package org.apache.doris.nereids.properties;
 
 /**
- * Implementation rule that convert logical aggregation to physical hash aggregation.
+ * Gather distribution which put all data into one instance and
+ * the execution on it only could be done on the node storages its data.
  */
-public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementationRuleFactory {
+public class DistributionSpecStorageGather extends DistributionSpec {
+
+    public static final DistributionSpecStorageGather INSTANCE = new DistributionSpecStorageGather();
+
+    public DistributionSpecStorageGather() {
+        super();
+    }
+
     @Override
-    public Rule build() {
-        return logicalOneRowRelation()
-                .then(relation -> new PhysicalOneRowRelation(
-                        relation.getProjects(), relation.getLogicalProperties()))
-                .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecGather
+                || other instanceof DistributionSpecStorageGather
+                || other instanceof DistributionSpecAny;
     }
 }

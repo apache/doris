@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
-
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+package org.apache.doris.nereids.properties;
 
 /**
- * Implementation rule that convert logical aggregation to physical hash aggregation.
+ * Data can be in any instance, used in PhysicalDistribute.
+ * Because all candidates in group could save as DistributionSpecAny's value in LowestCostPlan map
+ * to distinguish DistributionSpecAny, we need a new Spec to represent must shuffle require.
  */
-public class LogicalOneRowRelationToPhysicalOneRowRelation extends OneImplementationRuleFactory {
+public class DistributionSpecExecutionAny extends DistributionSpec {
+
+    public static final DistributionSpecExecutionAny INSTANCE = new DistributionSpecExecutionAny();
+
+    private DistributionSpecExecutionAny() {
+        super();
+    }
+
     @Override
-    public Rule build() {
-        return logicalOneRowRelation()
-                .then(relation -> new PhysicalOneRowRelation(
-                        relation.getProjects(), relation.getLogicalProperties()))
-                .toRule(RuleType.LOGICAL_ONE_ROW_RELATION_TO_PHYSICAL_ONE_ROW_RELATION);
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecAny || other instanceof DistributionSpecExecutionAny;
     }
 }

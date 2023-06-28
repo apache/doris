@@ -222,8 +222,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // it's certain that lowestCostChildren is equals to arity().
         ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
                 lowestCostChildren, outputChildrenProperties, requestChildrenProperties, context);
-        double enforceCost = regulator.adjustChildrenProperties();
-        if (enforceCost < 0) {
+        boolean success = regulator.adjustChildrenProperties();
+        if (!success) {
             // invalid enforce, return.
             return false;
         }

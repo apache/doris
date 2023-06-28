@@ -1542,6 +1542,8 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
+        distributionColumnIds.clear();
     }
 
     private void computeStatsForNereids() {
@@ -1564,18 +1566,9 @@ public class OlapScanNode extends ScanNode {
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();
-        distributionColumnIds.clear();
-
-        Set<String> distColumnName = getDistributionColumnNames();
-
-        int columnId = 0;
         for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
             if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
-                if (distColumnName.contains(slot.getColumn().getName().toLowerCase())) {
-                    distributionColumnIds.add(columnId);
-                }
-                columnId++;
             }
         }
     }
