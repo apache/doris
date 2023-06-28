@@ -1902,6 +1902,28 @@ Status Tablet::create_rowset_writer(RowsetWriterContext& context,
     return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
 }
 
+// create a rowset writer with rowset_id and seg_id
+// after writer, merge this transient rowset with original rowset
+Status Tablet::create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
+                                              std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.rowset_state = PREPARED;
+    context.segments_overlap = OVERLAPPING;
+    context.tablet_schema = std::make_shared<TabletSchema>();
+    context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
+    context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
+    context.newest_write_timestamp = UnixSeconds();
+    context.tablet_id = table_id();
+    // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
+    // get the shared_ptr from tablet_manager.
+    context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    context.write_type = DataWriteType::TYPE_DIRECT;
+    RETURN_IF_ERROR(
+            create_transient_rowset_writer(context, rowset_ptr->rowset_id(), rowset_writer));
+    (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());
+    return Status::OK();
+}
+
 Status Tablet::create_transient_rowset_writer(RowsetWriterContext& context,
                                               const RowsetId& rowset_id,
                                               std::unique_ptr<RowsetWriter>* rowset_writer) {
