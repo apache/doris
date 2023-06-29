@@ -322,8 +322,6 @@ Status FullSorter::append_block(Block* block) {
         auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
-        LOG(WARNING)<<block->dump_structure();
-        LOG(WARNING)<<block->dump_data();
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
