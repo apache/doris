@@ -30,6 +30,17 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains(array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)), cast ('2023-02-05' as datev2))"
     qt_sql "select array_contains(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), cast (111.111 as decimalv3(6,3)))"
 
+    // array_contains_all function
+    qt_sql "select array_contains_all([], [])"
+    qt_sql "select array_contains_all([1], [])"
+    qt_sql "select array_contains_all([1, NULL], [NULL])"
+    qt_sql "select array_contains_all([1, NULL], [NULL, NULL])"
+    qt_sql "select array_contains_all([1, 1], [1, 2])"
+    qt_sql "select array_contains_all([1, 2, 3], [1, 2, 2])"
+    qt_sql "select array_contains_all([1.0, 2, 3, 4], [1, 3])"
+    qt_sql "select array_contains_all(['a', 'b'], ['a'])"
+    qt_sql "select array_contains_all(['a', 1, 2.0], ['a', 1.0, 2])"
+
     // array_position function
     qt_sql "select array_position([1,2,3], 1)"
     qt_sql "select array_position([1,2,3], 3)"
