@@ -858,6 +858,7 @@ public class DatabaseTransactionMgr {
         if (originalErrorReplicas != null) {
             errorReplicaIds.addAll(originalErrorReplicas);
         }
+        Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
 
         // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are
         // already force dropped, we just ignore the transaction with all tables been force dropped.
@@ -939,24 +940,29 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId())) {
-                                    if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
-                                        ++healthReplicaNum;
-                                    } else {
-                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                                 + " on replica {} due to not catchup",
-                                                 partitionCommitInfo.getVersion(), transactionState, tablet,
-                                                 replica);
-                                    }
-                                } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
-                                    // the replica's version is larger than or equal to current transaction
-                                    // partition's version the replica is normal, then remove it from error replica ids
-                                    // TODO(cmy): actually I have no idea why we need this check
+                                if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
+                                } else if (publishBackends.contains(replica.getBackendId())) {
+                                    // BE publish version without reponse with latest version
+                                    // maybe FE replica version still equals partition's visible version
+                                    if (!errorReplicaIds.contains(replica.getId())) {
+                                        if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
+                                            ++healthReplicaNum;
+                                        } else {
+                                            LOG.info("publish version {} failed for transaction {} on tablet {},"
+                                                    + " on replica {} due to not catchup",
+                                                    partitionCommitInfo.getVersion(), transactionState, tablet,
+                                                    replica);
+                                        }
+                                    } else {
+                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
+                                                + " on replica {} due to version hole or error",
+                                                partitionCommitInfo.getVersion(), transactionState, tablet, replica);
+                                    }
                                 } else {
                                     LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                             + " on replica {} due to version hole or error",
+                                             + " on replica {} due to not publish to them or is new join replica",
                                              partitionCommitInfo.getVersion(), transactionState, tablet, replica);
                                 }
                             }
