@@ -23,7 +23,7 @@ CteAnchor[cteId= ( CTEId#3=] )
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(((date_dim.d_year = 1998) OR (date_dim.d_year = 1999)))
+----------------------------filter(d_year IN (1998, 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
@@ -41,7 +41,7 @@ CteAnchor[cteId= ( CTEId#3=] )
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(((date_dim.d_year = 1998) OR (date_dim.d_year = 1999)))
+----------------------------filter(d_year IN (1998, 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute
 ----------------PhysicalProject
@@ -59,7 +59,7 @@ CteAnchor[cteId= ( CTEId#3=] )
 --------------------------------PhysicalOlapScan[item]
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(((date_dim.d_year = 1998) OR (date_dim.d_year = 1999)))
+----------------------------filter(d_year IN (1998, 1999))
 ------------------------------PhysicalOlapScan[date_dim]
 --PhysicalTopN
 ----PhysicalDistribute
