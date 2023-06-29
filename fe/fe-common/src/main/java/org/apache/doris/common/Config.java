@@ -1685,6 +1685,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long max_replica_count_when_schema_change = 100000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"Hive Metastore 池实例数。",
+            "Max number of hive metastore client pool."})
+    public static short max_hms_client_pool_size = 8;
+
     /**
      * Max cache num of hive partition.
      * Decrease this value if FE's memory is small
@@ -1694,7 +1698,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
         "Max cache number of hive table to partition names list."})
-    public static long max_hive_table_catch_num = 1000;
+    public static long max_hive_table_cache_num = 1000;
 
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
         "Max number of hive partition values to return while list partitions, -1 means no limitation."})
