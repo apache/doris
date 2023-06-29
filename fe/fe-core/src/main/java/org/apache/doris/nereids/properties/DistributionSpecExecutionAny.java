@@ -15,21 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.properties;
 
-#include <cstddef>
-#include <cstdint>
+/**
+ * Data can be in any instance, used in PhysicalDistribute.
+ * Because all candidates in group could save as DistributionSpecAny's value in LowestCostPlan map
+ * to distinguish DistributionSpecAny, we need a new Spec to represent must shuffle require.
+ */
+public class DistributionSpecExecutionAny extends DistributionSpec {
 
-namespace doris {
+    public static final DistributionSpecExecutionAny INSTANCE = new DistributionSpecExecutionAny();
 
-// A chunk of continuous memory.
-// Almost all files depend on this struct, and each modification
-// will result in recompilation of all files. So, we put it in a
-// file to keep this file simple and infrequently changed.
-struct Chunk {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    int core_id = -1;
-};
+    private DistributionSpecExecutionAny() {
+        super();
+    }
 
-} // namespace doris
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecAny || other instanceof DistributionSpecExecutionAny;
+    }
+}

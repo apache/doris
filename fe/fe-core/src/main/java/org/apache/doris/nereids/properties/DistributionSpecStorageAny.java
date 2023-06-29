@@ -15,25 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/chunk_allocator.h"
+package org.apache.doris.nereids.properties;
 
-#include <gtest/gtest.h>
+/**
+ * Data can be in any instance, but it restricted by physical storage nodes.
+ * When Plan's distribution is DistributionSpecStorageAny,
+ * the execution on it only could be done on the node storages its data.
+ */
+public class DistributionSpecStorageAny extends DistributionSpec {
 
-#include "common/config.h"
-#include "common/status.h"
-#include "runtime/memory/chunk.h"
-#include "util/cpu_info.h"
-#include "util/doris_metrics.h"
+    public static final DistributionSpecStorageAny INSTANCE = new DistributionSpecStorageAny();
 
-namespace doris {
+    private DistributionSpecStorageAny() {
+        super();
+    }
 
-TEST(ChunkAllocatorTest, Normal) {
-    for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
-        Chunk chunk;
-        EXPECT_TRUE(ChunkAllocator::instance()->allocate_align(size, &chunk).ok());
-        EXPECT_NE(nullptr, chunk.data);
-        EXPECT_EQ(size, chunk.size);
-        ChunkAllocator::instance()->free(chunk);
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecAny || other instanceof DistributionSpecStorageAny;
     }
 }
-} // namespace doris

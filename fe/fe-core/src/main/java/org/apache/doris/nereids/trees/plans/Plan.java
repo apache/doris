@@ -95,6 +95,10 @@ public interface Plan extends TreeNode<Plan> {
         return ImmutableSet.copyOf(getOutput());
     }
 
+    default List<ExprId> getOutputExprIds() {
+        return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toList());
+    }
+
     default Set<ExprId> getOutputExprIdSet() {
         return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
     }

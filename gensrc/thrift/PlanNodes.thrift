@@ -115,6 +115,7 @@ enum TFileFormatType {
     FORMAT_JSON,
     FORMAT_PROTO,
     FORMAT_JNI,
+    FORMAT_AVRO,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,

@@ -78,6 +78,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivilegedExceptionAction;
@@ -328,6 +329,17 @@ public class HiveMetaStoreCache {
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             String finalLocation = S3Util.convertToS3IfNecessary(key.location);
+            // disable the fs cache in FileSystem, or it will always from new FileSystem
+            // and save it in cache when calling FileInputFormat.setInputPaths().
+            try {
+                Path path = new Path(finalLocation);
+                URI uri = path.toUri();
+                if (uri.getScheme() != null) {
+                    updateJobConf("fs." + uri.getScheme() + ".impl.disable.cache", "true");
+                }
+            } catch (Exception e) {
+                LOG.warn("unknown scheme in path: " + finalLocation, e);
+            }
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
                 FileCacheValue result;
@@ -381,6 +393,13 @@ public class HiveMetaStoreCache {
         // Otherwise, getSplits() may throw exception: "Not a file xxx"
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
+        // disable FileSystem's cache
+        jobConf.set("fs.hdfs.impl.disable.cache", "true");
+        jobConf.set("fs.file.impl.disable.cache", "true");
+    }
+
+    private synchronized void updateJobConf(String key, String value) {
+        jobConf.set(key, value);
     }
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {

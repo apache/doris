@@ -2328,7 +2328,8 @@ public class Coordinator {
         // check whether the node fragment is bucket shuffle join fragment
         private boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
             if (ConnectContext.get() != null) {
-                if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+                if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()
+                        && !ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
                     return false;
                 }
             }

@@ -30,12 +30,10 @@
 namespace doris {
 
 IndexBuilder::IndexBuilder(const TabletSharedPtr& tablet, const std::vector<TColumn>& columns,
-                           const std::vector<TOlapTableIndex> exist_indexes,
                            const std::vector<doris::TOlapTableIndex>& alter_inverted_indexes,
                            bool is_drop_op)
         : _tablet(tablet),
           _columns(columns),
-          _exist_indexes(exist_indexes),
           _alter_inverted_indexes(alter_inverted_indexes),
           _is_drop_op(is_drop_op) {
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
@@ -63,8 +61,16 @@ Status IndexBuilder::update_inverted_index_info() {
         auto input_rs_tablet_schema = input_rowset->tablet_schema();
         output_rs_tablet_schema->copy_from(*input_rs_tablet_schema);
         if (_is_drop_op) {
-            output_rs_tablet_schema->update_indexes_from_thrift(_exist_indexes);
+            // base on input rowset's tablet_schema to build
+            // output rowset's tablet_schema which only remove
+            // the indexes specified in this drop index request
+            for (auto t_inverted_index : _alter_inverted_indexes) {
+                output_rs_tablet_schema->remove_index(t_inverted_index.index_id);
+            }
         } else {
+            // base on input rowset's tablet_schema to build
+            // output rowset's tablet_schema which only add
+            // the indexes specified in this build index request
             for (auto t_inverted_index : _alter_inverted_indexes) {
                 TabletIndex index;
                 index.init_from_thrift(t_inverted_index, *input_rs_tablet_schema);
@@ -183,7 +189,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             if (!res.ok()) {
                 LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
                              << "]: " << res.to_string();
-                return Status::Error<ErrorCode::ROWSET_READER_INIT>();
+                return Status::Error<ErrorCode::ROWSET_READER_INIT>(res.to_string());
             }
 
             std::shared_ptr<vectorized::Block> block = std::make_shared<vectorized::Block>(
@@ -427,6 +433,13 @@ Status IndexBuilder::do_build_inverted_index() {
 }
 
 Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
+    for (auto rowset_ptr : _output_rowsets) {
+        auto rowset_id = rowset_ptr->rowset_id();
+        if (StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
+            DCHECK(false) << "output rowset: " << rowset_id.to_string() << " in unused rowsets";
+        }
+    }
+
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::mutex> rwlock(_tablet->get_rowset_update_lock());

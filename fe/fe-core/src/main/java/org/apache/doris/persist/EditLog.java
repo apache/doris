@@ -1037,6 +1037,11 @@ public class EditLog {
                     env.replayGcBinlog(binlogGcInfo);
                     break;
                 }
+                case OperationType.OP_BARRIER: {
+                    // the log only for barrier commit seq, not need to replay
+                    LOG.info("replay barrier");
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1800,11 +1805,15 @@ public class EditLog {
         logEdit(OperationType.OP_DELETE_ANALYSIS_TASK, log);
     }
 
-    public void logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
-        logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
+    public long logAlterDatabaseProperty(AlterDatabasePropertyInfo log) {
+        return logEdit(OperationType.OP_ALTER_DATABASE_PROPERTY, log);
     }
 
-    public void logGcBinlog(BinlogGcInfo log) {
-        logEdit(OperationType.OP_GC_BINLOG, log);
+    public long logGcBinlog(BinlogGcInfo log) {
+        return logEdit(OperationType.OP_GC_BINLOG, log);
+    }
+
+    public long logBarrier() {
+        return logEdit(OperationType.OP_BARRIER, new BarrierLog());
     }
 }

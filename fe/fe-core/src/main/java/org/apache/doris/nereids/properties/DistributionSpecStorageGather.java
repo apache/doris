@@ -15,24 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.properties;
 
-#include <cstddef>
-#include <cstdint>
+/**
+ * Gather distribution which put all data into one instance and
+ * the execution on it only could be done on the node storages its data.
+ */
+public class DistributionSpecStorageGather extends DistributionSpec {
 
-namespace doris {
+    public static final DistributionSpecStorageGather INSTANCE = new DistributionSpecStorageGather();
 
-// Allocate memory from system allocator, this allocator can be configured
-// to allocate memory via mmap or malloc.
-class SystemAllocator {
-public:
-    static uint8_t* allocate(size_t length);
+    public DistributionSpecStorageGather() {
+        super();
+    }
 
-    static void free(uint8_t* ptr);
-
-private:
-    static uint8_t* allocate_via_mmap(size_t length);
-    static uint8_t* allocate_via_malloc(size_t length);
-};
-
-} // namespace doris
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecGather
+                || other instanceof DistributionSpecStorageGather
+                || other instanceof DistributionSpecAny;
+    }
+}

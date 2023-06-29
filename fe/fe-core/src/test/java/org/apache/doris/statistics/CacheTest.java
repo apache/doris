@@ -281,7 +281,7 @@ public class CacheTest extends TestWithFeService {
                 db.getTableOrMetaException(1);
                 result = table;
 
-                table.getColumnStatistic();
+                table.getColumnStatistic("col");
                 result = new ColumnStatistic(1, 2, null, 3, 4, 5, 6, 7, 8, null, null, false, null);
             }
         };

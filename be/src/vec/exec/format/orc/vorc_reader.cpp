@@ -744,7 +744,7 @@ Status OrcReader::set_fill_columns(
 
     // create orc row reader
     _row_reader_options.range(_range_start_offset, _range_size);
-    _row_reader_options.setTimezoneName(_ctz);
+    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
     _row_reader_options.include(_read_cols);
     if (_lazy_read_ctx.can_lazy_read) {
         _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);
