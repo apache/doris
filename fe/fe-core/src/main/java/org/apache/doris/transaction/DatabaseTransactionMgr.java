@@ -961,8 +961,9 @@ public class DatabaseTransactionMgr {
                                                 partitionCommitInfo.getVersion(), transactionState, tablet, replica);
                                     }
                                 } else {
+                                    errorReplicaIds.add(replica.getId());
                                     LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                             + " on replica {} due to not publish to them or is new join replica",
+                                             + " on replica {} due to join replica",
                                              partitionCommitInfo.getVersion(), transactionState, tablet, replica);
                                 }
                             }
