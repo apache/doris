@@ -78,6 +78,21 @@ struct TabletTxnInfo {
     TabletTxnInfo() {}
 };
 
+struct CommitTabletTxnInfo {
+    CommitTabletTxnInfo(TPartitionId partition_id, TTransactionId transaction_id,
+                        RowsetSharedPtr rowset, DeleteBitmapPtr delete_bitmap)
+            : transaction_id(transaction_id),
+              partition_id(partition_id),
+              rowset(rowset),
+              delete_bitmap(delete_bitmap) {}
+    TTransactionId transaction_id;
+    TPartitionId partition_id;
+    RowsetSharedPtr rowset;
+    DeleteBitmapPtr delete_bitmap;
+};
+
+using CommitTabletTxnInfoVec = std::vector<CommitTabletTxnInfo>;
+
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
@@ -171,8 +186,8 @@ public:
                                        TabletUid tablet_uid, bool unique_key_merge_on_write,
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
-    void get_all_commit_tablet_txn_info_by_tablet(const TabletSharedPtr& tablet,
-                                                  txn_tablet_map_t& txn_tablet_map);
+    void get_all_commit_tablet_txn_info_by_tablet(
+            const TabletSharedPtr& tablet, CommitTabletTxnInfoVec& commit_tablet_txn_info_vec);
 
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
@@ -198,6 +213,7 @@ private:
     typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
     typedef std::unordered_map<int64_t, std::map<int64_t, DeltaWriter*>>
             txn_tablet_delta_writer_map_t;
+
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
     txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);

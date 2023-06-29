@@ -357,6 +357,13 @@ public:
     bool contains(const BitmapKey& bmk, uint32_t row_id) const;
 
     /**
+     * Checks if this delete bitmap is empty
+     *
+     * @return true if empty
+     */
+    bool empty() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
