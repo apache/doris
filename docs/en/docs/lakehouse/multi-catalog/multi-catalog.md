@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Multi Catalog",
+    "title": "Overview",
     "language": "en"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# Multi Catalog
+# Overview
 
 Multi-Catalog is designed to make it easier to connect to external data catalogs to enhance Doris's data lake analysis and federated data query capabilities.
 

@@ -436,6 +436,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
     modules+=("be-java-extensions/max-compute-scanner")
+    modules+=("be-java-extensions/avro-scanner")
 fi
 FE_MODULES="$(
     IFS=','
@@ -647,6 +648,7 @@ EOF
     extensions_modules+=("hudi-scanner")
     extensions_modules+=("paimon-scanner")
     extensions_modules+=("max-compute-scanner")
+    extensions_modules+=("avro-scanner")
 
     BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
     rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
