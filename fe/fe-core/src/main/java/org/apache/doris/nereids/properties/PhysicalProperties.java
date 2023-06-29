@@ -44,6 +44,9 @@ public class PhysicalProperties {
 
     public static PhysicalProperties STORAGE_GATHER = new PhysicalProperties(DistributionSpecStorageGather.INSTANCE);
 
+    public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
+
+
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;
