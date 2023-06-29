@@ -20,6 +20,7 @@ package org.apache.doris.resource.workloadgroup;
 import org.apache.doris.analysis.AlterWorkloadGroupStmt;
 import org.apache.doris.analysis.CreateWorkloadGroupStmt;
 import org.apache.doris.analysis.DropWorkloadGroupStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -30,7 +31,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
@@ -38,6 +38,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -293,7 +294,13 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     }
 
     public List<List<String>> getResourcesInfo() {
-        return procNode.fetchResult().getRows();
+        UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
+        return procNode.fetchResult(currentUserIdentity).getRows();
+    }
+
+    public List<List<String>> getResourcesInfo(TUserIdentity tcurrentUserIdentity) {
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        return procNode.fetchResult(currentUserIdentity).getRows();
     }
 
     // for ut
@@ -323,17 +330,15 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 (id, workloadGroup) -> nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup));
     }
 
-    public class ResourceProcNode implements ProcNodeInterface {
-        @Override
-        public ProcResult fetchResult() {
+    public class ResourceProcNode {
+        public ProcResult fetchResult(UserIdentity currentUserIdentity) {
             BaseProcResult result = new BaseProcResult();
             result.setNames(WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES);
             readLock();
             try {
                 for (WorkloadGroup workloadGroup : idToWorkloadGroup.values()) {
-                    if (!Objects.isNull(ConnectContext.get()) && !Env.getCurrentEnv().getAccessManager()
-                            .checkWorkloadGroupPriv(ConnectContext.get(), workloadGroup.getName(),
-                                    PrivPredicate.SHOW_WORKLOAD_GROUP)) {
+                    if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(currentUserIdentity,
+                            workloadGroup.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
                     }
                     workloadGroup.getProcNodeData(result);

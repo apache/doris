@@ -23,7 +23,6 @@
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 
 #include <ostream>
 #include <string>
@@ -76,6 +75,10 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
+}
+
+void VMetaScanner::set_user_identity(TUserIdentity user_identity) {
+    _user_identity = user_identity;
 }
 
 Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
@@ -317,6 +320,7 @@ Status VMetaScanner::_build_workload_groups_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

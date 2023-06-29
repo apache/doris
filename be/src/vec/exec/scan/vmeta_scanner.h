@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Data_types.h>
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <vector>
@@ -56,6 +57,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
+    void set_user_identity(TUserIdentity user_identity);
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -77,5 +79,6 @@ private:
     const TupleDescriptor* _tuple_desc;
     std::vector<TRow> _batch_data;
     const TScanRange& _scan_range;
+    TUserIdentity _user_identity;
 };
 } // namespace doris::vectorized

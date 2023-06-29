@@ -65,6 +65,7 @@ Status VMetaScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     for (auto& scan_range : _scan_ranges) {
         std::shared_ptr<VMetaScanner> scanner = VMetaScanner::create_shared(
                 _state, this, _tuple_id, scan_range, _limit_per_scanner, runtime_profile());
+        scanner->set_user_identity(_scan_params.current_user_ident);
         RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
         scanners->push_back(scanner);
     }
