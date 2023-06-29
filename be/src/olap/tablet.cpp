@@ -3345,274 +3345,271 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
             }
         }
     }
+}
 
-    void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
-        _tablet_meta->delete_bitmap().merge(delete_bitmap);
-    }
+void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
+    _tablet_meta->delete_bitmap().merge(delete_bitmap);
+}
 
-    Status Tablet::check_rowid_conversion(
-            RowsetSharedPtr dst_rowset,
-            const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
-                    location_map) {
-        if (location_map.empty()) {
-            VLOG_DEBUG << "check_rowid_conversion, location_map is empty";
-            return Status::OK();
-        }
-        std::vector<segment_v2::SegmentSharedPtr> dst_segments;
-        _load_rowset_segments(dst_rowset, &dst_segments);
-        std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>, HashOfRowsetId>
-                input_rowsets_segment;
-
-        VLOG_DEBUG << "check_rowid_conversion, dst_segments size: " << dst_segments.size();
-        for (auto [src_rowset, locations] : location_map) {
-            std::vector<segment_v2::SegmentSharedPtr>& segments =
-                    input_rowsets_segment[src_rowset->rowset_id()];
-            if (segments.empty()) {
-                _load_rowset_segments(src_rowset, &segments);
-            }
-            for (auto& [src, dst] : locations) {
-                std::string src_key;
-                std::string dst_key;
-                Status s = segments[src.segment_id]->read_key_by_rowid(src.row_id, &src_key);
-                if (UNLIKELY(s.is<NOT_IMPLEMENTED_ERROR>())) {
-                    LOG(INFO) << "primary key index of old version does not "
-                                 "support reading key by rowid";
-                    break;
-                }
-                if (UNLIKELY(!s)) {
-                    LOG(WARNING) << "failed to get src key: |" << src.rowset_id << "|"
-                                 << src.segment_id << "|" << src.row_id << " status: " << s;
-                    DCHECK(false);
-                    return s;
-                }
-
-                s = dst_segments[dst.segment_id]->read_key_by_rowid(dst.row_id, &dst_key);
-                if (UNLIKELY(!s)) {
-                    LOG(WARNING) << "failed to get dst key: |" << dst.rowset_id << "|"
-                                 << dst.segment_id << "|" << dst.row_id << " status: " << s;
-                    DCHECK(false);
-                    return s;
-                }
-
-                VLOG_DEBUG << "check_rowid_conversion, src: |" << src.rowset_id << "|"
-                           << src.segment_id << "|" << src.row_id << "|" << src_key << " dst: |"
-                           << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id << "|"
-                           << dst_key;
-                if (UNLIKELY(src_key.compare(dst_key) != 0)) {
-                    LOG(WARNING) << "failed to check key, src key: |" << src.rowset_id << "|"
-                                 << src.segment_id << "|" << src.row_id << "|" << src_key
-                                 << " dst key: |" << dst.rowset_id << "|" << dst.segment_id << "|"
-                                 << dst.row_id << "|" << dst_key;
-                    DCHECK(false);
-                    return Status::InternalError("failed to check rowid conversion");
-                }
-            }
-        }
+Status Tablet::check_rowid_conversion(
+        RowsetSharedPtr dst_rowset,
+        const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
+                location_map) {
+    if (location_map.empty()) {
+        VLOG_DEBUG << "check_rowid_conversion, location_map is empty";
         return Status::OK();
     }
+    std::vector<segment_v2::SegmentSharedPtr> dst_segments;
+    _load_rowset_segments(dst_rowset, &dst_segments);
+    std::unordered_map<RowsetId, std::vector<segment_v2::SegmentSharedPtr>, HashOfRowsetId>
+            input_rowsets_segment;
 
-    RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
-        RowsetIdUnorderedSet rowset_ids;
-        for (const auto& rs_it : _rs_version_map) {
-            if (rs_it.first.second == 1) {
-                // [0-1] rowset is empty for each tablet, skip it
-                continue;
-            }
-            if (rs_it.first.second <= max_version) {
-                rowset_ids.insert(rs_it.second->rowset_id());
-            }
+    VLOG_DEBUG << "check_rowid_conversion, dst_segments size: " << dst_segments.size();
+    for (auto [src_rowset, locations] : location_map) {
+        std::vector<segment_v2::SegmentSharedPtr>& segments =
+                input_rowsets_segment[src_rowset->rowset_id()];
+        if (segments.empty()) {
+            _load_rowset_segments(src_rowset, &segments);
         }
-        return rowset_ids;
-    }
-
-    bool Tablet::check_all_rowset_segment() {
-        for (auto& version_rowset : _rs_version_map) {
-            RowsetSharedPtr rowset = version_rowset.second;
-            if (!rowset->check_rowset_segment()) {
-                LOG(WARNING) << "Tablet Segment Check. find a bad tablet, tablet_id="
-                             << tablet_id();
-                return false;
-            }
-        }
-        return true;
-    }
-
-    void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int64_t start) {
-        if (!skip) {
-            _skip_cumu_compaction = false;
-            _skip_base_compaction = false;
-            return;
-        }
-        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            _skip_cumu_compaction = true;
-            _skip_cumu_compaction_ts = start;
-        } else {
-            DCHECK(compaction_type == CompactionType::BASE_COMPACTION);
-            _skip_base_compaction = true;
-            _skip_base_compaction_ts = start;
-        }
-    }
-
-    bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
-        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
-            now < _skip_cumu_compaction_ts + 120) {
-            return true;
-        } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
-                   now < _skip_base_compaction_ts + 120) {
-            return true;
-        }
-        return false;
-    }
-
-    std::pair<std::string, int64_t> Tablet::get_binlog_info(std::string_view binlog_version) const {
-        return RowsetMetaManager::get_binlog_info(_data_dir->get_meta(), tablet_uid(),
-                                                  binlog_version);
-    }
-
-    std::string Tablet::get_binlog_rowset_meta(std::string_view binlog_version,
-                                               std::string_view rowset_id) const {
-        return RowsetMetaManager::get_binlog_rowset_meta(_data_dir->get_meta(), tablet_uid(),
-                                                         binlog_version, rowset_id);
-    }
-
-    std::string Tablet::get_segment_filepath(std::string_view rowset_id,
-                                             std::string_view segment_index) const {
-        return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
-    }
-
-    std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
-        const auto& [rowset_id, num_segments] = get_binlog_info(binlog_version);
-        std::vector<std::string> binlog_filepath;
-        for (int i = 0; i < num_segments; ++i) {
-            // TODO(Drogon): rewrite by filesystem path
-            auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
-            binlog_filepath.emplace_back(fmt::format("{}/_binlog/{}", _tablet_path, segment_file));
-        }
-        return binlog_filepath;
-    }
-
-    bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
-        return !_data_dir->reach_capacity_limit(total_binlog_size);
-    }
-
-    bool Tablet::is_enable_binlog() {
-        return config::enable_feature_binlog && tablet_meta()->binlog_config().is_enable();
-    }
-
-    void Tablet::set_binlog_config(BinlogConfig binlog_config) {
-        tablet_meta()->set_binlog_config(std::move(binlog_config));
-    }
-
-    void Tablet::gc_binlogs(int64_t version) {
-        auto meta = _data_dir->get_meta();
-        DCHECK(meta != nullptr);
-
-        const auto& tablet_uid = this->tablet_uid();
-        const auto tablet_id = this->tablet_id();
-        const auto& tablet_path = this->tablet_path();
-        std::string begin_key = make_binlog_meta_key_prefix(tablet_uid);
-        std::string end_key = make_binlog_meta_key_prefix(tablet_uid, version + 1);
-        LOG(INFO) << fmt::format("gc binlog meta, tablet_id:{}, begin_key:{}, end_key:{}",
-                                 tablet_id, begin_key, end_key);
-
-        std::vector<std::string> wait_for_deleted_binlog_keys;
-        std::vector<std::string> wait_for_deleted_binlog_files;
-        auto add_to_wait_for_deleted = [&](std::string_view key, std::string_view rowset_id,
-                                           int64_t num_segments) {
-            // add binlog meta key and binlog data key
-            wait_for_deleted_binlog_keys.emplace_back(key);
-            wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
-
-            for (int64_t i = 0; i < num_segments; ++i) {
-                auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
-                wait_for_deleted_binlog_files.emplace_back(
-                        fmt::format("{}/_binlog/{}", tablet_path, segment_file));
-            }
-        };
-
-        auto check_binlog_ttl = [&](const std::string& key,
-                                    const std::string& value) mutable -> bool {
-            if (key >= end_key) {
-                return false;
-            }
-
-            BinlogMetaEntryPB binlog_meta_entry_pb;
-            if (!binlog_meta_entry_pb.ParseFromString(value)) {
-                LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
-                return true;
-            }
-
-            auto num_segments = binlog_meta_entry_pb.num_segments();
-            std::string rowset_id;
-            if (binlog_meta_entry_pb.has_rowset_id_v2()) {
-                rowset_id = binlog_meta_entry_pb.rowset_id_v2();
-            } else {
-                // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
-                auto pos = key.rfind("_");
-                if (pos == std::string::npos) {
-                    LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
-                    return false;
-                }
-                rowset_id = key.substr(pos + 1);
-            }
-            add_to_wait_for_deleted(key, rowset_id, num_segments);
-
-            return true;
-        };
-
-        auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
-        if (!status.ok()) {
-            LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
-            return;
-        }
-
-        // first remove binlog files, if failed, just break, then retry next time
-        // this keep binlog meta in meta store, so that binlog can be removed next time
-        bool remove_binlog_files_failed = false;
-        for (auto& file : wait_for_deleted_binlog_files) {
-            if (unlink(file.c_str()) != 0) {
-                // file not exist, continue
-                if (errno == ENOENT) {
-                    continue;
-                }
-
-                remove_binlog_files_failed = true;
-                LOG(WARNING) << "failed to remove binlog file:" << file << ", errno:" << errno;
+        for (auto& [src, dst] : locations) {
+            std::string src_key;
+            std::string dst_key;
+            Status s = segments[src.segment_id]->read_key_by_rowid(src.row_id, &src_key);
+            if (UNLIKELY(s.is<NOT_IMPLEMENTED_ERROR>())) {
+                LOG(INFO) << "primary key index of old version does not "
+                             "support reading key by rowid";
                 break;
             }
-        }
-        if (!remove_binlog_files_failed) {
-            meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
+            if (UNLIKELY(!s)) {
+                LOG(WARNING) << "failed to get src key: |" << src.rowset_id << "|" << src.segment_id
+                             << "|" << src.row_id << " status: " << s;
+                DCHECK(false);
+                return s;
+            }
+
+            s = dst_segments[dst.segment_id]->read_key_by_rowid(dst.row_id, &dst_key);
+            if (UNLIKELY(!s)) {
+                LOG(WARNING) << "failed to get dst key: |" << dst.rowset_id << "|" << dst.segment_id
+                             << "|" << dst.row_id << " status: " << s;
+                DCHECK(false);
+                return s;
+            }
+
+            VLOG_DEBUG << "check_rowid_conversion, src: |" << src.rowset_id << "|" << src.segment_id
+                       << "|" << src.row_id << "|" << src_key << " dst: |" << dst.rowset_id << "|"
+                       << dst.segment_id << "|" << dst.row_id << "|" << dst_key;
+            if (UNLIKELY(src_key.compare(dst_key) != 0)) {
+                LOG(WARNING) << "failed to check key, src key: |" << src.rowset_id << "|"
+                             << src.segment_id << "|" << src.row_id << "|" << src_key
+                             << " dst key: |" << dst.rowset_id << "|" << dst.segment_id << "|"
+                             << dst.row_id << "|" << dst_key;
+                DCHECK(false);
+                return Status::InternalError("failed to check rowid conversion");
+            }
         }
     }
+    return Status::OK();
+}
 
-    Status Tablet::calc_delete_bitmap_between_segments(
-            RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            DeleteBitmapPtr delete_bitmap) {
-        size_t const num_segments = segments.size();
-        if (num_segments < 2) {
-            return Status::OK();
+RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
+    RowsetIdUnorderedSet rowset_ids;
+    for (const auto& rs_it : _rs_version_map) {
+        if (rs_it.first.second == 1) {
+            // [0-1] rowset is empty for each tablet, skip it
+            continue;
+        }
+        if (rs_it.first.second <= max_version) {
+            rowset_ids.insert(rs_it.second->rowset_id());
+        }
+    }
+    return rowset_ids;
+}
+
+bool Tablet::check_all_rowset_segment() {
+    for (auto& version_rowset : _rs_version_map) {
+        RowsetSharedPtr rowset = version_rowset.second;
+        if (!rowset->check_rowset_segment()) {
+            LOG(WARNING) << "Tablet Segment Check. find a bad tablet, tablet_id=" << tablet_id();
+            return false;
+        }
+    }
+    return true;
+}
+
+void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int64_t start) {
+    if (!skip) {
+        _skip_cumu_compaction = false;
+        _skip_base_compaction = false;
+        return;
+    }
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        _skip_cumu_compaction = true;
+        _skip_cumu_compaction_ts = start;
+    } else {
+        DCHECK(compaction_type == CompactionType::BASE_COMPACTION);
+        _skip_base_compaction = true;
+        _skip_base_compaction_ts = start;
+    }
+}
+
+bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
+        now < _skip_cumu_compaction_ts + 120) {
+        return true;
+    } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
+               now < _skip_base_compaction_ts + 120) {
+        return true;
+    }
+    return false;
+}
+
+std::pair<std::string, int64_t> Tablet::get_binlog_info(std::string_view binlog_version) const {
+    return RowsetMetaManager::get_binlog_info(_data_dir->get_meta(), tablet_uid(), binlog_version);
+}
+
+std::string Tablet::get_binlog_rowset_meta(std::string_view binlog_version,
+                                           std::string_view rowset_id) const {
+    return RowsetMetaManager::get_binlog_rowset_meta(_data_dir->get_meta(), tablet_uid(),
+                                                     binlog_version, rowset_id);
+}
+
+std::string Tablet::get_segment_filepath(std::string_view rowset_id,
+                                         std::string_view segment_index) const {
+    return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);
+}
+
+std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_version) const {
+    const auto& [rowset_id, num_segments] = get_binlog_info(binlog_version);
+    std::vector<std::string> binlog_filepath;
+    for (int i = 0; i < num_segments; ++i) {
+        // TODO(Drogon): rewrite by filesystem path
+        auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
+        binlog_filepath.emplace_back(fmt::format("{}/_binlog/{}", _tablet_path, segment_file));
+    }
+    return binlog_filepath;
+}
+
+bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
+    return !_data_dir->reach_capacity_limit(total_binlog_size);
+}
+
+bool Tablet::is_enable_binlog() {
+    return config::enable_feature_binlog && tablet_meta()->binlog_config().is_enable();
+}
+
+void Tablet::set_binlog_config(BinlogConfig binlog_config) {
+    tablet_meta()->set_binlog_config(std::move(binlog_config));
+}
+
+void Tablet::gc_binlogs(int64_t version) {
+    auto meta = _data_dir->get_meta();
+    DCHECK(meta != nullptr);
+
+    const auto& tablet_uid = this->tablet_uid();
+    const auto tablet_id = this->tablet_id();
+    const auto& tablet_path = this->tablet_path();
+    std::string begin_key = make_binlog_meta_key_prefix(tablet_uid);
+    std::string end_key = make_binlog_meta_key_prefix(tablet_uid, version + 1);
+    LOG(INFO) << fmt::format("gc binlog meta, tablet_id:{}, begin_key:{}, end_key:{}", tablet_id,
+                             begin_key, end_key);
+
+    std::vector<std::string> wait_for_deleted_binlog_keys;
+    std::vector<std::string> wait_for_deleted_binlog_files;
+    auto add_to_wait_for_deleted = [&](std::string_view key, std::string_view rowset_id,
+                                       int64_t num_segments) {
+        // add binlog meta key and binlog data key
+        wait_for_deleted_binlog_keys.emplace_back(key);
+        wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
+
+        for (int64_t i = 0; i < num_segments; ++i) {
+            auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
+            wait_for_deleted_binlog_files.emplace_back(
+                    fmt::format("{}/_binlog/{}", tablet_path, segment_file));
+        }
+    };
+
+    auto check_binlog_ttl = [&](const std::string& key, const std::string& value) mutable -> bool {
+        if (key >= end_key) {
+            return false;
         }
 
-        OlapStopWatch watch;
-        auto const rowset_id = rowset->rowset_id();
-        size_t seq_col_length = 0;
-        if (_schema->has_sequence_col()) {
-            auto seq_col_idx = _schema->sequence_col_idx();
-            seq_col_length = _schema->column(seq_col_idx).length();
+        BinlogMetaEntryPB binlog_meta_entry_pb;
+        if (!binlog_meta_entry_pb.ParseFromString(value)) {
+            LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
+            return true;
         }
 
-        MergeIndexDeleteBitmapCalculator calculator;
-        RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length));
+        auto num_segments = binlog_meta_entry_pb.num_segments();
+        std::string rowset_id;
+        if (binlog_meta_entry_pb.has_rowset_id_v2()) {
+            rowset_id = binlog_meta_entry_pb.rowset_id_v2();
+        } else {
+            // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
+            auto pos = key.rfind("_");
+            if (pos == std::string::npos) {
+                LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
+                return false;
+            }
+            rowset_id = key.substr(pos + 1);
+        }
+        add_to_wait_for_deleted(key, rowset_id, num_segments);
 
-        RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
+        return true;
+    };
 
-        LOG(INFO) << fmt::format(
-                "construct delete bitmap between segments, "
-                "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
-                tablet_id(), rowset_id.to_string(), num_segments,
-                delete_bitmap->delete_bitmap.size(), watch.get_elapse_time_us());
+    auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, check_binlog_ttl);
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
+        return;
+    }
+
+    // first remove binlog files, if failed, just break, then retry next time
+    // this keep binlog meta in meta store, so that binlog can be removed next time
+    bool remove_binlog_files_failed = false;
+    for (auto& file : wait_for_deleted_binlog_files) {
+        if (unlink(file.c_str()) != 0) {
+            // file not exist, continue
+            if (errno == ENOENT) {
+                continue;
+            }
+
+            remove_binlog_files_failed = true;
+            LOG(WARNING) << "failed to remove binlog file:" << file << ", errno:" << errno;
+            break;
+        }
+    }
+    if (!remove_binlog_files_failed) {
+        meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
+    }
+}
+
+Status Tablet::calc_delete_bitmap_between_segments(
+        RowsetSharedPtr rowset, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+        DeleteBitmapPtr delete_bitmap) {
+    size_t const num_segments = segments.size();
+    if (num_segments < 2) {
         return Status::OK();
     }
+
+    OlapStopWatch watch;
+    auto const rowset_id = rowset->rowset_id();
+    size_t seq_col_length = 0;
+    if (_schema->has_sequence_col()) {
+        auto seq_col_idx = _schema->sequence_col_idx();
+        seq_col_length = _schema->column(seq_col_idx).length();
+    }
+
+    MergeIndexDeleteBitmapCalculator calculator;
+    RETURN_IF_ERROR(calculator.init(rowset_id, segments, seq_col_length));
+
+    RETURN_IF_ERROR(calculator.calculate_all(delete_bitmap));
+
+    LOG(INFO) << fmt::format(
+            "construct delete bitmap between segments, "
+            "tablet: {}, rowset: {}, number of segments: {}, bitmap size: {}, cost {} (us)",
+            tablet_id(), rowset_id.to_string(), num_segments, delete_bitmap->delete_bitmap.size(),
+            watch.get_elapse_time_us());
+    return Status::OK();
+}
 
 } // namespace doris
