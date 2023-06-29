@@ -62,6 +62,8 @@ void ExchangeSinkBuffer::close() {
         pair.second->release_finst_id();
         pair.second->release_query_id();
     }
+    _instance_to_broadcast_package_queue.clear();
+    _instance_to_package_queue.clear();
     _instance_to_request.clear();
 }
 
@@ -146,7 +148,7 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
             send_now = true;
             _instance_to_sending_by_pipeline[ins_id.lo] = false;
         }
-        _instance_to_broadcast_package_queue[ins_id.lo].emplace(std::move(request));
+        _instance_to_broadcast_package_queue[ins_id.lo].emplace(request);
     }
     if (send_now) {
         RETURN_IF_ERROR(_send_rpc(ins_id.lo));
@@ -157,6 +159,8 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
 
 Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+
+    DCHECK(_instance_to_sending_by_pipeline[id] == false);
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
@@ -257,7 +261,6 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         broadcast_q.pop();
     } else {
         _instance_to_sending_by_pipeline[id] = true;
-        return Status::OK();
     }
 
     return Status::OK();
