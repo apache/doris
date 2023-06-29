@@ -46,6 +46,7 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -139,6 +140,44 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, &ctx));
     }
     return _add_block(block, &_segment_writer);
+}
+
+Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
+    SCOPED_RAW_TIMER(&_delete_bitmap_ns);
+    if (_context.tablet_schema->is_partial_update()) {
+        return Status::OK();
+    }
+    // generate delete bitmap, build a tmp rowset and load recent segment
+    if (!_context.tablet->enable_unique_key_merge_on_write()) {
+        return Status::OK();
+    }
+    auto rowset = _build_tmp();
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    {
+        std::shared_lock meta_rlock(_context.tablet->get_header_lock());
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_context.tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_context.tablet->tablet_id())) {
+            return Status::OK();
+        }
+        specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
+    }
+    OlapStopWatch watch;
+    RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,
+                                                        _context.mow_context->delete_bitmap,
+                                                        _context.mow_context->max_version));
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
+              << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
+              << ", cur max_version: " << _context.mow_context->max_version
+              << ", transaction_id: " << _context.mow_context->txn_id
+              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+    return Status::OK();
 }
 
 Status BetaRowsetWriter::_load_noncompacted_segments(
@@ -501,9 +540,7 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
         DCHECK_EQ(writer.get(), raw_writer);
     }
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
-    if (ctx != nullptr && ctx->generate_delete_bitmap) {
-        RETURN_IF_ERROR(ctx->generate_delete_bitmap(segment_id));
-    }
+    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
@@ -684,7 +721,7 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     }
 }
 
-RowsetSharedPtr BetaRowsetWriter::build_tmp() {
+RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
     std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
     *rowset_meta_ = *_rowset_meta;
     _build_rowset_meta(rowset_meta_);
