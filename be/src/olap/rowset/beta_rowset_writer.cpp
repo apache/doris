@@ -24,7 +24,6 @@
 
 #include <ctime> // time
 #include <filesystem>
-#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -32,12 +31,10 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -48,9 +45,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "segcompaction.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder

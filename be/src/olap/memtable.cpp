@@ -22,9 +22,7 @@
 #include <pdqsort.h>
 
 #include <algorithm>
-#include <cstddef>
 #include <limits>
-#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,9 +31,7 @@
 #include "common/consts.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -44,19 +40,14 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
-#include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_object.h"
-#include "vec/columns/column_string.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/json/path_in_data.h"
-#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -564,38 +555,6 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
     ctx->flush_schema = flush_schema;
     block.swap(flush_block);
     return Status::OK();
-}
-
-void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
-    if (block.rows() == 0) {
-        return;
-    }
-    MonotonicStopWatch watch;
-    watch.start();
-    // find row column id
-    int row_column_id = 0;
-    for (int i = 0; i < _num_columns; ++i) {
-        if (_tablet_schema->column(i).is_row_store_column()) {
-            row_column_id = i;
-            break;
-        }
-    }
-    if (row_column_id == 0) {
-        return;
-    }
-    vectorized::ColumnString* row_store_column =
-            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
-                                                           .column->assume_mutable_ref()
-                                                           .assume_mutable()
-                                                           .get());
-    row_store_column->clear();
-    vectorized::DataTypeSerDeSPtrs serdes =
-            vectorized::create_data_type_serdes(block.get_data_types());
-    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
-                                                   _tablet_schema->num_columns(), serdes);
-    VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
-               << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
-               << watch.elapsed_time() / 1000;
 }
 
 } // namespace doris

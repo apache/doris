@@ -73,8 +73,8 @@ public:
     class Iter {
     public:
         Iter(Tie& tie) : _tie(tie), _next(tie._begin + 1) {}
-        size_t left() { return _left; }
-        size_t right() { return _right; }
+        size_t left() const { return _left; }
+        size_t right() const { return _right; }
 
         // return false means no more ranges
         bool next() {
@@ -211,10 +211,6 @@ private:
     // for vectorized
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
-
-    // serialize block to row store format and append serialized data into row store column
-    // in block
-    void serialize_block_to_row_column(vectorized::Block& block);
 
     // Unfold variant column to Block
     // Eg. [A | B | C | (D, E, F)]
