@@ -7581,6 +7581,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FEATURE:id
     {: RESULT = id; :}
+    | KW_FRONTENDS:id
+    {: RESULT = id; :}
     | KW_MAP:id
     {: RESULT = id; :}
     | KW_VARCHAR:id
