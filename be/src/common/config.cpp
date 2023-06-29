@@ -881,7 +881,7 @@ DEFINE_mInt64(generate_cooldown_task_interval_sec, "20");
 DEFINE_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 DEFINE_mInt32(confirm_unused_remote_files_interval_sec, "60");
 DEFINE_Int32(cold_data_compaction_thread_num, "2");
-DEFINE_mInt32(cold_data_compaction_interval_sec, "1800");
+DEFINE_mInt32(cold_data_compaction_interval_sec, "200000000");
 DEFINE_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 DEFINE_Int32(concurrency_per_dir, "2");
 DEFINE_mInt64(cooldown_lag_time_sec, "10800");       // 3h
