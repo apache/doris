@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -165,6 +166,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition, DataPartition partitionForThrift) {
         this(id, root, partition);
         this.dataPartitionForThrift = partitionForThrift;
+    }
+
+    public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
+            Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
+        this(id, root, partition);
+        this.builderRuntimeFilterIds = ImmutableSet.copyOf(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = ImmutableSet.copyOf(targetRuntimeFilterIds);
     }
 
     /**
