@@ -107,7 +107,7 @@ public:
     virtual vectorized::schema_util::LocalSchemaChangeRecorder*
     mutable_schema_change_recorder() = 0;
 
-    virtual int64_t delete_bitmap_ns() = 0;
+    virtual int64_t delete_bitmap_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);
