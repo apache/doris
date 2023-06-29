@@ -45,7 +45,6 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -203,7 +202,6 @@ Status DeltaWriter::init() {
                                                        _delete_bitmap);
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
-    _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
     // create flush handler
