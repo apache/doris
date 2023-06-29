@@ -160,7 +160,7 @@ Status OrcReader::init_reader(
 
     // create orc row reader
     _row_reader_options.range(_range_start_offset, _range_size);
-    _row_reader_options.setTimezoneName(_ctz);
+    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
     RETURN_IF_ERROR(_init_read_columns());
     _init_search_argument(colname_to_value_range);
     _row_reader_options.include(_read_cols);
