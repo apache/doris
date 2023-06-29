@@ -374,7 +374,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
             return ImmutableList.<PhysicalHashAggregate<Plan>>builder()
-                    .add(gatherLocalAgg)
+                    // TODO: usually bad, disable it until we could do better cost computation.
+                    //.add(gatherLocalAgg)
                     .add(hashLocalAgg)
                     .build();
         }
@@ -736,7 +737,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
             return ImmutableList.<PhysicalHashAggregate<Plan>>builder()
-                    .add(anyLocalGatherGlobalAgg)
+                    // TODO: usually bad, disable it until we could do better cost computation.
+                    // .add(anyLocalGatherGlobalAgg)
                     .add(anyLocalHashGlobalAgg)
                     .build();
         }
@@ -1074,7 +1076,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
             return ImmutableList.<PhysicalHashAggregate<? extends Plan>>builder()
-                    .add(gatherLocalAgg)
+                    // TODO: usually bad, disable it until we could do better cost computation.
+                    // .add(gatherLocalAgg)
                     .add(hashLocalAgg)
                     .build();
         }
