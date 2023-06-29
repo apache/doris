@@ -57,8 +57,6 @@ public:
         return Status::NotSupported("not support");
     }
 
-    size_t bytes_appended() const { return _bytes_appended; }
-
     int64_t upload_cost_ms() const { return *_upload_cost_ms; }
 
 private:
