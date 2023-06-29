@@ -60,20 +60,22 @@ PhysicalTopN
 ----------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalAssertNumRows
---------------------------------------hashAgg[GLOBAL]
-----------------------------------------PhysicalDistribute
-------------------------------------------hashAgg[LOCAL]
---------------------------------------------PhysicalProject
-----------------------------------------------filter((date_dim.d_moy = 5)(date_dim.d_year = 1998))
-------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------PhysicalDistribute
+----------------------------------------hashAgg[GLOBAL]
+------------------------------------------PhysicalDistribute
+--------------------------------------------hashAgg[LOCAL]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((date_dim.d_moy = 5)(date_dim.d_year = 1998))
+--------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalAssertNumRows
-----------------------------------hashAgg[GLOBAL]
-------------------------------------PhysicalDistribute
---------------------------------------hashAgg[LOCAL]
-----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_year = 1998)(date_dim.d_moy = 5))
---------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalDistribute
+------------------------------------hashAgg[GLOBAL]
+--------------------------------------PhysicalDistribute
+----------------------------------------hashAgg[LOCAL]
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_year = 1998)(date_dim.d_moy = 5))
+----------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store]
