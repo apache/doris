@@ -60,6 +60,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.quartz.CronExpression;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -68,6 +69,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -397,6 +399,7 @@ public class AnalysisManager extends Daemon implements Writable {
         AnalysisMode analysisMode = stmt.getAnalysisMode();
         AnalysisMethod analysisMethod = stmt.getAnalysisMethod();
         ScheduleType scheduleType = stmt.getScheduleType();
+        CronExpression cronExpression = stmt.getCron();
 
         taskInfoBuilder.setJobId(jobId);
         taskInfoBuilder.setCatalogName(catalogName);
@@ -418,6 +421,7 @@ public class AnalysisManager extends Daemon implements Writable {
         taskInfoBuilder.setAnalysisMethod(analysisMethod);
         taskInfoBuilder.setScheduleType(scheduleType);
         taskInfoBuilder.setLastExecTimeInMs(0);
+        taskInfoBuilder.setCronExpression(cronExpression);
 
         if (analysisMethod == AnalysisMethod.SAMPLE) {
             taskInfoBuilder.setSamplePercent(samplePercent);
@@ -431,10 +435,8 @@ public class AnalysisManager extends Daemon implements Writable {
             taskInfoBuilder.setMaxBucketNum(maxBucketNum);
         }
 
-        if (scheduleType == ScheduleType.PERIOD) {
-            long periodTimeInMs = stmt.getPeriodTimeInMs();
-            taskInfoBuilder.setPeriodTimeInMs(periodTimeInMs);
-        }
+        long periodTimeInMs = stmt.getPeriodTimeInMs();
+        taskInfoBuilder.setPeriodTimeInMs(periodTimeInMs);
 
         Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
                 partitionNames, analysisType, analysisMode);
@@ -839,10 +841,18 @@ public class AnalysisManager extends Daemon implements Writable {
 
     public List<AnalysisInfo> findPeriodicJobs() {
         synchronized (analysisJobInfoMap) {
+            Predicate<AnalysisInfo> p = a -> {
+                if (a.state.equals(AnalysisState.RUNNING) || a.state.equals(AnalysisState.PENDING)) {
+                    return false;
+                }
+                if (a.cronExpression == null) {
+                    return a.scheduleType.equals(ScheduleType.PERIOD)
+                            && System.currentTimeMillis() - a.lastExecTimeInMs > a.periodTimeInMs;
+                }
+                return a.cronExpression.getTimeAfter(new Date(a.lastExecTimeInMs)).before(new Date());
+            };
             return analysisJobInfoMap.values().stream()
-                    .filter(a -> a.scheduleType.equals(ScheduleType.PERIOD)
-                            && (a.state.equals(AnalysisState.FINISHED))
-                            && System.currentTimeMillis() - a.lastExecTimeInMs > a.periodTimeInMs)
+                    .filter(p)
                     .collect(Collectors.toList());
         }
     }

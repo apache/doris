@@ -654,6 +654,7 @@ terminal BigDecimal DECIMAL_LITERAL;
 terminal String STRING_LITERAL;
 terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
+terminal String KW_CRON;
 
 // Statement that the result of this parser.
 nonterminal List<StatementBase> stmts;
@@ -5929,6 +5930,12 @@ with_analysis_properties ::=
             put("analysis.type", "HISTOGRAM");
         }};
     :}
+    | KW_CRON STRING_LITERAL:cron_expr
+    {:
+        RESULT = new HashMap<String, String>() {{
+            put("period.cron", cron_expr);
+        }};
+    :}
     ;
 
 opt_with_analysis_properties ::=
@@ -7658,6 +7665,8 @@ keyword ::=
     | KW_PERIOD:id
     {: RESULT = id; :}
     | KW_PERCENT:id
+    {: RESULT = id; :}
+    | KW_CRON:id
     {: RESULT = id; :}
     ;
 

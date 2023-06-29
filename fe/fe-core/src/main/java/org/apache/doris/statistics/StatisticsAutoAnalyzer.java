@@ -17,7 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
@@ -57,13 +56,9 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return;
         }
         if (Config.enable_auto_collect_statistics) {
-            analyzePeriodically();
             analyzeAutomatically();
         }
-    }
-
-    public void autoAnalyzeStats(DdlStmt ddlStmt) {
-        // TODO Monitor some DDL statements, and then trigger automatic analysis tasks
+        analyzePeriodically();
     }
 
     private void analyzePeriodically() {
