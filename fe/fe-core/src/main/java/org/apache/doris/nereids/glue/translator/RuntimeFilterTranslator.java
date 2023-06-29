@@ -64,6 +64,10 @@ public class RuntimeFilterTranslator {
         return context.getRuntimeFilterOnHashJoinNode(join);
     }
 
+    public RuntimeFilterContext getContext() {
+        return context;
+    }
+
     public List<Slot> getTargetOnScanNode(ObjectId id) {
         return context.getTargetOnOlapScanNodeMap().getOrDefault(id, Collections.emptyList());
     }
