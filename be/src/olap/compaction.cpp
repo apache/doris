@@ -618,7 +618,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             rowset_ids.insert(_output_rowset->rowset_id());
             for (const auto& it : commit_tablet_txn_info_vec) {
                 DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
-                std::shared_ptr<Rowset> rowset = it.rowset;
+                const std::shared_ptr<Rowset>& rowset = it.rowset;
                 for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
                     _tablet->calc_compaction_output_rowset_delete_bitmap(
                             std::vector<std::shared_ptr<Rowset>>(1, rowset), _rowid_conversion,

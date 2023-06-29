@@ -636,7 +636,7 @@ void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
         const TabletSharedPtr& tablet, CommitTabletTxnInfoVec& commit_tablet_txn_info_vec) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);
-        for (auto& it : _txn_tablet_maps[i]) {
+        for (const auto& it : _txn_tablet_maps[i]) {
             auto tablet_load_it = it.second.find(tablet->get_tablet_info());
             if (tablet_load_it != it.second.end()) {
                 TPartitionId partition_id = it.first.first;
