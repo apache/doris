@@ -31,8 +31,6 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_common.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
