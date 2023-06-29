@@ -634,7 +634,7 @@ class Syncer {
                     }
 
                     tarPartition.value.version = srcPartition.value.version
-                    long partitionId = fakePartitionId == -1 ? srcPartition.key : fakePartitionId
+                    long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
                     long version = fakeVersion == -1 ? srcPartition.value.version : fakeVersion
 
                     TIngestBinlogRequest request = new TIngestBinlogRequest()

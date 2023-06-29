@@ -384,6 +384,7 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
+    constexpr uint64_t kMaxTimeoutMs = 1000;
     TStatus tstatus;
     Defer defer {[&result, &tstatus]() { result.__set_status(tstatus); }};
 
@@ -485,7 +486,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     std::string binlog_info;
     auto get_binlog_info_cb = [&get_binlog_info_url, &binlog_info](HttpClient* client) {
         RETURN_IF_ERROR(client->init(get_binlog_info_url));
-        client->set_timeout_ms(10); // 10ms
+        client->set_timeout_ms(kMaxTimeoutMs);
         return client->execute(&binlog_info);
     };
     status = HttpClient::execute_with_retry(max_retry, 1, get_binlog_info_cb);
@@ -509,7 +510,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     std::string rowset_meta_str;
     auto get_rowset_meta_cb = [&get_rowset_meta_url, &rowset_meta_str](HttpClient* client) {
         RETURN_IF_ERROR(client->init(get_rowset_meta_url));
-        client->set_timeout_ms(10); // 10ms
+        client->set_timeout_ms(kMaxTimeoutMs);
         return client->execute(&rowset_meta_str);
     };
     status = HttpClient::execute_with_retry(max_retry, 1, get_rowset_meta_cb);
@@ -528,7 +529,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
     }
     // rewrite rowset meta
     rowset_meta_pb.set_tablet_id(local_tablet_id);
-    rowset_meta_pb.set_partition_id(local_tablet->tablet_meta()->partition_id());
+    rowset_meta_pb.set_partition_id(partition_id);
     rowset_meta_pb.set_tablet_schema_hash(local_tablet->tablet_meta()->schema_hash());
     rowset_meta_pb.set_txn_id(txn_id);
     rowset_meta_pb.set_rowset_state(RowsetStatePB::COMMITTED);
@@ -556,7 +557,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         auto get_segment_file_size_cb = [&get_segment_file_size_url,
                                          &segment_file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_size_url));
-            client->set_timeout_ms(10); // 10ms
+            client->set_timeout_ms(kMaxTimeoutMs);
             RETURN_IF_ERROR(client->head());
             return client->get_content_length(&segment_file_size);
         };
@@ -600,7 +601,7 @@ void BackendService::ingest_binlog(TIngestBinlogResult& result,
         auto get_segment_file_cb = [&get_segment_file_url, &local_segment_path, segment_file_size,
                                     estimate_timeout](HttpClient* client) {
             RETURN_IF_ERROR(client->init(get_segment_file_url));
-            client->set_timeout_ms(estimate_timeout * 1000); // 10ms
+            client->set_timeout_ms(estimate_timeout * 1000);
             RETURN_IF_ERROR(client->download(local_segment_path));
 
             std::error_code ec;
