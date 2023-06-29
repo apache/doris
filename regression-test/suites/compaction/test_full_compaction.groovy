@@ -21,11 +21,31 @@ suite("test_full_compaction") {
     def tableName = "test_full_compaction"
 
     try {
+String backend_id;
+
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
+        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
+        assertEquals(code, 0)
+        def configList = parseJson(out.trim())
+        assert configList instanceof List
+
+        boolean disableAutoCompaction = true
+        for (Object ele in (List) configList) {
+            assert ele instanceof List<String>
+            if (((List<String>) ele)[0] == "disable_auto_compaction") {
+                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
+            }
+        }
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE ${tableName} (
-                ( `user_id` INT NOT NULL, `value` INT NOT NULL)
+            `user_id` INT NOT NULL, `value` INT NOT NULL)
             UNIQUE KEY(`user_id`) 
             DISTRIBUTED BY HASH(`user_id`) 
             BUCKETS 1 
@@ -70,45 +90,6 @@ suite("test_full_compaction") {
         sql """delete from ${tableName} where user_id = 3"""
         qt_6 """select * from ${tableName}"""
 
-
-        streamLoad {
-            // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
-            // db 'regression_test'
-            table tableName
-
-            // default label is UUID:
-            // set 'label' UUID.randomUUID().toString()
-
-            // default column_separator is specify in doris fe config, usually is '\t'.
-            // this line change to ','
-            set 'column_separator', ','
-            set 'compress_type', 'GZ'
-            set "columns", columnsMap[tableName]
-            set 'timeout', '72000'
-            // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
-            // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url() + '/regression/clickhouse/brown/' + tableName}.gz"""
-
-            time 0
-
-
-            // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
-
-            // if declared a check callback, the default check condition will ignore.
-            // So you must check all condition
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
-            }
-        }
-
-        // ------------------------------------------------------ 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
@@ -116,7 +97,7 @@ suite("test_full_compaction") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             backend_id = tablet[2]
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+            (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def compactJson = parseJson(out.trim())
@@ -158,8 +139,8 @@ suite("test_full_compaction") {
                 rowCount += Integer.parseInt(rowset.split(" ")[1])
             }
         }
-        assert (rowCount <= 8)
-        qt_select_default3 """ SELECT * FROM ${tableName} t ORDER BY user_id,date,city,age,sex,last_visit_date,last_update_date,last_visit_date_not_null,cost,max_dwell_time,min_dwell_time; """
+        assert (rowCount == 1)
+        qt_select_default3 """ SELECT * FROM ${tableName};"""
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
