@@ -609,11 +609,12 @@ mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
 The syntax is as follows:
 
 ```SQL
-SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
 ```
 
 Explanation:
 
+- cached: Cached means to show statistics in current FE memory cache.
 - Table_name: The target table for collecting statistics. It can be a `db_name.table_name` form.
 - Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
 - Partition_name: The specified target partition `table_name` must exist in. Only one partition can be specified.
