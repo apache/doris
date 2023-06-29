@@ -730,7 +730,7 @@ public class CreateTableTest {
     public void testCreateTableWithStringLen() throws DdlException  {
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
-                + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+                    + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
         });
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
