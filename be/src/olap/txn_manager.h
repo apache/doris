@@ -91,29 +91,6 @@ public:
         delete[] _txn_tablet_delta_writer_map;
         delete[] _txn_tablet_delta_writer_map_locks;
     }
-    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
-
-    // Implement TxnKey hash function to support TxnKey as a key for `unordered_map`.
-    struct TxnKeyHash {
-        template <typename T, typename U>
-        size_t operator()(const std::pair<T, U>& e) const {
-            return std::hash<T>()(e.first) ^ std::hash<U>()(e.second);
-        }
-    };
-
-    // Implement TxnKey equal function to support TxnKey as a key for `unordered_map`.
-    struct TxnKeyEqual {
-        template <class T, typename U>
-        bool operator()(const std::pair<T, U>& l, const std::pair<T, U>& r) const {
-            return l.first == r.first && l.second == r.second;
-        }
-    };
-
-    typedef std::unordered_map<TxnKey, std::map<TabletInfo, TabletTxnInfo>, TxnKeyHash, TxnKeyEqual>
-            txn_tablet_map_t;
-    typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
-    typedef std::unordered_map<int64_t, std::map<int64_t, DeltaWriter*>>
-            txn_tablet_delta_writer_map_t;
 
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
@@ -198,6 +175,29 @@ public:
                                                   txn_tablet_map_t& txn_tablet_map);
 
 private:
+    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
+
+    // Implement TxnKey hash function to support TxnKey as a key for `unordered_map`.
+    struct TxnKeyHash {
+        template <typename T, typename U>
+        size_t operator()(const std::pair<T, U>& e) const {
+            return std::hash<T>()(e.first) ^ std::hash<U>()(e.second);
+        }
+    };
+
+    // Implement TxnKey equal function to support TxnKey as a key for `unordered_map`.
+    struct TxnKeyEqual {
+        template <class T, typename U>
+        bool operator()(const std::pair<T, U>& l, const std::pair<T, U>& r) const {
+            return l.first == r.first && l.second == r.second;
+        }
+    };
+
+    typedef std::unordered_map<TxnKey, std::map<TabletInfo, TabletTxnInfo>, TxnKeyHash, TxnKeyEqual>
+            txn_tablet_map_t;
+    typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
+    typedef std::unordered_map<int64_t, std::map<int64_t, DeltaWriter*>>
+            txn_tablet_delta_writer_map_t;
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
     txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
