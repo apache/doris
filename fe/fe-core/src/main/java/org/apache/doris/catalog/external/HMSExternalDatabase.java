@@ -184,9 +184,8 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
     }
 
     @Override
-    public void createTable(String tableName, long tableId) {
+    public void replayCreateTableFromEvent(String tableName, long tableId) {
         LOG.debug("create table [{}]", tableName);
-        makeSureInitialized();
         tableNameToId.put(tableName, tableId);
         HMSExternalTable table = new HMSExternalTable(tableId, tableName, name,
                 (HMSExternalCatalog) extCatalog);
