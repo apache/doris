@@ -168,7 +168,12 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
         }
-        if (match_suffix(_fn.name.function_name, AGG_UNION_SUFFIX)) {
+
+        std::string type_function_name =
+                assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                        ->get_nested_function()
+                        ->get_name();
+        if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
             if (_data_type->is_nullable()) {
                 return Status::InternalError(
                         "Union function return type must be not nullable, real={}",
@@ -180,11 +185,19 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         _data_type->get_name());
             }
             _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
-        } else if (match_suffix(_fn.name.function_name, AGG_MERGE_SUFFIX)) {
+        } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
+            auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                                ->get_nested_function()
+                                ->get_return_type();
+            if (!type->equals(*_data_type)) {
+                return Status::InternalError("{}'s expect return type is {}, but input {}",
+                                             argument_types[0]->get_name(), type->get_name(),
+                                             _data_type->get_name());
+            }
             _function = get_agg_state_function<AggregateStateMerge>(argument_types, _data_type);
         } else {
-            return Status::InternalError(
-                    "Aggregate Function {} is not endwith '_merge' or '_union'", _fn.signature);
+            return Status::InternalError("{} not match function {}", argument_types[0]->get_name(),
+                                         _fn.name.function_name);
         }
     } else {
         _function = AggregateFunctionSimpleFactory::instance().get(

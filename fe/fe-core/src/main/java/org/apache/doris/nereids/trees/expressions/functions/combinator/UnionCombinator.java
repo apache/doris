@@ -53,7 +53,7 @@ public class UnionCombinator extends AggregateFunction
 
     @Override
     public UnionCombinator withChildren(List<Expression> children) {
-        return new UnionCombinator(children, nested.withChildren(children));
+        return new UnionCombinator(children, nested);
     }
 
     @Override
