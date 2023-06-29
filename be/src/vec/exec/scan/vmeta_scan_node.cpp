@@ -39,8 +39,6 @@ VMetaScanNode::VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
     _output_tuple_id = _tuple_id;
     if (_scan_params.__isset.current_user_ident) {
         _user_identity = _scan_params.current_user_ident;
-    } else {
-        _user_identity = TUserIdentity();
     }
 }
 
