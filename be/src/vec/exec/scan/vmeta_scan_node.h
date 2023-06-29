@@ -19,6 +19,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
 
 #include <list>
 #include <vector>
@@ -55,6 +56,7 @@ private:
     Status _process_conjuncts() override;
 
     TupleId _tuple_id;
+    TUserIdentity _user_identity;
     TMetaScanNode _scan_params;
     std::vector<TScanRangeParams> _scan_ranges;
 };

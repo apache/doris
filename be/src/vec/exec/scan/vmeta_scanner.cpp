@@ -57,10 +57,11 @@ namespace doris::vectorized {
 
 VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
                            const TScanRangeParams& scan_range, int64_t limit,
-                           RuntimeProfile* profile)
+                           RuntimeProfile* profile, TUserIdentity user_identity)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
+          _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
 Status VMetaScanner::open(RuntimeState* state) {
@@ -75,10 +76,6 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
-}
-
-void VMetaScanner::set_user_identity(TUserIdentity user_identity) {
-    _user_identity = user_identity;
 }
 
 Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
