@@ -1965,8 +1965,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
     }
 
     if (num_field < 3) return false;
-    if (is_invalid(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4], date_val[5],
-                   date_val[6])) {
+    if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
         return false;
     }
     format_datetime(date_val, carry_bits);
