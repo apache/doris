@@ -28,7 +28,6 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
-import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -36,7 +35,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -77,12 +75,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapScan.getSelectedPartitionIds().size() == 1;
-        if (!olapScan.getTable().isColocateTable() && olapScan.getScanTabletNum() == 1
-                && !isBelongStableCG
-                && !ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
-            // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
-            return DistributionSpecStorageGather.INSTANCE;
-        } else if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
+        // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
+        if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
             if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
