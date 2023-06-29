@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
@@ -55,9 +56,6 @@ public class BuildCTEAnchorAndCTEProducer extends OneRewriteRuleFactory {
                     || !ConnectContext.get().getSessionVariable().getEnablePipelineEngine()) {
                 continue;
             }
-            LogicalCTEProducer logicalCTEProducer = new LogicalCTEProducer(
-                    rewrite((LogicalPlan) s.child(), cascadesContext), id);
-            child = new LogicalCTEAnchor(logicalCTEProducer, child, id);
         }
         return child;
     }

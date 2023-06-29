@@ -301,5 +301,10 @@ suite("cte") {
         exception = "[cte1] cannot be used more than once"
     }
 
+    explain {
+        sql("WITH cte_0 AS ( SELECT 1 AS a ) SELECT * from cte_0 t1 join cte_0 t2 on true WHERE false;")
+        notContains "MultiCastDataSinks"
+    }
+
 }
 
