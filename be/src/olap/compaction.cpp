@@ -618,15 +618,12 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 for (const auto& tablet_load_it : it.second) {
                     const TabletTxnInfo& tablet_txn_info = tablet_load_it.second;
                     DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
-                    RowLocation src;
                     std::shared_ptr<Rowset> rowset = tablet_txn_info.rowset;
-                    src.rowset_id = rowset->rowset_id();
                     for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-                        src.segment_id = seg_id;
-                        _tablet->convert_rowid(rowset, *tablet_txn_info.delete_bitmap, src,
-                                               _rowid_conversion, version.second, UINT64_MAX,
-                                               &missed_rows, &location_map,
-                                               &output_rowset_delete_bitmap);
+                        _tablet->calc_compaction_output_rowset_delete_bitmap(
+                                std::vector<std::shared_ptr<Rowset>>(1, rowset), _rowid_conversion,
+                                version.second, UINT64_MAX, &missed_rows, &location_map,
+                                &output_delete_bitmap);
                     }
                     tablet_txn_info.delete_bitmap->merge(output_delete_bitmap);
                     // Step3: write back updated delete bitmap and tablet info.
