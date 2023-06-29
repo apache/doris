@@ -136,10 +136,6 @@ public class PartitionKeyTest {
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
-        // set enable_date_conversion to false
-        // so ScalarType.getDefaultDateType will not convert Type.DATE to Type.DATEV2
-        boolean previousVal = Config.enable_date_conversion;
-        Config.enable_date_conversion = false;
         // case8
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767"),
                 new PartitionValue("2147483647"), new PartitionValue("9223372036854775807"),
@@ -169,7 +165,6 @@ public class PartitionKeyTest {
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
 
-        Config.enable_date_conversion = previousVal;
         // case11
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
                 Arrays.asList(charString, varchar));
