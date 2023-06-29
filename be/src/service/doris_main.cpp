@@ -54,6 +54,7 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "io/fs/s3_file_write_bufferpool.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -431,6 +432,12 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
+
+    // init s3 write buffer pool
+    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
+    s3_buffer_pool->init(doris::config::s3_write_buffer_whole_size,
+                         doris::config::s3_write_buffer_size,
+                         exec_env->buffered_reader_prefetch_thread_pool());
 
     // init and open storage engine
     doris::EngineOptions options;
