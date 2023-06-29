@@ -174,6 +174,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return joinReorderContext;
     }
 
+    public boolean isFilteringJoin() {
+        double leftCount = left().getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+        double rightCount = right().getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+        double multiple = leftCount > rightCount ? leftCount / rightCount : rightCount / leftCount;
+        return multiple >= 1000;
+    }
+
     @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()

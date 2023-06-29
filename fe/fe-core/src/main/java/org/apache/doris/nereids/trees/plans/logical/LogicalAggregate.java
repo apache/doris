@@ -114,7 +114,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     /**
      * Whole parameters constructor for LogicalAggregate.
      */
-    public LogicalAggregate(
+    private LogicalAggregate(
             List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions,
             boolean normalized,
@@ -149,6 +149,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public boolean hasRepeat() {
         return sourceRepeat.isPresent();
+    }
+
+    public boolean isDistinct() {
+        return outputExpressions.equals(groupByExpressions);
     }
 
     @Override

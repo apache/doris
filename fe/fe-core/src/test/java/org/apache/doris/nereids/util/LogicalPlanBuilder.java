@@ -171,9 +171,20 @@ public class LogicalPlanBuilder {
         for (Integer index : groupByKeysIndex) {
             groupByBuilder.add(this.plan.getOutput().get(index));
         }
-        ImmutableList<Expression> groupByKeys = groupByBuilder.build();
+        List<Expression> groupByKeys = groupByBuilder.build();
 
         LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, outputExprsList, this.plan);
+        return from(agg);
+    }
+
+    public LogicalPlanBuilder distinct(List<Integer> groupByKeysIndex) {
+        Builder<NamedExpression> groupByBuilder = ImmutableList.builder();
+        for (Integer index : groupByKeysIndex) {
+            groupByBuilder.add(this.plan.getOutput().get(index));
+        }
+        List<NamedExpression> groupByKeys = groupByBuilder.build();
+
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, this.plan);
         return from(agg);
     }
 
