@@ -103,7 +103,8 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalLimit<>(limit, offset, phase, getLogicalProperties(), children.get(0));
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, children.get(0));
     }
 
     @Override

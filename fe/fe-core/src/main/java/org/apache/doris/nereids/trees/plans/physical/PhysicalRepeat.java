@@ -147,7 +147,8 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, getLogicalProperties(), children.get(0));
+        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override

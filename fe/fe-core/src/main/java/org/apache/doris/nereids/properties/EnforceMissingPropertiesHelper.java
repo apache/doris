@@ -117,7 +117,7 @@ public class EnforceMissingPropertiesHelper {
         DistributionSpec requiredDistributionSpec = required.getDistributionSpec();
         if (requiredDistributionSpec instanceof DistributionSpecHash) {
             DistributionSpecHash requiredDistributionSpecHash = (DistributionSpecHash) requiredDistributionSpec;
-            outputDistributionSpec = requiredDistributionSpecHash.withShuffleType(ShuffleType.ENFORCED);
+            outputDistributionSpec = requiredDistributionSpecHash.withShuffleType(ShuffleType.EXECUTION_BUCKETED);
         } else {
             outputDistributionSpec = requiredDistributionSpec;
         }

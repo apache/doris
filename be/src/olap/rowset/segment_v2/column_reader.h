@@ -90,6 +90,7 @@ struct ColumnIteratorOptions {
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
     io::IOContext io_ctx;
+    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -301,6 +302,11 @@ public:
         return Status::OK();
     }
 
+    virtual Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
+                                          RowRanges* row_ranges) {
+        return Status::OK();
+    }
+
     virtual bool is_all_dict_encoding() const { return false; }
 
 protected:
@@ -341,6 +347,9 @@ public:
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;
 
+    Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
+                                  RowRanges* row_ranges) override;
+
     ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
@@ -351,8 +360,8 @@ private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
+    Status _read_dict_data();
 
-private:
     ColumnReader* _reader;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()

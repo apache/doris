@@ -305,6 +305,10 @@ public class UserProperty implements Writable {
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_WORKLOAD_GROUP + " format error");
                 }
+                boolean ret = Env.getCurrentEnv().getWorkloadGroupMgr().isWorkloadGroupExists(value);
+                if (!ret) {
+                    throw new DdlException("workload group " + value + " not exists");
+                }
                 workloadGroup = value;
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
