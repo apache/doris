@@ -207,9 +207,6 @@ public class StreamLoadPlanner {
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
@@ -406,9 +403,6 @@ public class StreamLoadPlanner {
                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }

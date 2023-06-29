@@ -182,8 +182,9 @@ public:
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         DCHECK(col.item_size() == sizeof(Data))
                 << "size is not equal: " << col.item_size() << " " << sizeof(Data);
-        col.resize(1);
-        reinterpret_cast<Data*>(col.get_data().data())->sum = this->data(place).sum;
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        (reinterpret_cast<Data*>(col.get_data().data()) + old_size)->sum = this->data(place).sum;
     }
 
     MutableColumnPtr create_serialize_column() const override {
