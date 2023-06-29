@@ -955,6 +955,8 @@ enum TBinlogType {
   UPSERT = 0,
   ADD_PARTITION = 1,
   CREATE_TABLE = 2,
+  DROP_PARTITION = 3,
+  DROP_TABLE = 4,
 }
 
 struct TBinlog {
