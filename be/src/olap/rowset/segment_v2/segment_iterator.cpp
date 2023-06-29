@@ -491,6 +491,26 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                    condition_row_ranges);
     _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+
+    /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
+    /// we are temporarily disabling its use in data compaction.
+    if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+        RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
+        for (auto cid : cids) {
+            RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
+            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            uint32_t unique_cid = _schema->unique_id(cid);
+            RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_dict(
+                    _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
+            RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
+        }
+
+        pre_size = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
+                                       condition_row_ranges);
+        _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
+    }
+
     return Status::OK();
 }
 
