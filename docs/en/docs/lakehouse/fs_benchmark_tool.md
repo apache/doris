@@ -64,11 +64,11 @@ sh run-fs-benchmark.sh \
  `--conf` Required parameter
 
 
-&emsp;Configuration file corresponding to the operation file. It is mainly used to add the relevant connection information of the remote storage system. See examples below.
+Configuration file corresponding to the operation file. It is mainly used to add the relevant connection information of the remote storage system. See examples below.
 
-&emsp;If you want to connect `hdfs`, please put the `hdfs-site.xml` `core-site.xml` file in the `be/conf` directory.
+If you want to connect `hdfs`, please put the `hdfs-site.xml` `core-site.xml` file in the `be/conf` directory.
 
-&emsp;In addition to the connection information, there are the following additional parameters:
+In addition to the connection information, there are the following additional parameters:
 
 - `file_size`: Specifies the size of the file to read or write.
 
@@ -78,11 +78,11 @@ sh run-fs-benchmark.sh \
 
 `--fs_type` Required parameter
 
-&emsp;The type of file system on which the operation is required. Currently supported `hdfs`,`s3`.
+The type of file system on which the operation is required. Currently supported `hdfs`,`s3`.
 
 `--operation` Required parameter
 
-&emsp;Specifies the type of operation
+Specifies the type of operation
 
 -  `create_write`: Each thread creates a file named `test_${current thread number}`  in the `base_dir(set in conf file)` directory and writes to the file with a write size `file_size` of.
 
@@ -98,7 +98,7 @@ sh run-fs-benchmark.sh \
 
 `--file_size` 
 
-&emsp;The file size of the operation, in bytes.
+The file size of the operation, in bytes.
 
 -  `create_write`: Default is 10 MB.
 
@@ -108,11 +108,11 @@ sh run-fs-benchmark.sh \
 
 `--threads`
 
-&emsp;The number of threads for the operation. The default number is 1.
+The number of threads for the operation. The default number is 1.
 
 `--iterations`
 
-&emsp;The number of iterations ( The number of times the function was executed ) per thread. The default number is 1.
+The number of iterations ( The number of times the function was executed ) per thread. The default number is 1.
 
 ## Result analysis
 

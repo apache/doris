@@ -62,11 +62,11 @@ sh run-fs-benchmark.sh \
 `--conf`必选参数
 
 
-&emsp; 操作文件对应的配置文件。主要用于添加远端存储系统的相关连接信息。详见下文示例。
+操作文件对应的配置文件。主要用于添加远端存储系统的相关连接信息。详见下文示例。
 
-&emsp; 如连接`hdfs`，请将 `hdfs-site.xml`，`core-site.xml` 文件放置在 `be/conf` 目录下。
+如连接`hdfs`，请将 `hdfs-site.xml`，`core-site.xml` 文件放置在 `be/conf` 目录下。
 
-&emsp; 除连接信息外，还有以下额外参数：
+除连接信息外，还有以下额外参数：
 - `file_size`：指定读取或写入文件的大小。
 
 - `buffer_size`：一次读取操作读取的文件块大小。
@@ -75,11 +75,11 @@ sh run-fs-benchmark.sh \
 
 `--fs_type`必选参数
 
-&emsp; 需要操作的文件系统类型。目前支持`hdfs`，`s3`。
+需要操作的文件系统类型。目前支持`hdfs`，`s3`。
 
 `--operation` 必选参数
 
-&emsp; 指定操作类型
+指定操作类型
 
 - `create_write` ：每个线程在`base_dir(conf文件中设置)`目录下，创建文件名为`test_当前的线程号`，并写入文件，写入大小为`file_size`。
 
@@ -94,7 +94,7 @@ sh run-fs-benchmark.sh \
 - `list`：获取 `base_dir(conf文件中设置)` 目录下的文件列表。
 
 `--file_size`
-&emsp;操作的文件大小，以字节为单位。
+操作的文件大小，以字节为单位。
 
 - `create_write`：默认为 10MB。
 
@@ -104,11 +104,11 @@ sh run-fs-benchmark.sh \
 
 `--threads`
 
-&emsp;操作的线程数量，默认数量为1。
+操作的线程数量，默认数量为1。
 
 `--iterations`
 
-&emsp;每个线程进行迭代的次数（函数执行次数），默认数量为1。
+每个线程进行迭代的次数（函数执行次数），默认数量为1。
 
 ## 结果解析
 
