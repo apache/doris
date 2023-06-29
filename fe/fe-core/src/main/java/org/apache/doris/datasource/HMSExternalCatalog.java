@@ -208,7 +208,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (lastSyncedEventId < 0) {
             refreshCatalog(hmsExternalCatalog);
             // invoke getCurrentEventId() and save the event id before refresh catalog to avoid missing events
-            // but set currentEventId to lastSyncedEventId only if there is not any problems when refreshing catalog
+            // but set lastSyncedEventId to currentEventId only if there is not any problems when refreshing catalog
             lastSyncedEventId = currentEventId;
             LOG.info(
                     "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
@@ -231,7 +231,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             if (StringUtils.isNotEmpty(e.getMessage())
                         && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
                 refreshCatalog(hmsExternalCatalog);
-                // set currentEventId to lastSyncedEventId after refresh catalog succesfully
+                // set lastSyncedEventId to currentEventId after refresh catalog successfully
                 lastSyncedEventId = currentEventId;
                 LOG.warn("Notification events are missing, maybe an event can not be handled "
                         + "or processing rate is too low, fallback to refresh the catalog");
