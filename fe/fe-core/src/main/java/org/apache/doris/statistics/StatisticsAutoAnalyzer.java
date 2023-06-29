@@ -62,7 +62,6 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         if (!StatisticsUtil.statsTblAvailable()) {
             return;
         }
-
         if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
             return;
         }
@@ -100,6 +99,8 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
                 LOG.warn("Failed to analyze all statistics.", t);
             }
         }
+
+        analyzePeriodically();
     }
 
     private void analyzePeriodically() {
