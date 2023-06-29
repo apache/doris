@@ -113,7 +113,6 @@ private:
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;
-    size_t _bytes_appended {0};
 
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;
