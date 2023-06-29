@@ -2717,40 +2717,45 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // 2. use the copied table to create partitions
         List<Partition> newPartitions = Lists.newArrayList();
-        // tabletIdSet to save all newly created tablet ids.
-        Set<Long> tabletIdSet = Sets.newHashSet();
-        long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
-        IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
-        try {
-            for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
-                // the new partition must use new id
-                // If we still use the old partition id, the behavior of current load jobs on this partition
-                // will be undefined.
-                // By using a new id, load job will be aborted(just like partition is dropped),
-                // which is the right behavior.
-                long oldPartitionId = entry.getValue();
-                long newPartitionId = idGeneratorBuffer.getNextId();
-                Partition newPartition = createPartitionWithIndices(db.getClusterName(), db.getId(), copiedTbl.getId(),
-                        copiedTbl.getBaseIndexId(), newPartitionId, entry.getKey(), copiedTbl.getIndexIdToMeta(),
-                        partitionsDistributionInfo.get(oldPartitionId),
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
-                        copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId), null /* version info */,
-                        copiedTbl.getCopiedBfColumns(), copiedTbl.getBfFpp(), tabletIdSet, copiedTbl.getCopiedIndexes(),
-                        copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
-                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
-                        copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
-                        olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
-                        idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                        olapTable.enableSingleReplicaCompaction(), olapTable.skipWriteIndexOnLoad(),
-                        olapTable.storeRowColumn(), olapTable.isDynamicSchema());
-                newPartitions.add(newPartition);
+        // if table currently has no partitions, bufferSize will be zero, invoke method getIdGeneratorBuffer will
+        // cause IllegalStateException
+        if (!origPartitions.isEmpty()) {
+            // tabletIdSet to save all newly created tablet ids.
+            Set<Long> tabletIdSet = Sets.newHashSet();
+            long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
+            IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
+            try {
+                for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
+                    // the new partition must use new id
+                    // If we still use the old partition id, the behavior of current load jobs on this partition
+                    // will be undefined.
+                    // By using a new id, load job will be aborted(just like partition is dropped),
+                    // which is the right behavior.
+                    long oldPartitionId = entry.getValue();
+                    long newPartitionId = idGeneratorBuffer.getNextId();
+                    Partition newPartition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                            copiedTbl.getId(),
+                            copiedTbl.getBaseIndexId(), newPartitionId, entry.getKey(), copiedTbl.getIndexIdToMeta(),
+                            partitionsDistributionInfo.get(oldPartitionId),
+                            copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
+                            copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId), null /* version info */,
+                            copiedTbl.getCopiedBfColumns(), copiedTbl.getBfFpp(), tabletIdSet,
+                            copiedTbl.getCopiedIndexes(), copiedTbl.isInMemory(), copiedTbl.getStorageFormat(),
+                            copiedTbl.getPartitionInfo().getTabletType(oldPartitionId), copiedTbl.getCompressionType(),
+                            copiedTbl.getDataSortInfo(), copiedTbl.getEnableUniqueKeyMergeOnWrite(),
+                            olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
+                            idGeneratorBuffer, olapTable.disableAutoCompaction(),
+                            olapTable.enableSingleReplicaCompaction(), olapTable.skipWriteIndexOnLoad(),
+                            olapTable.storeRowColumn(), olapTable.isDynamicSchema());
+                    newPartitions.add(newPartition);
+                }
+            } catch (DdlException e) {
+                // create partition failed, remove all newly created tablets
+                for (Long tabletId : tabletIdSet) {
+                    Env.getCurrentInvertedIndex().deleteTablet(tabletId);
+                }
+                throw e;
             }
-        } catch (DdlException e) {
-            // create partition failed, remove all newly created tablets
-            for (Long tabletId : tabletIdSet) {
-                Env.getCurrentInvertedIndex().deleteTablet(tabletId);
-            }
-            throw e;
         }
         Preconditions.checkState(origPartitions.size() == newPartitions.size());
 
