@@ -1140,7 +1140,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
-                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
+                || fnName.getFunction().equalsIgnoreCase("array_concat")
+                || fnName.getFunction().equalsIgnoreCase("array_contains_all")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
