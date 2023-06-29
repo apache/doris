@@ -41,6 +41,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -178,6 +179,14 @@ public class CascadesContext implements ScheduleContext {
 
     public Analyzer newAnalyzer() {
         return new Analyzer(this);
+    }
+
+    public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
+        return new Analyzer(this, customTableResolver);
+    }
+
+    public Analyzer newCustomAnalyzer(Optional<CustomTableResolver> customTableResolver) {
+        return new Analyzer(this, customTableResolver);
     }
 
     @Override
