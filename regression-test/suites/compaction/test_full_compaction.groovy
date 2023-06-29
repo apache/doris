@@ -71,7 +71,44 @@ suite("test_full_compaction") {
         qt_6 """select * from ${tableName}"""
 
 
-        
+        streamLoad {
+            // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
+            // db 'regression_test'
+            table tableName
+
+            // default label is UUID:
+            // set 'label' UUID.randomUUID().toString()
+
+            // default column_separator is specify in doris fe config, usually is '\t'.
+            // this line change to ','
+            set 'column_separator', ','
+            set 'compress_type', 'GZ'
+            set "columns", columnsMap[tableName]
+            set 'timeout', '72000'
+            // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+            // also, you can stream load a http stream, e.g. http://xxx/some.csv
+            file """${getS3Url() + '/regression/clickhouse/brown/' + tableName}.gz"""
+
+            time 0
+
+
+            // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+
+            // if declared a check callback, the default check condition will ignore.
+            // So you must check all condition
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            }
+        }
+
+        // ------------------------------------------------------ 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
