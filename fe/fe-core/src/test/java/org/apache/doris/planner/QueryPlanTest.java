@@ -1098,7 +1098,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersionInfo(2);
                     }
                 }
             }
@@ -1112,7 +1112,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersionInfo(2);
                     }
                 }
             }
@@ -1196,7 +1196,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersionInfo(2);
                     }
                 }
             }
@@ -1226,7 +1226,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersionInfo(2);
                     }
                 }
             }
@@ -1246,7 +1246,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(10000);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 200000, 0, 10000);
+                        replica.updateVersionInfo(2);
                     }
                 }
             }
@@ -1275,7 +1275,7 @@ public class QueryPlanTest extends TestWithFeService {
                 mIndex.setRowCount(0);
                 for (Tablet tablet : mIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        replica.updateVersionInfo(2, 0, 0, 0);
+                        replica.updateVersionInfo(2);
                     }
                 }
             }

@@ -273,6 +273,12 @@ public class Replica implements Writable {
         this.rowCount = rowNum;
     }
 
+    public synchronized void updateStat(long dataSize, long remoteDataSize, long rowNum) {
+        this.dataSize = dataSize;
+        this.remoteDataSize = remoteDataSize;
+        this.rowCount = rowNum;
+    }
+
     public synchronized void updateStat(long dataSize, long remoteDataSize, long rowNum, long versionCount) {
         this.dataSize = dataSize;
         this.remoteDataSize = remoteDataSize;
@@ -280,15 +286,13 @@ public class Replica implements Writable {
         this.versionCount = versionCount;
     }
 
-    public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRemoteDataSize,
-                                               long newRowCount) {
-        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRemoteDataSize,
-                newRowCount);
+    public synchronized void updateVersionInfo(long newVersion) {
+        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion);
     }
 
     public synchronized void updateVersionWithFailedInfo(
             long newVersion, long lastFailedVersion, long lastSuccessVersion) {
-        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, remoteDataSize, rowCount);
+        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion);
     }
 
     /* last failed version:  LFV
@@ -316,8 +320,7 @@ public class Replica implements Writable {
      *      We just reset the LFV(hash) to recovery this replica.
      */
     private void updateReplicaInfo(long newVersion,
-            long lastFailedVersion, long lastSuccessVersion,
-            long newDataSize, long newRemoteDataSize, long newRowCount) {
+            long lastFailedVersion, long lastSuccessVersion) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("before update: {}", this.toString());
         }
@@ -340,9 +343,6 @@ public class Replica implements Writable {
         }
 
         this.version = newVersion;
-        this.dataSize = newDataSize;
-        this.remoteDataSize = newRemoteDataSize;
-        this.rowCount = newRowCount;
 
         // just check it
         if (lastSuccessVersion <= this.version) {
@@ -395,7 +395,7 @@ public class Replica implements Writable {
     }
 
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
-        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, remoteDataSize, rowCount);
+        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion);
     }
 
     /*
