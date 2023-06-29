@@ -781,5 +781,4 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
     _tablet_version_cache->release(handle);
 }
 
-
 } // namespace doris
