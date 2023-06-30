@@ -330,7 +330,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
     CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns());
+          block->columns() < _tablet_schema->num_columns())
+            << "block columns: " << block->columns()
+            << ", num key columns: " << _tablet_schema->num_key_columns()
+            << ", total schema columns: " << _tablet_schema->num_columns();
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
@@ -365,12 +368,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default = false;
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
-    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
     }
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
     {
         for (size_t pos = row_pos; pos < num_rows; pos++) {
@@ -764,10 +767,13 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             RETURN_IF_ERROR(_write_primary_key_index());
+            // IndexedColumnWriter write data pages mixed with segment data, we should use
+            // the stat from primary key index builder.
+            *index_size += _primary_key_index_builder->disk_size();
         } else {
             RETURN_IF_ERROR(_write_short_key_index());
+            *index_size = _file_writer->bytes_appended() - index_start;
         }
-        *index_size = _file_writer->bytes_appended() - index_start;
     }
     _inverted_index_file_size = try_get_inverted_index_file_size();
     // reset all column writers and data_conveter

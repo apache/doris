@@ -15,25 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/chunk_allocator.h"
+suite("test_cast_decimal") {
+    sql """
+        set enable_nereids_planner=true;
+    """
 
-#include <gtest/gtest.h>
+    explain {
+        sql """select cast(32123.34212456734 as decimal(3,2));"""
+        contains "cast(32123.34212456734 as DECIMALV3(3, 2))"
+    }
+    
 
-#include "common/config.h"
-#include "common/status.h"
-#include "runtime/memory/chunk.h"
-#include "util/cpu_info.h"
-#include "util/doris_metrics.h"
+    sql """
+        set enable_nereids_planner=false;
+    """
 
-namespace doris {
-
-TEST(ChunkAllocatorTest, Normal) {
-    for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
-        Chunk chunk;
-        EXPECT_TRUE(ChunkAllocator::instance()->allocate_align(size, &chunk).ok());
-        EXPECT_NE(nullptr, chunk.data);
-        EXPECT_EQ(size, chunk.size);
-        ChunkAllocator::instance()->free(chunk);
+    explain {
+        sql """select cast(32123.34212456734 as decimal(3,2));"""
+        contains "CAST(32123.34212456734 AS DECIMALV3(3, 2))"
     }
 }
-} // namespace doris

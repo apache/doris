@@ -15,24 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <cstddef>
-#include <cstdint>
-
-namespace doris {
-
-// Allocate memory from system allocator, this allocator can be configured
-// to allocate memory via mmap or malloc.
-class SystemAllocator {
-public:
-    static uint8_t* allocate(size_t length);
-
-    static void free(uint8_t* ptr);
-
-private:
-    static uint8_t* allocate_via_mmap(size_t length);
-    static uint8_t* allocate_via_malloc(size_t length);
-};
-
-} // namespace doris
+suite("test_cast_to_datetime") {
+    // cast string of invalid datetime to datetime
+    qt_cast_string_to_datetime_invalid0 """ select cast("627492340" as datetime); """
+    qt_cast_string_to_datetime_invalid1 """ select cast("" as datetime); """
+    qt_cast_string_to_datetime_invalid2 """ select cast("1" as datetime); """
+    qt_cast_string_to_datetime_invalid3 """ select cast("a" as datetime); """
+    qt_cast_string_to_datetime_invalid4 """ select cast("null" as datetime); """
+    qt_cast_string_to_datetime_invalid5 """ select cast(null as datetime); """
+}

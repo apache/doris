@@ -31,7 +31,7 @@ template <typename T>
 class RefCountClosure : public google::protobuf::Closure {
 public:
     RefCountClosure() : _refs(0) {}
-    ~RefCountClosure() {}
+    ~RefCountClosure() override = default;
 
     void ref() { _refs.fetch_add(1); }
 

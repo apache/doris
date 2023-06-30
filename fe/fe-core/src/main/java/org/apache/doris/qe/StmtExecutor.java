@@ -315,6 +315,8 @@ public class StmtExecutor {
                         .collect(Collectors.joining(",")));
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
+        builder.isNereids(context.getState().isNereids ? "Yes" : "No");
+        builder.isPipeline(context.getSessionVariable().enablePipelineEngine ? "Yes" : "No");
         return builder.build();
     }
 
@@ -720,7 +722,7 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
+                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
                     handleDeleteStmt();
                 } else {
                     handleDdlStmt();

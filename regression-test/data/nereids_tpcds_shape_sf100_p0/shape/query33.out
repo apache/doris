@@ -26,11 +26,13 @@ PhysicalTopN
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
 ----------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------PhysicalProject
-------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
---------------------------------------PhysicalOlapScan[customer_address]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
+----------------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Home'))
@@ -54,11 +56,13 @@ PhysicalTopN
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
 ----------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------PhysicalProject
-------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
---------------------------------------PhysicalOlapScan[customer_address]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
+----------------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[item]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Home'))
@@ -84,9 +88,10 @@ PhysicalTopN
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((date_dim.d_moy = 1)(date_dim.d_year = 2002))
 ----------------------------------------------PhysicalOlapScan[date_dim]
-----------------------------------PhysicalProject
-------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
---------------------------------------PhysicalOlapScan[customer_address]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((customer_address.ca_gmt_offset = -5.00))
+----------------------------------------PhysicalOlapScan[customer_address]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((item.i_category = 'Home'))

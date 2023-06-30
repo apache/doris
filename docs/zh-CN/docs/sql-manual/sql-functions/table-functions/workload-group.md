@@ -36,7 +36,7 @@ workload_groups
 
 ### description
 
-表函数，生成 workload_groups 临时表，可以查看当前资源组信息。
+表函数，生成 workload_groups 临时表，可以查看当前用户具有权限的资源组信息。
 
 该函数用于from子句中。
 

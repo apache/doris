@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * Data can be anywhere on the segments (required only).
+ * Data can be in any instance
  */
 public class DistributionSpecAny extends DistributionSpec {
 

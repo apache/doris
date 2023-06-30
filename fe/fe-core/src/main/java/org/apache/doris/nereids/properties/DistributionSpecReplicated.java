@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.properties;
 
 /**
- * Data is replicated across all segments.
+ * Data is replicated across all instances.
  * Like: broadcast join.
  */
 public class DistributionSpecReplicated extends DistributionSpec {

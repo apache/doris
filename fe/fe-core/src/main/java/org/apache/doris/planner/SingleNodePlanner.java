@@ -1976,7 +1976,7 @@ public class SingleNodePlanner {
             case BROKER:
                 throw new RuntimeException("Broker external table is not supported, try to use table function please");
             case ELASTICSEARCH:
-                scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
+                scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case HIVE:
                 throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
@@ -2016,7 +2016,7 @@ public class SingleNodePlanner {
                         StatisticalType.MAX_COMPUTE_SCAN_NODE, true);
                 break;
             case ES_EXTERNAL_TABLE:
-                scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
+                scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case JDBC_EXTERNAL_TABLE:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);

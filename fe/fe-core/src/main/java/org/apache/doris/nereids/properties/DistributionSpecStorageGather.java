@@ -15,21 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.nereids.properties;
 
-#include <cstddef>
-#include <cstdint>
+/**
+ * Gather distribution which put all data into one instance and
+ * the execution on it only could be done on the node storages its data.
+ */
+public class DistributionSpecStorageGather extends DistributionSpec {
 
-namespace doris {
+    public static final DistributionSpecStorageGather INSTANCE = new DistributionSpecStorageGather();
 
-// A chunk of continuous memory.
-// Almost all files depend on this struct, and each modification
-// will result in recompilation of all files. So, we put it in a
-// file to keep this file simple and infrequently changed.
-struct Chunk {
-    uint8_t* data = nullptr;
-    size_t size = 0;
-    int core_id = -1;
-};
+    public DistributionSpecStorageGather() {
+        super();
+    }
 
-} // namespace doris
+    @Override
+    public boolean satisfy(DistributionSpec other) {
+        return other instanceof DistributionSpecGather
+                || other instanceof DistributionSpecStorageGather
+                || other instanceof DistributionSpecAny;
+    }
+}
