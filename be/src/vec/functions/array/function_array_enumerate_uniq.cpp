@@ -105,6 +105,16 @@ public:
         return return_type;
     }
 
+// When compiling `FunctionArrayEnumerateUniq::_execute_by_hash`, `AllocatorWithStackMemory::free(buf)`
+// will be called when `delete HashMapContainer`. the gcc compiler will think that `size > N` and `buf` is not heap memory,
+// and report an error `' void free(void*)' called on unallocated object 'hash_map'`
+// This only fails on doris docker + gcc 11.1, no problem on doris docker + clang 16.0.1,
+// no problem on ldb_toolchanin gcc 11.1 and clang 16.0.1.
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif // __GNUC__
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         ColumnRawPtrs data_columns(arguments.size());
@@ -284,6 +294,10 @@ private:
         }
     }
 };
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif // __GNUC__
 
 void register_function_array_enumerate_uniq(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayEnumerateUniq>();
