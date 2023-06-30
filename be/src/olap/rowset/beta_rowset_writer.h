@@ -60,6 +60,13 @@ namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
+struct SegmentStatistics {
+    int64_t row_num;
+    int64_t data_size;
+    int64_t index_size;
+    KeyBoundsPB key_bounds;
+};
+
 class BetaRowsetWriter : public RowsetWriter {
     friend class SegcompactionWorker;
 
@@ -76,6 +83,8 @@ public:
     Status add_rowset(RowsetSharedPtr rowset) override;
 
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
+
+    void add_segment(uint32_t segid, SegmentStatistics& segstat);
 
     Status flush() override;
 
@@ -197,13 +206,7 @@ protected:
     // written rows by add_block/add_row (not effected by segcompaction)
     std::atomic<int64_t> _raw_num_rows_written;
 
-    struct Statistics {
-        int64_t row_num;
-        int64_t data_size;
-        int64_t index_size;
-        KeyBoundsPB key_bounds;
-    };
-    std::map<uint32_t, Statistics> _segid_statistics_map;
+    std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
     std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
