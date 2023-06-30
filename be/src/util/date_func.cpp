@@ -86,6 +86,7 @@ uint64_t timestamp_from_datetime_v2(const std::string& date_str) {
 }
 // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
 // the time value between '-838:59:59' and '838:59:59'
+/// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
 int32_t time_to_buffer_from_double(double time, char* buffer) {
     char* begin = buffer;
     if (time < 0) {
@@ -115,6 +116,52 @@ int32_t time_to_buffer_from_double(double time, char* buffer) {
     return buffer - begin;
 }
 
+int32_t timev2_to_buffer_from_double(double time, char* buffer, int scale) {
+    static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
+    char* begin = buffer;
+    if (time < 0) {
+        time = -time;
+        *buffer++ = '-';
+    }
+    int64_t m_time = time;
+    // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
+    int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
+    if (hour >= 100) {
+        auto f = fmt::format_int(hour);
+        memcpy(buffer, f.data(), f.size());
+        buffer = buffer + f.size();
+    } else {
+        *buffer++ = (char)('0' + (hour / 10));
+        *buffer++ = (char)('0' + (hour % 10));
+    }
+    *buffer++ = ':';
+    m_time %= (int64_t)3600 * 1000 * 1000;
+    int64_t minute = m_time / (60 * 1000 * 1000);
+    *buffer++ = (char)('0' + (minute / 10));
+    *buffer++ = (char)('0' + (minute % 10));
+    *buffer++ = ':';
+    m_time %= 60 * 1000 * 1000;
+    int32_t second = m_time / (1000 * 1000);
+    *buffer++ = (char)('0' + (second / 10));
+    *buffer++ = (char)('0' + (second % 10));
+    m_time %= 1000 * 1000;
+    if (scale == 0) {
+        return buffer - begin;
+    }
+    *buffer++ = '.';
+    memset(buffer, '0', scale);
+    buffer += scale;
+    int32_t micosecond = m_time % (1000 * 1000);
+    micosecond /= pow10[6 - scale];
+    auto it = buffer - 1;
+    while (micosecond) {
+        *it = (char)('0' + (micosecond % 10));
+        micosecond /= 10;
+        it--;
+    }
+    return buffer - begin;
+}
+
 std::string time_to_buffer_from_double(double time) {
     fmt::memory_buffer buffer;
     if (time < 0) {
@@ -136,4 +183,51 @@ std::string time_to_buffer_from_double(double time) {
     return fmt::to_string(buffer);
 }
 
+std::string timev2_to_buffer_from_double(double time, int scale) {
+    static int pow10[7] = {1, 10, 100, 1000, 10000, 100000, 1000000};
+    fmt::memory_buffer buffer;
+    if (time < 0) {
+        time = -time;
+        fmt::format_to(buffer, "-");
+    }
+    int64_t m_time = time;
+    // m_time = hour * 3600 * 1000 * 1000 + minute * 60 * 1000 * 1000 + second * 1000 * 1000 + microsecond
+    int64_t hour = m_time / ((int64_t)3600 * 1000 * 1000);
+    if (hour >= 100) {
+        fmt::format_to(buffer, fmt::format("{}", hour));
+    } else {
+        fmt::format_to(buffer, fmt::format("{:02d}", hour));
+    }
+    m_time %= (int64_t)3600 * 1000 * 1000;
+    int64_t minute = m_time / (60 * 1000 * 1000);
+    m_time %= 60 * 1000 * 1000;
+    int32_t second = m_time / (1000 * 1000);
+    int32_t micosecond = m_time % (1000 * 1000);
+    micosecond /= pow10[6 - scale];
+    switch (scale) {
+    case 0:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}", minute, second, micosecond));
+        break;
+    case 1:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:01d}", minute, second, micosecond));
+        break;
+    case 2:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:02d}", minute, second, micosecond));
+        break;
+    case 3:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:03d}", minute, second, micosecond));
+        break;
+    case 4:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:04d}", minute, second, micosecond));
+        break;
+    case 5:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:05d}", minute, second, micosecond));
+        break;
+    case 6:
+        fmt::format_to(buffer, fmt::format(":{:02d}:{:02d}.{:06d}", minute, second, micosecond));
+        break;
+    }
+
+    return fmt::to_string(buffer);
+}
 } // namespace doris
