@@ -75,13 +75,6 @@ Status HdfsFileReader::open() {
     RETURN_IF_ERROR(HdfsFsCache::instance()->get_connection(_hdfs_params, &_fs_handle));
     _hdfs_fs = _fs_handle->hdfs_fs;
     if (hdfsExists(_hdfs_fs, _path.c_str()) != 0) {
-#ifdef USE_HADOOP_HDFS
-        char* root_cause = hdfsGetLastExceptionRootCause();
-        if (root_cause != nullptr) {
-            return Status::InternalError("fail to check path exist {}, reason: {}", _path,
-                                         root_cause);
-        }
-#endif
         if (_fs_handle->from_cache) {
             // hdfsFS may be disconnected if not used for a long time or kerberos token is expired
             _fs_handle->set_invalid();
@@ -91,7 +84,7 @@ Status HdfsFileReader::open() {
             _hdfs_fs = _fs_handle->hdfs_fs;
             if (hdfsExists(_hdfs_fs, _path.c_str()) != 0) {
 #ifdef USE_HADOOP_HDFS
-                root_cause = hdfsGetLastExceptionRootCause();
+                char* root_cause = hdfsGetLastExceptionRootCause();
                 if (root_cause != nullptr) {
                     return Status::InternalError("fail to check path exist {}, reason: {}", _path,
                                                  root_cause);
@@ -279,30 +272,26 @@ Status HdfsFsCache::get_connection(THdfsParams& hdfs_params, HdfsFsHandle** fs_h
         auto it = _cache.find(hash_code);
         if (it != _cache.end()) {
             HdfsFsHandle* handle = it->second.get();
-            if (handle->invalid()) {
-                hdfsFS hdfs_fs = nullptr;
-                RETURN_IF_ERROR(_create_fs(hdfs_params, &hdfs_fs));
-                *fs_handle = new HdfsFsHandle(hdfs_fs, false);
-            } else {
+            if (!handle->invalid()) {
                 handle->inc_ref();
                 *fs_handle = handle;
+                return Status::OK();
             }
+        }
+
+        hdfsFS hdfs_fs = nullptr;
+        RETURN_IF_ERROR(_create_fs(hdfs_params, &hdfs_fs));
+        if (_cache.size() >= MAX_CACHE_HANDLE) {
+            _clean_invalid();
+            _clean_oldest();
+        }
+        if (_cache.size() < MAX_CACHE_HANDLE) {
+            std::unique_ptr<HdfsFsHandle> handle = std::make_unique<HdfsFsHandle>(hdfs_fs, true);
+            handle->inc_ref();
+            *fs_handle = handle.get();
+            _cache[hash_code] = std::move(handle);
         } else {
-            hdfsFS hdfs_fs = nullptr;
-            RETURN_IF_ERROR(_create_fs(hdfs_params, &hdfs_fs));
-            if (_cache.size() >= MAX_CACHE_HANDLE) {
-                _clean_invalid();
-                _clean_oldest();
-            }
-            if (_cache.size() < MAX_CACHE_HANDLE) {
-                std::unique_ptr<HdfsFsHandle> handle =
-                        std::make_unique<HdfsFsHandle>(hdfs_fs, true);
-                handle->inc_ref();
-                *fs_handle = handle.get();
-                _cache[hash_code] = std::move(handle);
-            } else {
-                *fs_handle = new HdfsFsHandle(hdfs_fs, false);
-            }
+            *fs_handle = new HdfsFsHandle(hdfs_fs, false);
         }
     }
     return Status::OK();

@@ -70,6 +70,7 @@ Status HDFSCommonBuilder::run_kinit() {
 #endif
     hdfsBuilderConfSetStr(hdfs_builder, "hadoop.security.kerberos.ticket.cache.path",
                           ticket_path.c_str());
+    LOG(INFO) << "finish to run kinit: " << fmt::to_string(kinit_command);
     return Status::OK();
 }
 
