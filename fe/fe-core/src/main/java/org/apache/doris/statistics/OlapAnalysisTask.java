@@ -112,6 +112,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (killed) {
             return;
         }
+        long startTime = System.currentTimeMillis();
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -122,6 +123,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
                 throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
                         info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
             }
+            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
 }
