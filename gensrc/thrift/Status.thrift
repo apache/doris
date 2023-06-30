@@ -94,6 +94,8 @@ enum TStatusCode {
 
     // Snapshot Related from 70
     SNAPSHOT_NOT_EXIST = 70,
+    // Conflict schema version
+    CONFLICT_SCHEMA_VERSION = 71,
 }
 
 struct TStatus {

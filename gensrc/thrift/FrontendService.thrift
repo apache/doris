@@ -51,6 +51,9 @@ struct TColumnDesc {
   6: optional bool isAllowNull
   7: optional string columnKey
   8: optional list<TColumnDesc> children
+  9: optional i32 col_unique_id 
+  // If set, then this column will be attached to it's parent
+  10: optional i32 parent_col_unique_id
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -59,6 +62,7 @@ struct TColumnDesc {
 struct TColumnDef {
   1: required TColumnDesc columnDesc
   2: optional string comment
+  3: optional i32 colUniqueId
 }
 
 // Arguments to DescribeTable, which returns a list of column descriptors for a
@@ -819,21 +823,21 @@ struct TFetchSchemaTableDataResult {
   2: optional list<Data.TRow> data_batch;
 }
 
-// Only support base table add columns
-struct TAddColumnsRequest {
+struct TModifyColumnsRequest {
     1: optional i64 table_id
-    2: optional list<TColumnDef> addColumns
-    3: optional string table_name
-    4: optional string db_name
-    5: optional bool allow_type_conflict
+    2: optional i64 index_id
+    3: optional list<TColumnDef> modifyColumns
+    4: optional list<TColumnDef> newColumns
+    // CAS version, return version changed when CAS failed
+    5: optional i32 schema_version 
 }
 
-// Only support base table add columns
-struct TAddColumnsResult {
+struct TModifyColumnsResult {
     1: optional Status.TStatus status
     2: optional i64 table_id
-    3: optional list<Descriptors.TColumn> allColumns
-    4: optional i32 schema_version
+    3: optional i64 index_id
+    4: optional list<Descriptors.TColumn> allColumns
+    5: optional i32 schema_version
 }
 
 struct TMySqlLoadAcquireTokenResult {
@@ -1086,7 +1090,7 @@ service FrontendService {
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
-    TAddColumnsResult addColumns(1: TAddColumnsRequest request)
+    TModifyColumnsResult modifyColumns(1: TModifyColumnsRequest request)
 
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 

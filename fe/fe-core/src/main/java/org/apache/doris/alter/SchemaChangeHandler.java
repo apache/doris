@@ -1084,14 +1084,17 @@ public class SchemaChangeHandler extends AlterHandler {
      *      ADD COLUMN k1 int to rollup1,
      *      ADD COLUMN k1 int to rollup2
      * So that k1 will be added to base index 'twice', and we just ignore this repeat adding.
+     * 
      */
     private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
-                                   Set<String> newColNameSet, boolean isBaseIndex, int newColumnUniqueId)
+                                   Set<String> newColNameSet, boolean isBaseIndex,
+                                   int newColumnUniqueId)
             throws DdlException {
         int posIndex = -1;
         int lastVisibleIdx = -1;
         String newColName = newColumn.getName();
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
+        Column parentColumn = null;
         for (int i = 0; i < modIndexSchema.size(); i++) {
             Column col = modIndexSchema.get(i);
             if (col.getName().equalsIgnoreCase(newColName)) {
@@ -1124,13 +1127,22 @@ public class SchemaChangeHandler extends AlterHandler {
                     posIndex = i;
                 }
             }
+            // Find target parent column
+            if (newColumn.getParentUniqueId() > 0 && col.getUniqueId() == newColumn.getParentUniqueId()) {
+                parentColumn = col;
+            }
         }
 
         // check if lastCol was found
         if (hasPos && posIndex == -1) {
             throw new DdlException("Column[" + columnPos.getLastCol() + "] does not found");
         }
+        
+        if (hasPos && newColumn.getParentUniqueId() > 0) {
+            throw new DdlException("Column[" + columnPos.getLastCol() + "] pos confilict");
+        }
 
+        
         // check if add to first
         if (columnPos != null && columnPos.isFirst()) {
             posIndex = -1;
@@ -1140,6 +1152,21 @@ public class SchemaChangeHandler extends AlterHandler {
         // newColumn may add to baseIndex or rollups, so we need copy before change UniqueId
         Column toAddColumn = new Column(newColumn);
         toAddColumn.setUniqueId(newColumnUniqueId);
+
+        // Not the target index
+        if (newColumn.getParentUniqueId() > 0 && parentColumn == null) {
+            LOG.debug("Not the target index, parentColUniqueId {}", newColumn.getParentUniqueId()); 
+            return;
+        }
+
+        // Directly add new sub column to this parent column, and ignore the reset operations
+        if (parentColumn != null) {
+            parentColumn.addChildrenColumn(toAddColumn);
+            LOG.debug("newSubColumn setUniqueId({}), modIndexSchema:{}, parentColum:{}",
+                        newColumnUniqueId, modIndexSchema, parentColumn.getName());
+            return;
+        }
+
         if (hasPos) {
             modIndexSchema.add(posIndex + 1, toAddColumn);
         } else if (toAddColumn.isKey()) {

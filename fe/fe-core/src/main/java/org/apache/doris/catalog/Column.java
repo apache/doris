@@ -130,6 +130,9 @@ public class Column implements Writable, GsonPostProcessable {
 
     private boolean isCompoundKey = false;
 
+    // Not persist this field since it's volatile
+    private int parentColUniqueId = -1;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -272,7 +275,7 @@ public class Column implements Writable, GsonPostProcessable {
         return children;
     }
 
-    private void addChildrenColumn(Column column) {
+    public void addChildrenColumn(Column column) {
         this.children.add(column);
     }
 
@@ -892,6 +895,14 @@ public class Column implements Writable, GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public void setParentUniqueId(int colUniqueId) {
+        this.parentColUniqueId = colUniqueId;
+    }
+
+    public int getParentUniqueId() {
+        return this.parentColUniqueId;
     }
 
     public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {

@@ -79,8 +79,6 @@ import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
-import org.apache.doris.thrift.TAddColumnsRequest;
-import org.apache.doris.thrift.TAddColumnsResult;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -134,6 +132,8 @@ import org.apache.doris.thrift.TLoadTxnRollbackResult;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
+import org.apache.doris.thrift.TModifyColumnsRequest;
+import org.apache.doris.thrift.TModifyColumnsResult;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -367,12 +367,101 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (typeDef.getType().isArrayType()) {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
-        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
-            defaultVal, comment, true);
+        ColumnDef col = new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
+                    defaultVal, comment, true);
+        if (tColumnDesc.isSetParentColUniqueId()) {
+            col.setParentUniqueId(tColumnDesc.getParentColUniqueId()); 
+        }
+        if (tColumnDesc.isSetColUniqueId()) {
+            col.setParentUniqueId(tColumnDesc.getColUniqueId()); 
+        }
+        return col;
+    }
+
+    private void lightSchemaChangeAddColumns(OlapTable olapTable, List<TColumnDef> addColumns,
+                Map<Long, LinkedList<Column>> indexSchemaMap, long indexId) throws UserException, MetaNotFoundException {
+        List<ColumnDef> columnDefs = new ArrayList<ColumnDef>();
+        // prepare ColumnDef for new columns
+        for (TColumnDef tColumnDef : addColumns) {
+            String comment = tColumnDef.getComment();
+            if (comment == null || comment.length() == 0) {
+                Instant ins = Instant.ofEpochSecond(System.currentTimeMillis() / 1000);
+                ZonedDateTime zdt = ins.atZone(ZoneId.systemDefault());
+                comment = "auto change " + zdt.toString();
+            }
+
+            TColumnDesc tColumnDesc = tColumnDef.getColumnDesc();
+            ColumnDef columnDef = initColumnfromThrift(tColumnDesc, comment);
+            columnDefs.add(columnDef);
+        }
+
+        if (!columnDefs.isEmpty()) {
+            // create AddColumnsClause
+            AddColumnsClause addColumnsClause = new AddColumnsClause(columnDefs, null, null);
+            addColumnsClause.analyze(null);
+            
+            // index id -> index col_unique_id supplier
+            Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
+                indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
+                IntSupplier colUniqueIdSupplier = null;
+                if (olapTable.getEnableLightSchemaChange()) {
+                    colUniqueIdSupplier = new IntSupplier() {
+                        public int pendingMaxColUniqueId = olapTable
+                                .getIndexMetaByIndexId(entry.getKey()).getMaxColUniqueId();
+
+                        @Override
+                        public int getAsInt() {
+                            pendingMaxColUniqueId++;
+                            return pendingMaxColUniqueId;
+                        }
+                    };
+                }
+                colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
+            }
+            // call schame change function, only for dynamic table feature.
+            SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
+
+            boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
+                    addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
+            if (!lightSchemaChange) {
+                throw new MetaNotFoundException("indexId"
+                        + String.valueOf(indexId) + " cannot light schema change through rpc.");
+            }
+        }
+    }
+
+    private void lightSchemaChangeModifyColumns(OlapTable olapTable, List<TColumnDef> modifyColumns,
+                Map<Long, LinkedList<Column>> indexSchemaMap, long indexId) throws UserException {
+        for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
+            indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
+        }
+        // build uniqueId -> column map
+        Map<Integer, Column> colUniqueIdColumnMap = Maps.newHashMap();
+        for (Column column : indexSchemaMap.get(indexId)) {
+            colUniqueIdColumnMap.put(column.getUniqueId(), column);
+        } 
+        // prepare ColumnDef for modifying columns, only modify it's type
+        for (TColumnDef tColumnDef : modifyColumns) {
+            TColumnDesc tColumnDesc = tColumnDef.getColumnDesc();
+            ColumnDef columnDef = initColumnfromThrift(tColumnDesc, "");
+            if (columnDef.getUniqueId() > 0) {
+                Column targetColumn = colUniqueIdColumnMap.get(columnDef.getUniqueId());
+                targetColumn.setType(columnDef.getType()); 
+                continue;
+            }
+            if (columnDef.getParentUniqueId() > 0) {
+                Column targetColumn = colUniqueIdColumnMap.get(columnDef.getParentUniqueId());
+                targetColumn.setType(columnDef.getType()); 
+                continue;
+            }
+            Preconditions.checkState(false, "Not supported");
+        }
+           
     }
 
     @Override
-    public TAddColumnsResult addColumns(TAddColumnsRequest request) throws TException {
+    public TModifyColumnsResult modifyColumns(TModifyColumnsRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("schema change clientAddr: {}, request: {}", clientAddr, request);
 
@@ -386,14 +475,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!env.isMaster()) {
                 status.setStatusCode(TStatusCode.ILLEGAL_STATE);
                 status.addToErrorMsgs("retry rpc request to master.");
-                TAddColumnsResult result = new TAddColumnsResult();
+                TModifyColumnsResult result = new TModifyColumnsResult();
                 result.setStatus(status);
                 return result;
             }
-            TableName tableName = new TableName("", request.getDbName(), request.getTableName());
-            if (request.getTableId() > 0) {
-                tableName = catalog.getTableNameByTableId(request.getTableId());
-            }
+            TableName tableName = catalog.getTableNameByTableId(request.getTableId());
             if (tableName == null) {
                 throw new MetaNotFoundException("table_id " + request.getTableId() + " does not exist");
             }
@@ -403,95 +489,49 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new MetaNotFoundException("db " + tableName.getDb() + " does not exist");
             }
 
-            List<TColumnDef> addColumns = request.getAddColumns();
-            boolean queryMode = false;
-            if (addColumns == null || addColumns.size() == 0) {
-                queryMode = true;
-            }
-
             // rpc only olap table
             OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
             olapTable.writeLockOrMetaException();
 
-            try {
-                olapTable.checkNormalStateForAlter();
-                List<ColumnDef> columnDefs = new ArrayList<ColumnDef>();
-
-                // prepare columnDefs
-                for (TColumnDef tColumnDef : addColumns) {
-                    if (request.isAllowTypeConflict()) {
-                        // ignore column with same name
-                        boolean hasSameNameColumn = false;
-                        for (Column column : olapTable.getBaseSchema()) {
-                            if (column.getName().equalsIgnoreCase(tColumnDef.getColumnDesc().getColumnName())) {
-                                hasSameNameColumn = true;
-                            }
-                        }
-                        // ignore this column
-                        if (hasSameNameColumn) {
-                            continue;
-                        }
-                    }
-                    String comment = tColumnDef.getComment();
-                    if (comment == null || comment.length() == 0) {
-                        Instant ins = Instant.ofEpochSecond(System.currentTimeMillis() / 1000);
-                        ZonedDateTime zdt = ins.atZone(ZoneId.systemDefault());
-                        comment = "auto change " + zdt.toString();
-                    }
-
-                    TColumnDesc tColumnDesc = tColumnDef.getColumnDesc();
-                    ColumnDef columnDef = initColumnfromThrift(tColumnDesc, comment);
-                    columnDefs.add(columnDef);
-                }
-
-                if (!queryMode && !columnDefs.isEmpty()) {
-                    // create AddColumnsClause
-                    AddColumnsClause addColumnsClause = new AddColumnsClause(columnDefs, null, null);
-                    addColumnsClause.analyze(null);
-
-                    // index id -> index schema
-                    Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
-                    //index id -> index col_unique_id supplier
-                    Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-                    for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
-                        indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
-                        IntSupplier colUniqueIdSupplier = null;
-                        if (olapTable.getEnableLightSchemaChange()) {
-                            colUniqueIdSupplier = new IntSupplier() {
-                                public int pendingMaxColUniqueId = olapTable
-                                        .getIndexMetaByIndexId(entry.getKey()).getMaxColUniqueId();
-
-                                @Override
-                                public int getAsInt() {
-                                    pendingMaxColUniqueId++;
-                                    return pendingMaxColUniqueId;
-                                }
-                            };
-                        }
-                        colUniqueIdSupplierMap.put(entry.getKey(), colUniqueIdSupplier);
-                    }
-                    //4. call schame change function, only for dynamic table feature.
-                    SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
-
-                    boolean lightSchemaChange = schemaChangeHandler.processAddColumns(
-                            addColumnsClause, olapTable, indexSchemaMap, true, colUniqueIdSupplierMap);
-                    if (lightSchemaChange) {
-                        //for schema change add column optimize, direct modify table meta.
-                        List<Index> newIndexes = olapTable.getCopiedIndexes();
-                        long jobId = Env.getCurrentEnv().getNextId();
-                        Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
-                                db, olapTable, indexSchemaMap, newIndexes, null, false, jobId, false);
-                    } else {
-                        throw new MetaNotFoundException("table_id "
-                                + request.getTableId() + " cannot light schema change through rpc.");
-                    }
-                }
-
-                //5. build all columns
-                for (Column column : olapTable.getBaseSchema()) {
+            // CAS failed meet unexpected schema version
+            if (olapTable.getIndexSchemaVersion(request.getIndexId()) != request.getSchemaVersion()) {
+                status.setStatusCode(TStatusCode.CONFLICT_SCHEMA_VERSION);
+                status.addToErrorMsgs("Conflict schema version meet "
+                        + String.valueOf(olapTable.getIndexSchemaVersion(request.getIndexId()))
+                        + ", expected " + String.valueOf(request.getSchemaVersion()));
+                TModifyColumnsResult result = new TModifyColumnsResult();
+                // get all columns
+                for (Column column : olapTable.getSchemaByIndexId(request.getIndexId())) {
                     allColumns.add(column.toThrift());
                 }
-                schemaVersion = olapTable.getBaseSchemaVersion();
+                result.setAllColumns(allColumns);
+                result.setStatus(status);
+                return result;
+            }
+
+            List<TColumnDef> addColumns = request.getNewColumns();
+            List<TColumnDef> modifyColumns = request.getModifyColumns();
+
+
+            try {
+                olapTable.checkNormalStateForAlter();
+
+                // index id -> index schema
+                Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>(); 
+                lightSchemaChangeAddColumns(olapTable, addColumns, indexSchemaMap, request.getIndexId());
+                lightSchemaChangeModifyColumns(olapTable, modifyColumns, indexSchemaMap, request.getIndexId());
+
+                //for light schema change add/modify column optimize, direct modify table meta.
+                List<Index> newIndexes = olapTable.getCopiedIndexes();
+                long jobId = Env.getCurrentEnv().getNextId();
+                Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
+                        db, olapTable, indexSchemaMap, newIndexes, null, false, jobId, false);
+
+                //5. build all columns
+                for (Column column : olapTable.getSchemaByIndexId(request.getIndexId())) {
+                    allColumns.add(column.toThrift());
+                }
+                schemaVersion = olapTable.getIndexSchemaVersion(request.getIndexId());
             } catch (Exception e) {
                 LOG.warn("got exception add columns: ", e);
                 status.setStatusCode(TStatusCode.INTERNAL_ERROR);
@@ -511,8 +551,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
         }
 
-        TAddColumnsResult result = new TAddColumnsResult();
+        TModifyColumnsResult result = new TModifyColumnsResult();
         result.setStatus(status);
+        result.setIndexId(request.getIndexId());
         result.setTableId(request.getTableId());
         result.setAllColumns(allColumns);
         result.setSchemaVersion(schemaVersion);

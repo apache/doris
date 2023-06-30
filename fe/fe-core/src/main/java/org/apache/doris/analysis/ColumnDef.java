@@ -127,6 +127,8 @@ public class ColumnDef {
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
+    private int parentUniqueId = -1;
+    private int uniqueId = -1;
 
     public ColumnDef(String name, TypeDef typeDef) {
         this(name, typeDef, false, null, false, false, DefaultValue.NOT_SET, "");
@@ -225,6 +227,22 @@ public class ColumnDef {
 
     public void setGenericAggregationArguments(List<TypeDef> genericAggregationArguments) {
         this.genericAggregationArguments = genericAggregationArguments;
+    }
+
+    public void setParentUniqueId(int colUniqueId) {
+        this.parentUniqueId = colUniqueId;
+    }
+
+    public int getParentUniqueId() {
+        return this.parentUniqueId;
+    }
+
+    public void setUniqueId(int colUniqueId) {
+        this.uniqueId = colUniqueId;
+    }
+
+    public int getUniqueId() {
+        return this.uniqueId;
     }
 
     public boolean isKey() {
@@ -517,9 +535,13 @@ public class ColumnDef {
             type = Expr.createAggStateType(genericAggregationName, typeList, nullableList);
         }
 
-        return new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment,
+        Column col = new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment,
                 visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
                 genericAggregationName, typeList, nullableList);
+        if (parentUniqueId > 0) {
+            col.setParentUniqueId(parentUniqueId); 
+        }
+        return col;
     }
 
     @Override
