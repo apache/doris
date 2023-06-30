@@ -126,6 +126,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -574,6 +575,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Map<Expression, ColumnStatistic> columnStatisticMap = new HashMap<>();
         TableIf table = scan.getTable();
         double rowCount = scan.getTable().estimatedRowCount();
+        List<Column> statsUnknownCols = new ArrayList<>();
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getName();
             if (colName == null) {
@@ -586,26 +588,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         .build();
             }
             if (cache.isUnKnown) {
-                if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, slotReference.getColumn().get())) {
-                    if (StatisticsUtil.statsTblAvailable()) {
-                        throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
-                                + "It may caused by:\n"
-                                + "\n"
-                                + "1. This column never got analyzed\n"
-                                + "2. This table is empty\n"
-                                + "3. Stats load failed caused by unstable of backends,"
-                                + "and FE cached the unknown stats by default in this scenario\n"
-                                + "4. There is a bug, please report it to Doris community\n"
-                                + "\n"
-                                + "If an unknown stats for this column is tolerable,"
-                                + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
-                                + " ignore this error and keep planning.", table.getName(), colName));
-                    } else {
-                        throw new AnalysisException("BE is not available!");
-                    }
-                }
-                columnStatisticMap.put(slotReference, cache);
-                continue;
+                statsUnknownCols.add(slotReference.getColumn().get());
             }
             rowCount = Math.max(rowCount, cache.count);
             Histogram histogram = getColumnHistogram(table, colName);
@@ -626,6 +609,31 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 totalHistogramMap.put(table.getName() + colName, histogram);
             }
         }
+        for (Column col : statsUnknownCols) {
+            if (forbidUnknownColStats && !ignoreUnknownColStatsCheck(table, col)) {
+                if (StatisticsUtil.statsTblAvailable()) {
+                    throw new AnalysisException(String.format("Found unknown stats for column:%s.%s.\n"
+                            + "It may caused by:\n"
+                            + "\n"
+                            + "1. This column never got analyzed\n"
+                            + "2. This table is empty\n"
+                            + "3. Stats load failed caused by unstable of backends,"
+                            + "and FE cached the unknown stats by default in this scenario\n"
+                            + "4. Analyze was executed on master, and query was submitted to follower where"
+                            + "stats is still loading, you could turn `forbid_unknown_col_stats` session "
+                            + "variable to false, run the SQL and just wait for a while."
+                            + "Or connect to master to run the SQL\n"
+                            + "5. There is a bug, please report it to Doris community\n"
+                            + "\n"
+                            + "If an unknown stats for this column is tolerable,"
+                            + "you could set session variable `forbid_unknown_col_stats` to false to make planner"
+                            + " ignore this error and keep planning.", table.getName(), col));
+                } else {
+                    throw new AnalysisException("BE is not available!");
+                }
+            }
+        }
+
         return new Statistics(rowCount, columnStatisticMap);
     }
 
