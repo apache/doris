@@ -22,6 +22,7 @@ select window_funnel(1, 'default', t.xwhen, t.xwhat = 1, t.xwhat = 2 ) AS level 
 select window_funnel(3600 * 3, 'default', t.xwhen, t.xwhat = 1, t.xwhat = 2 ) AS level from windowfunnel_test t;
 
 
+DROP TABLE IF EXISTS user_analysis;
 CREATE TABLE IF NOT EXISTS user_analysis
 (
     user_id INT NOT NULL ,
