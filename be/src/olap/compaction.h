@@ -123,7 +123,7 @@ protected:
 
     RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
     RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
-    RuntimeProfile::Counter* _input_row_num_counter= nullptr;
+    RuntimeProfile::Counter* _input_row_num_counter = nullptr;
     RuntimeProfile::Counter* _input_segments_num_counter = nullptr;
     RuntimeProfile::Counter* _merged_rows_counter = nullptr;
     RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
