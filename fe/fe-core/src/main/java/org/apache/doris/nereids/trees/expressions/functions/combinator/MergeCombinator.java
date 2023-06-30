@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * AggState combinator merge
@@ -47,13 +46,12 @@ public class MergeCombinator extends AggregateFunction
         super(nested.getName() + AggStateFunctionBuilder.MERGE_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        inputType = new AggStateType(nested.getName(), nested.getArgumentsTypes(),
-                nested.getArguments().stream().map(Expression::nullable).collect(Collectors.toList()));
+        inputType = (AggStateType) arguments.get(0).getDataType();
     }
 
     @Override
     public MergeCombinator withChildren(List<Expression> children) {
-        return new MergeCombinator(children, nested.withChildren(children));
+        return new MergeCombinator(children, nested);
     }
 
     @Override

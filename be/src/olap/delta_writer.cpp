@@ -195,7 +195,7 @@ Status DeltaWriter::init() {
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
-    context.tablet_id = _tablet->table_id();
+    context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
