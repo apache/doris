@@ -234,8 +234,8 @@ public class EditLog {
                             "Begin to unprotect add partition. db = " + info.getDbId() + " table = " + info.getTableId()
                                     + " partitionName = " + info.getPartition().getName());
                     AddPartitionRecord addPartitionRecord = new AddPartitionRecord(logId, info);
-                    Env.getCurrentEnv().getBinlogManager().addAddPartitionRecord(addPartitionRecord);
                     env.replayAddPartition(info);
+                    env.getBinlogManager().addAddPartitionRecord(addPartitionRecord);
                     break;
                 }
                 case OperationType.OP_DROP_PARTITION: {
@@ -243,6 +243,7 @@ public class EditLog {
                     LOG.info("Begin to unprotect drop partition. db = " + info.getDbId() + " table = "
                             + info.getTableId() + " partitionName = " + info.getPartitionName());
                     env.replayDropPartition(info);
+                    env.getBinlogManager().addDropPartitionRecord(info, logId);
                     break;
                 }
                 case OperationType.OP_MODIFY_PARTITION: {
@@ -1204,14 +1205,17 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA, info);
     }
 
-    public void logAddPartition(PartitionPersistInfo info) {
+    public long logAddPartition(PartitionPersistInfo info) {
         long logId = logEdit(OperationType.OP_ADD_PARTITION, info);
         AddPartitionRecord record = new AddPartitionRecord(logId, info);
         Env.getCurrentEnv().getBinlogManager().addAddPartitionRecord(record);
+        return logId;
     }
 
-    public void logDropPartition(DropPartitionInfo info) {
-        logEdit(OperationType.OP_DROP_PARTITION, info);
+    public long logDropPartition(DropPartitionInfo info) {
+        long logId = logEdit(OperationType.OP_DROP_PARTITION, info);
+        Env.getCurrentEnv().getBinlogManager().addDropPartitionRecord(info, logId);
+        return logId;
     }
 
     public void logErasePartition(long partitionId) {
