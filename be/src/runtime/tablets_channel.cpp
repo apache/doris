@@ -318,7 +318,6 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
         wrequest.load_id = request.id();
@@ -377,7 +376,6 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet;
         wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = partition_id;
         wrequest.load_id = request.id();
@@ -427,7 +425,6 @@ Status TabletsChannel::open_all_writers_for_partition(const OpenPartitionRequest
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
         wrequest.load_id = request.id();
