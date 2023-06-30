@@ -23,6 +23,7 @@ import org.apache.avro.generic.GenericRecord
 import org.apache.doris.common.jni.vec.ColumnType
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
+import org.apache.hadoop.hbase.io.hfile.CacheConfig
 import org.apache.hudi.HoodieBaseRelation.{BaseFileReader, convertToAvroSchema}
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.avro.HoodieAvroUtils
@@ -40,7 +41,6 @@ import org.apache.hudi.internal.schema.utils.{InternalSchemaUtils, SerDeHelper}
 import org.apache.hudi.internal.schema.{HoodieSchemaException, InternalSchema}
 import org.apache.hudi.io.storage.HoodieAvroHFileReader
 import org.apache.hudi.metadata.HoodieTableMetadataUtil
-import org.apache.hudi.org.apache.hadoop.hbase.io.hfile.CacheConfig
 import org.apache.hudi.{AvroConversionUtils, DataSourceReadOptions, DataSourceWriteOptions, HoodieSparkConfUtils, HoodieTableSchema, HoodieTableState}
 import org.apache.log4j.Logger
 import org.apache.spark.sql.adapter.Spark3_2Adapter

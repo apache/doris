@@ -36,7 +36,7 @@ under the License.
         <sparkbundle.version>3.2</sparkbundle.version>
         <hudi.version>0.13.0</hudi.version>
         <janino.version>3.0.16</janino.version>
-        <fasterxml.jackson.version>2.12.3</fasterxml.jackson.version>
+        <fasterxml.jackson.version>2.14.3</fasterxml.jackson.version>
     </properties>
 
     <dependencies>
@@ -45,11 +45,6 @@ under the License.
             <artifactId>scala-library</artifactId>
             <version>${scala.version}</version>
             <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.hudi</groupId>
-            <artifactId>hudi-spark${sparkbundle.version}-bundle_${scala.binary.version}</artifactId>
-            <version>${hudi.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.hudi</groupId>
@@ -62,6 +57,40 @@ under the License.
             <version>${hudi.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.hudi</groupId>
+            <artifactId>hudi-spark3-common</artifactId>
+            <version>${hudi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hudi</groupId>
+            <artifactId>hudi-spark3.2.x_${scala.binary.version}</artifactId>
+            <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>json4s-ast_2.11</artifactId>
+                    <groupId>org.json4s</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>json4s-core_2.11</artifactId>
+                    <groupId>org.json4s</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>json4s-jackson_2.11</artifactId>
+                    <groupId>org.json4s</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>json4s-scalap_2.11</artifactId>
+                    <groupId>org.json4s</groupId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+            <version>1.10.1</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-core_${scala.binary.version}</artifactId>
             <exclusions>
@@ -72,6 +101,14 @@ under the License.
                 <exclusion>
                     <artifactId>jackson-module-scala_2.12</artifactId>
                     <groupId>com.fasterxml.jackson.module</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>hadoop-client-api</artifactId>
+                    <groupId>org.apache.hadoop</groupId>
+                </exclusion>
+                <exclusion>
+                    <artifactId>hadoop-client-runtime</artifactId>
+                    <groupId>org.apache.hadoop</groupId>
                 </exclusion>
             </exclusions>
             <version>${spark.version}</version>
@@ -96,6 +133,12 @@ under the License.
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-sql_${scala.binary.version}</artifactId>
+            <version>${spark.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-launcher_${scala.binary.version}</artifactId>
             <version>${spark.version}</version>
             <scope>compile</scope>
         </dependency>
@@ -158,7 +201,7 @@ under the License.
             <plugin>
                 <groupId>net.alchim31.maven</groupId>
                 <artifactId>scala-maven-plugin</artifactId>
-                <version>4.5.6</version>
+                <version>4.7.2</version>
                 <executions>
                     <execution>
                         <goals>
