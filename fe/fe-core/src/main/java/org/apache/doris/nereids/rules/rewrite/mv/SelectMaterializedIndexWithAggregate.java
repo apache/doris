@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
@@ -1163,6 +1164,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
          */
         @Override
         public Expression visitCount(Count count, RewriteContext context) {
+            Expression result = visitAggregateFunction(count, context);
+            if (result != count) {
+                return result;
+            }
             if (count.isDistinct() && count.arity() == 1) {
                 // count(distinct col) -> bitmap_union_count(mv_bitmap_union_col)
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
@@ -1229,6 +1234,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
          */
         @Override
         public Expression visitBitmapUnionCount(BitmapUnionCount bitmapUnionCount, RewriteContext context) {
+            Expression result = visitAggregateFunction(bitmapUnionCount, context);
+            if (result != bitmapUnionCount) {
+                return result;
+            }
             if (bitmapUnionCount.child() instanceof ToBitmap) {
                 ToBitmap toBitmap = (ToBitmap) bitmapUnionCount.child();
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(toBitmap.child());
@@ -1295,6 +1304,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
          */
         @Override
         public Expression visitHllUnion(HllUnion hllUnion, RewriteContext context) {
+            Expression result = visitAggregateFunction(hllUnion, context);
+            if (result != hllUnion) {
+                return result;
+            }
             if (hllUnion.child() instanceof HllHash) {
                 HllHash hllHash = (HllHash) hllUnion.child();
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllHash.child());
@@ -1331,6 +1344,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
          */
         @Override
         public Expression visitHllUnionAgg(HllUnionAgg hllUnionAgg, RewriteContext context) {
+            Expression result = visitAggregateFunction(hllUnionAgg, context);
+            if (result != hllUnionAgg) {
+                return result;
+            }
             if (hllUnionAgg.child() instanceof HllHash) {
                 HllHash hllHash = (HllHash) hllUnionAgg.child();
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllHash.child());
@@ -1367,6 +1384,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
          */
         @Override
         public Expression visitNdv(Ndv ndv, RewriteContext context) {
+            Expression result = visitAggregateFunction(ndv, context);
+            if (result != ndv) {
+                return result;
+            }
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(ndv.child(0));
             // ndv on a value column.
             if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
@@ -1411,7 +1432,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         .filter(s -> aggStateName.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
                         .orElseThrow(() -> new AnalysisException("cannot find agg state slot when select mv"));
 
-                List<Slot> slots = ExpressionUtils.getAllSlot(aggregateFunction);
+                List<Slot> slots = aggregateFunction.collect(SlotReference.class::isInstance);
                 for (Slot slot : slots) {
                     if (!context.checkContext.keyNameToColumn.containsKey(normalizeName(slot.toSql()))) {
                         context.exprRewriteMap.slotMap.put(slot, aggStateSlot);

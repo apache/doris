@@ -253,21 +253,6 @@ public class ExpressionUtils {
     }
 
     /**
-     * get all slot child of expr
-     */
-    public static List<Slot> getAllSlot(Expression expr) {
-        List<Slot> slots = new ArrayList<>();
-        if (expr instanceof SlotReference) {
-            slots.add((Slot) expr);
-        } else {
-            for (Expression child : expr.children()) {
-                slots.addAll(getAllSlot(child));
-            }
-        }
-        return slots;
-    }
-
-    /**
      * Replace expression node in the expression tree by `replaceMap` in top-down manner.
      * For example.
      * <pre>
