@@ -313,7 +313,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             // in-filter is not friendly to pipeline
             if (type == TRuntimeFilterType.IN_OR_BLOOM
-                    && ctx.getSessionVariable().enablePipelineEngine()
+                    && ctx.getSessionVariable().enablePipelineEngine
                     && hasRemoteTarget(join, scan)) {
                 type = TRuntimeFilterType.BLOOM;
             }
@@ -363,7 +363,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 }
                 PhysicalRelation scan = aliasTransferMap.get(origSlot).first;
                 if (type == TRuntimeFilterType.IN_OR_BLOOM
-                        && ctx.getSessionVariable().enablePipelineEngine()
+                        && ctx.getSessionVariable().enablePipelineEngine
                         && hasRemoteTarget(join, scan)) {
                     type = TRuntimeFilterType.BLOOM;
                 }
@@ -563,7 +563,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 PhysicalHashJoin join = innerEntry.getValue();
                 Preconditions.checkState(join != null);
                 TRuntimeFilterType type = TRuntimeFilterType.IN_OR_BLOOM;
-                if (ctx.getSessionVariable().enablePipelineEngine()) {
+                if (ctx.getSessionVariable().enablePipelineEngine) {
                     type = TRuntimeFilterType.BLOOM;
                 }
                 EqualTo newEqualTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
