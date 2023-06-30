@@ -890,7 +890,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
     switch (value->GetType()) {
     case rapidjson::Type::kStringType:
         str_value = value->GetString();
-        wbytes = strlen(str_value);
+        wbytes = value->GetStringLength();
         break;
     case rapidjson::Type::kNumberType:
         if (value->IsUint()) {
