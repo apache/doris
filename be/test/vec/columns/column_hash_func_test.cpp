@@ -86,6 +86,53 @@ TEST(HashFuncTest, ArrayTypeTest) {
     }
 }
 
+TEST(HashFuncTest, ArrayCornerCaseTest) {
+    DataTypes dataTypes = create_scala_data_types();
+
+
+    DataTypePtr d = std::make_shared<DataTypeInt64>();
+    DataTypePtr a = std::make_shared<DataTypeArray>(d);
+    MutableColumnPtr array_mutable_col = a->create_column();
+    Array a1, a2;
+    a1.push_back(Int64(1));
+    a1.push_back(Int64(2));
+    a1.push_back(Int64(3));
+    array_mutable_col->insert(a1);
+    array_mutable_col->insert(a1);
+    a2.push_back(Int64(11));
+    a2.push_back(Int64(12));
+    a2.push_back(Int64(13));
+    array_mutable_col->insert(a2);
+
+    EXPECT_EQ(array_mutable_col->size(), 3);
+
+    std::vector<uint64_t> sip_hash_vals(3);
+    std::vector<uint64_t> xx_hash_vals(3);
+    std::vector<uint64_t> crc_hash_vals(3);
+    auto* __restrict sip_hashes = sip_hash_vals.data();
+    auto* __restrict xx_hashes = xx_hash_vals.data();
+    auto* __restrict crc_hashes = crc_hash_vals.data();
+
+    // sipHash
+    std::vector<SipHash> siphashs(3);
+    array_mutable_col->update_hashes_with_value(siphashs);
+    EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_hashes_with_value(siphashs));
+    sip_hashes[0] = siphashs[0].get64();
+    sip_hashes[1] = siphashs[1].get64();
+    sip_hashes[2] = siphashs[2].get64();
+    EXPECT_EQ(sip_hashes[0], sip_hash_vals[1]);
+    EXPECT_TRUE(sip_hash_vals[0] != sip_hash_vals[2]);
+    // xxHash
+    EXPECT_NO_FATAL_FAILURE(array_mutable_col->update_hashes_with_value(xx_hashes));
+    EXPECT_EQ(xx_hashes[0], xx_hashes[1]);
+    EXPECT_TRUE(xx_hashes[0] != xx_hashes[2]);
+    // crcHash
+    EXPECT_NO_FATAL_FAILURE(
+            array_mutable_col->update_crcs_with_value(crc_hash_vals, PrimitiveType::TYPE_ARRAY));
+    EXPECT_EQ(crc_hashes[0], crc_hashes[1]);
+    EXPECT_TRUE(xx_hashes[0] != xx_hashes[2]);
+}
+
 TEST(HashFuncTest, MapTypeTest) {
     DataTypes dataTypes = create_scala_data_types();
 
