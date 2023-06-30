@@ -147,6 +147,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ResultSink;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SelectNode;
@@ -1556,6 +1557,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             int childrenSize = childrenFragments.size();
             setOperationFragment = childrenFragments.get(childrenSize - 1);
+            for (PlanFragment fragment : childrenFragments) {
+                // merge rf infos from children
+                Set<RuntimeFilterId> builderRF = fragment.getBuilderRuntimeFilterIds();
+                Set<RuntimeFilterId> targetRF = fragment.getTargetRuntimeFilterIds();
+                for (RuntimeFilterId id : builderRF) {
+                    setOperationFragment.setBuilderRuntimeFilterIds(id);
+                }
+                for (RuntimeFilterId id : targetRF) {
+                    setOperationFragment.setTargetRuntimeFilterIds(id);
+                }
+            }
             for (int i = childrenSize - 2; i >= 0; i--) {
                 context.removePlanFragment(childrenFragments.get(i));
                 for (PlanFragment child : childrenFragments.get(i).getChildren()) {
