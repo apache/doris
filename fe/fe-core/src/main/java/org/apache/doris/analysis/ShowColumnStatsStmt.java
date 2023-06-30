@@ -56,6 +56,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
                     .add("avg_size_byte")
                     .add("min")
                     .add("max")
+                    .add("updated_time")
                     .build();
 
     private final TableName tableName;
@@ -148,6 +149,7 @@ public class ShowColumnStatsStmt extends ShowStmt {
             row.add(String.valueOf(p.second.avgSizeByte));
             row.add(String.valueOf(p.second.minExpr == null ? "N/A" : p.second.minExpr.toSql()));
             row.add(String.valueOf(p.second.maxExpr == null ? "N/A" : p.second.maxExpr.toSql()));
+            row.add(String.valueOf(p.second.updatedTime));
             result.add(row);
         });
         return new ShowResultSet(getMetaData(), result);

@@ -37,6 +37,8 @@ public class ColumnStatisticBuilder {
 
     private ColumnStatistic original;
 
+    private String updatedTime;
+
     public ColumnStatisticBuilder() {
     }
 
@@ -54,6 +56,7 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.histogram = columnStatistic.histogram;
         this.original = columnStatistic.original;
+        this.updatedTime = columnStatistic.updatedTime;
     }
 
     public ColumnStatisticBuilder setCount(double count) {
@@ -169,13 +172,22 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public String getUpdatedTime() {
+        return updatedTime;
+    }
+
+    public void setUpdatedTime(String updatedTime) {
+        this.updatedTime = updatedTime;
+    }
+
     public ColumnStatistic build() {
         dataSize = Math.max((count - numNulls + 1) * avgSizeByte, 0);
         if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
-                    dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, false, histogram);
+                    dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, false,
+                    histogram, updatedTime);
         }
         return new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
-            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram);
+            dataSize, minValue, maxValue, selectivity, minExpr, maxExpr, isUnknown, histogram, updatedTime);
     }
 }

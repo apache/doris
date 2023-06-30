@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -312,7 +313,8 @@ public class HyperGraphBuilder {
         for (Slot slot : scanPlan.getOutput()) {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
-                            count, 1, null, null, true, null));
+                            count, 1, null, null, true, null,
+                            new Date().toString()));
         }
         return new Statistics(count, slotIdToColumnStats);
     }
