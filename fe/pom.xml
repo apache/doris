@@ -311,7 +311,7 @@ under the License.
         <vesoft.client.version>3.0.0</vesoft.client.version>
         <!-- paimon -->
         <paimon.version>0.4.0-incubating</paimon.version>
-        <disruptor.version>3.3.4</disruptor.version>
+        <disruptor.version>3.4.4</disruptor.version>
     </properties>
     <profiles>
         <profile>
@@ -1457,6 +1457,12 @@ under the License.
             <groupId>org.jmockit</groupId>
             <artifactId>jmockit</artifactId>
         </dependency>
+        <!-- should be used in test scope -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+        </dependency>
+
     </dependencies>
     <reporting>
         <plugins>
