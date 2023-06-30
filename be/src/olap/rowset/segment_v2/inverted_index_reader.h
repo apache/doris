@@ -64,7 +64,7 @@ enum class InvertedIndexReaderType {
     BKD = 2,
 };
 
-class InvertedIndexReader {
+class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const TabletIndex* index_meta)
@@ -216,7 +216,7 @@ private:
 
 class InvertedIndexIterator {
 public:
-    InvertedIndexIterator(OlapReaderStatistics* stats, InvertedIndexReader* reader)
+    InvertedIndexIterator(OlapReaderStatistics* stats, std::shared_ptr<InvertedIndexReader> reader)
             : _stats(stats), _reader(reader) {}
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
@@ -235,7 +235,7 @@ public:
 
 private:
     OlapReaderStatistics* _stats;
-    InvertedIndexReader* _reader;
+    std::shared_ptr<InvertedIndexReader> _reader;
 };
 
 } // namespace segment_v2
