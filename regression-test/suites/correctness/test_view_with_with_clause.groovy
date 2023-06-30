@@ -18,6 +18,7 @@
  */
 
 suite("test_view_with_with_clause") {
+    sql """DROP TABLE IF EXISTS test_view_with_with_clause"""
 
     sql """
         CREATE TABLE IF NOT EXISTS test_view_with_with_clause (`a` date, `b` varchar(30) ,`c` varchar(30) )
