@@ -20,10 +20,14 @@
 
 package org.apache.doris.hplsql.executor;
 
+import java.nio.ByteBuffer;
+
 public interface RowResult {
     boolean next();
 
     void close();
 
     <T> T get(int columnIndex, Class<T> type);
+
+    ByteBuffer getMysqlRow();
 }

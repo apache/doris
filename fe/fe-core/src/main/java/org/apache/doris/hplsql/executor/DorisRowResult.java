@@ -44,6 +44,8 @@ public class DorisRowResult implements RowResult {
 
     private int index;
 
+    private boolean isLazyLoading;
+
     private Object[] current;
 
     public DorisRowResult(Coordinator coord, List<String> columnNames, List<Type> dorisTypes) {
@@ -51,6 +53,7 @@ public class DorisRowResult implements RowResult {
         this.columnNames = columnNames;
         this.dorisTypes = dorisTypes;
         this.current = new Object[columnNames.size()];
+        this.isLazyLoading = false;
     }
 
     @Override
@@ -66,7 +69,7 @@ public class DorisRowResult implements RowResult {
             } else {
                 ++index;
             }
-            convertToJavaType(batch.getBatch().getRows().get(index));
+            isLazyLoading = true;
         } catch (Exception e) {
             throw new QueryException(e);
         }
@@ -132,6 +135,10 @@ public class DorisRowResult implements RowResult {
 
     @Override
     public <T> T get(int columnIndex, Class<T> type) {
+        if (isLazyLoading) {
+            convertToJavaType(batch.getBatch().getRows().get(index));
+            isLazyLoading = false;
+        }
         if (current[columnIndex] == null) {
             return null;
         }
@@ -151,5 +158,10 @@ public class DorisRowResult implements RowResult {
             }
             throw new ClassCastException(current[columnIndex].getClass() + " cannot be casted to " + type);
         }
+    }
+
+    @Override
+    public ByteBuffer getMysqlRow() {
+        return batch.getBatch().getRows().get(index);
     }
 }

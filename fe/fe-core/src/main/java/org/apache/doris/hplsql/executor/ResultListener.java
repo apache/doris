@@ -20,18 +20,38 @@
 
 package org.apache.doris.hplsql.executor;
 
+import java.nio.ByteBuffer;
+
 public interface ResultListener {
+    void onMysqlRow(ByteBuffer rows);
+
     void onRow(Object[] rows);
 
     void onMetadata(Metadata metadata);
 
+    void onEof();
+
+    void onFinalize();
+
     ResultListener NONE = new ResultListener() {
+        @Override
+        public void onMysqlRow(ByteBuffer rows) {
+        }
+
         @Override
         public void onRow(Object[] rows) {
         }
 
         @Override
-        public void onMetadata(Metadata rm) {
+        public void onMetadata(Metadata metadata) {
+        }
+
+        @Override
+        public void onEof() {
+        }
+
+        @Override
+        public void onFinalize() {
         }
     };
 }

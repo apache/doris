@@ -20,7 +20,6 @@ package org.apache.doris.hplsql.executor;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.hplsql.Arguments;
 import org.apache.doris.hplsql.Conf;
-import org.apache.doris.hplsql.DorisConsole;
 import org.apache.doris.hplsql.Exec;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -31,41 +30,35 @@ import org.apache.logging.log4j.Logger;
 public class HplsqlQueryExecutor {
     private static final Logger LOG = LogManager.getLogger(HplsqlQueryExecutor.class);
 
-    private HplsqlResultListener resultListener;
-
-    private DorisConsole dorisConsole;
+    private HplsqlResult result;
 
     private Exec exec;
 
     public HplsqlQueryExecutor(ConnectProcessor processor) {
-        resultListener = new HplsqlResultListener();
-        dorisConsole = new DorisConsole();
-        exec = new Exec(new Conf(), dorisConsole, new DorisQueryExecutor(processor), resultListener);
+        result = new HplsqlResult(processor);
+        exec = new Exec(new Conf(), result, new DorisQueryExecutor(processor), result);
         exec.init();
     }
 
     public void execute(String statement) {
         ConnectContext context = ConnectContext.get();
-        dorisConsole.reset();
-        resultListener.reset();
+        result.reset();
         try {
             Arguments args = new Arguments();
             args.parse(new String[] {"-e", statement});
             exec.parseAndEval(args);
 
             exec.printExceptions();
-            String error = dorisConsole.getError();
-            String msg = dorisConsole.getMsg();
+            String error = result.getError();
+            String msg = result.getMsg();
             if (!error.isEmpty()) {
                 context.getState().setError("hplsql exec error, " + error);
-            } else if (resultListener.isSendFields()) {
-                context.getState().setEof();
             } else if (!msg.isEmpty()) {
                 context.getState().setOk(0, 0, msg);
             }
         } catch (Exception e) {
             exec.printExceptions();
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, dorisConsole.getError() + " " + e.getMessage());
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, result.getError() + " " + e.getMessage());
             LOG.warn(e);
         }
     }

@@ -20,6 +20,7 @@
 
 package org.apache.doris.hplsql.executor;
 
+import java.nio.ByteBuffer;
 import java.util.function.Supplier;
 
 public class QueryResult {
@@ -47,6 +48,10 @@ public class QueryResult {
      */
     public <T> T column(int columnIndex, Class<T> type) {
         return rows.get(columnIndex, type);
+    }
+
+    public ByteBuffer mysqlRow() {
+        return rows.getMysqlRow();
     }
 
     public boolean error() {

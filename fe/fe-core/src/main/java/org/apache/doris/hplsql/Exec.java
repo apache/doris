@@ -20,6 +20,7 @@
 
 package org.apache.doris.hplsql;
 
+import org.apache.doris.hplsql.HplsqlParser.StmtContext;
 import org.apache.doris.hplsql.Var.Type;
 import org.apache.doris.hplsql.exception.HplValidationException;
 import org.apache.doris.hplsql.exception.QueryException;
@@ -158,6 +159,8 @@ public class Exec extends org.apache.doris.hplsql.HplsqlBaseVisitor<Integer> imp
     boolean trace = false;
     boolean info = true;
     boolean offline = false;
+
+    StmtContext lastStmt = null;
 
     public Exec() {
         exec = this;
@@ -979,6 +982,17 @@ public class Exec extends org.apache.doris.hplsql.HplsqlBaseVisitor<Integer> imp
      */
     @Override
     public Integer visitProgram(org.apache.doris.hplsql.HplsqlParser.ProgramContext ctx) {
+        if (ctx.block() != null) {
+            // Record the last stmt. When mysql protocol returns multiple result sets,
+            // SERVER_MORE_RESULTS_EXISTS should be specified when sending results other than the last stmt.
+            List<StmtContext> stmtContexts = ctx.block().stmt();
+            for (int i = stmtContexts.size() - 1; i >= 0; --i) {
+                if (stmtContexts.get(i).semicolon_stmt() == null) {
+                    lastStmt = stmtContexts.get(i);
+                    break;
+                }
+            }
+        }
         return visitChildren(ctx);
     }
 
@@ -1074,7 +1088,13 @@ public class Exec extends org.apache.doris.hplsql.HplsqlBaseVisitor<Integer> imp
         if (prev != null && prev.value != null) {
             console.printLine(prev.toString());
         }
-        return visitChildren(ctx);
+        Integer rc = visitChildren(ctx);
+        if (ctx != lastStmt) {
+            printExceptions();
+            resultListener.onFinalize();
+            console.flushConsole();
+        }
+        return rc;
     }
 
     /**

@@ -23,10 +23,12 @@ package org.apache.doris.hplsql;
 import org.apache.doris.hplsql.exception.QueryException;
 import org.apache.doris.hplsql.exception.TypeException;
 import org.apache.doris.hplsql.exception.UndefinedIdentException;
+import org.apache.doris.hplsql.executor.HplsqlResult;
 import org.apache.doris.hplsql.executor.QueryExecutor;
 import org.apache.doris.hplsql.executor.QueryResult;
 import org.apache.doris.hplsql.executor.ResultListener;
 import org.apache.doris.hplsql.objects.Table;
+import org.apache.doris.qe.ConnectContext;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;
@@ -138,19 +140,24 @@ public class Select {
                     trace(ctx, "Standalone SELECT executed: " + cols + " columns in the result set");
                 }
                 while (query.next()) {
-                    Object[] row = new Object[cols];
-                    for (int i = 0; i < cols; i++) {
-                        row[i] = query.column(i, Object.class);
-                        if (i > 0) {
-                            console.print("\t");
+                    if (resultListener instanceof HplsqlResult) {
+                        resultListener.onMysqlRow(query.mysqlRow());
+                    } else {
+                        Object[] row = new Object[cols];
+                        for (int i = 0; i < cols; i++) {
+                            row[i] = query.column(i, Object.class);
+                            if (i > 0) {
+                                console.print("\t");
+                            }
+                            console.print(String.valueOf(row[i]));
                         }
-                        console.print(String.valueOf(row[i]));
-                    }
-                    console.printLine("");
-                    exec.incRowCount();
+                        console.printLine("");
+                        exec.incRowCount();
 
-                    resultListener.onRow(row);
+                        resultListener.onRow(row);
+                    }
                 }
+                resultListener.onEof();
             } else { // Scalar subquery
                 trace(ctx, "Scalar subquery executed, first row and first column fetched only");
                 if (query.next()) {

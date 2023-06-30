@@ -27,7 +27,7 @@ public interface Console {
 
     void printError(String msg);
 
-    void reset();
+    void flushConsole();
 
     Console STANDARD = new Console() {
         @Override
@@ -46,6 +46,6 @@ public interface Console {
         }
 
         @Override
-        public void reset() {}
+        public void flushConsole() {}
     };
 }

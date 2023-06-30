@@ -26,6 +26,7 @@ import org.apache.doris.hplsql.exception.QueryException;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 
+import java.nio.ByteBuffer;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -89,6 +90,11 @@ public class JdbcQueryExecutor implements QueryExecutor {
             } catch (SQLException e) {
                 throw new QueryException(e);
             }
+        }
+
+        @Override
+        public ByteBuffer getMysqlRow() {
+            throw new RuntimeException("not implement getMysqlRow method.");
         }
 
         @Override
