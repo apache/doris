@@ -67,9 +67,9 @@ public class RepeatNodeTest extends TestWithFeService {
         String sql2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ (id + 1) id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
         String explainString2 = getSQLPlanOrErrorMsg("explain " + sql2);
         System.out.println(explainString2);
-        Assertions.assertTrue(explainString2.contains("exprs: (`id` + 1), `name`, `cost`"));
+        Assertions.assertTrue(explainString2.contains("exprs: ((`id` + 1)), `name`, `cost`"));
         Assertions.assertTrue(
-                explainString2.contains(" output slots: `(`id` + 1)`, ``name``, ``cost``, ``GROUPING_ID``"));
+                explainString2.contains(" output slots: `((`id` + 1))`, ``name``, ``cost``, ``GROUPING_ID``"));
 
         String sql3 = "select /*+ SET_VAR(enable_nereids_planner=false) */ 1 as id_, name, sum(cost) from mycost group by grouping sets((id_, name),());";
         String explainString3 = getSQLPlanOrErrorMsg("explain " + sql3);

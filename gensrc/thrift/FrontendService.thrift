@@ -809,6 +809,7 @@ struct TMetadataTableRequestParams {
   3: optional PlanNodes.TBackendsMetadataParams backends_metadata_params
   4: optional list<string> columns_name
   5: optional PlanNodes.TFrontendsMetadataParams frontends_metadata_params
+  6: optional Types.TUserIdentity current_user_ident
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -958,6 +959,8 @@ enum TBinlogType {
   UPSERT = 0,
   ADD_PARTITION = 1,
   CREATE_TABLE = 2,
+  DROP_PARTITION = 3,
+  DROP_TABLE = 4,
 }
 
 struct TBinlog {
