@@ -1010,7 +1010,7 @@ This variable is a session variable, and the session level takes effect.
 
 Default: false
 
-This variable is both a session variable and global config option.
+This variable is a session variable, and the session level takes effect.
 
 - Type: boolean
 - Description: To enable strong consistency reading. In scenarios where strong consistency is required, this variable can be set to true to make loaded data immediately visible to queries.

@@ -468,6 +468,7 @@ struct TMasterOpRequest {
     21: optional map<string, string> trace_carrier
     22: optional string clientNodeHost
     23: optional i32 clientNodePort
+    24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
 }
 
 struct TColumnDefinition {
@@ -1041,10 +1042,6 @@ struct TGetMasterTokenResult {
     2: optional string token
 }
 
-struct TGetMasterMaxJournalIdReply {
-    1: i64 maxJournalId
-}
-
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1107,6 +1104,4 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
-
-    TGetMasterMaxJournalIdReply getMasterMaxJournalId()
 }

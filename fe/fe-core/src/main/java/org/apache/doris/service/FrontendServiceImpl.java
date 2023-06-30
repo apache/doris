@@ -182,6 +182,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -897,6 +898,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (fe == null) {
             LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
             throw new TException("request from invalid host was rejected.");
+        }
+        if (params.isSetSyncJournalOnly() && params.syncJournalOnly) {
+            final TMasterOpResult result = new TMasterOpResult();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            return result;
         }
 
         // add this log so that we can track this stmt
@@ -2552,12 +2558,5 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
-    }
-
-    @Override
-    public TGetMasterMaxJournalIdReply getMasterMaxJournalId() throws TException {
-        final Env env = Env.getCurrentEnv();
-        Preconditions.checkState(env.isMaster(), "should get max journal id from master");
-        return new TGetMasterMaxJournalIdReply(env.getMaxJournalId());
     }
 }

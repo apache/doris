@@ -725,8 +725,6 @@ public class StmtExecutor {
                 handleLoadStmt();
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
-            } else if (parsedStmt instanceof SyncStmt) {
-                syncJournal();
             } else if (parsedStmt instanceof DdlStmt) {
                 if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
                     handleDeleteStmt();
@@ -790,30 +788,11 @@ public class StmtExecutor {
     }
 
     private void syncJournalIfNeeded() throws Exception {
-        if (!context.getSessionVariable().enableStrongConsistencyRead
-                || !Config.enable_strong_consistency_read) {
-            return;
-        }
-        syncJournal();
-    }
-
-    /**
-     * fetch master's max journal id and wait for edit log replaying
-     */
-    private void syncJournal() throws Exception {
         final Env env = context.getEnv();
-        if (env.isMaster()) {
+        if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
             return;
         }
-        String masterHost = env.getMasterHost();
-        int masterRpcPort = env.getMasterRpcPort();
-        TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
-        final int timeoutMs = context.getExecTimeout() * 1000;
-        final Client client = ClientPool.frontendPool.borrowObject(thriftAddress, timeoutMs);
-        final TGetMasterMaxJournalIdReply reply = client.getMasterMaxJournalId();
-        Preconditions.checkNotNull(reply, "max journal id should be not null.");
-        final long maxJournalId = reply.getMaxJournalId();
-        env.getJournalObservable().waitOn(maxJournalId, timeoutMs);
+        new MasterOpExecutor(context).execute();
     }
 
     /**

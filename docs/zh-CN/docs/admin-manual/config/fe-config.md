@@ -1010,7 +1010,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 默认值：false
 
-该变量可以作为全局配置项和session variable生效。
+该变量为 session variable，session 级别生效。
 
 - 类型：boolean
 - 描述：用以开启强一致性读。在强一致性的需求场景下可将该将该变量设置为true，使导入数据在查询时实时可见。

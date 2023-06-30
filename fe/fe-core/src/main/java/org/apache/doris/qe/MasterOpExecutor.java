@@ -55,6 +55,8 @@ public class MasterOpExecutor {
 
     private boolean shouldNotRetry;
 
+    private boolean isSyncJournalOnly;
+
     public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
         this.originStmt = originStmt;
         this.ctx = ctx;
@@ -66,6 +68,15 @@ public class MasterOpExecutor {
         this.thriftTimeoutMs = (int) (ctx.getExecTimeout() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
+        this.isSyncJournalOnly = false;
+    }
+
+    /**
+     * used for simply syncing journal with master under strong consistency mode
+     */
+    public MasterOpExecutor(ConnectContext ctx) {
+        this(null, ctx, RedirectStatus.FORWARD_WITH_SYNC, true);
+        this.isSyncJournalOnly = true;
     }
 
     public void execute() throws Exception {
@@ -100,7 +111,55 @@ public class MasterOpExecutor {
             // may throw NullPointerException. add err msg
             throw new Exception("Failed to get master client.", e);
         }
+        final TMasterOpRequest params = buildForwardParams();
+        final StringBuilder forwardMsg = new StringBuilder(String.format("forward to Master %s", thriftAddress));
+        if (!isSyncJournalOnly) {
+            forwardMsg.append(", statement: %s").append(ctx.getStmtId());
+        }
+        LOG.info(forwardMsg.toString());
+
+        boolean isReturnToPool = false;
+        try {
+            result = client.forward(params);
+            isReturnToPool = true;
+        } catch (TTransportException e) {
+            // wrap the raw exception.
+            forwardMsg.append(" : failed");
+            Exception exception = new ForwardToMasterException(String.format(forwardMsg.toString()), e);
+
+            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            if (!ok) {
+                throw exception;
+            }
+            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
+                throw exception;
+            } else {
+                LOG.warn(forwardMsg.append(" twice").toString(), e);
+                try {
+                    result = client.forward(params);
+                    isReturnToPool = true;
+                } catch (TException ex) {
+                    throw exception;
+                }
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(thriftAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
+    private TMasterOpRequest buildForwardParams() {
         TMasterOpRequest params = new TMasterOpRequest();
+        //node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        if (isSyncJournalOnly) {
+            params.setSyncJournalOnly(true);
+            return params;
+        }
         params.setCluster(ctx.getClusterName());
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
@@ -126,43 +185,7 @@ public class MasterOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
-        //node ident
-        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
-
-        boolean isReturnToPool = false;
-        try {
-            result = client.forward(params);
-            isReturnToPool = true;
-        } catch (TTransportException e) {
-            // wrap the raw exception.
-            Exception exception = new ForwardToMasterException(
-                    String.format("Forward statement %s to Master %s failed", ctx.getStmtId(),
-                            thriftAddress), e);
-
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
-            if (!ok) {
-                throw exception;
-            }
-            if (shouldNotRetry || e.getType() == TTransportException.TIMED_OUT) {
-                throw exception;
-            } else {
-                LOG.warn("Forward statement " + ctx.getStmtId() + " to Master " + thriftAddress + " twice", e);
-                try {
-                    result = client.forward(params);
-                    isReturnToPool = true;
-                } catch (TException ex) {
-                    throw exception;
-                }
-            }
-        } finally {
-            if (isReturnToPool) {
-                ClientPool.frontendPool.returnObject(thriftAddress, client);
-            } else {
-                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
-            }
-        }
+        return params;
     }
 
     public ByteBuffer getOutputPacket() {
