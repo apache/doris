@@ -8,8 +8,6 @@ PhysicalQuickSort
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)(customer.c_nationkey = supplier.s_nationkey)
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
@@ -32,4 +30,7 @@ PhysicalQuickSort
 ----------------------PhysicalProject
 ------------------------filter((orders.o_orderdate < 1995-01-01)(orders.o_orderdate >= 1994-01-01))
 --------------------------PhysicalOlapScan[orders]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer]
 
