@@ -859,8 +859,9 @@ void BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat) {
         _segment_num_rows.resize(_next_segment_id);
         _segment_num_rows[segid_offset] = segstat.row_num;
     }
-    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << segstat.row_num
-               << " data_size:" << segstat.data_size << " index_size:" << segstat.index_size;
+    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid
+               << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
+               << " index_size:" << segstat.index_size;
 
     {
         std::lock_guard<std::mutex> lock(_segment_set_mutex);
