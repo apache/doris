@@ -94,7 +94,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         sortedRowData.sort((l1, l2) -> {
             final long execTime1 = Long.parseLong(l1.get(EXEC_TIME_INDEX));
             final long execTime2 = Long.parseLong(l2.get(EXEC_TIME_INDEX));
-            return Long.compare(execTime1, execTime2);
+            return Long.compare(execTime2, execTime1);
         });
         result.setRows(sortedRowData);
         return result;
