@@ -56,6 +56,7 @@ enum class JsonbErrType {
     E_NESTING_LVL_OVERFLOW,
     E_INVALID_DOCU_COMPAT,
     E_EXCEPTION,
+    E_INVALID_JSON_PATH,
 
     // new error code should always be added above
     E_NUM_ERRORS
@@ -107,6 +108,7 @@ private:
             "Object or array has too many nesting levels",
             "Invalid document",
             "Exception throwed",
+            "Invalid Json Path",
 
             nullptr /* E_NUM_ERRORS */
     };

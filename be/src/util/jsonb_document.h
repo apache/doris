@@ -72,6 +72,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <limits>
 #include <string>
 #include <type_traits>
@@ -144,6 +145,8 @@ constexpr char WILDCARD = '*';
 constexpr char MINUS = '-';
 constexpr char LAST[] = "last";
 constexpr char ESCAPE = '\\';
+constexpr unsigned int MEMBER_CODE = 0;
+constexpr unsigned int ARRAY_CODE = 1;
 
 /*
  * JsonbDocument is the main object that accesses and queries JSONB packed
@@ -276,35 +279,43 @@ public:
         skip_whitespace();
     }
 
-    void clear_legPtr() { legPtr = nullptr; }
+    void clear_leg_ptr() { leg_ptr = nullptr; }
 
-    void set_legPtr(char* ptr) {
-        clear_legPtr();
-        legPtr = ptr;
+    void set_leg_ptr(char* ptr) {
+        clear_leg_ptr();
+        leg_ptr = ptr;
     }
 
-    char* get_legPtr() { return legPtr; }
+    char* get_leg_ptr() { return leg_ptr; }
 
-    void clear_legLen() { legLen = 0; }
+    void clear_leg_len() { leg_len = 0; }
 
-    void add_legLen() { legLen++; }
+    void add_leg_len() { leg_len++; }
 
-    unsigned int get_legLen() { return legLen; }
+    unsigned int get_leg_len() const { return leg_len; }
 
     void remove_escapes() {
         int new_len = 0;
-        for (int i = 0; i < legLen; i++) {
-            if (legPtr[i] != '\\') {
-                legPtr[new_len++] = legPtr[i];
+        for (int i = 0; i < leg_len; i++) {
+            if (leg_ptr[i] != '\\') {
+                leg_ptr[new_len++] = leg_ptr[i];
             }
         }
-        legPtr[new_len] = '\0';
-        legLen = new_len;
+        leg_ptr[new_len] = '\0';
+        leg_len = new_len;
     }
 
-    void set_hasEscapes(bool has) { hasEscapes = has; }
+    void set_has_escapes(bool has) { has_escapes = has; }
 
-    bool get_hasEscapes() { return hasEscapes; }
+    bool get_has_escapes() const { return has_escapes; }
+
+    void set_is_invalid_json_path(bool has) { is_invalid_json_path = has; }
+
+    bool get_is_invalid_json_path() const { return is_invalid_json_path; }
+
+    void set_type(unsigned int code) { type = code; }
+
+    bool get_type() const { return type; }
 
 private:
     /// The current position in the stream.
@@ -314,19 +325,25 @@ private:
     const char* const m_end;
 
     ///path leg ptr
-    char* legPtr;
+    char* leg_ptr;
 
     ///path leg len
-    unsigned int legLen;
+    unsigned int leg_len;
 
-    ///
-    bool hasEscapes = false;
+    ///Whether to contain escape characters
+    bool has_escapes = false;
+
+    ///Is the json path valid
+    bool is_invalid_json_path = false;
+
+    ///type: 0 is member 1 is array
+    unsigned int type;
 };
 
 class JsonbPath {
 public:
     // parse json path
-    static bool parsePath(Stream* stream, JsonbValue* value);
+    static bool parsePath(Stream* stream);
 
     static bool parse_array(Stream* stream);
     static bool parse_member(Stream* stream);
@@ -513,12 +530,14 @@ public:
     const char* getValuePtr() const;
 
     // find the JSONB value by a key path string (null terminated)
-    JsonbValue* findPath(const char* key_path, hDictFind handler = nullptr) {
-        return findPath(key_path, (unsigned int)strlen(key_path), handler);
+    JsonbValue* findPath(const char* key_path, bool& is_invalid_json_path,
+                         hDictFind handler = nullptr) {
+        return findPath(key_path, (unsigned int)strlen(key_path), is_invalid_json_path, handler);
     }
 
     // find the JSONB value by a key path string (with length)
-    JsonbValue* findPath(const char* key_path, unsigned int len, hDictFind handler);
+    JsonbValue* findPath(const char* key_path, unsigned int len, bool& is_invalid_json_path,
+                         hDictFind handler);
     friend class JsonbDocument;
 
 protected:
@@ -1189,82 +1208,144 @@ inline const char* JsonbValue::getValuePtr() const {
 }
 
 inline JsonbValue* JsonbValue::findPath(const char* key_path, unsigned int kp_len,
-                                        hDictFind handler = nullptr) {
+                                        bool& is_invalid_json_path, hDictFind handler = nullptr) {
     if (!key_path) return nullptr;
-    if (kp_len == 0) return this;
+    if (kp_len == 0) {
+        is_invalid_json_path = true;
+        return nullptr;
+    }
     Stream stream(key_path, kp_len);
     stream.skip_whitespace();
-    if (stream.exhausted() || stream.read() != SCOPE) return nullptr;
+    if (stream.exhausted() || stream.read() != SCOPE) {
+        is_invalid_json_path = true;
+        return nullptr;
+    }
 
     JsonbValue* pval = this;
 
     while (pval && !stream.exhausted()) {
         stream.skip_whitespace();
-        stream.clear_legPtr();
-        stream.clear_legLen();
+        stream.clear_leg_ptr();
+        stream.clear_leg_len();
 
-        if (!JsonbPath::parsePath(&stream, pval)) {
+        if (!JsonbPath::parsePath(&stream)) {
+            is_invalid_json_path = stream.get_is_invalid_json_path();
             return nullptr;
         }
 
-        if (stream.get_legLen() == 0) {
+        if (stream.get_leg_len() == 0) {
             return nullptr;
         }
 
-        if (LIKELY(pval->type_ == JsonbType::T_Object)) {
-            if (stream.get_legLen() == 1 && *stream.get_legPtr() == WILDCARD) {
-                return pval;
-            } else if (stream.get_hasEscapes()) {
-                stream.remove_escapes();
+        if (stream.get_type() == MEMBER_CODE) {
+            if (LIKELY(pval->type_ == JsonbType::T_Object)) {
+                if (stream.get_leg_len() == 1 && *stream.get_leg_ptr() == WILDCARD) {
+                    return pval;
+                } else if (stream.get_has_escapes()) {
+                    stream.remove_escapes();
+                }
+
+                pval = ((ObjectVal*)pval)
+                               ->find(stream.get_leg_ptr(), stream.get_leg_len(), handler);
+
+                if (!pval) return nullptr;
+            } else {
+                return nullptr;
             }
-
-            pval = ((ObjectVal*)pval)->find(stream.get_legPtr(), stream.get_legLen(), handler);
-
-            if (!pval) return nullptr;
-        } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+        } else if (stream.get_type() == ARRAY_CODE) {
             int index = 0;
-            std::string idx_string(stream.get_legPtr(), stream.get_legLen());
+            std::string_view idx_string(stream.get_leg_ptr(), stream.get_leg_len());
 
-            if (stream.get_legLen() == 1 && *stream.get_legPtr() == WILDCARD) {
-                return pval;
-            } else if (std::string(stream.get_legPtr(), 4) == LAST) {
+            if (stream.get_leg_len() == 1 && *stream.get_leg_ptr() == WILDCARD) {
+                if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                    stream.skip(1);
+                    stream.skip_whitespace();
+                    continue;
+                } else {
+                    return nullptr;
+                }
+            } else if (std::equal(LAST, LAST + 4, stream.get_leg_ptr(),
+                                  [](char c1, char c2) {
+                                      return std::tolower(c1) == std::tolower(c2);
+                                  }) &&
+                       stream.get_leg_len() >= 4) {
                 auto pos = idx_string.find(MINUS);
 
                 if (pos != std::string::npos) {
                     idx_string = idx_string.substr(pos + 1);
-                    size_t num = ((ArrayVal*)pval)->numElem();
-                    if (std::stoi(idx_string) > num) {
-                        return nullptr; //invalid json path
+
+                    auto result = std::from_chars(idx_string.data(),
+                                                  idx_string.data() + idx_string.size(), index);
+                    if (result.ec != std::errc()) {
+                        is_invalid_json_path = true;
+                        return nullptr;
                     }
-                    index = num - 1 - std::stoi(idx_string);
-                } else if (stream.get_legLen() == 4) {
-                    index = ((ArrayVal*)pval)->numElem() - 1;
+
+                    if (pval->type_ == JsonbType::T_Object) {
+                        if (index == 0) {
+                            continue;
+                        } else {
+                            return nullptr;
+                        }
+                    } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                        size_t num = ((ArrayVal*)pval)->numElem();
+                        if (index > num) return nullptr;
+                        index = num - 1 - index;
+                    } else {
+                        return nullptr;
+                    }
+                } else if (stream.get_leg_len() == 4) {
+                    if (pval->type_ == JsonbType::T_Object) {
+                        continue;
+                    } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                        index = ((ArrayVal*)pval)->numElem() - 1;
+                    } else {
+                        return nullptr;
+                    }
+
                 } else {
-                    return nullptr; //invalid json path
+                    is_invalid_json_path = true;
+                    return nullptr;
                 }
             } else {
-                std::string::size_type pos;
-                index = std::stoi(idx_string, &pos, 10);
-                if (pos != idx_string.size()) {
-                    return nullptr; //invalid json path
-                } else if (index >= ((ArrayVal*)pval)->numElem()) {
-                    return nullptr; //invalid json path
+                auto result = std::from_chars(idx_string.data(),
+                                              idx_string.data() + idx_string.size(), index);
+                if (result.ec != std::errc()) {
+                    is_invalid_json_path = true;
+                    return nullptr;
+                }
+
+                if (pval->type_ == JsonbType::T_Object) {
+                    if (index == 0) {
+                        continue;
+                    } else {
+                        return nullptr;
+                    }
+                } else if (LIKELY(pval->type_ == JsonbType::T_Array)) {
+                    if (std::abs(index) >= ((ArrayVal*)pval)->numElem()) return nullptr;
+                } else {
+                    return nullptr;
                 }
             }
 
-            pval = ((ArrayVal*)pval)->get(index);
+            if (index >= 0) {
+                pval = ((ArrayVal*)pval)->get(index);
+            } else {
+                pval = ((ArrayVal*)pval)->get(((ArrayVal*)pval)->numElem() + index);
+            }
         }
     }
 
     return pval;
 }
 
-inline bool JsonbPath::parsePath(Stream* stream, JsonbValue* value) {
-    if (stream->peek() == BEGIN_ARRAY && value->type() == JsonbType::T_Array) {
+inline bool JsonbPath::parsePath(Stream* stream) {
+    if (stream->peek() == BEGIN_ARRAY) {
         return parse_array(stream);
-    } else if (stream->peek() == BEGIN_MEMBER && value->type() == JsonbType::T_Object) {
+    } else if (stream->peek() == BEGIN_MEMBER) {
         return parse_member(stream);
     } else {
+        stream->set_is_invalid_json_path(true);
         return false; //invalid json path
     }
 }
@@ -1272,30 +1353,37 @@ inline bool JsonbPath::parsePath(Stream* stream, JsonbValue* value) {
 inline bool JsonbPath::parse_array(Stream* stream) {
     assert(stream->peek() == BEGIN_ARRAY);
     stream->skip(1);
-    if (stream->exhausted()) return false; //invalid json path
+    if (stream->exhausted()) {
+        stream->set_is_invalid_json_path(true);
+        return false;
+    }
 
     if (stream->peek() == WILDCARD) {
-        stream->set_legPtr(const_cast<char*>(stream->position()));
-        stream->add_legLen();
+        stream->set_leg_ptr(const_cast<char*>(stream->position()));
+        stream->add_leg_len();
         stream->skip(1);
         if (stream->peek() == END_ARRAY) {
+            stream->set_type(ARRAY_CODE);
             return true;
         } else {
-            return false; //invalid json path
+            stream->set_is_invalid_json_path(true);
+            return false;
         }
     }
 
-    stream->set_legPtr(const_cast<char*>(stream->position()));
+    stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
     for (; !stream->exhausted() && stream->peek() != END_ARRAY; stream->skip(1)) {
-        stream->add_legLen();
+        stream->add_leg_len();
     }
 
     if (!stream->exhausted() && stream->peek() == END_ARRAY) {
         stream->skip(1);
+        stream->set_type(ARRAY_CODE);
         return true;
     } else {
-        return false; //invalid json path
+        stream->set_is_invalid_json_path(true);
+        return false;
     }
 }
 
@@ -1303,31 +1391,35 @@ inline bool JsonbPath::parse_member(Stream* stream) {
     // advance past the .
     assert(stream->peek() == BEGIN_MEMBER);
     stream->skip(1);
-    if (stream->exhausted()) return false; //invalid json path
+    if (stream->exhausted()) {
+        stream->set_is_invalid_json_path(true);
+        return false;
+    }
 
     if (stream->peek() == WILDCARD) {
-        stream->set_legPtr(const_cast<char*>(stream->position()));
-        stream->add_legLen();
+        stream->set_leg_ptr(const_cast<char*>(stream->position()));
+        stream->add_leg_len();
         stream->skip(1);
+        stream->set_type(MEMBER_CODE);
         return true;
     }
 
-    stream->set_legPtr(const_cast<char*>(stream->position()));
+    stream->set_leg_ptr(const_cast<char*>(stream->position()));
 
     const char* left_quotation_marks = nullptr;
     const char* right_quotation_marks = nullptr;
 
     for (; !stream->exhausted(); stream->skip(1)) {
         if (stream->peek() == ESCAPE) {
-            stream->add_legLen();
+            stream->add_leg_len();
             stream->skip(1);
-            stream->add_legLen();
-            stream->set_hasEscapes(true);
+            stream->add_leg_len();
+            stream->set_has_escapes(true);
             continue;
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {
                 left_quotation_marks = stream->position();
-                stream->set_legPtr(const_cast<char*>(++left_quotation_marks));
+                stream->set_leg_ptr(const_cast<char*>(++left_quotation_marks));
                 continue;
             } else {
                 right_quotation_marks = stream->position();
@@ -1340,12 +1432,15 @@ inline bool JsonbPath::parse_member(Stream* stream) {
             }
         }
 
-        stream->add_legLen();
+        stream->add_leg_len();
     }
 
     if (left_quotation_marks != nullptr && right_quotation_marks == nullptr) {
+        stream->set_is_invalid_json_path(true);
         return false; //invalid json path
     }
+
+    stream->set_type(MEMBER_CODE);
 
     return true;
 }
