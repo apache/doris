@@ -37,7 +37,6 @@ import org.apache.doris.nereids.types.NullType;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import org.apache.iceberg.expressions.Bound;
 
 import java.util.Arrays;
 import java.util.List;
