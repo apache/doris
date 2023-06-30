@@ -402,7 +402,7 @@ void BuilderScannerMemtable::doSegmentBuild(
         LOG(FATAL) << "delta_writer init fail:" << status.to_string();
     }
 
-    std::filesystem::path segment_path(std::filesystem::path(_build_dir + "/segment"));
+    std::filesystem::path segment_path(std::filesystem::path(_build_dir + "/output/" + std::to_string(_tablet->tablet_id())));
     std::filesystem::remove_all(segment_path);
     if (!std::filesystem::create_directory(segment_path)) {
         LOG(FATAL) << "create segment path fail.";

@@ -146,19 +146,18 @@ Status BuildHelper::build() {
     BuilderScannerMemtable scanner(new_tablet, _build_dir, _file_type);
     scanner.doSegmentBuild(files);
 
-    std::string local_new_header =
-            _build_dir + "/" + std::to_string(new_tablet->tablet_id()) + ".hdr";
+    std::string new_header_path =
+            _build_dir + "/output/" + std::to_string(new_tablet->tablet_id()) + "/" + std::to_string(new_tablet->tablet_id()) + ".hdr";
     TabletMetaSharedPtr new_tablet_meta = std::make_shared<TabletMeta>();
     new_tablet->generate_tablet_meta_copy(new_tablet_meta);
-    auto st = new_tablet_meta->save(local_new_header);
+    auto st = new_tablet_meta->save(new_header_path);
     // post check
-    std::filesystem::path header = local_new_header;
     if (!st.ok()) {
         LOG(WARNING) << " save meta file error..., need retry...";
-        std::filesystem::remove(header);
+        std::filesystem::remove(new_header_path);
         int reTry = 3;
         while (--reTry >= 0 && !st.ok()) {
-            st = new_tablet_meta->save(local_new_header);
+            st = new_tablet_meta->save(new_header_path);
         }
 
         if (reTry < 0) {
@@ -166,9 +165,9 @@ Status BuildHelper::build() {
             std::exit(1);
         }
     }
-    size_t header_size = std::filesystem::file_size(header);
+    size_t header_size = std::filesystem::file_size(new_header_path);
     if (header_size <= 0) {
-        LOG(WARNING) << " header size abnormal ..." << local_new_header;
+        LOG(WARNING) << " header size abnormal ..." << new_header_path;
         std::exit(1);
     }
     LOG(INFO) << " got header size:" << header_size;
