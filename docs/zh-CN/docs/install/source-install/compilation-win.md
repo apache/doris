@@ -80,7 +80,7 @@ under the License.
 6. 拉取 Doris 源码
 
    ```
-   git clone http://github.com/apache/doris.git
+   git clone https://github.com/apache/doris.git
    ```
 
 7. 编译

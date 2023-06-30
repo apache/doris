@@ -80,7 +80,7 @@ This topic is about how to compile Doris from source with Windows.
 6. Pull Doris source code
 
     ```
-    git clone http://github.com/apache/doris.git
+    git clone https://github.com/apache/doris.git
     ```
 
 7. Compile
