@@ -23,6 +23,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 import org.apache.doris.service.FrontendOptions;
 
+import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -176,9 +177,18 @@ public class HttpServer extends SpringBootServletInitializer {
         } else {
             properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         }
-        new SpringApplicationBuilder()
-                .sources(HttpServer.class)
-                .properties(properties)
-                .run(new String[]{});
+        if (!Config.disable_web_ui) {
+            new SpringApplicationBuilder()
+                    .sources(HttpServer.class)
+                    .properties(properties)
+                    .run(new String[]{});
+        } else {
+            new SpringApplicationBuilder()
+                    .sources(HttpServer.class)
+                    .properties(properties)
+                    .web(WebApplicationType.NONE)
+                    .run(new String[]{});
+        }
+
     }
 }

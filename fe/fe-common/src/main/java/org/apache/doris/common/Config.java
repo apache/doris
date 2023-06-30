@@ -365,6 +365,9 @@ public class Config extends ConfigBase {
             "The maximum HTTP header size of Jetty, in bytes, the default value is 10KB."})
     public static int jetty_server_max_http_header_size = 10240;
 
+    @ConfField(description = {"是否禁用 Web UI，默认不禁用",
+            "Whether to disable Web UI, enable by default"})
+    public static boolean disable_web_ui = false;
     @ConfField(description = {"是否禁用 mini load，默认禁用",
             "Whether to disable mini load, disabled by default"})
     public static boolean disable_mini_load = true;
