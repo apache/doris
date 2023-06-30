@@ -22,12 +22,63 @@ suite("test_MoW_backup_restore") {
     String end_point = ""
     String region = ""
 
+    def syncer = getSyncer()
+    def tableName = "tbl_backup_restore"
+    def test_num = 0
+    def insert_num = 5
 
-    qt_1 """create repository `demo_MoW_1` with s3 on location \"""" + s3_url + """\" properties ("AWS_ACCESS_KEY" =\"""" + ak + """\","AWS_SECRET_KEY" =\"""" + sk + """\","AWS_ENDPOINT" =\"""" + end_point + """\","AWS_REGION" =\"""" + region+"""\")"""
-    qt_2 """show repositories"""
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+           CREATE TABLE if NOT EXISTS ${tableName} 
+           (
+               `test` INT,
+               `id` INT
+           )
+           ENGINE=OLAP
+           UNIQUE KEY(`test`, `id`)
+           DISTRIBUTED BY HASH(id) BUCKETS 1 
+           PROPERTIES ( 
+               "replication_allocation" = "tag.location.default: 1",
+               "disable_auto_compaction" = "true",
+               "enable_unique_key_merge_on_write" = "true"
+           )
+        """
+    sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
 
-    sql """drop table if exists demo_MoW"""
-    sql """CREATE TABLE IF NOT EXISTS demo_MoW 
+    logger.info("=== Test 1: Common backup and restore ===")
+    test_num = 1
+    def snapshotName = "snapshot_test_1"
+    for (int i = 0; i < insert_num; ++i) {
+        sql """
+               INSERT INTO ${tableName} VALUES (${test_num}, ${i})
+            """ 
+    }
+    def res = sql "SELECT * FROM ${tableName}"
+    assertTrue(res.size() == insert_num)
+    sql """ 
+            BACKUP SNAPSHOT ${context.dbName}.${snapshotName} 
+            TO `${repo}` 
+            ON (${tableName})
+            PROPERTIES ("type" = "full")
+        """
+    while (syncer.checkSnapshotFinish() == false) {
+        Thread.sleep(3000)
+    }
+    assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    assertTrue(syncer.restoreSnapshot())
+    while (syncer.checkRestoreFinish() == false) {
+        Thread.sleep(3000)
+    }
+    res = sql "SELECT * FROM ${tableName}"
+    assertTrue(res.size() == insert_num)
+
+
+
+    def repo = "__keep_on_local__"
+    def tableName = "demo_MoW"
+    sql """drop table if exists ${tableName}"""
+    sql """CREATE TABLE IF NOT EXISTS ${tableName} 
     ( `user_id` INT NOT NULL, `value` INT NOT NULL)
     UNIQUE KEY(`user_id`) 
     DISTRIBUTED BY HASH(`user_id`) 
@@ -37,40 +88,40 @@ suite("test_MoW_backup_restore") {
     "enable_unique_key_merge_on_write" = "true");"""
 
     // version1 (1,1)(2,2)
-    sql """insert into demo_MoW values(1,1),(2,2)"""
-    sql """backup snapshot test.snapshot1 to s3_demo_MoW_1 on (demo_MoW) properties("type"="full")"""
-    qt_3 """select * from demo_MoW"""
+    sql """insert into ${tableName} values(1,1),(2,2)"""
+    sql """backup snapshot test.snapshot1 to ${repo} on (${tableName}) properties("type"="full")"""
+    qt_3 """select * from ${tableName}"""
 
     // version2 (1,10)(2,2)
-    sql """insert into demo_MoW values(1,10)"""
-    sql """backup snapshot test.snapshot2 to s3_demo_MoW_1 on (demo_MoW) properties("type"="full")"""
-    qt_4 """select * from demo_MoW"""
+    sql """insert into ${tableName} values(1,10)"""
+    sql """backup snapshot test.snapshot2 to ${repo} on (${tableName}) properties("type"="full")"""
+    qt_4 """select * from ${tableName}"""
 
     // version3 (1,100)(2,2)
-    sql """update demo_MoW set value = 100 where user_id = 1"""
-    sql """backup snapshot test.snapshot3 to s3_demo_MoW_1 on (demo_MoW) properties("type"="full")"""
-    qt_5 """select * from demo_MoW"""
+    sql """update ${tableName} set value = 100 where user_id = 1"""
+    sql """backup snapshot test.snapshot3 to ${repo} on (${tableName}) properties("type"="full")"""
+    qt_5 """select * from ${tableName}"""
 
     // version4 (2,2)
-    sql """delete from demo_MoW where user_id = 1"""
-    sql """backup snapshot test.snapshot4 to s3_demo_MoW_1 on (demo_MoW) properties("type"="full")"""
-    qt_6 """select * from demo_MoW"""
+    sql """delete from ${tableName} where user_id = 1"""
+    sql """backup snapshot test.snapshot4 to ${repo} on (${tableName}) properties("type"="full")"""
+    qt_6 """select * from ${tableName}"""
 
     // version1 (1,1)(2,2)
-    sql """restore snapshot test.snapshot1 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-10","replication_num" = "1")"""
-    qt_7 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot1 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-10","replication_num" = "1")"""
+    qt_7 """select * from ${tableName}"""
     // version2 (1,10)(2,2)
-    sql """restore snapshot test.snapshot2 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-41","replication_num" = "1")"""
-    qt_8 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot2 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-41","replication_num" = "1")"""
+    qt_8 """select * from ${tableName}"""
     // version3 (1,100)(2,2)
-    sql """restore snapshot test.snapshot3 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-03","replication_num" = "1")"""
-    qt_9 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot3 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-03","replication_num" = "1")"""
+    qt_9 """select * from ${tableName}"""
     // version4 (2,2)
-    sql """restore snapshot test.snapshot4 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-23","replication_num" = "1")"""
-    qt_10 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot4 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-23","replication_num" = "1")"""
+    qt_10 """select * from ${tableName}"""
 
-    sql """drop table if exists demo_MoW"""
-    sql """CREATE TABLE IF NOT EXISTS demo_MoW 
+    sql """drop table if exists ${tableName}"""
+    sql """CREATE TABLE IF NOT EXISTS ${tableName} 
     ( `user_id` INT NOT NULL, `value` INT NOT NULL)
     UNIQUE KEY(`user_id`) 
     DISTRIBUTED BY HASH(`user_id`) 
@@ -80,15 +131,15 @@ suite("test_MoW_backup_restore") {
     "enable_unique_key_merge_on_write" = "true");""" 
 
     // version1 (1,1)(2,2)
-    sql """restore snapshot test.snapshot1 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-10","replication_num" = "1")"""
-    qt_11 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot1 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-10","replication_num" = "1")"""
+    qt_11 """select * from ${tableName}"""
     // version2 (1,10)(2,2)
-    sql """restore snapshot test.snapshot2 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-41","replication_num" = "1")"""
-    qt_12 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot2 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-41","replication_num" = "1")"""
+    qt_12 """select * from ${tableName}"""
     // version3 (1,100)(2,2)
-    sql """restore snapshot test.snapshot3 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-03","replication_num" = "1")"""
-    qt_13 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot3 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-03","replication_num" = "1")"""
+    qt_13 """select * from ${tableName}"""
     // version4 (2,2)
-    sql """restore snapshot test.snapshot4 from `s3_demo_MoW_1` on(`demo_MoW`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-23","replication_num" = "1")"""
-    qt_14 """select * from demo_MoW"""
+    sql """restore snapshot test.snapshot4 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-23","replication_num" = "1")"""
+    qt_14 """select * from ${tableName}"""
 }
