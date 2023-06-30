@@ -1458,7 +1458,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
-* Default value: false
+* Default value: true
 
 </version>
 
