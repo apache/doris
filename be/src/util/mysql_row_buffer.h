@@ -72,6 +72,7 @@ public:
     int push_float(float data);
     int push_double(double data);
     int push_time(double data);
+    int push_timev2(double data, int scale);
     template <typename DateType>
     int push_datetime(const DateType& data);
     int push_decimal(const DecimalV2Value& data, int round_scale);
