@@ -243,6 +243,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     public TFileType getLocationType() throws UserException {
         Table icebergTable = source.getIcebergTable();
         String location = icebergTable.location();
+        return getLocationType(location);
+    }
+
+    @Override
+    public TFileType getLocationType(String location) throws UserException {
+        Table icebergTable = source.getIcebergTable();
         return getTFileType(location).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for iceberg table " + icebergTable.name()));
     }

@@ -226,7 +226,11 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType() throws UserException {
-        String location = hmsTable.getRemoteTable().getSd().getLocation();
+        return getLocationType(hmsTable.getRemoteTable().getSd().getLocation());
+    }
+
+    @Override
+    protected TFileType getLocationType(String location) throws UserException {
         return getTFileType(location).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
