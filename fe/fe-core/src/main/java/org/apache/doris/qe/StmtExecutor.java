@@ -67,7 +67,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
-import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
@@ -89,7 +88,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuditLog;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -148,14 +146,11 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.util.InternalQueryBuffer;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.task.LoadEtlTask;
-import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TGetMasterMaxJournalIdReply;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TResultBatch;
@@ -320,6 +315,8 @@ public class StmtExecutor {
                         .collect(Collectors.joining(",")));
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
+        builder.isNereids(context.getState().isNereids ? "Yes" : "No");
+        builder.isPipeline(context.getSessionVariable().enablePipelineEngine ? "Yes" : "No");
         return builder.build();
     }
 
@@ -726,7 +723,7 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
+                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
                     handleDeleteStmt();
                 } else {
                     handleDdlStmt();

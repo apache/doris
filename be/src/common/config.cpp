@@ -506,25 +506,6 @@ DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DEFINE_Int32(max_free_io_buffers, "128");
 
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DEFINE_Bool(disable_mem_pools, "false");
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DEFINE_mString(chunk_reserved_bytes_limit, "0");
-// 1024, The minimum chunk allocator size (in bytes)
-DEFINE_Int32(min_chunk_reserved_bytes, "1024");
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
-
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
 DEFINE_Bool(enable_quadratic_probing, "false");
@@ -1042,6 +1023,9 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+
+// max_write_buffer_number for rocksdb
+DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 #ifdef BE_TEST
 // test s3

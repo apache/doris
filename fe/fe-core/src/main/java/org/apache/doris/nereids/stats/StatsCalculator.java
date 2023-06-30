@@ -42,13 +42,13 @@ import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -127,6 +127,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -254,7 +255,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
-        return computeOneRowRelation(oneRowRelation);
+        return computeOneRowRelation(oneRowRelation.getProjects());
     }
 
     @Override
@@ -396,7 +397,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, Void context) {
-        return computeOneRowRelation(oneRowRelation);
+        return computeOneRowRelation(oneRowRelation.getProjects());
     }
 
     @Override
@@ -689,7 +690,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (groupByCount > 0) {
                 List<Double> groupByNdvs = groupByColStats.values().stream()
                         .map(colStats -> colStats.ndv)
-                        .sorted().collect(Collectors.toList());
+                        .sorted(Comparator.reverseOrder()).collect(Collectors.toList());
                 rowCount = groupByNdvs.get(0);
                 for (int groupByIndex = 1; groupByIndex < groupByCount; ++groupByIndex) {
                     rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
@@ -760,9 +761,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(childStats.getRowCount(), columnsStats, childStats.getWidth(), childStats.getPenalty());
     }
 
-    private Statistics computeOneRowRelation(OneRowRelation oneRowRelation) {
-        Map<Expression, ColumnStatistic> columnStatsMap = oneRowRelation.getProjects()
-                .stream()
+    private Statistics computeOneRowRelation(List<NamedExpression> projects) {
+        Map<Expression, ColumnStatistic> columnStatsMap = projects.stream()
                 .map(project -> {
                     ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
                     // TODO: compute the literal size
@@ -789,13 +789,33 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computeUnion(SetOperation setOperation) {
-        List<Slot> head = groupExpression.child(0).getLogicalProperties().getOutput();
-        Statistics headStats = groupExpression.childStatistics(0);
+        // TODO: refactor this for one row relation
+        List<Slot> head = null;
+        Statistics headStats = null;
         List<List<Slot>> childOutputs =
                 groupExpression.children()
                         .stream().map(ge -> ge.getLogicalProperties().getOutput()).collect(Collectors.toList());
         List<Statistics> childStats =
                 groupExpression.children().stream().map(Group::getStatistics).collect(Collectors.toList());
+        if (setOperation instanceof Union) {
+            childOutputs.addAll(((Union) setOperation).getConstantExprsList().stream()
+                    .map(l -> l.stream().map(NamedExpression::toSlot).collect(Collectors.toList()))
+                    .collect(Collectors.toList()));
+            childStats.addAll(((Union) setOperation).getConstantExprsList().stream()
+                    .map(this::computeOneRowRelation)
+                    .collect(Collectors.toList()));
+            if (!((Union) setOperation).getConstantExprsList().isEmpty()) {
+                head = ((Union) setOperation).getConstantExprsList().get(0).stream()
+                        .map(NamedExpression::toSlot)
+                        .collect(Collectors.toList());
+                headStats = computeOneRowRelation(((Union) setOperation).getConstantExprsList().get(0));
+            }
+        }
+        if (head == null) {
+            head = groupExpression.child(0).getLogicalProperties().getOutput();
+            headStats = groupExpression.childStatistics(0);
+        }
+
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
         List<NamedExpression> unionOutput = setOperation.getOutputs();
         for (int i = 0; i < head.size(); i++) {

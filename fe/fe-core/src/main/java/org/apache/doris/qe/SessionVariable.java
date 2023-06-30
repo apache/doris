@@ -352,6 +352,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
+    public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
+
+    public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
+
+    public static final String CBO_NET_WEIGHT = "cbo_net_weight";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -670,6 +676,39 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
     private int beNumberForTest = -1;
+
+    public double getCboCpuWeight() {
+        return cboCpuWeight;
+    }
+
+    public void setCboCpuWeight(double cboCpuWeight) {
+        this.cboCpuWeight = cboCpuWeight;
+    }
+
+    public double getCboMemWeight() {
+        return cboMemWeight;
+    }
+
+    public void setCboMemWeight(double cboMemWeight) {
+        this.cboMemWeight = cboMemWeight;
+    }
+
+    public double getCboNetWeight() {
+        return cboNetWeight;
+    }
+
+    public void setCboNetWeight(double cboNetWeight) {
+        this.cboNetWeight = cboNetWeight;
+    }
+
+    @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
+    private double cboCpuWeight = 1.0;
+
+    @VariableMgr.VarAttr(name = CBO_MEM_WEIGHT)
+    private double cboMemWeight = 1.0;
+
+    @VariableMgr.VarAttr(name = CBO_NET_WEIGHT)
+    private double cboNetWeight = 1.5;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;

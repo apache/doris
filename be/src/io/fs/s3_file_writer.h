@@ -57,8 +57,6 @@ public:
         return Status::NotSupported("not support");
     }
 
-    size_t bytes_appended() const { return _bytes_appended; }
-
     int64_t upload_cost_ms() const { return *_upload_cost_ms; }
 
 private:
@@ -115,7 +113,6 @@ private:
 
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::string _upload_id;
-    size_t _bytes_appended {0};
 
     // Current Part Num for CompletedPart
     int _cur_part_num = 1;

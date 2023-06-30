@@ -13,8 +13,8 @@ core.*
 .DS_Store
 .classpath
 nohup.out
-custom_env.sh
-custom_env_mac.sh
+/custom_env.sh
+/custom_env_mac.sh
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
@@ -33,6 +33,7 @@ package-lock.json
 .cache
 .settings/
 **/.idea/
+!.idea/vcs.xml
 **/.vscode/
 **/.fleet/
 
@@ -42,6 +43,7 @@ docs/.temp
 
 # output, thirdparty, extension
 output/
+output.bak/
 rpc_data/
 metastore_db/
 thirdparty/src*

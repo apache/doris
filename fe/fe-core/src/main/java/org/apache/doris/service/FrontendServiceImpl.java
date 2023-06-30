@@ -110,7 +110,6 @@ import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
-import org.apache.doris.thrift.TGetMasterMaxJournalIdReply;
 import org.apache.doris.thrift.TGetMasterTokenRequest;
 import org.apache.doris.thrift.TGetMasterTokenResult;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
@@ -182,7 +181,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
