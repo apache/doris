@@ -207,14 +207,15 @@
                         "lakehouse/multi-catalog/iceberg",
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
-                        "lakehouse/multi-catalog/es",
-                        "lakehouse/multi-catalog/jdbc",
                         "lakehouse/multi-catalog/dlf",
-                        "lakehouse/multi-catalog/faq"
+                        "lakehouse/multi-catalog/es",
+                        "lakehouse/multi-catalog/jdbc"
                     ]
                 },
                 "lakehouse/file",
-                "lakehouse/filecache"
+                "lakehouse/filecache",
+                "lakehouse/faq",
+                "lakehouse/fs_benchmark_tool"
             ]
         },
         {

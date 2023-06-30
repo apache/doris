@@ -47,6 +47,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -68,6 +69,7 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -110,8 +112,13 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker analyze(String sql) {
+    public PlanChecker parse(String sql) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.toMemo();
+        return this;
+    }
+
+    public PlanChecker analyze() {
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         return this;
@@ -122,6 +129,24 @@ public class PlanChecker {
         this.cascadesContext.newAnalyzer().analyze();
         this.cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker analyze(String sql) {
+        this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, sql);
+        this.cascadesContext.newAnalyzer().analyze();
+        this.cascadesContext.toMemo();
+        return this;
+    }
+
+    public PlanChecker customAnalyzer(Optional<CustomTableResolver> customTableResolver) {
+        this.cascadesContext.newAnalyzer(customTableResolver).analyze();
+        this.cascadesContext.toMemo();
+        return this;
+    }
+
+    public PlanChecker setRewritePlanFromMemo() {
+        this.cascadesContext.setRewritePlan(this.cascadesContext.getMemo().copyOut());
         return this;
     }
 

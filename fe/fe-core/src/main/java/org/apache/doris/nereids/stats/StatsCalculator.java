@@ -127,6 +127,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -689,7 +690,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (groupByCount > 0) {
                 List<Double> groupByNdvs = groupByColStats.values().stream()
                         .map(colStats -> colStats.ndv)
-                        .sorted().collect(Collectors.toList());
+                        .sorted(Comparator.reverseOrder()).collect(Collectors.toList());
                 rowCount = groupByNdvs.get(0);
                 for (int groupByIndex = 1; groupByIndex < groupByCount; ++groupByIndex) {
                     rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
