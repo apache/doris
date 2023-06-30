@@ -59,6 +59,9 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
     if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         std::shared_ptr<JniEnv> jni_env = std::make_shared<JniEnv>();
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &jni_env->executor_cl));
+        jni_env->executor_ctor_id =
+                env->GetMethodID(jni_env->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE);
+        RETURN_ERROR_IF_EXC(env);
         jni_env->executor_evaluate_id = env->GetMethodID(
                 jni_env->executor_cl, "evaluate", "(I[Ljava/lang/Object;)[Ljava/lang/Object;");
 
@@ -71,6 +74,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
                 jni_env->executor_cl, "copyBatchBasicResult", "(ZI[Ljava/lang/Object;JJJ)V");
         jni_env->executor_result_array_batch_id = env->GetMethodID(
                 jni_env->executor_cl, "copyBatchArrayResult", "(ZI[Ljava/lang/Object;JJJJJ)V");
+        jni_env->executor_close_id = env->GetMethodID(jni_env->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE);        
         RETURN_ERROR_IF_EXC(env);
         context->set_function_state(FunctionContext::FRAGMENT_LOCAL, jni_env);
     }
