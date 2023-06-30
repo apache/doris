@@ -385,4 +385,13 @@ public class ColumnStatistic {
     public boolean isUnKnown() {
         return isUnKnown;
     }
+
+    public boolean isAlmostUnique() {
+        return count * 0.9 < ndv;
+    }
+
+    public boolean isChanged() {
+        return ndv != original.ndv || minValue != original.minValue || maxValue != original.maxValue;
+    }
+
 }

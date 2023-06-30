@@ -724,6 +724,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (columnStat.ndv > rowCount) {
                 builder.setNdv(rowCount);
             }
+            // after agg, original stats updated.
+            builder.setOriginal(builder.build());
             builder.setDataSize(rowCount * outputExpression.getDataType().width());
             slotToColumnStats.put(outputExpression.toSlot(), columnStat);
         }

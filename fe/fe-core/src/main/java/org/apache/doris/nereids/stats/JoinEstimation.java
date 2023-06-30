@@ -31,6 +31,7 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.HashMap;
@@ -72,6 +73,24 @@ public class JoinEstimation {
         return false;
     }
 
+    private static double untrustEqualConditionSel(ColumnStatistic bigger, ColumnStatistic smaller) {
+        double sel = smaller.count / smaller.ndv
+                * Math.min(bigger.ndv, smaller.ndv) / bigger.ndv;
+        return sel;
+    }
+
+    private static boolean isTrustableEqualCondition(ColumnStatistic factColStats, ColumnStatistic dimColStats,
+            double dimRowCount) {
+        double almostUniqueThreshold = 0.9;
+        if (dimColStats.ndv / dimRowCount > almostUniqueThreshold) {
+            return factColStats.ndv * almostUniqueThreshold < dimColStats.ndv
+                    || factColStats.ndv * almostUniqueThreshold < dimColStats.getOriginalNdv();
+        }
+        return false;
+        //(eqRightColStats.ndv / rightStatsRowCount > almostUniqueThreshold
+        //        && (eqLeftColStats.ndv  * almostUniqueThreshold < eqRightColStats.ndv))
+    }
+
     private static Statistics estimateHashJoin(Statistics leftStats, Statistics rightStats, Join join) {
         /*
          * When we estimate filter A=B,
@@ -95,17 +114,23 @@ public class JoinEstimation {
                             ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
                             double rightStatsRowCount = StatsMathUtil.nonZeroDivisor(rightStats.getRowCount());
                             double leftStatsRowCount = StatsMathUtil.nonZeroDivisor(leftStats.getRowCount());
-                            boolean trustable = eqRightColStats.ndv / rightStatsRowCount > almostUniqueThreshold
-                                    || eqLeftColStats.ndv / leftStatsRowCount > almostUniqueThreshold;
+                            boolean trustable = isTrustableEqualCondition(
+                                    eqRightColStats, eqLeftColStats, leftStatsRowCount)
+                                    || isTrustableEqualCondition(eqLeftColStats, eqRightColStats, rightStatsRowCount);
+                            if (eqRightColStats.ndv / rightStatsRowCount > almostUniqueThreshold
+                                    || eqLeftColStats.ndv / leftStatsRowCount > almostUniqueThreshold) {
+                                if (!trustable) {
+                                    System.out.println("");
+                                    isTrustableEqualCondition(eqRightColStats, eqLeftColStats, leftStatsRowCount);
+                                    isTrustableEqualCondition(eqLeftColStats, eqRightColStats, rightStatsRowCount);
+                                }
+                            }
+
                             if (!trustable) {
-                                double rNdv = StatsMathUtil.nonZeroDivisor(eqRightColStats.ndv);
-                                double lNdv = StatsMathUtil.nonZeroDivisor(eqLeftColStats.ndv);
                                 if (leftBigger) {
-                                    unTrustEqualRatio.add((rightStatsRowCount / rNdv)
-                                            * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / lNdv);
+                                    unTrustEqualRatio.add(untrustEqualConditionSel(eqLeftColStats, eqRightColStats));
                                 } else {
-                                    unTrustEqualRatio.add((leftStatsRowCount / lNdv)
-                                            * Math.min(eqLeftColStats.ndv, eqRightColStats.ndv) / rNdv);
+                                    unTrustEqualRatio.add(untrustEqualConditionSel(eqRightColStats, eqLeftColStats));
                                 }
                                 unTrustableCondition.add(equal);
                             }
@@ -123,7 +148,9 @@ public class JoinEstimation {
         double outputRowCount = 1;
         if (!trustableConditions.isEmpty()) {
             List<Pair<? extends Expression, Double>> sortedJoinConditions = trustableConditions.stream()
-                    .map(expression -> Pair.of(expression, estimateJoinConditionSel(crossJoinStats, expression)))
+                    .map(expression ->
+                            Pair.of(expression,
+                                    estimateJoinConditionSel(crossJoinStats, leftStats, rightStats, expression)))
                     .sorted((a, b) -> {
                         double sub = a.second - b.second;
                         if (sub > 0) {
@@ -193,9 +220,25 @@ public class JoinEstimation {
         return innerJoinStats;
     }
 
-    private static double estimateJoinConditionSel(Statistics crossJoinStats, Expression joinCond) {
+    private static double estimateJoinConditionSel(Statistics crossJoinStats,
+            Statistics leftStats, Statistics rightStats, Expression joinCond) {
+        Preconditions.checkState(joinCond instanceof EqualTo,
+                "join condition must be equal, but we get " + joinCond);
         Statistics statistics = new FilterEstimation().estimate(joinCond, crossJoinStats);
-        return statistics.getRowCount() / crossJoinStats.getRowCount();
+        double sel = statistics.getRowCount() / crossJoinStats.getRowCount();
+        EqualTo equal = normalizeHashJoinCondition((EqualTo) joinCond, leftStats, rightStats);
+        ColumnStatistic eqLeftColStats = ExpressionEstimation.estimate(equal.left(), leftStats);
+        ColumnStatistic eqRightColStats = ExpressionEstimation.estimate(equal.right(), rightStats);
+        boolean leftBigger = leftStats.getRowCount() > rightStats.getRowCount();
+        ColumnStatistic smaller = leftBigger ? eqRightColStats : eqLeftColStats;
+        ColumnStatistic bigger = leftBigger ? eqLeftColStats : eqRightColStats;
+        if (smaller.isAlmostUnique() && smaller.isChanged() && !bigger.isChanged()) {
+            double sel2 = smaller.ndv / (smaller.getOriginalNdv() * smaller.count);
+            if (sel * 0.98 > sel2) {
+                sel = Math.min(sel, sel2);
+            }
+        }
+        return sel;
     }
 
     private static double estimateSemiOrAntiRowCountBySlotsEqual(Statistics leftStats,
