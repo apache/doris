@@ -58,7 +58,7 @@ public class JdbcSapHanaClient extends JdbcClient {
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
-            case "TIMESTAMP":{
+            case "TIMESTAMP": {
                 // postgres can support microsecond
                 int scale = fieldSchema.getDecimalDigits();
                 if (scale > 6) {
