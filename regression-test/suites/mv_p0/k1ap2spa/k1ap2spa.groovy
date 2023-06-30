@@ -40,6 +40,7 @@ suite ("k1ap2spa") {
     createMV("create materialized view k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from d_table group by abs(k1)+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table(k4,k2) values('d',4);"
 
     qt_select_star "select * from d_table order by k1;"
 
