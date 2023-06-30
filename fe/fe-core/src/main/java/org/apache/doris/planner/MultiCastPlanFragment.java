@@ -29,7 +29,8 @@ public class MultiCastPlanFragment extends PlanFragment {
     private final List<ExchangeNode> destNodeList = Lists.newArrayList();
 
     public MultiCastPlanFragment(PlanFragment planFragment) {
-        super(planFragment.getFragmentId(), planFragment.getPlanRoot(), planFragment.getDataPartition());
+        super(planFragment.getFragmentId(), planFragment.getPlanRoot(), planFragment.getDataPartition(),
+                planFragment.getBuilderRuntimeFilterIds(), planFragment.getTargetRuntimeFilterIds());
         this.outputPartition = DataPartition.RANDOM;
         this.children.addAll(planFragment.getChildren());
     }

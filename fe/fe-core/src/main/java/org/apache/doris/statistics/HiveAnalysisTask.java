@@ -25,18 +25,14 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.InternalQueryResult;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
-import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Decimal;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
-import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,7 +56,6 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     public static final String NUM_ROWS = "numRows";
     public static final String NUM_FILES = "numFiles";
     public static final String TIMESTAMP = "transient_lastDdlTime";
-    public static final String DELIMITER = "-";
 
     private static final String ANALYZE_SQL_TABLE_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
@@ -279,107 +274,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
 
     @Override
     protected void getStatsByMeta() throws Exception {
-        if (isTableLevelTask) {
-            getTableStatsByMeta();
-        } else {
-            getColumnStatsByMeta();
-        }
-    }
-
-    protected void getTableStatsByMeta() throws Exception {
-        // Get table level information.
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        if (isPartitionOnly) {
-            for (String partId : partitionNames) {
-                Map<String, String> params = buildTableStatsParams(partId);
-                // Collect table level row count, null number and timestamp.
-                setParameterData(parameters, params);
-                StatisticsRepository.persistTableStats(params);
-            }
-        } else {
-            Map<String, String> params = buildTableStatsParams("NULL");
-            // Collect table level row count, null number and timestamp.
-            setParameterData(parameters, params);
-            StatisticsRepository.persistTableStats(params);
-        }
-    }
-
-    protected void getColumnStatsByMeta() throws Exception {
-        List<String> columns = new ArrayList<>();
-        columns.add(col.getName());
-        Map<String, String> params = new HashMap<>();
-        params.put("internalDB", FeConstants.INTERNAL_DB_NAME);
-        params.put("columnStatTbl", StatisticConstants.STATISTIC_TBL_NAME);
-        params.put("catalogId", String.valueOf(catalog.getId()));
-        params.put("dbId", String.valueOf(db.getId()));
-        params.put("tblId", String.valueOf(tbl.getId()));
-        params.put("colId", String.valueOf(col.getName()));
-
-        // Get table level information.
-        Map<String, String> parameters = table.getRemoteTable().getParameters();
-        long rowCount;
-        StringSubstitutor stringSubstitutor;
-        if (isPartitionOnly) {
-            // Collect table level row count, null number and timestamp.
-            setParameterData(parameters, params);
-            params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), null));
-            List<ColumnStatisticsObj> tableStats = table.getHiveTableColumnStats(columns);
-            rowCount = parameters.containsKey(NUM_ROWS) ? Long.parseLong(parameters.get(NUM_ROWS)) : 0;
-            // Collect table level ndv, nulls, min and max. tableStats contains at most 1 item;
-            for (ColumnStatisticsObj tableStat : tableStats) {
-                if (!tableStat.isSetStatsData()) {
-                    continue;
-                }
-                ColumnStatisticsData data = tableStat.getStatsData();
-                getStatData(data, params, rowCount);
-            }
-            stringSubstitutor = new StringSubstitutor(params);
-            String sql = stringSubstitutor.replace(ANALYZE_META_TABLE_COLUMN_TEMPLATE);
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-                r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-                this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-                this.stmtExecutor.execute();
-            }
-        }
-
-        // Get partition level information.
-        Map<String, List<ColumnStatisticsObj>> columnStats
-                = table.getHivePartitionColumnStats(Lists.newArrayList(partitionNames), columns);
-        List<String> partitionAnalysisSQLs = new ArrayList<>();
-        for (Map.Entry<String, List<ColumnStatisticsObj>> entry : columnStats.entrySet()) {
-            String partName = entry.getKey();
-            List<String> partitionValues = new ArrayList<>();
-            for (String p : partName.split("/")) {
-                partitionValues.add(p.split("=")[1]);
-            }
-            Partition partition = table.getPartition(partitionValues);
-            parameters = partition.getParameters();
-            // Collect row count, null number and timestamp.
-            setParameterData(parameters, params);
-            params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), partName));
-            params.put("partId", partName);
-            List<ColumnStatisticsObj> value = entry.getValue();
-            Preconditions.checkState(value.size() == 1);
-            ColumnStatisticsObj stat = value.get(0);
-            if (!stat.isSetStatsData()) {
-                continue;
-            }
-            rowCount = parameters.containsKey(NUM_ROWS) ? Long.parseLong(parameters.get(NUM_ROWS)) : 0;
-            // Collect ndv, nulls, min and max for different data type.
-            ColumnStatisticsData data = stat.getStatsData();
-            getStatData(data, params, rowCount);
-            stringSubstitutor = new StringSubstitutor(params);
-            partitionAnalysisSQLs.add(stringSubstitutor.replace(ANALYZE_META_PARTITION_COLUMN_TEMPLATE));
-        }
-        // Update partition level stats for this column.
-        for (String partitionSql : partitionAnalysisSQLs) {
-            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
-                r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-                this.stmtExecutor = new StmtExecutor(r.connectContext, partitionSql);
-                this.stmtExecutor.execute();
-            }
-        }
-        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
+        // To be removed.
     }
 
     private void getStatData(ColumnStatisticsData data, Map<String, String> params, long rowCount) {
@@ -471,19 +366,5 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         params.put("update_time", TimeUtils.DATETIME_FORMAT.format(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(Long.parseLong(timestamp) * 1000),
                         ZoneId.systemDefault())));
-    }
-
-    private String genColumnStatId(long tableId, long indexId, String columnName, String partitionName) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(tableId);
-        sb.append(DELIMITER);
-        sb.append(indexId);
-        sb.append(DELIMITER);
-        sb.append(columnName);
-        if (partitionName != null) {
-            sb.append(DELIMITER);
-            sb.append(partitionName);
-        }
-        return sb.toString();
     }
 }
