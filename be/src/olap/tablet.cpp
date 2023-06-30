@@ -3308,20 +3308,16 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
         uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-        const DeleteBitmapPtr commit_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
+        const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
     RowLocation src;
     RowLocation dst;
-    DeleteBitmapPtr delete_bitmap;
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
-            delete_bitmap = commit_delete_bitmap->empty()
-                                    ? std::make_shared<DeleteBitmap>(_tablet_meta->delete_bitmap())
-                                    : commit_delete_bitmap;
-            delete_bitmap->subset({rowset->rowset_id(), seg_id, start_version},
-                                  {rowset->rowset_id(), seg_id, end_version}, &subset_map);
+            input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
+                                       {rowset->rowset_id(), seg_id, end_version}, &subset_map);
             // traverse all versions and convert rowid
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {

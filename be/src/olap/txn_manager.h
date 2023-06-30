@@ -80,15 +80,18 @@ struct TabletTxnInfo {
 
 struct CommitTabletTxnInfo {
     CommitTabletTxnInfo(TPartitionId partition_id, TTransactionId transaction_id,
-                        RowsetSharedPtr rowset, DeleteBitmapPtr delete_bitmap)
+                        RowsetSharedPtr rowset, DeleteBitmapPtr delete_bitmap,
+                        RowsetIdUnorderedSet rowset_ids)
             : transaction_id(transaction_id),
               partition_id(partition_id),
               rowset(rowset),
-              delete_bitmap(delete_bitmap) {}
+              delete_bitmap(delete_bitmap),
+              rowset_ids(rowset_ids) {}
     TTransactionId transaction_id;
     TPartitionId partition_id;
     RowsetSharedPtr rowset;
     DeleteBitmapPtr delete_bitmap;
+    RowsetIdUnorderedSet rowset_ids;
 };
 
 using CommitTabletTxnInfoVec = std::vector<CommitTabletTxnInfo>;
@@ -187,7 +190,7 @@ public:
                                        DeleteBitmapPtr delete_bitmap,
                                        const RowsetIdUnorderedSet& rowset_ids);
     void get_all_commit_tablet_txn_info_by_tablet(
-            const TabletSharedPtr& tablet, CommitTabletTxnInfoVec& commit_tablet_txn_info_vec);
+            const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec);
 
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;

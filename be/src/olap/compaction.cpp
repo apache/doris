@@ -581,7 +581,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of incremental data later.
         _tablet->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, std::make_shared<DeleteBitmap>(_tablet->tablet_id()),
+                &location_map, _tablet->tablet_meta()->delete_bitmap(),
                 &output_rowset_delete_bitmap);
         std::size_t missed_rows_size = missed_rows.size();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
@@ -610,34 +610,32 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // Step1: collect this tablet's all committed rowsets' delete bitmaps
             CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
             StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
-                    _tablet, commit_tablet_txn_info_vec);
+                    _tablet, &commit_tablet_txn_info_vec);
 
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
-            int64_t cur_max_version = _tablet->max_version().second;
-            RowsetIdUnorderedSet rowset_ids = _tablet->all_rs_id(cur_max_version);
-            rowset_ids.insert(_output_rowset->rowset_id());
-            for (const auto& it : commit_tablet_txn_info_vec) {
+            for (auto& it : commit_tablet_txn_info_vec) {
                 DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
                 const std::shared_ptr<Rowset>& rowset = it.rowset;
                 for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
                     _tablet->calc_compaction_output_rowset_delete_bitmap(
-                            std::vector<std::shared_ptr<Rowset>>(1, rowset), _rowid_conversion,
-                            version.second, UINT64_MAX, &missed_rows, &location_map,
-                            it.delete_bitmap, &output_delete_bitmap);
+                            _input_rowsets, _rowid_conversion, version.second, UINT64_MAX,
+                            &missed_rows, &location_map, *it.delete_bitmap.get(),
+                            &output_delete_bitmap);
                 }
                 it.delete_bitmap->merge(output_delete_bitmap);
                 // Step3: write back updated delete bitmap and tablet info.
+                it.rowset_ids.insert(_output_rowset->rowset_id());
                 StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
                         it.partition_id, it.transaction_id, _tablet->tablet_id(),
                         _tablet->schema_hash(), _tablet->tablet_uid(), true, it.delete_bitmap,
-                        rowset_ids);
+                        it.rowset_ids);
             }
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
-                    &location_map, std::make_shared<DeleteBitmap>(_tablet->tablet_id()),
+                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 DCHECK_EQ(missed_rows.size(), missed_rows_size);
