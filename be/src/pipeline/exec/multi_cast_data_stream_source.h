@@ -64,8 +64,6 @@ public:
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
 
-    Status init(const TDataSink& tsink) override;
-
     Status prepare(RuntimeState* state) override;
 
     Status open(RuntimeState* state) override;
