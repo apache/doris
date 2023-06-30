@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -124,6 +125,17 @@ public class BinlogManager {
         long timestamp = -1;
         TBinlogType type = TBinlogType.ADD_PARTITION;
         String data = addPartitionRecord.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addDropPartitionRecord(DropPartitionInfo dropPartitionInfo, long commitSeq) {
+        long dbId = dropPartitionInfo.getDbId();
+        List<Long> tableIds = new ArrayList<Long>();
+        tableIds.add(dropPartitionInfo.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.DROP_PARTITION;
+        String data = dropPartitionInfo.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
     }
