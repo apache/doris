@@ -19,7 +19,6 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionKey;
