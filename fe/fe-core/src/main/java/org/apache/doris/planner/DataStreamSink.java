@@ -115,11 +115,12 @@ public class DataStreamSink extends DataSink {
             strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql());
         }
         if (!CollectionUtils.isEmpty(projections)) {
-            strBuilder.append("\n").append(prefix).append("  PROJECTIONS: ")
+            strBuilder.append(prefix).append("  PROJECTIONS: ")
                     .append(PlanNode.getExplainString(projections)).append("\n");
             strBuilder.append(prefix).append("  PROJECTION TUPLE: ").append(outputTupleDesc.getId());
+            strBuilder.append("\n");
         }
-        strBuilder.append("\n");
+
         return strBuilder.toString();
     }
 
