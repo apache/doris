@@ -87,9 +87,18 @@ public class S3Util {
             if (pos == -1) {
                 throw new RuntimeException("No '://' found in location: " + location);
             }
-            location = "s3" + location.substring(pos);
+            if (isHdfsOnOssEndpoint(location)) {
+                // if hdfs service is enabled on oss, use oss location
+                location = "oss" + location.substring(pos);
+            } else {
+                location = "s3" + location.substring(pos);
+            }
         }
         return new Path(location);
+    }
+
+    public static boolean isHdfsOnOssEndpoint(String location) {
+        return location.contains("oss-dls.aliyuncs");
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential) {
