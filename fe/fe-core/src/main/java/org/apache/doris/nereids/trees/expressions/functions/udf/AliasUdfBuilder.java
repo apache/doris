@@ -76,7 +76,6 @@ public class AliasUdfBuilder extends UdfBuilder {
         List<Expression> inputs = processedExpression.getArguments();
 
         Expression boundFunction = FunctionBinder.INSTANCE.rewrite(aliasUdf.getUnboundFunction(), null);
-        boundFunction = aliasUdf.getBoundFunction();
 
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
@@ -91,11 +90,11 @@ public class AliasUdfBuilder extends UdfBuilder {
             replaceMap.put(slots.get(parameter), inputs.get(i));
         }
 
-        return ((BoundFunction) VirtualSlotReplacer.INSTANCE.replace(boundFunction, replaceMap));
+        return ((BoundFunction) SlotReplacer.INSTANCE.replace(boundFunction, replaceMap));
     }
 
-    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<SlotReference, Expression>> {
-        public static final VirtualSlotReplacer INSTANCE = new VirtualSlotReplacer();
+    private static class SlotReplacer extends DefaultExpressionRewriter<Map<SlotReference, Expression>> {
+        public static final SlotReplacer INSTANCE = new SlotReplacer();
 
         public Expression replace(Expression expression, Map<SlotReference, Expression> context) {
             return expression.accept(this, context);

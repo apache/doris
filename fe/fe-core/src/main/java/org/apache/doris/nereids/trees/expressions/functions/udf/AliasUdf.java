@@ -50,7 +50,6 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
     private final UnboundFunction unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
-    private BoundFunction boundFunction;
 
     /**
      * constructor
@@ -81,10 +80,6 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return argTypes;
     }
 
-    public BoundFunction getBoundFunction() {
-        return boundFunction;
-    }
-
     @Override
     public boolean nullable() {
         return false;
@@ -107,14 +102,11 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
         Expression slotBoundFunction = VirtualSlotReplacer.INSTANCE.replace(parsedFunction, replaceMap);
 
-        BoundFunction boundFunction = ((BoundFunction) FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null));
-
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
                 ((UnboundFunction) slotBoundFunction),
                 function.getParameters());
-        aliasUdf.boundFunction = boundFunction;
 
         AliasUdfBuilder builder = new AliasUdfBuilder(aliasUdf);
         Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, aliasUdf.getName(), builder);
