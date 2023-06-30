@@ -765,7 +765,7 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           io::FileReaderOptions reader_options,
                                           const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(profile, system_properties, file_description,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
                                                     file_system, &reader, reader_options));
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
@@ -780,6 +780,7 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
             }
         }
         if (is_thread_safe) {
+            LOG(INFO) << "xxxx PrefetchBufferedReader";
             // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
             *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, reader, file_range,
                                                                         io_ctx);

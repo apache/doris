@@ -263,6 +263,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
+export AWS_EC2_METADATA_DISABLED=true
 
 echo "$@"
 ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/fs_benchmark_tool" "$@" 2>&1 | tee "${LOG_DIR}/fs_benchmark_tool.log"
