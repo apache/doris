@@ -1432,7 +1432,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                         .filter(s -> aggStateName.equalsIgnoreCase(normalizeName(s.getName()))).findFirst()
                         .orElseThrow(() -> new AnalysisException("cannot find agg state slot when select mv"));
 
-                List<Slot> slots = aggregateFunction.collect(SlotReference.class::isInstance);
+                Set<Slot> slots = aggregateFunction.collect(SlotReference.class::isInstance);
                 for (Slot slot : slots) {
                     if (!context.checkContext.keyNameToColumn.containsKey(normalizeName(slot.toSql()))) {
                         context.exprRewriteMap.slotMap.put(slot, aggStateSlot);
