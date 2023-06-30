@@ -37,6 +37,9 @@ VMetaScanNode::VMetaScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _tuple_id(tnode.meta_scan_node.tuple_id),
           _scan_params(tnode.meta_scan_node) {
     _output_tuple_id = _tuple_id;
+    if (_scan_params.__isset.current_user_ident) {
+        _user_identity = _scan_params.current_user_ident;
+    }
 }
 
 Status VMetaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -62,9 +65,11 @@ Status VMetaScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     if (_eos == true) {
         return Status::OK();
     }
+
     for (auto& scan_range : _scan_ranges) {
-        std::shared_ptr<VMetaScanner> scanner = VMetaScanner::create_shared(
-                _state, this, _tuple_id, scan_range, _limit_per_scanner, runtime_profile());
+        std::shared_ptr<VMetaScanner> scanner =
+                VMetaScanner::create_shared(_state, this, _tuple_id, scan_range, _limit_per_scanner,
+                                            runtime_profile(), _user_identity);
         RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
         scanners->push_back(scanner);
     }
