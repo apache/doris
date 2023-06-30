@@ -139,11 +139,8 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
 
 Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
-    if (_context.tablet_schema->is_partial_update()) {
-        return Status::OK();
-    }
-    // generate delete bitmap, build a tmp rowset and load recent segment
-    if (!_context.tablet->enable_unique_key_merge_on_write()) {
+    if (!_context.tablet->enable_unique_key_merge_on_write() ||
+        _context.tablet_schema->is_partial_update()) {
         return Status::OK();
     }
     auto rowset = _build_tmp();
