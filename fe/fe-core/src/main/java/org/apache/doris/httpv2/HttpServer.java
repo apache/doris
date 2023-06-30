@@ -147,8 +147,13 @@ public class HttpServer extends SpringBootServletInitializer {
         } else {
             properties.put("server.address", "0.0.0.0");
         }
-        properties.put("server.servlet.context-path", "/");
-        properties.put("spring.resources.static-locations", "classpath:/static");
+        properties.put ("server.servlet.context-path", "/");
+
+        if (!Config.disable_web_ui) {
+            properties.put ("spring.resources.static-locations", "classpath:/static");
+        } else {
+            properties.put ("spring.resources.static-locations", "classpath:/");
+        }
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
@@ -177,18 +182,10 @@ public class HttpServer extends SpringBootServletInitializer {
         } else {
             properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         }
-        if (!Config.disable_web_ui) {
-            new SpringApplicationBuilder()
-                    .sources(HttpServer.class)
-                    .properties(properties)
-                    .run(new String[]{});
-        } else {
-            new SpringApplicationBuilder()
-                    .sources(HttpServer.class)
-                    .properties(properties)
-                    .web(WebApplicationType.NONE)
-                    .run(new String[]{});
-        }
 
+        new SpringApplicationBuilder()
+                .sources(HttpServer.class)
+                .properties(properties)
+                .run(new String[]{});
     }
 }
