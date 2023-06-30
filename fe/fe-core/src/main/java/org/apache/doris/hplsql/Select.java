@@ -28,7 +28,6 @@ import org.apache.doris.hplsql.executor.QueryExecutor;
 import org.apache.doris.hplsql.executor.QueryResult;
 import org.apache.doris.hplsql.executor.ResultListener;
 import org.apache.doris.hplsql.objects.Table;
-import org.apache.doris.qe.ConnectContext;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.Token;

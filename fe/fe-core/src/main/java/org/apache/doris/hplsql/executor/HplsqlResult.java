@@ -25,9 +25,7 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.QueryState.MysqlStateType;
 
-import org.apache.kafka.common.network.Send;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,6 +40,7 @@ public class HplsqlResult implements ResultListener, Console {
     private StringBuilder msg;
     private StringBuilder error;
     private boolean isSendFields;
+
     HplsqlResult(ConnectProcessor processor) {
         this.processor = processor;
         this.msg = new StringBuilder();
