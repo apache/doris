@@ -1797,8 +1797,8 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
                 std::stringstream ss;
                 _cumulative_compaction->runtime_profile()->pretty_print(&ss);
                 LOG(WARNING) << "execute cumulative compaction cost " << watch.elapsed_time() / 1e9
-                            << std::endl
-                            << ss.str();
+                             << std::endl
+                             << ss.str();
             }
         });
 
@@ -1821,8 +1821,8 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
                 std::stringstream ss;
                 _base_compaction->runtime_profile()->pretty_print(&ss);
                 LOG(WARNING) << "execute base compaction cost " << watch.elapsed_time() / 1e9
-                            << std::endl
-                            << ss.str();
+                             << std::endl
+                             << ss.str();
             }
         });
 
