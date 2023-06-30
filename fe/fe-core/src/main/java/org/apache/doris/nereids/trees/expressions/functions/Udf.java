@@ -33,10 +33,10 @@ public interface Udf extends ComputeNullable {
         NullableMode mode = getNullableMode();
         if (mode == NullableMode.ALWAYS_NOT_NULLABLE) {
             return false;
-        } else if (mode == NullableMode.ALWAYS_NULLABLE || mode == NullableMode.CUSTOM) {
+        } else if (mode == NullableMode.ALWAYS_NULLABLE) {
             return true;
         } else if (mode == NullableMode.DEPEND_ON_ARGUMENT) {
-            return children().stream().allMatch(ExpressionTrait::nullable);
+            return children().stream().anyMatch(ExpressionTrait::nullable);
         }
         throw new AnalysisException("unsupported nullable mode for udf in Nereids");
     }

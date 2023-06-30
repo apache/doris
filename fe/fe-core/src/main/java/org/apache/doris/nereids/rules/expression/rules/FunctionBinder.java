@@ -109,6 +109,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
+            // we do type coercion in build function in alias function, so it's ok to return directly.
             return boundFunction;
         } else {
             return TypeCoercionUtils.processBoundFunction(boundFunction);

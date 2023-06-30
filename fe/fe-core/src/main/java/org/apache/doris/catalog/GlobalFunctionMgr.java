@@ -22,8 +22,6 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -36,8 +34,6 @@ import java.util.concurrent.ConcurrentMap;
  * Provides management of global functions such as add, drop and other operations
  */
 public class GlobalFunctionMgr extends MetaObject {
-
-    public static final Logger LOG = LogManager.getLogger(GlobalFunctionMgr.class);
 
     // user define function
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
@@ -64,9 +60,9 @@ public class GlobalFunctionMgr extends MetaObject {
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
         function.setGlobal(true);
         function.checkWritable();
-        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)
-                && FunctionUtil.translateToNereids(null, function)) {
+        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddGlobalFunction(function);
+            FunctionUtil.translateToNereids(null, function);
         }
     }
 
@@ -82,9 +78,9 @@ public class GlobalFunctionMgr extends MetaObject {
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)
-                && FunctionUtil.dropFromNereids(null, function)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropGlobalFunction(function);
+            FunctionUtil.dropFromNereids(null, function);
         }
     }
 

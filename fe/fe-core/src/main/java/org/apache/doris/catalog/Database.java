@@ -715,9 +715,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
         function.checkWritable();
-        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)
-                && FunctionUtil.translateToNereids(this.getFullName(), function)) {
+        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
+            FunctionUtil.translateToNereids(this.getFullName(), function);
         }
     }
 
@@ -731,9 +731,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public synchronized void dropFunction(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)
-                && FunctionUtil.dropFromNereids(this.getFullName(), function)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
+            FunctionUtil.dropFromNereids(this.getFullName(), function);
         }
     }
 

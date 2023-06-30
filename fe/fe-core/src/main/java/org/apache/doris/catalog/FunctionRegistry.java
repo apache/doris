@@ -47,15 +47,18 @@ import javax.annotation.concurrent.ThreadSafe;
 @Developing
 @ThreadSafe
 public class FunctionRegistry {
-    private final Map<String, List<FunctionBuilder>> name2Builders;
-    private final Map<String, Map<String, List<FunctionBuilder>>> name2UdfBuilders;
+
+    // to record the global alias function and other udf.
     private static final String GLOBAL_FUNCTION = "__GLOBAL_FUNCTION__";
 
+    private final Map<String, List<FunctionBuilder>> name2InternalBuiltinBuilders;
+    private final Map<String, Map<String, List<FunctionBuilder>>> name2UdfBuilders;
+
     public FunctionRegistry() {
-        name2Builders = new ConcurrentHashMap<>();
+        name2InternalBuiltinBuilders = new ConcurrentHashMap<>();
         name2UdfBuilders = new ConcurrentHashMap<>();
-        registerBuiltinFunctions(name2Builders);
-        afterRegisterBuiltinFunctions(name2Builders);
+        registerBuiltinFunctions(name2InternalBuiltinBuilders);
+        afterRegisterBuiltinFunctions(name2InternalBuiltinBuilders);
     }
 
     // this function is used to test.
@@ -75,12 +78,12 @@ public class FunctionRegistry {
     // currently we only find function by name and arity and args' types.
     public FunctionBuilder findFunctionBuilder(String dbName, String name, List<?> arguments) {
         int arity = arguments.size();
-        List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
+        List<FunctionBuilder> functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
         if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
             String nestedName = AggStateFunctionBuilder.getNestedName(name);
             String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
 
-            functionBuilders = name2Builders.get(nestedName.toLowerCase());
+            functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
 
             if (functionBuilders != null) {
                 functionBuilders = functionBuilders.stream().map(builder -> {
@@ -111,6 +114,29 @@ public class FunctionRegistry {
             throw new AnalysisException("Function '" + name + "' is ambiguous: " + candidateHints);
         }
         return candidateBuilders.get(0);
+    }
+
+    /**
+     * public for test.
+     */
+    public List<FunctionBuilder> findUdfBuilder(String dbName, String name) {
+        List<String> scopes = ImmutableList.of(GLOBAL_FUNCTION);
+        if (ConnectContext.get() != null) {
+            dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
+                    dbName == null ? ConnectContext.get().getDatabase() : dbName);
+            scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
+        }
+
+        synchronized (name2UdfBuilders) {
+            for (String scope : scopes) {
+                List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
+                        .get(name.toLowerCase());
+                if (candidate != null && !candidate.isEmpty()) {
+                    return candidate;
+                }
+            }
+        }
+        return ImmutableList.of();
     }
 
     private void registerBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {
@@ -148,28 +174,5 @@ public class FunctionRegistry {
             builders.getOrDefault(name, Lists.newArrayList()).removeIf(builder -> ((UdfBuilder) builder).getArgTypes()
                     .equals(argTypes));
         }
-    }
-
-    /**
-     * for test
-     */
-    public List<FunctionBuilder> findUdfBuilder(String dbName, String name) {
-        List<String> scopes = ImmutableList.of(GLOBAL_FUNCTION);
-        if (ConnectContext.get() != null) {
-            dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
-                    dbName == null ? ConnectContext.get().getDatabase() : dbName);
-            scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
-        }
-
-        synchronized (name2UdfBuilders) {
-            for (String scope : scopes) {
-                List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
-                        .get(name.toLowerCase());
-                if (candidate != null && !candidate.isEmpty()) {
-                    return candidate;
-                }
-            }
-        }
-        throw new AnalysisException(String.format("Can not find udf named %s in database %s", name, dbName));
     }
 }

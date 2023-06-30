@@ -21,7 +21,6 @@ import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.DataType;
@@ -77,33 +76,33 @@ public class AliasUdfBuilder extends UdfBuilder {
         List<Expression> inputs = processedExpression.getArguments();
 
         Expression boundFunction = FunctionBinder.INSTANCE.rewrite(aliasUdf.getUnboundFunction(), null);
+        boundFunction = aliasUdf.getBoundFunction();
 
         // replace the placeholder slot to the input expressions.
         // adjust input, parameter and replaceMap to be corresponding.
-        Map<String, VirtualSlotReference> virtualSlots = ((Set<VirtualSlotReference>) boundFunction
-                .collect(VirtualSlotReference.class::isInstance))
+        Map<String, SlotReference> slots = ((Set<SlotReference>) boundFunction
+                .collect(SlotReference.class::isInstance))
                 .stream().collect(Collectors.toMap(SlotReference::getName, k -> k, (v1, v2) -> v2));
 
-        Map<VirtualSlotReference, Expression> replaceMap = Maps.newHashMap();
+        Map<SlotReference, Expression> replaceMap = Maps.newHashMap();
         for (int i = 0; i < inputs.size(); ++i) {
             String parameter = aliasUdf.getParameters().get(i);
-            Preconditions.checkArgument(virtualSlots.containsKey(parameter));
-            replaceMap.put(virtualSlots.get(parameter), inputs.get(i));
+            Preconditions.checkArgument(slots.containsKey(parameter));
+            replaceMap.put(slots.get(parameter), inputs.get(i));
         }
 
         return ((BoundFunction) VirtualSlotReplacer.INSTANCE.replace(boundFunction, replaceMap));
     }
 
-    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<VirtualSlotReference, Expression>> {
+    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<SlotReference, Expression>> {
         public static final VirtualSlotReplacer INSTANCE = new VirtualSlotReplacer();
 
-        public Expression replace(Expression expression, Map<VirtualSlotReference, Expression> context) {
+        public Expression replace(Expression expression, Map<SlotReference, Expression> context) {
             return expression.accept(this, context);
         }
 
         @Override
-        public Expression visitVirtualReference(VirtualSlotReference slot,
-                Map<VirtualSlotReference, Expression> context) {
+        public Expression visitSlotReference(SlotReference slot, Map<SlotReference, Expression> context) {
             return context.get(slot);
         }
     }

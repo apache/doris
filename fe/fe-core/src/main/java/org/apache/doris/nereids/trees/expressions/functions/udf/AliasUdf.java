@@ -23,8 +23,10 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -35,11 +37,11 @@ import org.apache.doris.nereids.types.NullType;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.expressions.Bound;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -49,7 +51,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
     private final UnboundFunction unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
-    private DataType retType;
+    private BoundFunction boundFunction;
 
     /**
      * constructor
@@ -80,6 +82,10 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return argTypes;
     }
 
+    public BoundFunction getBoundFunction() {
+        return boundFunction;
+    }
+
     @Override
     public boolean nullable() {
         return false;
@@ -92,23 +98,24 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         String functionSql = function.getOriginFunction().toSql();
         Expression parsedFunction = new NereidsParser().parseExpression(functionSql);
 
-        Map<String, VirtualSlotReference> replaceMap = Maps.newHashMap();
+        Map<String, SlotReference> replaceMap = Maps.newHashMap();
         for (int i = 0; i < function.getNumArgs(); ++i) {
             replaceMap.put(function.getParameters().get(i),
-                    new VirtualSlotReference(
+                    new SlotReference(
                             function.getParameters().get(i),
-                            DataType.fromCatalogType(function.getArgs()[i]),
-                            Optional.empty(),
-                            (shapes) -> ImmutableList.of()));
+                            DataType.fromCatalogType(function.getArgs()[i])));
         }
 
         Expression slotBoundFunction = VirtualSlotReplacer.INSTANCE.replace(parsedFunction, replaceMap);
+
+        BoundFunction boundFunction = ((BoundFunction) FunctionBinder.INSTANCE.rewrite(slotBoundFunction, null));
 
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
                 ((UnboundFunction) slotBoundFunction),
                 function.getParameters());
+        aliasUdf.boundFunction = boundFunction;
 
         AliasUdfBuilder builder = new AliasUdfBuilder(aliasUdf);
         Env.getCurrentEnv().getFunctionRegistry().addUdf(dbName, aliasUdf.getName(), builder);
@@ -130,15 +137,15 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         return visitor.visitAliasUdf(this, context);
     }
 
-    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<String, VirtualSlotReference>> {
+    private static class VirtualSlotReplacer extends DefaultExpressionRewriter<Map<String, SlotReference>> {
         public static final VirtualSlotReplacer INSTANCE = new VirtualSlotReplacer();
 
-        public Expression replace(Expression expression, Map<String, VirtualSlotReference> context) {
+        public Expression replace(Expression expression, Map<String, SlotReference> context) {
             return expression.accept(this, context);
         }
 
         @Override
-        public Expression visitUnboundSlot(UnboundSlot slot, Map<String, VirtualSlotReference> context) {
+        public Expression visitUnboundSlot(UnboundSlot slot, Map<String, SlotReference> context) {
             return context.get(slot.getName());
         }
     }

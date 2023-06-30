@@ -253,6 +253,8 @@ public class SlotRef extends Expr {
             }
         } else if (desc == null) {
             // virtual slot of an alias function
+            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
+            // is null, and we just need the name of col.
             return col;
         } else if (desc.getSourceExprs() != null) {
             if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
