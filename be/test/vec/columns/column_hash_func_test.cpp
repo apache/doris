@@ -89,7 +89,6 @@ TEST(HashFuncTest, ArrayTypeTest) {
 TEST(HashFuncTest, ArrayCornerCaseTest) {
     DataTypes dataTypes = create_scala_data_types();
 
-
     DataTypePtr d = std::make_shared<DataTypeInt64>();
     DataTypePtr a = std::make_shared<DataTypeArray>(d);
     MutableColumnPtr array_mutable_col = a->create_column();
