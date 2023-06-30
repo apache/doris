@@ -184,7 +184,7 @@ public class LogicalPlanBuilder {
         }
         List<NamedExpression> groupByKeys = groupByBuilder.build();
 
-        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, this.plan);
+        LogicalAggregate<Plan> agg = new LogicalAggregate<>(groupByKeys, false, this.plan);
         return from(agg);
     }
 

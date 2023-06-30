@@ -175,10 +175,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     public boolean isFilteringJoin() {
-        double leftCount = left().getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
-        double rightCount = right().getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
-        double multiple = leftCount > rightCount ? leftCount / rightCount : rightCount / leftCount;
-        return multiple >= 1000;
+        // double leftCount = left().getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+        // double rightCount = right().getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+        // double multiple = leftCount > rightCount ? leftCount / rightCount : rightCount / leftCount;
+        // return multiple >= 1000;
+        return false;
     }
 
     @Override
