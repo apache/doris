@@ -398,10 +398,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     @Override
     public int hashCode() {
+        int hashCode = 1;
+        for (LiteralExpr key : keys) {
+            hashCode = 31 * hashCode + (key == null ? 0 : key.hashCode());
+        }
         int ret = types.size() * 1000;
         for (PrimitiveType type : types) {
             ret += type.ordinal();
         }
-        return ret;
+        return hashCode + ret;
     }
 }
