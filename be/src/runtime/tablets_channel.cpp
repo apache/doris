@@ -239,7 +239,8 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     if (st.ok()) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
-        tablet_info->set_schema_hash(writer->schema_hash());
+        // unused required field.
+        tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
