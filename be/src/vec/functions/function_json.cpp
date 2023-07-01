@@ -69,6 +69,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/simd_json_parser.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
@@ -1128,6 +1129,95 @@ public:
     }
 };
 
+class FunctionJsonDepth : public IFunction {
+public:
+    static constexpr auto name = "json_depth";
+    static FunctionPtr create() { return std::make_shared<FunctionJsonDepth>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt32>());
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto result_col = ColumnInt32::create(input_rows_count, 0);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        // since I've overriden the function `use_default_implementation_for_constants` to return false,
+        // I have to deal with const columns specifically.
+        ColumnPtr input_col = block.get_by_position(arguments[0]).column;
+        const auto& [nullable_input_col, _] = unpack_if_const(input_col);
+
+        // TODO(niebayes): call `reserve` to avoid potential reallocations.
+        SimdJSONParser parser;
+
+        // Doris processes the input data in batch, aka. a block.
+        // a block consists of several cells where each cell is indexed by a row and a column numbers.
+        // for instance, the json string passed into this function is stored in a cell.
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (nullable_input_col->is_null_at(i)) {
+                result_null_map->get_data()[i] = 1;
+                continue;
+            }
+
+            const ColumnString* col_str = check_and_get_column<ColumnString>(nullable_input_col);
+            const std::string_view json_doc = col_str->get_data_at(i).to_string_view();
+
+            // the json elements are represented as a tree.
+            // `parse` takes in the json document and returns the root element of the tree if all goes well.
+            SimdJSONParser::Element root_element;
+            if (!parser.parse(json_doc, root_element)) {
+                // the error message is set properly to emulate the behavior of MySQL.
+                return Status::RuntimeError(fmt::format(
+                        "Invalid JSON text in argument 1 to function {}: {}", name, json_doc));
+            }
+
+            const size_t depth = _get_element_depth(root_element);
+
+            auto& result_data = result_col->get_data();
+            result_data[i] = static_cast<UInt32>(depth);
+        }
+
+        auto nullable_result_col =
+                ColumnNullable::create(std::move(result_col), std::move(result_null_map));
+        block.replace_by_position(result, std::move(nullable_result_col));
+
+        return Status::OK();
+    }
+
+private:
+    // if the element is not an array nor an object, its depth is one.
+    // otherwise, its depth is determined by the maximum depth of its children plus one.
+    size_t _get_element_depth(const SimdJSONParser::Element& element) {
+        size_t depth = 1;
+
+        if (element.isArray()) {
+            const SimdJSONParser::Array& array = element.getArray();
+            for (size_t i = 0; i < array.size(); ++i) {
+                const SimdJSONParser::Element& child_element = array[i];
+                depth = std::max(depth, _get_element_depth(child_element) + 1);
+            }
+
+        } else if (element.isObject()) {
+            const SimdJSONParser::Object& object = element.getObject();
+            for (size_t i = 0; i < object.size(); ++i) {
+                const SimdJSONParser::Element& child_element = object[i].second;
+                depth = std::max(depth, _get_element_depth(child_element) + 1);
+            }
+        }
+
+        return depth;
+    }
+};
+
 void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonInt>();
     factory.register_function<FunctionGetJsonBigInt>();
@@ -1142,6 +1232,7 @@ void register_function_json(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();
+    factory.register_function<FunctionJsonDepth>();
 }
 
 } // namespace doris::vectorized
