@@ -34,9 +34,6 @@ import com.google.common.base.Preconditions;
  * An example is tpch q15.
  */
 public class CostWeight {
-    static final double CPU_WEIGHT = 1;
-    static final double MEMORY_WEIGHT = 1;
-    static final double NETWORK_WEIGHT = 1.5;
     static final double DELAY = 0.5;
 
     final double cpuWeight;
@@ -69,7 +66,10 @@ public class CostWeight {
     }
 
     public static CostWeight get() {
-        return new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
+        double cpuWeight = ConnectContext.get().getSessionVariable().getCboCpuWeight();
+        double memWeight = ConnectContext.get().getSessionVariable().getCboMemWeight();
+        double netWeight = ConnectContext.get().getSessionVariable().getCboNetWeight();
+        return new CostWeight(cpuWeight, memWeight, netWeight,
                 ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
     }
 

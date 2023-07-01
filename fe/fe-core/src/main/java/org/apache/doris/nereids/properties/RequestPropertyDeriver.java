@@ -182,6 +182,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalUnion(PhysicalUnion union, PlanContext context) {
+        // TODO: we do not generate gather union until we could do better cost computation on set operation
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         if (union.getConstantExprsList().isEmpty()) {
@@ -190,10 +191,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             if (distributionRequestFromParent instanceof DistributionSpecHash) {
                 DistributionSpecHash distributionSpecHash = (DistributionSpecHash) distributionRequestFromParent;
                 requiredPropertyList = createHashRequestAccordingToParent(union, distributionSpecHash, context);
-            } else if (distributionRequestFromParent instanceof DistributionSpecGather) {
-                for (int i = context.arity(); i > 0; --i) {
-                    requiredPropertyList.add(PhysicalProperties.GATHER);
-                }
             } else {
                 for (int i = context.arity(); i > 0; --i) {
                     requiredPropertyList.add(PhysicalProperties.ANY);

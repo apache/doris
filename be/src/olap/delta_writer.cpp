@@ -34,10 +34,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
-#include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
@@ -47,8 +45,6 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/segment.h"
-#include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -95,7 +91,7 @@ void DeltaWriter::_init_profile(RuntimeProfile* profile) {
     _segment_writer_timer = ADD_TIMER(_profile, "SegmentWriterTime");
     _wait_flush_timer = ADD_TIMER(_profile, "MemTableWaitFlushTime");
     _put_into_output_timer = ADD_TIMER(_profile, "MemTablePutIntoOutputTime");
-    _delete_bitmap_timer = ADD_TIMER(_profile, "MemTableDeleteBitmapTime");
+    _delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapTime");
     _close_wait_timer = ADD_TIMER(_profile, "DeltaWriterCloseWaitTime");
     _sort_times = ADD_COUNTER(_profile, "MemTableSortTimes", TUnit::UNIT);
     _agg_times = ADD_COUNTER(_profile, "MemTableAggTimes", TUnit::UNIT);
@@ -199,14 +195,13 @@ Status DeltaWriter::init() {
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
-    context.tablet_id = _tablet->table_id();
+    context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
                                                        _delete_bitmap);
     RETURN_IF_ERROR(_tablet->create_rowset_writer(context, &_rowset_writer));
 
-    _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
     // create flush handler
@@ -346,10 +341,8 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_insert_trackers.push_back(mem_table_insert_tracker);
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
-    auto mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
-                                                    _delete_bitmap);
-    _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
-                                  _req.tuple_desc, _rowset_writer.get(), mow_context,
+    _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema.get(), _req.slots, _req.tuple_desc,
+                                  _rowset_writer.get(), _tablet->enable_unique_key_merge_on_write(),
                                   mem_table_insert_tracker, mem_table_flush_tracker));
 
     COUNTER_UPDATE(_segment_num, 1);
@@ -359,7 +352,6 @@ void DeltaWriter::_reset_mem_table() {
         COUNTER_SET(_agg_timer, _memtable_stat.agg_ns);
         COUNTER_SET(_memtable_duration_timer, _memtable_stat.duration_ns);
         COUNTER_SET(_segment_writer_timer, _memtable_stat.segment_writer_ns);
-        COUNTER_SET(_delete_bitmap_timer, _memtable_stat.delete_bitmap_ns);
         COUNTER_SET(_put_into_output_timer, _memtable_stat.put_into_output_ns);
         COUNTER_SET(_sort_times, _memtable_stat.sort_times);
         COUNTER_SET(_agg_times, _memtable_stat.agg_times);
@@ -502,6 +494,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         }
     }
     COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time() / 1000);
+    COUNTER_SET(_delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
     return Status::OK();
 }
 

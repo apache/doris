@@ -437,9 +437,7 @@ public class NativeInsertStmt extends InsertStmt {
                 mentionedColumns.add(col.getName());
                 targetColumns.add(col);
             }
-            realTargetColumnNames = targetColumns.stream().map(column -> column.getName()).collect(Collectors.toList());
         } else {
-            realTargetColumnNames = targetColumnNames;
             for (String colName : targetColumnNames) {
                 Column col = targetTable.getColumn(colName);
                 if (col == null) {
@@ -453,8 +451,8 @@ public class NativeInsertStmt extends InsertStmt {
             // hll column mush in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
                 if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException(" object-stored column " + col.getName()
-                            + " must in insert into columns");
+                    throw new AnalysisException(
+                            " object-stored column " + col.getName() + " mush in insert into columns");
                 }
             }
         }
@@ -535,18 +533,28 @@ public class NativeInsertStmt extends InsertStmt {
         }
 
         // check if size of select item equal with columns mentioned in statement
-        if (mentionedColumns.size() != queryStmt.getResultExprs().size()
-                || realTargetColumnNames.size() != queryStmt.getResultExprs().size()) {
+        if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
         }
 
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
 
+        realTargetColumnNames = targetColumns.stream().map(column -> column.getName()).collect(Collectors.toList());
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < realTargetColumnNames.size(); i++) {
+        for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
             slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
                     .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
+        }
+
+        for (Column column : targetTable.getBaseSchema()) {
+            if (!slotToIndex.containsKey(column.getName())) {
+                if (column.getDefaultValue() == null) {
+                    slotToIndex.put(column.getName(), new NullLiteral());
+                } else {
+                    slotToIndex.put(column.getName(), new StringLiteral(column.getDefaultValue()));
+                }
+            }
         }
 
         // handle VALUES() or SELECT constant list
