@@ -83,4 +83,15 @@ suite("test_json_function") {
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"projects\": [{\"name\": \"Project A\", \"year\": 2020}, {\"name\": \"Project B\", \"year\": 2021}]}', '{\"projects\": [{\"name\": \"Project A\"}]}', '\$.');"
     qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"address\": {\"city\": \"New York\", \"country\": \"USA\"}}', '{\"address\": {\"city\": \"New York\"}}', '\$.');"
 
+    qt_sql "SELECT json_valid(NULL);"
+    qt_sql "SELECT json_valid('1');"
+    qt_sql "SELECT json_valid('a');"
+    qt_sql "SELECT json_valid('hello');"
+    qt_sql "SELECT json_valid('[]');"
+    qt_sql "SELECT json_valid('[1, 2]');"
+    qt_sql "SELECT json_valid('[1, \"a\", {\"k\": \"v\"}]');"
+    qt_sql "SELECT json_valid('{}');"
+    qt_sql "SELECT json_valid('{\"k\": \"v\"}');"
+    qt_sql "SELECT json_valid('{\"k\": 1}');"
+    qt_sql "SELECT json_valid('[NULL]');"
 }

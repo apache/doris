@@ -69,6 +69,8 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/json_parser.h"
+#include "vec/json/simd_json_parser.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
@@ -913,7 +915,8 @@ public:
         vec_to.resize(size);
 
         // parser can be reused for performance
-        JsonbParser parser;
+        JSONDataParser<SimdJSONParser> parser;
+
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
                 null_map->get_data()[i] = 1;
