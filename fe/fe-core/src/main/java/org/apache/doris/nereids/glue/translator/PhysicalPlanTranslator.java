@@ -774,7 +774,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         MultiCastDataSink multiCastDataSink = (MultiCastDataSink) multiCastFragment.getSink();
         Preconditions.checkState(multiCastDataSink != null, "invalid multiCastDataSink");
 
-        PhysicalCTEProducer cteProducer = context.getCteProduceMap().get(cteId);
+        PhysicalCTEProducer<?> cteProducer = context.getCteProduceMap().get(cteId);
         Preconditions.checkState(cteProducer != null, "invalid cteProducer");
 
         // set datasink to multicast data sink but do not set target now
@@ -785,9 +785,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         multiCastDataSink.getDestinations().add(Lists.newArrayList());
 
         // update expr to slot mapping
-        for (int i = 0; i < cteConsumer.getOutput().size(); i++) {
-            Slot producerSlot = cteProducer.getOutput().get(i);
-            Slot consumerSlot = cteConsumer.getOutput().get(i);
+        for (Slot producerSlot : cteProducer.getProjects()) {
+            Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
             context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
         }
