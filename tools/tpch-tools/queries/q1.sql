@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
+select
     l_returnflag,
     l_linestatus,
     sum(l_quantity) as sum_qty,
