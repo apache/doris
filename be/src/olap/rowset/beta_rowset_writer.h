@@ -86,10 +86,6 @@ public:
 
     RowsetSharedPtr build() override;
 
-    // build a tmp rowset for load segment to calc delete_bitmap
-    // for this segment
-    RowsetSharedPtr build_tmp() override;
-
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
     Version version() override { return _context.version; }
@@ -123,6 +119,10 @@ public:
 
     Status wait_flying_segcompaction() override;
 
+    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+
+    int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
+
 private:
     Status _do_add_block(const vectorized::Block* block,
                          std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
@@ -138,6 +138,7 @@ private:
                                   const FlushContext* ctx = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
+    Status _generate_delete_bitmap(int32_t segment_id);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
@@ -157,7 +158,9 @@ private:
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
-    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+    // build a tmp rowset for load segment to calc delete_bitmap
+    // for this segment
+    RowsetSharedPtr _build_tmp();
 
 protected:
     RowsetWriterContext _context;
@@ -219,6 +222,8 @@ protected:
     fmt::memory_buffer vlog_buffer;
 
     std::shared_ptr<MowContext> _mow_context;
+
+    int64_t _delete_bitmap_ns = 0;
 };
 
 } // namespace doris
