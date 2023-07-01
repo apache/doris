@@ -602,9 +602,33 @@ public class TransactionState implements Writable {
         sb.append(", callback id: ").append(callbackId);
         sb.append(", coordinator: ").append(txnCoordinator.toString());
         sb.append(", transaction status: ").append(transactionStatus);
-        sb.append(", error replicas num: ").append(errorReplicas.size());
-        sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
-        sb.append(", prepare time: ").append(prepareTime);
+        sb.append(", old error replicas: { size ").append(errorReplicas.size());
+        sb.append(", ids ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
+        sb.append("}, commit error replicas: { ");
+        for (Map.Entry<Long, Set<Long>> pair : commitErrorReplicas.entrySet()) {
+            sb.append("[").append(pair.getKey()).append("]={ ");
+            Set<Long> ids = pair.getValue();
+            if (ids == null) {
+                sb.append("all failed");
+            } else {
+                sb.append("size ").append(ids.size());
+                sb.append(", ids ").append(Joiner.on(",").join(ids.stream().limit(3).toArray()));
+            }
+            sb.append(" }, ");
+        }
+        sb.append("}, publish error replicas: { ");
+        for (Map.Entry<Long, Set<Long>> pair : publishErrorReplicas.entrySet()) {
+            sb.append("[").append(pair.getKey()).append("]={ ");
+            Set<Long> ids = pair.getValue();
+            if (ids == null) {
+                sb.append("all failed");
+            } else {
+                sb.append("size ").append(ids.size());
+                sb.append(", ids ").append(Joiner.on(",").join(ids.stream().limit(3).toArray()));
+            }
+            sb.append(" }, ");
+        }
+        sb.append("}, prepare time: ").append(prepareTime);
         sb.append(", commit time: ").append(commitTime);
         sb.append(", finish time: ").append(finishTime);
         sb.append(", reason: ").append(reason);

@@ -57,6 +57,30 @@ public class PublishVersionDaemon extends MasterDaemon {
         }
     }
 
+    private void genPublishErrorReplicas(TransactionState transactionState) {
+        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentInvertedIndex();
+        Map<Long, Set<Long>> publishErrorReplicas = transactionState.getPublishErrorReplicas();
+        publishErrorReplicas.clear();
+        for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
+            long backendId = task.getBackendId();
+            if (!task.isFinished()) {
+                publishErrorReplicas.put(backendId, null);
+                continue;
+            }
+            Set<Long> errorReplicas = Sets.newHashSet();
+            for (Long tabletId : task.getErrorTablets()) {
+                if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
+                    continue;
+                }
+                Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
+                if (replica != null) {
+                    errorReplicas.add(replica.getId());
+                }
+            }
+            publishErrorReplicas.put(backendId, errorReplicas);
+        }
+    }
+
     private void publishVersion() {
         GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
@@ -123,7 +147,6 @@ public class PublishVersionDaemon extends MasterDaemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentInvertedIndex();
         SystemInfoService sysInfoService = Env.getCurrentSystemInfo();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
@@ -132,26 +155,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
             if (!hasUnfinishAndAliveBackend || transactionState.isPublishTimeout()) {
                 try {
-                    Map<Long, Set<Long>> publishErrorReplicas = transactionState.getPublishErrorReplicas();
-                    publishErrorReplicas.clear();
-                    for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
-                        long backendId = task.getBackendId();
-                        if (!task.isFinished()) {
-                            publishErrorReplicas.put(backendId, null);
-                            continue;
-                        }
-                        Set<Long> errorReplicas = Sets.newHashSet();
-                        for (Long tabletId : task.getErrorTablets()) {
-                            if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
-                                continue;
-                            }
-                            Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
-                            if (replica != null) {
-                                errorReplicas.add(replica.getId());
-                            }
-                        }
-                        publishErrorReplicas.put(backendId, errorReplicas);
-                    }
+                    genPublishErrorReplicas(transactionState);
 
                     // one transaction exception should not affect other transaction
                     globalTransactionMgr.finishTransaction(transactionState.getDbId(),
