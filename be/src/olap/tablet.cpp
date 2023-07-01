@@ -2812,9 +2812,8 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
     std::vector<RowInBlock*> _row_in_blocks;
     _row_in_blocks.reserve(in_block.rows());
 
-    std::unique_ptr<Schema> schema(new Schema(_schema));
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
-            std::make_shared<RowInBlockComparator>(schema.get());
+            std::make_shared<RowInBlockComparator>(_schema.get());
     vec_row_comparator->set_block(&mutable_input_block);
 
     std::vector<RowInBlock*> row_in_blocks;
