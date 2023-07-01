@@ -86,6 +86,12 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
                                                       SourceState& source_state) {
     bool eos = false;
     _multi_cast_data_streamer->pull(_consumer_id, block, &eos);
+
+    if (!_conjuncts.empty()) {
+        RETURN_IF_ERROR(
+                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+    }
+
     if (!_output_expr_contexts.empty()) {
         vectorized::Block output_block;
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
@@ -93,12 +99,6 @@ Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vecto
         materialize_block_inplace(output_block);
         block->swap(output_block);
     }
-
-    if (!_conjuncts.empty()) {
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
-    }
-
     if (eos) {
         source_state = SourceState::FINISHED;
     }
