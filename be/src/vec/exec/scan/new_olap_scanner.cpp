@@ -571,6 +571,7 @@ void NewOlapScanner::_update_counters_before_close() {
     }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
+    COUNTER_UPDATE(olap_parent->_dict_filtered_counter, stats.rows_dict_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_by_bitmap);

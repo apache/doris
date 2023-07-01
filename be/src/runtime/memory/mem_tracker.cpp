@@ -24,6 +24,7 @@
 
 #include <mutex>
 
+#include "common/daemon.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
@@ -81,7 +82,7 @@ void MemTracker::bind_parent(MemTrackerLimiter* parent) {
 }
 
 MemTracker::~MemTracker() {
-    if (_parent_group_num != -1) {
+    if (_parent_group_num != -1 && !k_doris_exit) {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
         if (_tracker_group_it != mem_tracker_pool[_parent_group_num].trackers.end()) {
             mem_tracker_pool[_parent_group_num].trackers.erase(_tracker_group_it);

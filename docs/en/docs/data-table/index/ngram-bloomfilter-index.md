@@ -29,7 +29,7 @@ under the License.
 <version since="2.0.0">
 </version>
 
-In order to improve the like query performance, the NGram BloomFilter index was implemented, which referenced to the ClickHouse's ngrambf skip indices;
+In order to improve the like query performance, the NGram BloomFilter index was implemented.
 
 ## Create Column With NGram BloomFilter Index
 

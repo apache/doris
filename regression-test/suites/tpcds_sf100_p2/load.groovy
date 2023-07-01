@@ -73,6 +73,7 @@ suite('load') {
             rowCount = sql "select count(*) from ${table}"
         }
         assertEquals(rows, rowCount[0][0])
+        sql """SET query_timeout = 1800"""
         sql """ ANALYZE TABLE $table WITH SYNC """
     }
 }

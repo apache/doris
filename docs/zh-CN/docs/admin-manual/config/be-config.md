@@ -326,6 +326,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：当使用odbc外表时，如果odbc源表的某一列类型不是HLL, CHAR或者VARCHAR，并且列值长度超过该值，则查询报错'column value length longer than buffer length'. 可增大该值
 * 默认值：100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* 类型: int32
+* 描述: JSONB 类型最大长度的软限，单位是字节
+* 默认值: 1048576
+
 ### 查询
 
 #### `fragment_pool_queue_size`
@@ -1469,7 +1475,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `enable_simdjson_reader`
 
 * 描述: 是否在导入json数据时用simdjson来解析。
-* 默认值: false
+* 默认值: true
 
 </version>
 

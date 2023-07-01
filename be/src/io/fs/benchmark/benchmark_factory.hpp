@@ -38,8 +38,18 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
                                const std::map<std::string, std::string>& conf_map,
                                BaseBenchmark** bm) {
     if (fs_type == "s3") {
-        if (op_type == "read") {
-            *bm = new S3ReadBenchmark(threads, iterations, file_size, conf_map);
+        if (op_type == "create_write") {
+            *bm = new S3CreateWriteBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "open_read") {
+            *bm = new S3OpenReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "single_read") {
+            *bm = new S3SingleReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "rename") {
+            *bm = new S3RenameBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "exists") {
+            *bm = new S3ExistsBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "list") {
+            *bm = new S3ListBenchmark(threads, iterations, file_size, conf_map);
         } else {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "unknown params: fs_type: {}, op_type: {}, iterations: {}", fs_type, op_type,
@@ -50,12 +60,10 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
             *bm = new HdfsCreateWriteBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "open_read") {
             *bm = new HdfsOpenReadBenchmark(threads, iterations, file_size, conf_map);
-        } else if (op_type == "open") {
-            *bm = new HdfsOpenBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "single_read") {
+            *bm = new HdfsSingleReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "rename") {
             *bm = new HdfsRenameBenchmark(threads, iterations, file_size, conf_map);
-        } else if (op_type == "delete") {
-            *bm = new HdfsDeleteBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "exists") {
             *bm = new HdfsExistsBenchmark(threads, iterations, file_size, conf_map);
         } else {
@@ -80,7 +88,7 @@ public:
               _conf_map(conf_map) {}
 
     ~MultiBenchmark() {
-        for (auto bm : benchmarks) {
+        for (auto bm : _benchmarks) {
             delete bm;
         }
     }
@@ -113,12 +121,12 @@ public:
             return st;
         }
         bm->register_bm();
-        benchmarks.emplace_back(bm);
+        _benchmarks.emplace_back(bm);
         return Status::OK();
     }
 
 private:
-    std::vector<BaseBenchmark*> benchmarks;
+    std::vector<BaseBenchmark*> _benchmarks;
     std::string _type;
     std::string _operation;
     int64_t _threads;

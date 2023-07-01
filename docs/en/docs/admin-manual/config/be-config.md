@@ -315,6 +315,12 @@ There are two ways to configure BE configuration items:
 * Description:  When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
 * Default value: 100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* Type: int32
+* Description: The soft limit of the maximum length of JSONB type.
+* Default value: 1,048,576
+
 ### Query
 
 #### `fragment_pool_queue_size`
@@ -1452,7 +1458,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
-* Default value: false
+* Default value: true
 
 </version>
 

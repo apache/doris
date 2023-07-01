@@ -344,6 +344,7 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, const std::string
                 InvertedIndexQueryCache::CacheKey cache_key {index_file_path, column_name,
                                                              InvertedIndexQueryType::EQUAL_QUERY,
                                                              token_ws};
+                VLOG_DEBUG << "cache_key:" << cache_key.encode();
                 InvertedIndexQueryCacheHandle cache_handle;
                 if (cache->lookup(cache_key, &cache_handle)) {
                     stats->inverted_index_query_cache_hit++;

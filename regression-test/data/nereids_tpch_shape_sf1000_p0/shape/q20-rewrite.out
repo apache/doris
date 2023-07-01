@@ -22,11 +22,12 @@ PhysicalQuickSort
 --------------------PhysicalProject
 ----------------------filter((p_name like 'forest%'))
 ------------------------PhysicalOlapScan[part]
-----------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
-------------PhysicalProject
---------------PhysicalOlapScan[supplier]
-------------PhysicalDistribute
+----------PhysicalDistribute
+------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
 --------------PhysicalProject
-----------------filter((nation.n_name = 'CANADA'))
-------------------PhysicalOlapScan[nation]
+----------------PhysicalOlapScan[supplier]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------filter((nation.n_name = 'CANADA'))
+--------------------PhysicalOlapScan[nation]
 

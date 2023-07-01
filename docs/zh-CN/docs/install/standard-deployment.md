@@ -88,7 +88,7 @@ ext4和xfs文件系统均支持。
 > 注1：
 > 1. FE 的磁盘空间主要用于存储元数据，包括日志和 image。通常从几百 MB 到几个 GB 不等。
 > 2. BE 的磁盘空间主要用于存放用户数据，总磁盘空间按用户总数据量 * 3（3副本）计算，然后再预留额外 40% 的空间用作后台 compaction 以及一些中间数据的存放。
-> 3. 一台机器上可以部署多个 BE 实例，但是**只能部署一个 FE**。如果需要 3 副本数据，那么至少需要 3 台机器各部署一个 BE 实例（而不是1台机器部署3个BE实例）。**多个FE所在服务器的时钟必须保持一致（允许最多5秒的时钟偏差）**
+> 3. 一台机器上虽然可以部署多个 BE，**但只建议部署一个实例**，同时**只能部署一个 FE**。如果需要 3 副本数据，那么至少需要 3 台机器各部署一个 BE 实例（而不是1台机器部署3个BE实例）。**多个FE所在服务器的时钟必须保持一致（允许最多5秒的时钟偏差）**
 > 4. 测试环境也可以仅适用一个 BE 进行测试。实际生产环境，BE 实例数量直接决定了整体查询延迟。
 > 5. 所有部署节点关闭 Swap。
 
@@ -192,31 +192,29 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 * 修改所有 BE 的配置
 
-  修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用英文状态的分号 `;` 分隔（**最后一个目录后不要加 `;`**）。  
-  可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。如果用户不是SSD和HDD磁盘混合使用的情况，不需要按照如下示例一和示例二的配置方法配置，只需指定存储目录即可；也不需要修改FE的默认存储介质配置  
+  修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，若需要指定目录的话，需要**预创建目录**。多个路径之间使用英文状态的分号 `;` 分隔（**最后一个目录后不要加 `;`**）。  
+  可以通过路径区别节点内的冷热数据存储目录，HDD（冷数据目录）或 SSD（热数据目录）。如果不需要 BE 节点内的冷热机制，那么只需要配置路径即可，无需指定 medium 类型；也不需要修改FE的默认存储介质配置  
+
+  **注意：**
+  1. 如果指定存储路径的存储类型，则最少要有一个路径的存储类型为 HDD（冷数据目录）！
+  2. 如果未指定存储路径的存储类型，则默认全部为 HDD（冷数据目录）。
+  3. 这里的 HDD 和 SSD 与物理存储介质无关，只为了区分存储路径的存储类型，即可以在 HDD 介质的盘上标记某个目录为 SSD（热数据目录）。
+  4. 这里的 HDD 和 SSD **必须**要大写！
 
   示例1如下：
 
-  **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
-
-  `storage_root_path=/home/disk1/doris.HDD;/home/disk2/doris.SSD;/home/disk2/doris`
-
-  **说明**
-
-    - /home/disk1/doris.HDD ： 表示存储介质是HDD;
-    - /home/disk2/doris.SSD： 表示存储介质是SSD；
-    - /home/disk2/doris： 表示存储介质是HDD（默认）
+  `storage_root_path=/home/disk1/doris;/home/disk2/doris;/home/disk2/doris`
 
   示例2如下：
 
-  **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+  **使用 storage_root_path 参数里指定 medium**
 
   `storage_root_path=/home/disk1/doris,medium:HDD;/home/disk2/doris,medium:SSD`
 
   **说明**
 
-    - /home/disk1/doris,medium:HDD： 表示存储介质是HDD;
-    - /home/disk2/doris,medium:SSD： 表示存储介质是SSD;
+    - /home/disk1/doris,medium:HDD： 表示该目录存储冷数据;
+    - /home/disk2/doris,medium:SSD： 表示该目录存储热数据;
 
 * BE webserver_port端口配置
 
