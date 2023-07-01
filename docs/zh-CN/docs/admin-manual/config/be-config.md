@@ -1475,7 +1475,7 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 #### `enable_simdjson_reader`
 
 * 描述: 是否在导入json数据时用simdjson来解析。
-* 默认值: false
+* 默认值: true
 
 </version>
 
