@@ -112,7 +112,7 @@ public class DataStreamSink extends DataSink {
         }
         if (!conjuncts.isEmpty()) {
             Expr expr = PlanNode.convertConjunctsToAndCompoundPredicate(conjuncts);
-            strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql());
+            strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql()).append("\n");
         }
         if (!CollectionUtils.isEmpty(projections)) {
             strBuilder.append(prefix).append("  PROJECTIONS: ")
