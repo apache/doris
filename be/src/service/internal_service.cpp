@@ -276,6 +276,20 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
                                               google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
+    });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
+}
+
+void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
+        google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
     auto span = telemetry::start_rpc_server_span("exec_plan_fragment", controller);
     auto scope = OpentelemetryScope {span};
     brpc::ClosureGuard closure_guard(done);
@@ -284,7 +298,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     try {
-        st = _exec_plan_fragment(request->request(), version, compact);
+        st = _exec_plan_fragment_impl(request->request(), version, compact);
     } catch (const Exception& e) {
         st = e.to_status();
     } catch (...) {
@@ -301,7 +315,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        exec_plan_fragment(controller, request, response, done);
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -426,8 +440,9 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
-                                                 PFragmentRequestVersion version, bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_request,
+                                                      PFragmentRequestVersion version,
+                                                      bool compact) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
     if (ExecEnv::GetInstance()->master_info() == nullptr) {
