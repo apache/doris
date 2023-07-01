@@ -7658,6 +7658,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_PERIOD:id
     {: RESULT = id; :}
+    | KW_PERCENT:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
