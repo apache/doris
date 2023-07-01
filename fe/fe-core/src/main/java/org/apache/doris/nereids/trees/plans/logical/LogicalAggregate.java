@@ -76,6 +76,13 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 false, Optional.empty(), child);
     }
 
+    /**
+     * Distinct Agg
+     */
+    public LogicalAggregate(List<NamedExpression> namedExpressions, CHILD_TYPE child) {
+        this(ImmutableList.copyOf(namedExpressions), namedExpressions, false, Optional.empty(), child);
+    }
+
     public LogicalAggregate(List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions, boolean ordinalIsResolved, CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, false, ordinalIsResolved, Optional.empty(),

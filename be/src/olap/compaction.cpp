@@ -68,9 +68,27 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_index_size(0),
           _state(CompactionState::INITED) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
+    init_profile(label);
 }
 
 Compaction::~Compaction() {}
+
+void Compaction::init_profile(const std::string& label) {
+    _profile = std::make_unique<RuntimeProfile>(label);
+
+    _input_rowsets_data_size_counter =
+            ADD_COUNTER(_profile, "input_rowsets_data_size", TUnit::BYTES);
+    _input_rowsets_counter = ADD_COUNTER(_profile, "input_rowsets_count", TUnit::UNIT);
+    _input_row_num_counter = ADD_COUNTER(_profile, "input_row_num", TUnit::UNIT);
+    _input_segments_num_counter = ADD_COUNTER(_profile, "input_segments_num", TUnit::UNIT);
+    _merged_rows_counter = ADD_COUNTER(_profile, "merged_rows", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "filtered_rows", TUnit::UNIT);
+    _output_rowset_data_size_counter =
+            ADD_COUNTER(_profile, "output_rowset_data_size", TUnit::BYTES);
+    _output_row_num_counter = ADD_COUNTER(_profile, "output_row_num", TUnit::UNIT);
+    _output_segments_num_counter = ADD_COUNTER(_profile, "output_segments_num", TUnit::UNIT);
+    _merge_rowsets_latency_timer = ADD_TIMER(_profile, "merge_rowsets_latency");
+}
 
 Status Compaction::compact() {
     RETURN_IF_ERROR(prepare_compact());
@@ -208,9 +226,9 @@ void Compaction::build_basic_info() {
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
-    TRACE_COUNTER_INCREMENT("input_rowsets_data_size", _input_rowsets_size);
-    TRACE_COUNTER_INCREMENT("input_row_num", _input_row_num);
-    TRACE_COUNTER_INCREMENT("input_segments_num", _input_num_segments);
+    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_size);
+    COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
+    COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
@@ -315,13 +333,16 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     Status res;
-    if (vertical_compaction) {
-        res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                             _input_rs_readers, _output_rs_writer.get(),
-                                             get_avg_segment_rows(), &stats);
-    } else {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                     _input_rs_readers, _output_rs_writer.get(), &stats);
+    {
+        SCOPED_TIMER(_merge_rowsets_latency_timer);
+        if (vertical_compaction) {
+            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                                 _input_rs_readers, _output_rs_writer.get(),
+                                                 get_avg_segment_rows(), &stats);
+        } else {
+            res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+        }
     }
 
     if (!res.ok()) {
@@ -330,8 +351,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                      << ", output_version=" << _output_version;
         return res;
     }
-    TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
-    TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
+    COUNTER_UPDATE(_merged_rows_counter, stats.merged_rows);
+    COUNTER_UPDATE(_filtered_rows_counter, stats.filtered_rows);
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
@@ -340,9 +361,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         return Status::Error<ROWSET_BUILDER_INIT>();
     }
 
-    TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
-    TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
-    TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+    COUNTER_UPDATE(_output_row_num_counter, _output_rowset->num_rows());
+    COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
 
     // 3. check correctness
     RETURN_IF_ERROR(check_correctness(stats));

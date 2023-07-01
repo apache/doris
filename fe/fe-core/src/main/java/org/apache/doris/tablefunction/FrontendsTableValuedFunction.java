@@ -32,14 +32,14 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * backends().
+ * frontends().
  */
 public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "frontends";
 
     private static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Name", ScalarType.createStringType()),
-            new Column("HOST", ScalarType.createStringType()),
+            new Column("Host", ScalarType.createStringType()),
             new Column("EditLogPort", ScalarType.createStringType()),
             new Column("HttpPort", ScalarType.createStringType()),
             new Column("QueryPort", ScalarType.createStringType()),

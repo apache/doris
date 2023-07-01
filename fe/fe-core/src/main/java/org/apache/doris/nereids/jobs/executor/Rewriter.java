@@ -61,6 +61,7 @@ import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
+import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineCTE;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
@@ -232,6 +233,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new MergeSetOperations()),
                     bottomUp(new PushProjectIntoOneRowRelation()),
                     topDown(new MergeOneRowRelationIntoUnion()),
+                    costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
 

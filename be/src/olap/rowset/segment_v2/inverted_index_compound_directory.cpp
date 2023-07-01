@@ -484,12 +484,12 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     if (!status.ok()) {
         auto err = "File system error: " + status.to_string();
         LOG(WARNING) << err;
-        _CLTHROWA_DEL(CL_ERR_IO, err.c_str());
+        _CLTHROWA(CL_ERR_IO, err.c_str());
     }
     if (!exists) {
         auto e = "Doris compound directory init error: " + directory + " is not a directory";
         LOG(WARNING) << e;
-        _CLTHROWA_DEL(CL_ERR_IO, e.c_str());
+        _CLTHROWA(CL_ERR_IO, e.c_str());
     }
 }
 
