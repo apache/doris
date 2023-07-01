@@ -46,7 +46,6 @@ public class PhysicalProperties {
 
     public static PhysicalProperties MUST_SHUFFLE = new PhysicalProperties(DistributionSpecMustShuffle.INSTANCE);
 
-
     private final OrderSpec orderSpec;
 
     private final DistributionSpec distributionSpec;
