@@ -78,7 +78,7 @@ public class TransactionStateTest {
         for (long i = 1000; i < 2000; i++) {
             Set<Long> replicas = Sets.newHashSet();
             for (long j = 0; j < 10; j++) {
-                replicas.add(i+j);
+                replicas.add(i + j);
             }
             commitErrorReplicas.put(i, replicas);
         }
@@ -88,7 +88,7 @@ public class TransactionStateTest {
         for (long i = 2000; i < 3000; i++) {
             Set<Long> replicas = Sets.newHashSet();
             for (long j = 0; j < 10; j++) {
-                replicas.add(i+j);
+                replicas.add(i + j);
             }
             publishErrorReplicas.put(i, replicas);
         }

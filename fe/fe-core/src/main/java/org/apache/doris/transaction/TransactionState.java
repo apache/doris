@@ -544,6 +544,32 @@ public class TransactionState implements Writable {
         this.publishErrorReplicas = publishErrorReplicas;
     }
 
+    public int getErrorReplicaNum() {
+        if (commitErrorReplicas.isEmpty() && publishErrorReplicas.isEmpty()) {
+            return errorReplicas.size();
+        }
+
+        int errNum = 0;
+        for (Map.Entry<Long, Set<Long>> pair : commitErrorReplicas.entrySet()) {
+            errNum += pair.getValue().size();
+        }
+
+        for (Map.Entry<Long, Set<Long>> pair : publishErrorReplicas.entrySet()) {
+            if (!commitErrorReplicas.containsKey(pair.getKey())) {
+                errNum += pair.getValue().size();
+            } else {
+                Set<Long> replicas = commitErrorReplicas.get(pair.getKey());
+                for (Long replicaId : pair.getValue()) {
+                    if (!replicas.contains(replicaId)) {
+                        errNum++;
+                    }
+                }
+            }
+        }
+
+        return errNum;
+    }
+
     public long getDbId() {
         return dbId;
     }

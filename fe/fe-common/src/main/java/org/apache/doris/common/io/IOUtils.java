@@ -275,21 +275,21 @@ public class IOUtils {
 
     public static void write(DataOutput output, Object value) throws IOException {
         if (value instanceof Integer) {
-            output.writeInt((Integer)value);
+            output.writeInt((Integer) value);
         } else if (value instanceof Long) {
-            output.writeLong((Long)value);
+            output.writeLong((Long) value);
         } else if (value instanceof Boolean) {
-            output.writeBoolean((Boolean)value);
+            output.writeBoolean((Boolean) value);
         } else if (value instanceof Float) {
-            output.writeFloat((Float)value);
+            output.writeFloat((Float) value);
         } else if (value instanceof Collection) {
-            Collection collection = (Collection)value;
+            Collection collection = (Collection) value;
             output.writeInt(collection.size());
             for (Object elem : collection) {
                 write(output, elem);
             }
         } else if (value instanceof Map) {
-            Map<?, ?> map = (Map)value;
+            Map<?, ?> map = (Map) value;
             output.writeInt(map.size());
             for (Map.Entry<?, ?> pair : map.entrySet()) {
                 write(output, pair.getKey());

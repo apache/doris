@@ -291,7 +291,7 @@ public class DatabaseTransactionMgr {
         info.add(TimeUtils.longToTimeString(txnState.getPublishVersionTime()));
         info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
         info.add(txnState.getReason());
-        info.add(String.valueOf(txnState.getErrorReplicas().size()));
+        info.add(String.valueOf(txnState.getErrorReplicaNum()));
         info.add(String.valueOf(txnState.getCallbackId()));
         info.add(String.valueOf(txnState.getTimeoutMs()));
         info.add(txnState.getErrMsg());
