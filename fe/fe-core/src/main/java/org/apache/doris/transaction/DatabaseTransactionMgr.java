@@ -563,8 +563,9 @@ public class DatabaseTransactionMgr {
             OlapTable table = pair.value();
             List<MaterializedIndex> allIndices = transactionState.getPartitionLoadedIndexes(partition, table.getId());
             try {
-                ReplicaHealthUtils.checkPartitionReadyCommit(table, partition, allIndices, isReplicaCommitSucc);
-            } catch (UserException e) {
+                ReplicaHealthUtils.checkPartitionReadyCommit(table, partition, allIndices,
+                        isReplicaCommitSucc, transactionState.getTransactionId());
+            } catch (Exception e) {
                 transactionState.setErrorMsg(e.getMessage());
                 LOG.warn("commit failed for transaction {}, err: {}", transactionState,
                         e.getMessage());
@@ -882,7 +883,8 @@ public class DatabaseTransactionMgr {
                     try {
                         ReplicaHealthUtils.checkPartitionReadyVisibleOnVersion(table, partition,
                                 transactionState.getPartitionLoadedIndexes(partition, tableId),
-                                partitionCommitInfo.getVersion(), isReplicaContainThisVersion);
+                                partitionCommitInfo.getVersion(), isReplicaContainThisVersion,
+                                transactionState.getTransactionId());
                     } catch (UserException e) {
                         transactionState.setErrorMsg(e.getMessage());
                         LOG.warn("publish version failed for transaction {}, err: {}", transactionState,

@@ -531,6 +531,7 @@ public class GlobalTransactionMgrTest {
         Map<Long, Set<Long>> publishErrorReplicas = Maps.newHashMap();
         publishErrorReplicas.put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
         publishErrorReplicas.put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId3, Sets.newHashSet());
         publishErrorReplicas.get(CatalogTestUtil.testBackendId2).add(CatalogTestUtil.testReplicaId2);
         transactionState.setPublishErrorReplicas(publishErrorReplicas);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);

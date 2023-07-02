@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.transaction.TabletQuorumFailedException;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -35,8 +36,8 @@ public class ReplicaHealthUtils {
     private static final Logger LOG = LogManager.getLogger(ReplicaHealthUtils.class);
 
     public static void checkPartitionReadyCommit(OlapTable table, Partition partition,
-            List<MaterializedIndex> allIndices, Predicate<Replica> isReplicaCommitSucc)
-            throws UserException {
+            List<MaterializedIndex> allIndices, Predicate<Replica> isReplicaCommitSucc,
+            long transactionId) throws UserException {
         List<Replica> succReplicas = Lists.newArrayList();
         List<Replica> failCommitReplicas = Lists.newArrayList();
         List<Replica> failVersionReplicas = Lists.newArrayList();
@@ -56,12 +57,13 @@ public class ReplicaHealthUtils {
                     }
                 }
                 if (succReplicas.size() < requiredReplicaNum) {
-                    throw new UserException(String.format("partition %s can not commit"
-                                + " due to tablet %s succ replica num %s < required replica num %s, "
-                                + " this tablet's succ replicas { %s }, fail commit replicas { %s },"
-                                + " fail version replicas { %s }",
-                                partition.getId(), tablet.getId(), succReplicas.size(), requiredReplicaNum,
-                                Joiner.on(",").join(succReplicas),
+                    // spark load job will retry if catch `TabletQuorumFailedException`
+                    throw new TabletQuorumFailedException(transactionId, String.format("[transaction %s] "
+                                + " partition %s can not commit due to tablet %s succ replica num %s < required"
+                                + " replica num %s, this tablet's succ replicas { %s }, fail commit"
+                                + " replicas { %s }, fail version replicas { %s }",
+                                transactionId, partition.getId(), tablet.getId(), succReplicas.size(),
+                                requiredReplicaNum, Joiner.on(",").join(succReplicas),
                                 Joiner.on(",").join(failCommitReplicas),
                                 Joiner.on(",").join(failVersionReplicas)));
                 }
@@ -97,11 +99,11 @@ public class ReplicaHealthUtils {
     // while the partition is not visible on that version yeah.
     public static void checkPartitionReadyVisibleOnVersion(OlapTable table, Partition partition,
             List<MaterializedIndex> allIndices, long version,
-            Predicate<Replica> isReplicaContainThisVersion) throws UserException {
+            Predicate<Replica> isReplicaContainThisVersion, long transactionId) throws UserException {
         if (partition.getVisibleVersion() != version - 1) {
-            throw new UserException(String.format("partition %s can not visible on version %s due to"
-                        + " it's not equal to partition's visible version %s + 1, need wait",
-                        partition.getId(), version, partition.getVisibleVersion()));
+            throw new UserException(String.format("[transaction %s] partition %s can not visible on version"
+                        + " %s due to it's not equal to partition's visible version %s + 1, need wait",
+                        transactionId, partition.getId(), version, partition.getVisibleVersion()));
 
         }
 
@@ -121,10 +123,10 @@ public class ReplicaHealthUtils {
                 }
 
                 if (succReplicas.size() < requiredReplicaNum) {
-                    throw new UserException(String.format("partition %s can not visible on version %s "
+                    throw new UserException(String.format("[transaction %s] partition %s can not visible on version %s "
                                 + " due to tablet %s succ replica num %s < required replica num %s, "
                                 + " this tablet's succ replicas { %s }, fail replicas { %s }",
-                                partition.getId(), version, tablet.getId(), succReplicas.size(),
+                                transactionId, partition.getId(), version, tablet.getId(), succReplicas.size(),
                                 requiredReplicaNum, Joiner.on(",").join(succReplicas),
                                 Joiner.on(",").join(failReplicas)));
                 }
