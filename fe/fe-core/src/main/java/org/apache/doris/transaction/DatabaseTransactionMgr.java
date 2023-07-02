@@ -419,22 +419,20 @@ public class DatabaseTransactionMgr {
             return;
         }
 
-        Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
 
-        checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
+        checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment,
                           tableToPartition, totalInvolvedBackends);
 
-        unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
-                totalInvolvedBackends, db);
+        unprotectedPreCommitTransaction2PC(transactionState, tableToPartition, totalInvolvedBackends, db);
         LOG.info("transaction:[{}] successfully pre-committed", transactionState);
     }
 
     private void checkCommitStatus(List<Table> tableList, TransactionState transactionState,
                                    List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
-                                   Set<Long> errorReplicaIds, Map<Long, Set<Long>> tableToPartition,
-                                   Set<Long> totalInvolvedBackends) throws UserException {
+                                   Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends)
+                                   throws UserException {
 
         Database db = env.getInternalCatalog().getDbOrMetaException(dbId);
 
@@ -492,24 +490,14 @@ public class DatabaseTransactionMgr {
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
         }
+
+        Map<Long, Set<Long>> commitErrorReplicas = Maps.newHashMap();
+        List<Pair<Partition, OlapTable>> involvedPartitions = Lists.newArrayList();
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
             for (Partition partition : table.getAllPartitions()) {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
-                }
-
-                List<MaterializedIndex> allIndices;
-                if (transactionState.getLoadedTblIndexes().isEmpty()) {
-                    allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                } else {
-                    allIndices = Lists.newArrayList();
-                    for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
-                        MaterializedIndex index = partition.getIndex(indexId);
-                        if (index != null) {
-                            allIndices.add(index);
-                        }
-                    }
                 }
 
                 if (table.getState() == OlapTable.OlapTableState.ROLLUP
@@ -531,63 +519,57 @@ public class DatabaseTransactionMgr {
                     transactionState.prolongPublishTimeout();
                 }
 
-                int quorumReplicaNum = table.getPartitionInfo()
-                        .getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
+                involvedPartitions.add(Pair.of(partition, table));
+                List<MaterializedIndex> allIndices = transactionState.getPartitionLoadedIndexes(partition, tableId);
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
-                        int successReplicaNum = 0;
                         long tabletId = tablet.getId();
                         Set<Long> tabletBackends = tablet.getBackendIds();
-                        totalInvolvedBackends.addAll(tabletBackends);
                         Set<Long> commitBackends = tabletToBackends.get(tabletId);
-                        // save the error replica ids for current tablet
-                        // this param is used for log
-                        Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
-                        String errorReplicaInfo = new String();
+                        totalInvolvedBackends.addAll(tabletBackends);
                         for (long tabletBackend : tabletBackends) {
                             Replica replica = tabletInvertedIndex.getReplica(tabletId, tabletBackend);
                             if (replica == null) {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
                                         + tabletId + "], backend [" + tabletBackend + "]");
                             }
-                            // if the tablet have no replica's to commit or the tablet is a rolling up tablet,
-                            // the commit backends maybe null
-                            // if the commit backends is null, set all replicas as error replicas
-                            if (commitBackends != null && commitBackends.contains(tabletBackend)) {
-                                // if the backend load success but the backend has some errors previously,
-                                // then it is not a normal replica
-                                // ignore it but not log it
-                                // for example, a replica is in clone state
-                                if (replica.getLastFailedVersion() < 0) {
-                                    ++successReplicaNum;
-                                } else {
-                                    errorReplicaInfo += " replica [" + replica.getId() + "], lastFailedVersion ["
-                                                        + replica.getLastFailedVersion() + "]";
-                                }
-                            } else {
-                                errorBackendIdsForTablet.add(tabletBackend);
-                                errorReplicaIds.add(replica.getId());
-                                // not remove rollup task here, because the commit maybe failed
-                                // remove rollup task when commit successfully
-                                errorReplicaInfo += " replica [" + replica.getId() + "] commitBackends null or "
-                                                    + "tabletBackend [" + tabletBackend + "] does not "
-                                                    + "in commitBackends";
+                            long backendId = replica.getBackendId();
+                            if (!commitErrorReplicas.containsKey(backendId)) {
+                                commitErrorReplicas.put(backendId, Sets.newHashSet());
                             }
-                        }
-
-                        if (successReplicaNum < quorumReplicaNum) {
-                            LOG.warn("Failed to commit txn [{}]. "
-                                            + "Tablet [{}] success replica num is {} < quorum replica num {} "
-                                            + "while error backends {} error replica info {} commitBackends {}",
-                                    transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
-                                    quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
-                                    errorReplicaInfo, commitBackends);
-                            throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
-                                    successReplicaNum, quorumReplicaNum,
-                                    errorBackendIdsForTablet);
+                            if (commitBackends == null || commitBackends.isEmpty()) {
+                                commitErrorReplicas.get(backendId).add(replica.getId());
+                            }
                         }
                     }
                 }
+            }
+        }
+
+        //for compatibility
+        if (commitErrorReplicas.isEmpty()) {
+            commitErrorReplicas.put(-1L, Sets.newHashSet());
+        }
+
+        // it doesn't matter to set commitErrorReplicas before txn become committed,
+        // cause we want log txn contains the commit error
+        transactionState.setCommitErrorReplicas(commitErrorReplicas);
+
+        final TransactionState finalTxn = transactionState;
+        Predicate<Replica> isReplicaCommitSucc = replica -> finalTxn.isReplicaCommitSucc(replica);
+
+        for (Pair<Partition, OlapTable> pair : involvedPartitions) {
+            Partition partition = pair.key();
+            OlapTable table = pair.value();
+            List<MaterializedIndex> allIndices = transactionState.getPartitionLoadedIndexes(partition, table.getId());
+            try {
+                ReplicaHealthUtils.checkPartitionReadyCommit(table, partition, allIndices, isReplicaCommitSucc);
+            } catch (UserException e) {
+                transactionState.setErrorMsg(e.getMessage());
+                LOG.warn("commit failed for transaction {}, err: {}", transactionState,
+                        e.getMessage());
+
+                throw e;
             }
         }
     }
@@ -649,11 +631,10 @@ public class DatabaseTransactionMgr {
                     + "] is prepare, not pre-committed.");
         }
 
-        Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         Map<Long, Set<Long>> tableToPartition = new HashMap<>();
         if (!is2PC) {
-            checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
+            checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment,
                     tableToPartition, totalInvolvedBackends);
         }
 
@@ -666,8 +647,7 @@ public class DatabaseTransactionMgr {
             if (is2PC) {
                 unprotectedCommitTransaction2PC(transactionState, db);
             } else {
-                unprotectedCommitTransaction(transactionState, errorReplicaIds,
-                        tableToPartition, totalInvolvedBackends, db);
+                unprotectedCommitTransaction(transactionState, tableToPartition, totalInvolvedBackends, db);
             }
             txnOperated = true;
         } finally {
@@ -853,8 +833,9 @@ public class DatabaseTransactionMgr {
             readUnlock();
         }
 
-        final TransactionState finalTs = transactionState;
-        Predicate<Replica> hasPublishVersion = replica -> finalTs.isPublishReplicaSucc(replica);
+        final TransactionState finalTxt = transactionState;
+        Predicate<Replica> isReplicaContainThisVersion =
+                replica -> finalTxt.isReplicaCommitSucc(replica) && finalTxt.isReplicaPublishSucc(replica);
 
         // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are
         // already force dropped, we just ignore the transaction with all tables been force dropped.
@@ -899,13 +880,9 @@ public class DatabaseTransactionMgr {
                     }
 
                     try {
-                        Set<Long> indexIds = null;
-                        if (!transactionState.getLoadedTblIndexes().isEmpty()) {
-                            indexIds = transactionState.getLoadedTblIndexes().get(tableId);
-                        }
-
-                        ReplicaHealthUtils.checkPartitionReadyVisibleOnVersion(table, partition, indexIds,
-                                partitionCommitInfo.getVersion(), hasPublishVersion);
+                        ReplicaHealthUtils.checkPartitionReadyVisibleOnVersion(table, partition,
+                                transactionState.getPartitionLoadedIndexes(partition, tableId),
+                                partitionCommitInfo.getVersion(), isReplicaContainThisVersion);
                     } catch (UserException e) {
                         transactionState.setErrorMsg(e.getMessage());
                         LOG.warn("publish version failed for transaction {}, err: {}", transactionState,
@@ -917,7 +894,6 @@ public class DatabaseTransactionMgr {
             boolean txnOperated = false;
             writeLock();
             try {
-                //transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
@@ -948,9 +924,9 @@ public class DatabaseTransactionMgr {
         LOG.info("finish transaction {} successfully", transactionState);
     }
 
-    protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState, Set<Long> errorReplicaIds,
-                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) {
+    protected void unprotectedPreCommitTransaction2PC(TransactionState transactionState,
+                                                Map<Long, Set<Long>> tableToPartition,
+                                                Set<Long> totalInvolvedBackends, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -958,7 +934,6 @@ public class DatabaseTransactionMgr {
         // update transaction state version
         transactionState.setPreCommitTime(System.currentTimeMillis());
         transactionState.setTransactionStatus(TransactionStatus.PRECOMMITTED);
-        transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -984,9 +959,9 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
-                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) {
+    protected void unprotectedCommitTransaction(TransactionState transactionState,
+                                                Map<Long, Set<Long>> tableToPartition,
+                                                Set<Long> totalInvolvedBackends, Database db) {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -998,7 +973,6 @@ public class DatabaseTransactionMgr {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
         }
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
-        transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1515,7 +1489,9 @@ public class DatabaseTransactionMgr {
     }
 
     private void updateCatalogAfterCommitted(TransactionState transactionState, Database db) {
-        Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
+        final TransactionState finalTxt = transactionState;
+        Predicate<Replica> isReplicaCommitSucc = replica -> finalTxt.isReplicaCommitSucc(replica);
+
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1533,28 +1509,17 @@ public class DatabaseTransactionMgr {
                             partitionId, tableId, transactionState.getTransactionId(), db.getId());
                     continue;
                 }
-                List<MaterializedIndex> allIndices = partition
-                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                for (MaterializedIndex index : allIndices) {
-                    List<Tablet> tablets = index.getTablets();
-                    for (Tablet tablet : tablets) {
-                        for (Replica replica : tablet.getReplicas()) {
-                            if (errorReplicaIds.contains(replica.getId())) {
-                                // TODO(cmy): do we need to update last failed version here?
-                                // because in updateCatalogAfterVisible, it will be updated again.
-                                replica.updateLastFailedVersion(partitionCommitInfo.getVersion());
-                            }
-                        }
-                    }
-                }
-                partition.setNextVersion(partition.getNextVersion() + 1);
+
+                ReplicaHealthUtils.updatePartitionCommitVersion(partition, partitionCommitInfo.getVersion(),
+                        isReplicaCommitSucc);
             }
         }
     }
 
     private void updateCatalogAfterVisible(TransactionState transactionState, Database db) {
-        final TransactionState finalTs = transactionState;
-        Predicate<Replica> hasPublishVersion = replica -> finalTs.isPublishReplicaSucc(replica);
+        final TransactionState finalTxt = transactionState;
+        Predicate<Replica> isReplicaContainThisVersion =
+                replica -> finalTxt.isReplicaCommitSucc(replica) && finalTxt.isReplicaPublishSucc(replica);
 
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
@@ -1575,7 +1540,7 @@ public class DatabaseTransactionMgr {
                 }
 
                 ReplicaHealthUtils.udpatePartitionVisibleVersion(partition, partitionCommitInfo.getVersion(),
-                        partitionCommitInfo.getVersionTime(), hasPublishVersion);
+                        partitionCommitInfo.getVersionTime(), isReplicaContainThisVersion);
             }
         }
     }

@@ -31,6 +31,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -59,12 +60,10 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private void genPublishErrorReplicas(TransactionState transactionState) {
         TabletInvertedIndex tabletInvertedIndex = Env.getCurrentInvertedIndex();
-        Map<Long, Set<Long>> publishErrorReplicas = transactionState.getPublishErrorReplicas();
-        publishErrorReplicas.clear();
+        Map<Long, Set<Long>> publishErrorReplicas = Maps.newHashMap();
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             long backendId = task.getBackendId();
             if (!task.isFinished()) {
-                publishErrorReplicas.put(backendId, null);
                 continue;
             }
             Set<Long> errorReplicas = Sets.newHashSet();
@@ -79,6 +78,13 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             publishErrorReplicas.put(backendId, errorReplicas);
         }
+
+        // for compatibility
+        if (publishErrorReplicas.isEmpty()) {
+            publishErrorReplicas.put(-1L, Sets.newHashSet());
+        }
+
+        transactionState.setPublishErrorReplicas(publishErrorReplicas);
     }
 
     private void publishVersion() {
@@ -156,7 +162,6 @@ public class PublishVersionDaemon extends MasterDaemon {
             if (!hasUnfinishAndAliveBackend || transactionState.isPublishTimeout()) {
                 try {
                     genPublishErrorReplicas(transactionState);
-
                     // one transaction exception should not affect other transaction
                     globalTransactionMgr.finishTransaction(transactionState.getDbId(),
                             transactionState.getTransactionId());

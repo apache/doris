@@ -467,11 +467,12 @@ public class GlobalTransactionMgrTest {
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         slaveTransMgr.replayUpsertTransactionState(transactionState);
-        Set<Long> errorReplicaIds1 = Sets.newHashSet();
-        errorReplicaIds1.add(CatalogTestUtil.testReplicaId1);
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId1, errorReplicaIds1);
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId3, Sets.newHashSet());
+        Map<Long, Set<Long>> publishErrorReplicas = Maps.newHashMap();
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId3, Sets.newHashSet());
+        publishErrorReplicas.get(CatalogTestUtil.testBackendId1).add(CatalogTestUtil.testReplicaId1);
+        transactionState.setPublishErrorReplicas(publishErrorReplicas);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
         transactionState = fakeEditLog.getTransaction(transactionId);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
@@ -527,10 +528,11 @@ public class GlobalTransactionMgrTest {
 
         // master finish the transaction failed
         FakeEnv.setEnv(masterEnv);
-        Set<Long> errorReplicaIds2 = Sets.newHashSet();
-        errorReplicaIds2.add(CatalogTestUtil.testReplicaId2);
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId2, errorReplicaIds2);
+        Map<Long, Set<Long>> publishErrorReplicas = Maps.newHashMap();
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
+        publishErrorReplicas.get(CatalogTestUtil.testBackendId2).add(CatalogTestUtil.testReplicaId2);
+        transactionState.setPublishErrorReplicas(publishErrorReplicas);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
         Assert.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         Replica replica1 = tablet.getReplicaById(CatalogTestUtil.testReplicaId1);
@@ -545,8 +547,7 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(-1, replica2.getLastFailedVersion());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, replica3.getLastFailedVersion());
 
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getVersion());
@@ -609,9 +610,11 @@ public class GlobalTransactionMgrTest {
         Assert.assertTrue(CatalogTestUtil.compareCatalog(masterEnv, slaveEnv));
 
         // master finish the transaction2
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
-        transactionState.getPublishErrorReplicas().put(CatalogTestUtil.testBackendId3, Sets.newHashSet());
+        publishErrorReplicas = Maps.newHashMap();
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId1, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId2, Sets.newHashSet());
+        publishErrorReplicas.put(CatalogTestUtil.testBackendId3, Sets.newHashSet());
+        transactionState.setPublishErrorReplicas(publishErrorReplicas);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId2);
         Assert.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         Assert.assertEquals(CatalogTestUtil.testStartVersion + 2, replica1.getVersion());

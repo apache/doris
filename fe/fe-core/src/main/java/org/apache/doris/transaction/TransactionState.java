@@ -18,7 +18,9 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
@@ -212,16 +214,18 @@ public class TransactionState implements Writable {
 
 
     // error replica ids
-    // Deprecated, use commitErrorReplicas + publishErrorReplicas
+    // use commitErrorReplicas + publishErrorReplicas
+    @Deprecated
     @SerializedName(value = "errorReplicas")
     private Set<Long> errorReplicas;
 
+    // backendId -> replicaId list
+    // maybe it contains backendId=-1 for compatibility
     @SerializedName(value = "commitErrorReplicas")
     private Map<Long, Set<Long>> commitErrorReplicas;
 
-    // for a backend, backendErrorReplicas[backendId]:
-    // 1. if equals null, then this BE's replicas all failed
-    // 2. if not equals null && it's empty, then this BE's replicas all succ
+    // backendId -> replicaId list
+    // maybe it contains backendId=-1 for compatibility
     @SerializedName(value = "publishErrorReplicas")
     private Map<Long, Set<Long>> publishErrorReplicas;
 
@@ -522,8 +526,12 @@ public class TransactionState implements Writable {
         return this.errorReplicas;
     }
 
-    public Map<Long, Set<Long>> getPublishErrorReplicas() {
-        return publishErrorReplicas;
+    public void setCommitErrorReplicas(Map<Long, Set<Long>> commitErrorReplicas) {
+        this.commitErrorReplicas = commitErrorReplicas;
+    }
+
+    public void setPublishErrorReplicas(Map<Long, Set<Long>> publishErrorReplicas) {
+        this.publishErrorReplicas = publishErrorReplicas;
     }
 
     public long getDbId() {
@@ -592,6 +600,23 @@ public class TransactionState implements Writable {
         return loadedTblIndexes;
     }
 
+    public List<MaterializedIndex> getPartitionLoadedIndexes(Partition partition, long tableId) {
+        List<MaterializedIndex> allIndices;
+        if (loadedTblIndexes.isEmpty()) {
+            allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+        } else {
+            allIndices = Lists.newArrayList();
+            for (long indexId : loadedTblIndexes.get(tableId)) {
+                MaterializedIndex index = partition.getIndex(indexId);
+                if (index != null) {
+                    allIndices.add(index);
+                }
+            }
+        }
+
+        return allIndices;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("TransactionState. ");
@@ -650,48 +675,25 @@ public class TransactionState implements Writable {
         return publishVersionTasks;
     }
 
-    public boolean isPublishReplicaSucc(Replica replica) {
-        // if BE no contains the txn, then publish version will answer ok.
-        // so need check commmit info too
-        if (!isCommitReplicaSucc(replica)) {
-            // TODO open
-            //return false;
-        }
-
-        // for compatibility
-        if (publishErrorReplicas.isEmpty()) {
-            return !errorReplicas.contains(replica.getId());
-        } else {
-            long backendId = replica.getBackendId();
-            if (!publishErrorReplicas.containsKey(backendId)) {
-                return false;
-            }
-
-            Set<Long> replicas = publishErrorReplicas.get(backendId);
-            if (replicas == null || !replicas.contains(replica.getId())) {
-                return false;
-            }
-
-            return true;
-        }
-    }
-
-    public boolean isCommitReplicaSucc(Replica replica) {
+    public boolean isReplicaCommitSucc(Replica replica) {
         // for compatibility
         if (commitErrorReplicas.isEmpty()) {
             return !errorReplicas.contains(replica.getId());
         } else {
             long backendId = replica.getBackendId();
-            if (!commitErrorReplicas.containsKey(backendId)) {
-                return false;
-            }
+            return commitErrorReplicas.containsKey(backendId)
+                && !commitErrorReplicas.get(backendId).contains(replica.getId());
+        }
+    }
 
-            Set<Long> replicas = commitErrorReplicas.get(backendId);
-            if (replicas == null || !replicas.contains(replica.getId())) {
-                return false;
-            }
-
-            return true;
+    public boolean isReplicaPublishSucc(Replica replica) {
+        // for compatibility
+        if (publishErrorReplicas.isEmpty()) {
+            return !errorReplicas.contains(replica.getId());
+        } else {
+            long backendId = replica.getBackendId();
+            return publishErrorReplicas.containsKey(backendId)
+                && !publishErrorReplicas.get(backendId).contains(replica.getId());
         }
     }
 
