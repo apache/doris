@@ -1019,7 +1019,12 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean ignoreColumnWithComplexType = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY)
+    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = {"用以开启强一致性读。"
+            + "在强一致性的需求场景下可将该将该变量设置为true，使导入数据在查询时实时可见。默认值为false。",
+            "To enable strong consistency reading. In scenarios where strong consistency is required, "
+                    + "this variable can be set to true to make loaded data immediately visible to queries. "
+                    + "The default value is false."
+    })
     public boolean enableStrongConsistencyRead = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
