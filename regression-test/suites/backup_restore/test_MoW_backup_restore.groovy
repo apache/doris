@@ -17,63 +17,7 @@
 
 package org.apache.doris.regression.suite
 
-suite("test_MoW_backup_restore") {
-
-    /*
-    def syncer = getSyncer()
-    def tableName = "tbl_backup_restore"
-    def ${context.dbName}_num = 0
-    def insert_num = 5
-
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql """
-           CREATE TABLE if NOT EXISTS ${tableName} 
-           (
-               `${context.dbName}` INT,
-               `id` INT
-           )
-           ENGINE=OLAP
-           UNIQUE KEY(`${context.dbName}`, `id`)
-           DISTRIBUTED BY HASH(id) BUCKETS 1 
-           PROPERTIES ( 
-               "replication_allocation" = "tag.location.default: 1",
-               "disable_auto_compaction" = "true",
-               "enable_unique_key_merge_on_write" = "true"
-           )
-        """
-    sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
-
-    logger.info("=== ${context.dbName} 1: Common backup and restore ===")
-    ${context.dbName}_num = 1
-    def snapshotName = "snapshot_${context.dbName}_1"
-    for (int i = 0; i < insert_num; ++i) {
-        sql """
-               INSERT INTO ${tableName} VALUES (${${context.dbName}_num}, ${i})
-            """ 
-    }
-    def res = sql "SELECT * FROM ${tableName}"
-    assertTrue(res.size() == insert_num)
-    sql """ 
-            BACKUP SNAPSHOT $${context.dbName}.${snapshotName} 
-            TO `${repo}` 
-            ON (${tableName})
-            PROPERTIES ("type" = "full")
-        """
-    while (syncer.checkSnapshotFinish() == false) {
-        Thread.sleep(3000)
-    }
-    assertTrue(syncer.getSnapshot("${snapshotName}", "${tableName}"))
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    assertTrue(syncer.restoreSnapshot())
-    while (syncer.checkRestoreFinish() == false) {
-        Thread.sleep(3000)
-    }
-    res = sql "SELECT * FROM ${tableName}"
-    assertTrue(res.size() == insert_num)
-    */
-
-
-
+suite("test_MoW_backup_restore", "p2") {
 
     def syncer = getSyncer()
     def repo = "__keep_on_local__"
