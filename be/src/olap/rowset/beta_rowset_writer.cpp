@@ -752,7 +752,6 @@ Status BetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterP
 Status BetaRowsetWriter::_create_file_writer(uint32_t begin, uint32_t end,
                                              io::FileWriterPtr* file_writer) {
     std::string path;
-    DCHECK(begin >= 0 && end >= 0);
     path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
                                                        begin, end);
     return _create_file_writer(path, file_writer);
