@@ -1561,7 +1561,7 @@ public class FunctionCallExpr extends Expr {
             fn.getReturnType().getPrimitiveType().setTimeType();
             ScalarType left = (ScalarType) argTypes[0];
             ScalarType rigth = (ScalarType) argTypes[1];
-            if (left.isDatetimeV2() && rigth.isDatetimeV2()) {
+            if (left.isDatetimeV2() || rigth.isDatetimeV2()) {
                 Type ret = ScalarType.createTimeV2Type(Math.max(left.getScalarScale(), rigth.getScalarScale()));
                 fn.setReturnType(ret);
                 fn.getReturnType().getPrimitiveType().setTimeType();
