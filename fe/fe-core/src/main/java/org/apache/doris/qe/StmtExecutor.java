@@ -789,7 +789,7 @@ public class StmtExecutor {
         if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
             return;
         }
-        new MasterOpExecutor(context).execute();
+        new MasterOpExecutor(context).syncJournal();
     }
 
     /**

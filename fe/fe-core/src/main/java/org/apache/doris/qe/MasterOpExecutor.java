@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -55,8 +56,6 @@ public class MasterOpExecutor {
 
     private boolean shouldNotRetry;
 
-    private boolean isSyncJournalOnly;
-
     public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
         this.originStmt = originStmt;
         this.ctx = ctx;
@@ -68,7 +67,6 @@ public class MasterOpExecutor {
         this.thriftTimeoutMs = (int) (ctx.getExecTimeout() * 1000 * RPC_TIMEOUT_COEFFICIENT);
         // if isQuery=false, we shouldn't retry twice when catch exception because of Idempotency
         this.shouldNotRetry = !isQuery;
-        this.isSyncJournalOnly = false;
     }
 
     /**
@@ -76,7 +74,6 @@ public class MasterOpExecutor {
      */
     public MasterOpExecutor(ConnectContext ctx) {
         this(null, ctx, RedirectStatus.FORWARD_WITH_SYNC, true);
-        this.isSyncJournalOnly = true;
     }
 
     public void execute() throws Exception {
@@ -84,19 +81,28 @@ public class MasterOpExecutor {
                 ctx.getTracer().spanBuilder("forward").setParent(Context.current())
                         .startSpan();
         try (Scope ignored = forwardSpan.makeCurrent()) {
-            forward();
+            result = forward(buildStmtForwardParams());
         } catch (Exception e) {
             forwardSpan.recordException(e);
             throw e;
         } finally {
             forwardSpan.end();
         }
+        waitOnReplaying();
+    }
+
+    public void syncJournal() throws Exception {
+        result = forward(buildSyncJournalParmas());
+        waitOnReplaying();
+    }
+
+    private void waitOnReplaying() throws DdlException {
         LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
         ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
     }
 
     // Send request to Master
-    private void forward() throws Exception {
+    private TMasterOpResult forward(TMasterOpRequest params) throws Exception {
         if (!ctx.getEnv().isReady()) {
             throw new Exception("Node catalog is not ready, please wait for a while.");
         }
@@ -111,17 +117,17 @@ public class MasterOpExecutor {
             // may throw NullPointerException. add err msg
             throw new Exception("Failed to get master client.", e);
         }
-        final TMasterOpRequest params = buildForwardParams();
         final StringBuilder forwardMsg = new StringBuilder(String.format("forward to Master %s", thriftAddress));
-        if (!isSyncJournalOnly) {
+        if (!params.isSyncJournalOnly()) {
             forwardMsg.append(", statement: %s").append(ctx.getStmtId());
         }
         LOG.info(forwardMsg.toString());
 
         boolean isReturnToPool = false;
         try {
-            result = client.forward(params);
+            final TMasterOpResult result = client.forward(params);
             isReturnToPool = true;
+            return result;
         } catch (TTransportException e) {
             // wrap the raw exception.
             forwardMsg.append(" : failed");
@@ -136,8 +142,9 @@ public class MasterOpExecutor {
             } else {
                 LOG.warn(forwardMsg.append(" twice").toString(), e);
                 try {
-                    result = client.forward(params);
+                    TMasterOpResult result = client.forward(params);
                     isReturnToPool = true;
+                    return result;
                 } catch (TException ex) {
                     throw exception;
                 }
@@ -151,15 +158,11 @@ public class MasterOpExecutor {
         }
     }
 
-    private TMasterOpRequest buildForwardParams() {
+    private TMasterOpRequest buildStmtForwardParams() {
         TMasterOpRequest params = new TMasterOpRequest();
         //node ident
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
-        if (isSyncJournalOnly) {
-            params.setSyncJournalOnly(true);
-            return params;
-        }
         params.setCluster(ctx.getClusterName());
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
@@ -185,6 +188,15 @@ public class MasterOpExecutor {
         if (null != ctx.queryId()) {
             params.setQueryId(ctx.queryId());
         }
+        return params;
+    }
+
+    private TMasterOpRequest buildSyncJournalParmas() {
+        final TMasterOpRequest params = new TMasterOpRequest();
+        //node ident
+        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
+        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
+        params.setSyncJournalOnly(true);
         return params;
     }
 

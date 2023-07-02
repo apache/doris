@@ -897,7 +897,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("reject request from invalid host. client: {}", params.getClientNodeHost());
             throw new TException("request from invalid host was rejected.");
         }
-        if (params.isSetSyncJournalOnly() && params.syncJournalOnly) {
+        if (params.isSyncJournalOnly()) {
             final TMasterOpResult result = new TMasterOpResult();
             result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
             return result;
