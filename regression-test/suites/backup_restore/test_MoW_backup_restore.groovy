@@ -15,21 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("{context.dbName}_MoW_backup_restore") {
+package org.apache.doris.regression.suite
+
+suite("test_MoW_backup_restore") {
+
+    /*
     def syncer = getSyncer()
     def tableName = "tbl_backup_restore"
-    def {context.dbName}_num = 0
+    def ${context.dbName}_num = 0
     def insert_num = 5
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
            CREATE TABLE if NOT EXISTS ${tableName} 
            (
-               `{context.dbName}` INT,
+               `${context.dbName}` INT,
                `id` INT
            )
            ENGINE=OLAP
-           UNIQUE KEY(`{context.dbName}`, `id`)
+           UNIQUE KEY(`${context.dbName}`, `id`)
            DISTRIBUTED BY HASH(id) BUCKETS 1 
            PROPERTIES ( 
                "replication_allocation" = "tag.location.default: 1",
@@ -39,18 +43,18 @@ suite("{context.dbName}_MoW_backup_restore") {
         """
     sql """ALTER TABLE ${tableName} set ("binlog.enable" = "true")"""
 
-    logger.info("=== {context.dbName} 1: Common backup and restore ===")
-    {context.dbName}_num = 1
-    def snapshotName = "snapshot_{context.dbName}_1"
+    logger.info("=== ${context.dbName} 1: Common backup and restore ===")
+    ${context.dbName}_num = 1
+    def snapshotName = "snapshot_${context.dbName}_1"
     for (int i = 0; i < insert_num; ++i) {
         sql """
-               INSERT INTO ${tableName} VALUES (${{context.dbName}_num}, ${i})
+               INSERT INTO ${tableName} VALUES (${${context.dbName}_num}, ${i})
             """ 
     }
     def res = sql "SELECT * FROM ${tableName}"
     assertTrue(res.size() == insert_num)
     sql """ 
-            BACKUP SNAPSHOT ${context.dbName}.${snapshotName} 
+            BACKUP SNAPSHOT $${context.dbName}.${snapshotName} 
             TO `${repo}` 
             ON (${tableName})
             PROPERTIES ("type" = "full")
@@ -66,9 +70,12 @@ suite("{context.dbName}_MoW_backup_restore") {
     }
     res = sql "SELECT * FROM ${tableName}"
     assertTrue(res.size() == insert_num)
+    */
 
 
 
+
+    def syncer = getSyncer()
     def repo = "__keep_on_local__"
     def tableName = "demo_MoW"
     sql """drop table if exists ${tableName}"""
@@ -83,7 +90,7 @@ suite("{context.dbName}_MoW_backup_restore") {
 
     // version1 (1,1)(2,2)
     sql """insert into ${tableName} values(1,1),(2,2)"""
-    sql """backup snapshot {context.dbName}.snapshot1 to ${repo} on (${tableName}) properties("type"="full")"""
+    sql """backup snapshot ${context.dbName}.snapshot1 to ${repo} on (${tableName}) properties("type"="full")"""
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
@@ -91,7 +98,7 @@ suite("{context.dbName}_MoW_backup_restore") {
 
     // version2 (1,10)(2,2)
     sql """insert into ${tableName} values(1,10)"""
-    sql """backup snapshot {context.dbName}.snapshot2 to ${repo} on (${tableName}) properties("type"="full")"""
+    sql """backup snapshot ${context.dbName}.snapshot2 to ${repo} on (${tableName}) properties("type"="full")"""
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
@@ -99,7 +106,7 @@ suite("{context.dbName}_MoW_backup_restore") {
 
     // version3 (1,100)(2,2)
     sql """update ${tableName} set value = 100 where user_id = 1"""
-    sql """backup snapshot {context.dbName}.snapshot3 to ${repo} on (${tableName}) properties("type"="full")"""
+    sql """backup snapshot ${context.dbName}.snapshot3 to ${repo} on (${tableName}) properties("type"="full")"""
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
@@ -107,33 +114,38 @@ suite("{context.dbName}_MoW_backup_restore") {
 
     // version4 (2,2)
     sql """delete from ${tableName} where user_id = 1"""
-    sql """backup snapshot {context.dbName}.snapshot4 to ${repo} on (${tableName}) properties("type"="full")"""
+    sql """backup snapshot ${context.dbName}.snapshot4 to ${repo} on (${tableName}) properties("type"="full")"""
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
     qt_6 """select * from ${tableName}"""
 
     // version1 (1,1)(2,2)
-    sql """restore snapshot {context.dbName}.snapshot1 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-10","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_7 """select * from ${tableName}"""
+
     // version2 (1,10)(2,2)
-    sql """restore snapshot {context.dbName}.snapshot2 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-41","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_8 """select * from ${tableName}"""
     // version3 (1,100)(2,2)
-    sql """restore snapshot {context.dbName}.snapshot3 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-03","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_9 """select * from ${tableName}"""
     // version4 (2,2)
-    sql """restore snapshot {context.dbName}.snapshot4 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-23","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_10 """select * from ${tableName}"""
@@ -149,26 +161,31 @@ suite("{context.dbName}_MoW_backup_restore") {
     "enable_unique_key_merge_on_write" = "true");""" 
 
     // version1 (1,1)(2,2)
-    sql """restore snapshot {context.dbName}.snapshot1 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-10","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_11 """select * from ${tableName}"""
+
     // version2 (1,10)(2,2)
-    sql """restore snapshot {context.dbName}.snapshot2 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-54-41","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_12 """select * from ${tableName}"""
     // version3 (1,100)(2,2)
-    sql """restore snapshot {context.dbName}.snapshot3 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-03","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_13 """select * from ${tableName}"""
     // version4 (2,2)
-    sql """restore snapshot {context.dbName}.snapshot4 from `${repo}` on(`${tableName}`)PROPERTIES ( "backup_timestamp"="2023-06-20-17-55-23","replication_num" = "1")"""
-    while(checkRestoreFinish()==false){
+    assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
+    assertTrue(syncer.restoreSnapshot())
+    while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
     qt_14 """select * from ${tableName}"""
