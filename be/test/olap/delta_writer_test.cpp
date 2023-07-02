@@ -463,8 +463,8 @@ TEST_F(TestDeltaWriter, open) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {
-            10004, 270068376, 20002, 30002, load_id, tuple_desc, &(tuple_desc->slots()),
-            false, &param};
+            10003, 270068375, 20001, 30001, load_id, tuple_desc, &(tuple_desc->slots()),
+            true, &param};
     DeltaWriter* delta_writer = nullptr;
 
     // test vec delta writer
