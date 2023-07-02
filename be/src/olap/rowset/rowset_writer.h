@@ -41,7 +41,6 @@ struct FlushContext {
     TabletSchemaSPtr flush_schema = nullptr;
     const vectorized::Block* block = nullptr;
     std::optional<int32_t> segment_id = std::nullopt;
-    std::function<Status(int32_t)> generate_delete_bitmap;
 };
 
 class RowsetWriter {
@@ -82,11 +81,6 @@ public:
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
 
-    // we have to load segment data to build delete_bitmap for current segment,
-    // so we  build a tmp rowset ptr to load segment data.
-    // real build will be called in DeltaWriter close_wait.
-    virtual RowsetSharedPtr build_tmp() = 0;
-
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
 
@@ -112,6 +106,8 @@ public:
 
     virtual vectorized::schema_util::LocalSchemaChangeRecorder*
     mutable_schema_change_recorder() = 0;
+
+    virtual int64_t delete_bitmap_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

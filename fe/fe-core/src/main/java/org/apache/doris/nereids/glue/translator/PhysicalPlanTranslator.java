@@ -1224,7 +1224,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setPlanRoot(leftFragment, nestedLoopJoinNode, nestedLoopJoin);
             // TODO: what's this? do we really need to set this?
             rightFragment.getPlanRoot().setCompactData(false);
-            context.removePlanFragment(rightFragment);
+            context.mergePlanFragment(rightFragment, leftFragment);
             for (PlanFragment rightChild : rightFragment.getChildren()) {
                 leftFragment.addChild(rightChild);
             }
@@ -1557,7 +1557,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             int childrenSize = childrenFragments.size();
             setOperationFragment = childrenFragments.get(childrenSize - 1);
             for (int i = childrenSize - 2; i >= 0; i--) {
-                context.removePlanFragment(childrenFragments.get(i));
+                context.mergePlanFragment(childrenFragments.get(i), setOperationFragment);
                 for (PlanFragment child : childrenFragments.get(i).getChildren()) {
                     setOperationFragment.addChild(child);
                 }
@@ -1995,9 +1995,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         hashJoinNode.setChild(0, leftFragment.getPlanRoot());
         hashJoinNode.setChild(1, rightFragment.getPlanRoot());
         setPlanRoot(leftFragment, hashJoinNode, join);
-        rightFragment.getTargetRuntimeFilterIds().forEach(leftFragment::setTargetRuntimeFilterIds);
-        rightFragment.getBuilderRuntimeFilterIds().forEach(leftFragment::setBuilderRuntimeFilterIds);
-        context.removePlanFragment(rightFragment);
+        context.mergePlanFragment(rightFragment, leftFragment);
         for (PlanFragment rightChild : rightFragment.getChildren()) {
             leftFragment.addChild(rightChild);
         }

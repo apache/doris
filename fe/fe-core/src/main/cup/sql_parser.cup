@@ -7624,6 +7624,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FEATURE:id
     {: RESULT = id; :}
+    | KW_FRONTENDS:id
+    {: RESULT = id; :}
     | KW_MAP:id
     {: RESULT = id; :}
     | KW_VARCHAR:id
@@ -7655,6 +7657,8 @@ keyword ::=
     | KW_INCREMENTAL:id
     {: RESULT = id; :}
     | KW_PERIOD:id
+    {: RESULT = id; :}
+    | KW_PERCENT:id
     {: RESULT = id; :}
     ;
 
