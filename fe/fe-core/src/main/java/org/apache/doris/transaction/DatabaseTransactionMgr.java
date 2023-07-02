@@ -537,7 +537,7 @@ public class DatabaseTransactionMgr {
                             if (!commitErrorReplicas.containsKey(backendId)) {
                                 commitErrorReplicas.put(backendId, Sets.newHashSet());
                             }
-                            if (commitBackends == null || commitBackends.isEmpty()) {
+                            if (commitBackends == null || !commitBackends.contains(backendId)) {
                                 commitErrorReplicas.get(backendId).add(replica.getId());
                             }
                         }
@@ -565,7 +565,7 @@ public class DatabaseTransactionMgr {
             try {
                 ReplicaHealthUtils.checkPartitionReadyCommit(table, partition, allIndices,
                         isReplicaCommitSucc, transactionState.getTransactionId());
-            } catch (Exception e) {
+            } catch (UserException e) {
                 transactionState.setErrorMsg(e.getMessage());
                 LOG.warn("commit failed for transaction {}, err: {}", transactionState,
                         e.getMessage());

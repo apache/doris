@@ -1,5 +1,6 @@
 # ignore file with wildcard anywhere
 *.swp
+*.swo
 *.pyc
 *.class
 *.iml
