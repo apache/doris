@@ -1055,6 +1055,11 @@ struct TGetBinlogLagResult {
     2: optional i64 lag
 }
 
+struct TUpdateFollowerStatsCacheRequest {
+    1: optional string key;
+    2: optional string colStats;
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1119,4 +1124,6 @@ service FrontendService {
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
 
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
+
+    Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
 }

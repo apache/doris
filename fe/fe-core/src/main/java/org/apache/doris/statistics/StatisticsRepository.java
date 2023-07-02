@@ -120,6 +120,15 @@ public class StatisticsRepository {
             + " WHERE tbl_id = ${tblId}"
             + " AND part_id IS NOT NULL";
 
+    private static final String QUERY_COLUMN_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
+            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + "tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}'";
+
+    private static final String QUERY_PARTITION_STATISTICS = "SELECT * FROM " + FeConstants.INTERNAL_DB_NAME
+            + "." + StatisticConstants.STATISTIC_TBL_NAME + " WHERE "
+            + " tbl_id=${tblId} AND idx_id=${idxId} AND col_id='${colId}' "
+            + " AND part_id IS NOT NULL";
+
     public static ColumnStatistic queryColumnStatisticsByName(long tableId, String colName) {
         ResultRow resultRow = queryColumnStatisticById(tableId, colName);
         if (resultRow == null) {
@@ -392,5 +401,25 @@ public class StatisticsRepository {
         }
 
         return idToPartitionTableStats;
+    }
+
+    public static List<ResultRow> loadColStats(long tableId, long idxId, String colName) {
+        Map<String, String> params = new HashMap<>();
+        params.put("tblId", String.valueOf(tableId));
+        params.put("idxId", String.valueOf(idxId));
+        params.put("colId", colName);
+
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                .replace(QUERY_COLUMN_STATISTICS));
+    }
+
+    public static List<ResultRow> loadPartStats(long tableId, long idxId, String colName) {
+        Map<String, String> params = new HashMap<>();
+        params.put("tblId", String.valueOf(tableId));
+        params.put("idxId", String.valueOf(idxId));
+        params.put("colId", colName);
+
+        return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
+                .replace(QUERY_PARTITION_STATISTICS));
     }
 }
