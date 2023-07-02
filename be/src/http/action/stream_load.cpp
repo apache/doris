@@ -422,11 +422,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->body_sink = file_sink;
     }
     if (config::enable_unify_properties_parse) {
+        std::map<string, string> properties {};
         if (!http_req->header(HTTP_MAX_FILTER_RATIO).empty()) {
             ctx->max_filter_ratio =
                     strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
         }
-        std::map<string, string> properties {};
+        if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
+            properties.insert(std::pair(HTTP_TEMP_PARTITIONS, "true"));
+        }
+        if (ctx->timeout_second != -1) {
+            properties.insert(std::pair(HTTP_TIMEOUT, std::to_string(ctx->timeout_second)));
+        }
+        request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
         for (const auto& property : http_req->headers()) {
             properties.insert(std::pair(property.first, property.second));
         }
