@@ -140,7 +140,7 @@ public class ReplicaHealthUtils {
             for (Tablet tablet : index.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
                     if (isReplicaCatchup(replica, version, isReplicaContainThisVersion)) {
-                        replica.updateVersionInfo(version);
+                        replica.updateVersion(version);
                     } else {
                         long lastSuccessVersion = replica.getLastSuccessVersion();
                         long lastFailedVersion = Math.max(version, replica.getLastFailedVersion());
@@ -160,8 +160,7 @@ public class ReplicaHealthUtils {
                             lastFailedVersion = partition.getVisibleVersion();
                         }
 
-                        replica.updateVersionWithFailedInfo(replica.getVersion(), lastFailedVersion,
-                                lastSuccessVersion);
+                        replica.updateVersion(replica.getVersion(), lastFailedVersion, lastSuccessVersion);
                     }
                 }
             }

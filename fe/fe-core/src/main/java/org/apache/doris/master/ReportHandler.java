@@ -670,7 +670,7 @@ public class ReportHandler extends Daemon {
                             // happens when
                             // 1. PUSH finished in BE but failed or not yet report to FE
                             // 2. repair for VERSION_INCOMPLETE finished in BE, but failed or not yet report to FE
-                            replica.updateVersionInfo(backendVersion);
+                            replica.updateVersion(backendVersion);
                             replica.updateStat(dataSize, remoteDataSize, rowCount);
 
                             if (replica.getLastFailedVersion() < 0) {

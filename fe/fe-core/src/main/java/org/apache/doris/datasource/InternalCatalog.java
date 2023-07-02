@@ -993,7 +993,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
         Preconditions.checkNotNull(replica, info);
-        replica.updateVersionInfo(info.getVersion());
+        replica.updateVersion(info.getVersion());
         replica.updateStat(info.getDataSize(), info.getRemoteDataSize(), info.getRowCount());
         replica.setBad(false);
     }

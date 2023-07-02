@@ -286,11 +286,11 @@ public class Replica implements Writable {
         this.versionCount = versionCount;
     }
 
-    public synchronized void updateVersionInfo(long newVersion) {
+    public synchronized void updateVersion(long newVersion) {
         updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion);
     }
 
-    public synchronized void updateVersionWithFailedInfo(
+    public synchronized void updateVersion(
             long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion);
     }
@@ -395,7 +395,7 @@ public class Replica implements Writable {
     }
 
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
-        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion);
+        updateVersion(this.version, lastFailedVersion, this.lastSuccessVersion);
     }
 
     /*
