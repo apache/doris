@@ -645,6 +645,10 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   控制 orc reader 是否启用延迟物化技术。默认为 true。
 
+* `enable_strong_consistency_read`
+
+  用以开启强一致性读。在强一致性的需求场景下可将该将该变量设置为true，使导入数据在查询时实时可见。默认值为false。
+
 ***
 
 #### 关于语句执行超时控制的补充说明

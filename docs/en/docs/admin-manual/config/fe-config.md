@@ -1006,15 +1006,6 @@ This variable is a session variable, and the session level takes effect.
 - Type: boolean
 - Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
 
-#### `enable_strong_consistency_read`
-
-Default: false
-
-This variable is a session variable, and the session level takes effect.
-
-- Type: boolean
-- Description: To enable strong consistency reading. In scenarios where strong consistency is required, this variable can be set to true to make loaded data immediately visible to queries.
-
 ### Load And Export
 
 #### `enable_vectorized_load`

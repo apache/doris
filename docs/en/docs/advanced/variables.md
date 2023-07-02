@@ -659,6 +659,10 @@ Translated with www.DeepL.com/Translator (free version)
 
   Controls whether to use lazy materialization technology in orc reader. The default value is true.
 
+* `enable_strong_consistency_read`
+
+  To enable strong consistency reading. In scenarios where strong consistency is required, this variable can be set to true to make loaded data immediately visible to queries. The default value is false.
+
 ***
 
 #### Supplementary instructions on statement execution timeout control
