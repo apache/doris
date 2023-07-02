@@ -1151,10 +1151,14 @@ public:
         auto result_col = ColumnInt32::create(input_rows_count, 0);
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        // since I've overriden the function `use_default_implementation_for_constants` to return false,
-        // I have to deal with const columns specifically.
+        // since we've overriden the function `use_default_implementation_for_constants` to return false,
+        // we have to deal with const columns specifically.
         ColumnPtr input_col = block.get_by_position(arguments[0]).column;
         const auto& [nullable_input_col, _] = unpack_if_const(input_col);
+        // we won't access the cell until we are sure that the cell is not null.
+        // so it's safe to cast the column to ColumnString in advance to avoid the overhead of calling
+        // `check_and_get_column` inside the loop.
+        const ColumnString* col_str = check_and_get_column<ColumnString>(nullable_input_col);
 
         // TODO(niebayes): call `reserve` to avoid potential reallocations.
         SimdJSONParser parser;
@@ -1168,7 +1172,6 @@ public:
                 continue;
             }
 
-            const ColumnString* col_str = check_and_get_column<ColumnString>(nullable_input_col);
             const std::string_view json_doc = col_str->get_data_at(i).to_string_view();
 
             // the json elements are represented as a tree.
@@ -1183,7 +1186,7 @@ public:
             const size_t depth = _get_element_depth(root_element);
 
             auto& result_data = result_col->get_data();
-            result_data[i] = static_cast<UInt32>(depth);
+            result_data[i] = static_cast<Int32>(depth);
         }
 
         auto nullable_result_col =
