@@ -499,8 +499,9 @@ TEST_F(TestDeltaWriter, vec_write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376, 20002, 30002, load_id, tuple_desc,
-                              &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req = {
+            10004, 270068376, 20002, 30002, load_id, tuple_desc, &(tuple_desc->slots()),
+            false, &param};
     DeltaWriter* delta_writer = nullptr;
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
