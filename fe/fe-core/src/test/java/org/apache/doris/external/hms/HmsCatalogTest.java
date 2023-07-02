@@ -33,22 +33,22 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.TestWithFeService;
+import org.apache.doris.nereids.datasets.tpch.AnalyzeCheckTestBase;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class HmsCatalogTest extends TestWithFeService {
+public class HmsCatalogTest extends AnalyzeCheckTestBase {
     private static final String HMS_CATALOG = "hms_ctl";
     private Env env;
     private CatalogMgr mgr;
-    private ConnectContext rootCtx;
 
     @Mocked
     private HMSExternalTable tbl;
@@ -65,19 +65,18 @@ public class HmsCatalogTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
         Config.enable_query_hive_views = true;
-        rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
-        rootCtx.setEnv(env);
+        connectContext.setEnv(env);
         mgr = env.getCatalogMgr();
 
         // create hms catalog
         CreateCatalogStmt hmsCatalog = (CreateCatalogStmt) parseAndAnalyzeStmt(
                 "create catalog hms_ctl properties('type' = 'hms', 'hive.metastore.uris' = 'thrift://192.168.0.1:9083');",
-                rootCtx);
+                connectContext);
         mgr.createCatalog(hmsCatalog);
 
         // create inner db and tbl for test
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database test", rootCtx);
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt("create database test", connectContext);
         mgr.getInternalCatalog().createDb(createDbStmt);
 
         CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt("create table test.tbl1(\n"
@@ -151,6 +150,10 @@ public class HmsCatalogTest extends TestWithFeService {
                 minTimes = 0;
                 result = true;
 
+                view1.getCatalog();
+                minTimes = 0;
+                result = hmsCatalog;
+
                 view1.getType();
                 minTimes = 0;
                 result = TableIf.TableType.HMS_EXTERNAL_TABLE;
@@ -184,6 +187,10 @@ public class HmsCatalogTest extends TestWithFeService {
                 view2.getDbName();
                 minTimes = 0;
                 result = "hms_db";
+
+                view2.getCatalog();
+                minTimes = 0;
+                result = hmsCatalog;
 
                 view2.isView();
                 minTimes = 0;
@@ -223,6 +230,10 @@ public class HmsCatalogTest extends TestWithFeService {
                 minTimes = 0;
                 result = "hms_db";
 
+                view3.getCatalog();
+                minTimes = 0;
+                result = hmsCatalog;
+
                 view3.isView();
                 minTimes = 0;
                 result = true;
@@ -261,6 +272,10 @@ public class HmsCatalogTest extends TestWithFeService {
                 minTimes = 0;
                 result = "hms_db";
 
+                view4.getCatalog();
+                minTimes = 0;
+                result = hmsCatalog;
+
                 view4.isView();
                 minTimes = 0;
                 result = true;
@@ -294,106 +309,94 @@ public class HmsCatalogTest extends TestWithFeService {
 
     @Test
     public void testQueryView() {
+        SessionVariable sv = connectContext.getSessionVariable();
+        Assertions.assertNotNull(sv);
+        sv.setEnableNereidsPlanner(true);
+        sv.enableFallbackToOriginalPlanner = false;
+
         createDbAndTableForHmsCatalog((HMSExternalCatalog) env.getCatalogMgr().getCatalog(HMS_CATALOG));
-        // test normal table
+        queryViews(false);
+
+        // force use nereids planner to query hive views
+        queryViews(true);
+    }
+
+    private void testParseAndAnalyze(boolean useNereids, String sql) {
         try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_tbl", rootCtx);
+            if (useNereids) {
+                checkAnalyze(sql);
+            } else {
+                parseAndAnalyzeStmt(sql, connectContext);
+            }
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
+    }
+
+    private void testParseAndAnalyzeWithThrows(boolean useNereids, String sql,
+                                               Class<? extends Throwable> throwableClass) {
+        try {
+            if (useNereids) {
+                Assert.assertThrows(throwableClass, () -> checkAnalyze(sql));
+            } else {
+                Assert.assertThrows(throwableClass, () -> parseAndAnalyzeStmt(sql, connectContext));
+            }
+        } catch (Exception exception) {
+            exception.printStackTrace();
+            Assert.fail();
+        }
+    }
+
+    private void queryViews(boolean useNereids) {
+        // test normal table
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_tbl");
 
         // test simple view
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_view1", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view1");
 
         // test view with subquery
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_view2", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view2");
 
         // test view with union
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_view3", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3");
 
         // test view with not support func
-        AnalysisException e = Assert.assertThrows(AnalysisException.class,
-                () -> parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_view4", rootCtx));
-        Assert.assertTrue(e.getMessage().contains("No matching function with signature: not_exists_func"));
+        testParseAndAnalyzeWithThrows(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view4",
+                    useNereids ? org.apache.doris.nereids.exceptions.AnalysisException.class : AnalysisException.class);
 
         // change to hms_ctl
         try {
-            env.changeCatalog(rootCtx, HMS_CATALOG);
+            env.changeCatalog(connectContext, HMS_CATALOG);
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
 
         // test in hms_ctl
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_db.hms_view1", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view1");
 
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_db.hms_view2", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view2");
 
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_db.hms_view3", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view3");
 
-        Assert.assertThrows(AnalysisException.class,
-                () -> parseAndAnalyzeStmt("SELECT * FROM hms_db.hms_view4", rootCtx));
+        testParseAndAnalyzeWithThrows(useNereids, "SELECT * FROM hms_db.hms_view4",
+                    useNereids ? org.apache.doris.nereids.exceptions.AnalysisException.class : AnalysisException.class);
 
         // test federated query
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_db.hms_view3, internal.test.tbl1", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_db.hms_view3, internal.test.tbl1");
 
         // change to internal catalog
         try {
-            env.changeCatalog(rootCtx, InternalCatalog.INTERNAL_CATALOG_NAME);
+            env.changeCatalog(connectContext, InternalCatalog.INTERNAL_CATALOG_NAME);
         } catch (Exception exception) {
             exception.printStackTrace();
             Assert.fail();
         }
 
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_view3, internal.test.tbl1", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3, internal.test.tbl1");
 
-        try {
-            parseAndAnalyzeStmt("SELECT * FROM hms_ctl.hms_db.hms_view3, test.tbl1", rootCtx);
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            Assert.fail();
-        }
+        testParseAndAnalyze(useNereids, "SELECT * FROM hms_ctl.hms_db.hms_view3, test.tbl1");
     }
 
 }
