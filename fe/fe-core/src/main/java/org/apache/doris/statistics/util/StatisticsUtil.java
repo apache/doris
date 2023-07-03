@@ -43,6 +43,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
@@ -541,14 +542,28 @@ public class StatisticsUtil {
         List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
         List<HivePartition> hivePartitions = Lists.newArrayList();
+        int samplePartitionSize = Config.hive_stats_partition_sample_size;
+        int totalPartitionSize = 1;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
             partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
         }
         if (partitionValues != null) {
             Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(idToPartitionItem.size());
-            for (PartitionItem item : idToPartitionItem.values()) {
+            totalPartitionSize = idToPartitionItem.size();
+            Collection<PartitionItem> partitionItems;
+            List<List<String>> partitionValuesList;
+            // If partition number is too large, randomly choose part of them to estimate the whole table.
+            if (samplePartitionSize < totalPartitionSize) {
+                List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
+                Collections.shuffle(items);
+                partitionItems = items.subList(0, samplePartitionSize);
+                partitionValuesList = Lists.newArrayListWithCapacity(samplePartitionSize);
+            } else {
+                partitionItems = idToPartitionItem.values();
+                partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
+            }
+            for (PartitionItem item : partitionItems) {
                 partitionValuesList.add(((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringList());
             }
             hivePartitions = cache.getAllPartitions(table.getDbName(), table.getName(), partitionValuesList);
@@ -573,6 +588,9 @@ public class StatisticsUtil {
         }
         if (estimatedRowSize == 0) {
             return 1;
+        }
+        if (samplePartitionSize < totalPartitionSize) {
+            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
         return totalSize / estimatedRowSize;
     }
