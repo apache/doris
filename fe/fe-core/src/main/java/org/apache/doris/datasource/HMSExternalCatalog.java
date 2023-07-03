@@ -124,6 +124,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
 
+    public String getHiveVersion() {
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
+    }
+
     protected List<String> listDatabaseNames() {
         return client.getAllDatabases();
     }
