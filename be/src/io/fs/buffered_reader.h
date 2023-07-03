@@ -23,6 +23,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <utility>
 #include <vector>
@@ -262,14 +263,15 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
 
     PrefetchBuffer(const PrefetchRange file_range, size_t buffer_size, size_t whole_buffer_size,
                    io::FileReader* reader, const IOContext* io_ctx,
-                   std::function<void(PrefetchBuffer&)> sync_profile)
+                   std::function<void(PrefetchBuffer&)> sync_profile, std::stop_source stop_source)
             : _file_range(file_range),
               _size(buffer_size),
               _whole_buffer_size(whole_buffer_size),
               _reader(reader),
               _io_ctx(io_ctx),
               _buf(new char[buffer_size]),
-              _sync_profile(sync_profile) {}
+              _sync_profile(sync_profile),
+              _token(stop_source.get_token()) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
             : _offset(other._offset),
@@ -280,7 +282,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
               _reader(other._reader),
               _io_ctx(other._io_ctx),
               _buf(std::move(other._buf)),
-              _sync_profile(std::move(other._sync_profile)) {}
+              _sync_profile(std::move(other._sync_profile)),
+              _token(std::move(other._token)) {}
 
     ~PrefetchBuffer() = default;
 
@@ -298,10 +301,11 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     std::unique_ptr<char[]> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
-    std::condition_variable _prefetched;
+    std::condition_variable_any _prefetched;
     Status _prefetch_status {Status::OK()};
     std::atomic_bool _exceed = false;
     std::function<void(PrefetchBuffer&)> _sync_profile;
+    std::stop_token _token;
     struct Statistics {
         int64_t copy_time {0};
         int64_t read_time {0};
@@ -324,7 +328,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     // @param[bytes_read] actual bytes read
     Status read_buffer(size_t off, const char* buf, size_t buf_len, size_t* bytes_read);
     // @brief: shut down the buffer until the prior prefetching task is done
-    void close();
+    void sync_close();
     // @brief: to detect whether this buffer contains off
     // @param[off] detect offset
     bool inline contains(size_t off) const { return _offset <= off && off < _offset + _size; }
@@ -409,6 +413,7 @@ private:
     bool _initialized = false;
     bool _closed = false;
     size_t _size;
+    std::stop_source _stop_source;
 };
 
 /**

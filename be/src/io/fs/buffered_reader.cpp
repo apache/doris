@@ -376,13 +376,11 @@ constexpr static int WAIT_TIME_OUT_MS = 10000;
 void PrefetchBuffer::reset_offset(size_t offset) {
     {
         std::unique_lock lck {_lock};
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+        if (!_prefetched.wait_for(lck, _token, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
                                   [this]() { return _buffer_status != BufferStatus::PENDING; })) {
-            _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
-            return;
-        }
-        if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
-            _prefetched.notify_all();
+            if (!_token.stop_requested()) {
+                _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
+            }
             return;
         }
         _buffer_status = BufferStatus::RESET;
@@ -404,16 +402,11 @@ void PrefetchBuffer::reset_offset(size_t offset) {
 void PrefetchBuffer::prefetch_buffer() {
     {
         std::unique_lock lck {_lock};
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
-                return _buffer_status == BufferStatus::RESET ||
-                       _buffer_status == BufferStatus::CLOSED;
-            })) {
-            _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
-            return;
-        }
-        // in case buffer is already closed
-        if (UNLIKELY(_buffer_status == BufferStatus::CLOSED)) {
-            _prefetched.notify_all();
+        if (!_prefetched.wait_for(lck, _token, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                                  [this]() { return _buffer_status == BufferStatus::RESET; })) {
+            if (!_token.stop_requested()) {
+                _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+            }
             return;
         }
         _buffer_status = BufferStatus::PENDING;
@@ -447,9 +440,15 @@ void PrefetchBuffer::prefetch_buffer() {
     _statis.prefetch_request_io += 1;
     _statis.prefetch_request_bytes += _len;
     std::unique_lock lck {_lock};
-    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+    if (!_prefetched.wait_for(lck, _token, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
                               [this]() { return _buffer_status == BufferStatus::PENDING; })) {
-        _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+        if (!_token.stop_requested()) {
+            _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
+        } else {
+            // for sync_close to quit safe
+            _buffer_status = BufferStatus::PREFETCHED;
+            _prefetched.notify_all();
+        }
         return;
     }
     if (!s.ok() && _offset < _reader->size()) {
@@ -528,15 +527,13 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
-                return _buffer_status == BufferStatus::PREFETCHED ||
-                       _buffer_status == BufferStatus::CLOSED;
-            })) {
-            _prefetch_status = Status::TimedOut("time out when read prefetch buffer");
+        if (!_prefetched.wait_for(
+                    lck, _token, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+                    [this]() { return _buffer_status == BufferStatus::PREFETCHED; })) {
+            if (!_token.stop_requested()) {
+                _prefetch_status = Status::TimedOut("time out when read prefetch buffer");
+            }
             return _prefetch_status;
-        }
-        if (UNLIKELY(BufferStatus::CLOSED == _buffer_status)) {
-            return Status::OK();
         }
     }
     RETURN_IF_ERROR(_prefetch_status);
@@ -564,7 +561,7 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     return Status::OK();
 }
 
-void PrefetchBuffer::close() {
+void PrefetchBuffer::sync_close() {
     std::unique_lock lck {_lock};
     // in case _reader still tries to write to the buf after we close the buffer
     if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
@@ -572,11 +569,10 @@ void PrefetchBuffer::close() {
         _prefetch_status = Status::TimedOut("time out when close prefetch buffer");
         return;
     }
-    _buffer_status = BufferStatus::CLOSED;
-    _prefetched.notify_all();
     if (_sync_profile != nullptr) {
         _sync_profile(*this);
     }
+    _buffer_status = BufferStatus::CLOSED;
 }
 
 // buffered reader
@@ -619,7 +615,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     for (int i = 0; i < buffer_num; i++) {
         _pre_buffers.emplace_back(std::make_shared<PrefetchBuffer>(
                 _file_range, s_max_pre_buffer_size, _whole_pre_buffer_size, _reader.get(), _io_ctx,
-                sync_buffer));
+                sync_buffer, _stop_source));
     }
 }
 
@@ -662,9 +658,10 @@ Status PrefetchBufferedReader::close() {
 
 Status PrefetchBufferedReader::_close_internal() {
     if (!_closed) {
+        _stop_source.request_stop();
         _closed = true;
         std::for_each(_pre_buffers.begin(), _pre_buffers.end(),
-                      [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->close(); });
+                      [](std::shared_ptr<PrefetchBuffer>& buffer) { buffer->sync_close(); });
         return _reader->close();
     }
 
