@@ -42,7 +42,7 @@ The followings illustrate how file analysis is conducted with the example of S3 
 
 ```
 > DESC FUNCTION s3 (
-    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "format" = "parquet",
@@ -67,7 +67,7 @@ An S3 Table Value Function is defined as follows:
 
 ```
 s3(
-    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "Format" = "parquet",
