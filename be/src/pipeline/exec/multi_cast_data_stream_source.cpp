@@ -85,19 +85,22 @@ bool MultiCastDataStreamerSourceOperator::can_read() {
 Status MultiCastDataStreamerSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
                                                       SourceState& source_state) {
     bool eos = false;
-    _multi_cast_data_streamer->pull(_consumer_id, block, &eos);
+    vectorized::Block tmp_block;
+    vectorized::Block* output_block = block;
+    if (!_output_expr_contexts.empty()) {
+        output_block = &tmp_block;
+    }
+    _multi_cast_data_streamer->pull(_consumer_id, output_block, &eos);
 
     if (!_conjuncts.empty()) {
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+                                                               output_block->columns()));
     }
 
-    if (!_output_expr_contexts.empty()) {
-        vectorized::Block output_block;
+    if (!_output_expr_contexts.empty() && output_block->rows() > 0) {
         RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_expr_contexts, *block, &output_block));
-        materialize_block_inplace(output_block);
-        block->swap(output_block);
+                _output_expr_contexts, *output_block, block));
+        materialize_block_inplace(*block);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
