@@ -120,7 +120,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         } else {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
-                deleteFileDesc.setPath(filter.getDeleteFilePath());
+                String deleteFilePath = filter.getDeleteFilePath();
+                deleteFileDesc.setPath(S3Util.toScanRangeLocation(deleteFilePath).toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -182,8 +183,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             long fileSize = task.file().fileSizeInBytes();
             for (FileScanTask splitTask : task.split(splitSize)) {
                 String dataFilePath = splitTask.file().path().toString();
-                String finalDataFilePath = S3Util.convertToS3IfNecessary(dataFilePath);
-                IcebergSplit split = new IcebergSplit(new Path(finalDataFilePath), splitTask.start(),
+                Path finalDataFilePath = S3Util.toScanRangeLocation(dataFilePath);
+                IcebergSplit split = new IcebergSplit(finalDataFilePath, splitTask.start(),
                         splitTask.length(), fileSize, new String[0]);
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
