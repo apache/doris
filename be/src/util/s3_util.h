@@ -18,6 +18,7 @@
 #pragma once
 
 #include <aws/core/Aws.h>
+#include <aws/core/client/ClientConfiguration.h>
 #include <fmt/format.h>
 #include <stdint.h>
 
