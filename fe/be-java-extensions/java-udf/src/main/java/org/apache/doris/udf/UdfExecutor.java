@@ -35,8 +35,6 @@ import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.MalformedURLException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 
 public class UdfExecutor extends BaseExecutor {
@@ -341,26 +339,26 @@ public class UdfExecutor extends BaseExecutor {
                 break;
             }
             case DATE: {
-                UdfConvert.copyBatchDateResult(method.getReturnType(), isNullable, numRows, (LocalDate[]) result,
+                UdfConvert.copyBatchDateResult(method.getReturnType(), isNullable, numRows, result,
                         nullMapAddr, resColumnAddr);
                 break;
             }
             case DATETIME: {
                 UdfConvert
-                        .copyBatchDateTimeResult(method.getReturnType(), isNullable, numRows, (LocalDateTime[]) result,
+                        .copyBatchDateTimeResult(method.getReturnType(), isNullable, numRows, result,
                                 nullMapAddr,
                                 resColumnAddr);
                 break;
             }
             case DATEV2: {
-                UdfConvert.copyBatchDateV2Result(method.getReturnType(), isNullable, numRows, (LocalDate[]) result,
+                UdfConvert.copyBatchDateV2Result(method.getReturnType(), isNullable, numRows, result,
                         nullMapAddr,
                         resColumnAddr);
                 break;
             }
             case DATETIMEV2: {
                 UdfConvert.copyBatchDateTimeV2Result(method.getReturnType(), isNullable, numRows,
-                        (LocalDateTime[]) result, nullMapAddr,
+                        result, nullMapAddr,
                         resColumnAddr);
                 break;
             }
