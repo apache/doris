@@ -82,7 +82,8 @@ public:
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                      io::FileReaderSPtr* reader,
-                                     const io::FileReaderOptions& reader_options);
+                                     const io::FileReaderOptions& reader_options,
+                                     RuntimeProfile* profile);
 
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
                                    const std::string& path,

@@ -123,7 +123,7 @@ Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, 
 }
 
 Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string& path,
-                              std::shared_ptr<HdfsFileSystem>* fs) {
+                              RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
         return Status::InternalError(
@@ -131,14 +131,16 @@ Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string&
                 "true.");
     }
 #endif
-    (*fs).reset(new HdfsFileSystem(hdfs_params, path));
+    (*fs).reset(new HdfsFileSystem(hdfs_params, path, profile));
     return (*fs)->connect();
 }
 
-HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
+HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
+                               RuntimeProfile* profile)
         : RemoteFileSystem(path, "", FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
-          _fs_handle(nullptr) {
+          _fs_handle(nullptr),
+          _profile(profile) {
     _namenode = _hdfs_params.fs_name;
 }
 
@@ -175,7 +177,7 @@ Status HdfsFileSystem::open_file_internal(const Path& file, int64_t file_size,
             std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, 0, file_size,
             &accessor));
 
-    *reader = std::make_shared<HdfsFileReader>(file, _namenode, std::move(accessor));
+    *reader = std::make_shared<HdfsFileReader>(file, _namenode, std::move(accessor), _profile);
     return Status::OK();
 }
 

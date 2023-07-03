@@ -50,8 +50,8 @@ public:
         io::FileReaderSPtr reader;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(
-                FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader, reader_opts));
+        RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader,
+                                                        reader_opts, nullptr));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
@@ -94,7 +94,7 @@ public:
         std::shared_ptr<io::HdfsFileSystem> fs;
         io::FileWriterPtr writer;
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(file_path, &writer));
         return write(state, writer.get());
     }
@@ -115,7 +115,7 @@ public:
         auto new_file_path = file_path + "_new";
         THdfsParams hdfs_params = parse_properties(_conf_map);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
         RETURN_IF_ERROR(fs->rename(file_path, new_file_path));
@@ -142,7 +142,7 @@ public:
 
         std::shared_ptr<io::HdfsFileSystem> fs;
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
 
         auto start = std::chrono::high_resolution_clock::now();
         bool res = false;
