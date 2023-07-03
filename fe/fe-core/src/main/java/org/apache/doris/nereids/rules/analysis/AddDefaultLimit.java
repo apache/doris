@@ -15,22 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.processor.pre;
+package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 /**
- * handle sql_select_limit and default_order_by_limit
+ * add limit node to the top of the plan tree if sql_select_limit or default_order_by_limit is set.
  */
-public class AddSqlSelectLimit extends PlanPreprocessor {
+public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> implements CustomRewriter {
+
+    @Override
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        return plan.accept(this, jobContext.getCascadesContext().getStatementContext());
+    }
 
     @Override
     public Plan visit(Plan plan, StatementContext context) {
@@ -56,6 +64,8 @@ public class AddSqlSelectLimit extends PlanPreprocessor {
         return ((LogicalPlan) cte.withChildren(child));
     }
 
+    // we should keep that sink node is the top node of the plan tree.
+    // currently, it's one of the olap table sink and file sink.
     @Override
     public LogicalPlan visitUnboundOlapTableSink(UnboundOlapTableSink<? extends Plan> sink, StatementContext context) {
         Plan child = sink.child().accept(this, context);
