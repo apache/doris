@@ -681,7 +681,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         int groupByCount = groupByExpressions.size();
         if (groupByColStats.values().stream().anyMatch(ColumnStatistic::isUnKnown)) {
             if (groupByCount > 0) {
-                rowCount *= DEFAULT_AGGREGATE_RATIO * Math.pow(DEFAULT_AGGREGATE_EXPAND_RATIO, groupByCount - 1);
+                rowCount *= DEFAULT_AGGREGATE_RATIO;
             }
             if (rowCount > childStats.getRowCount()) {
                 rowCount = childStats.getRowCount();
