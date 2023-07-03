@@ -250,8 +250,7 @@ public:
     // 2. just cancel()
     void mark_close();
 
-    bool is_pending_rpc_done() const;
-    void try_pending_rpc_done();
+    bool is_rpc_done() const;
 
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
@@ -339,8 +338,6 @@ protected:
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished {false}; // reuse for vectorized
-
-    std::atomic<bool> _pending_rpc {false};
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
@@ -489,7 +486,8 @@ public:
     Status open(RuntimeState* state) override;
 
     void try_close(RuntimeState* state, Status exec_status) override;
-    bool is_close_done() override { return _running_channels_num == 0; }
+    // if true, all node channels rpc done, can start close().
+    bool is_close_done() override;
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
@@ -648,8 +646,6 @@ private:
     int32_t _send_batch_parallelism = 1;
     // Save the status of try_close() and close() method
     Status _close_status;
-    // Use in pipeline, if 0, all node channels are done or canceled, can start close().
-    std::atomic<int32_t> _running_channels_num {0};
     bool _try_close = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.

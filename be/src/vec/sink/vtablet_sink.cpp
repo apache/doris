@@ -119,7 +119,6 @@ public:
                                           -1);
         }
         done = true;
-        vnode_channel->try_pending_rpc_done();
     }
 
     void join() { brpc::Join(cntl.call_id()); }
@@ -129,7 +128,7 @@ public:
     VNodeChannel* vnode_channel;
     IndexChannel* index_channel;
     int64_t partition_id;
-    bool done = false;
+    std::atomic<bool> done {false};
 };
 
 IndexChannel::~IndexChannel() {}
@@ -434,7 +433,6 @@ Status VNodeChannel::open_wait() {
             // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
             // will be blocked.
             _add_batches_finished = true;
-            try_pending_rpc_done();
         }
     });
 
@@ -490,7 +488,6 @@ Status VNodeChannel::open_wait() {
                     }
                 }
                 _add_batches_finished = true;
-                try_pending_rpc_done();
             }
         } else {
             _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
@@ -515,8 +512,6 @@ Status VNodeChannel::open_wait() {
             }
         }
     });
-    _parent->_running_channels_num++;
-    _pending_rpc = true;
     return status;
 }
 
@@ -726,7 +721,6 @@ void VNodeChannel::_cancel_with_msg(const std::string& msg) {
         }
     }
     _cancelled = true;
-    try_pending_rpc_done();
 }
 
 Status VNodeChannel::none_of(std::initializer_list<bool> vars) {
@@ -909,15 +903,9 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
     request.release_id();
 }
 
-bool VNodeChannel::is_pending_rpc_done() const {
-    return (_add_batches_finished || _cancelled) && open_partition_finished();
-}
-
-void VNodeChannel::try_pending_rpc_done() {
-    if (is_pending_rpc_done() && _pending_rpc) {
-        _parent->_running_channels_num--;
-        _pending_rpc = false;
-    }
+bool VNodeChannel::is_rpc_done() const {
+    return (_add_batches_finished || (_cancelled && !_add_block_closure->is_packet_in_flight())) &&
+           open_partition_finished();
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
@@ -1541,8 +1529,19 @@ void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
+        _try_close = true;
     }
-    _try_close = true;
+}
+
+bool VOlapTableSink::is_close_done() {
+    bool close_done = true;
+    for (const auto& index_channel : _channels) {
+        index_channel->for_each_node_channel(
+                [&close_done](const std::shared_ptr<VNodeChannel>& ch) {
+                    close_done &= ch->is_rpc_done();
+                });
+    }
+    return close_done;
 }
 
 Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
