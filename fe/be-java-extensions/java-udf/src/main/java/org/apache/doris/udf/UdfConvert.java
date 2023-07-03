@@ -1743,8 +1743,3 @@ public class UdfConvert {
         argument[row] = data;
     }
 }
-
-
-//TODO: convert decimal pass scale info
-//TODO: convert date/datetime type is only LocalDate?
-//TODO: copyBatch date/datetime type is only LocalDate??

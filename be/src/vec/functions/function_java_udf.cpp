@@ -74,7 +74,8 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
                 jni_env->executor_cl, "copyBatchBasicResult", "(ZI[Ljava/lang/Object;JJJ)V");
         jni_env->executor_result_array_batch_id = env->GetMethodID(
                 jni_env->executor_cl, "copyBatchArrayResult", "(ZI[Ljava/lang/Object;JJJJJ)V");
-        jni_env->executor_close_id = env->GetMethodID(jni_env->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE);        
+        jni_env->executor_close_id =
+                env->GetMethodID(jni_env->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE);
         RETURN_ERROR_IF_EXC(env);
         context->set_function_state(FunctionContext::FRAGMENT_LOCAL, jni_env);
     }
