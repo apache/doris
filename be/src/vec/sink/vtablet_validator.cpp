@@ -18,52 +18,23 @@
 #include "vec/sink/vtablet_validator.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/DataSinks_types.h>
-#include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/Metrics_types.h>
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/data.pb.h>
-#include <gen_cpp/internal_service.pb.h>
 #include <google/protobuf/stubs/common.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <sys/param.h>
-#include <sys/types.h>
 
 #include <algorithm>
-#include <iterator>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "common/logging.h"
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/tablet_info.h"
-#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
-#include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/binary_cast.hpp"
 #include "util/brpc_client_cache.h"
-#include "util/debug/sanitizer_scopes.h"
-#include "util/defer_op.h"
-#include "util/doris_metrics.h"
-#include "util/network_util.h"
-#include "util/proto_util.h"
-#include "util/ref_count_closure.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
-#include "util/threadpool.h"
-#include "util/thrift_util.h"
-#include "util/time.h"
-#include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -72,26 +43,20 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/pod_array.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/sink/vtablet_validator.h"
 
 namespace doris {
 namespace stream_load {
 
 template <bool is_min>
 DecimalV2Value OlapTableValidator::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
-    std::map<std::pair<int, int>, DecimalV2Value>* pmap = nullptr;
+    std::map<std::pair<int, int>, DecimalV2Value>* pmap;
     if constexpr (is_min) {
         pmap = &_min_decimalv2_val;
     } else {
@@ -117,7 +82,7 @@ DecimalV2Value OlapTableValidator::_get_decimalv2_min_or_max(const TypeDescripto
 
 template <typename DecimalType, bool IsMin>
 DecimalType OlapTableValidator::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
-    std::map<int, typename DecimalType::NativeType>* pmap = nullptr;
+    std::map<int, typename DecimalType::NativeType>* pmap;
     if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
     } else if constexpr (std::is_same_v<DecimalType, vectorized::Decimal64>) {
