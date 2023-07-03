@@ -33,8 +33,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * because some rule could change output's nullable.
- * So, we need add a rule to adjust all expression's nullable attribute after rewrite.
+ * We need this rule to cast all filter and join conjunct's return type to boolean after rewrite.
  */
 public class AdjustConjunctsReturnType extends DefaultPlanRewriter<Void> implements CustomRewriter {
 
