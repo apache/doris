@@ -19,8 +19,6 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.analysis.AddDefaultLimit;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
@@ -118,7 +116,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
-            custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new),
             bottomUp(new CheckAnalysis())
         );
     }
