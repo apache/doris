@@ -433,22 +433,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         if (ctx->timeout_second != -1) {
             properties.insert(std::pair(HTTP_TIMEOUT, std::to_string(ctx->timeout_second)));
         }
-        if (http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
-            properties.insert(std::pair(HTTP_STRIP_OUTER_ARRAY, "false"));
-        }
-        if (http_req->header(HTTP_NUM_AS_STRING).empty()) {
-            properties.insert(std::pair(HTTP_NUM_AS_STRING, "false"));
-        }
-        if (http_req->header(HTTP_FUZZY_PARSE).empty()) {
-            properties.insert(std::pair(HTTP_FUZZY_PARSE, "false"));
-        }
-        if (http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-            properties.insert(std::pair(HTTP_READ_JSON_BY_LINE, "false"));
-        }
-        request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
-        for (const auto& property : http_req->headers()) {
-            properties.insert(std::pair(property.first, property.second));
-        }
         request.__set_properties(properties);
     } else {
         // deprecated
