@@ -254,7 +254,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
