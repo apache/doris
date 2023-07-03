@@ -32,7 +32,6 @@ import java.util.stream.Collectors;
 /**
  * The rule add an explicit project at the top join to ensure the output of whole plan is stable
  * and avoid generate circle in memo.
- *
  */
 public class EnsureProjectOnTopJoin extends DefaultPlanRewriter<Void> implements CustomRewriter {
 

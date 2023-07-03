@@ -53,6 +53,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType() throws UserException {
+        return getLocationType(null);
+    }
+
+    @Override
+    protected TFileType getLocationType(String location) throws UserException {
         return TFileType.FILE_NET;
     }
 
