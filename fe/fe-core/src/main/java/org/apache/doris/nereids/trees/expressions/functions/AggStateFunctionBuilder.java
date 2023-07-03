@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.types.AggStateType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -63,7 +66,9 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
                 return false;
             }
 
-            return nestedBuilder.canApply(((AggStateType) argument.getDataType()).getMockedExpressions());
+            return nestedBuilder.canApply(((AggStateType) argument.getDataType()).getSubTypes().stream().map(t -> {
+                return new SlotReference("mocked", t);
+            }).collect(ImmutableList.toImmutableList()));
         }
     }
 
@@ -90,7 +95,11 @@ public class AggStateFunctionBuilder extends FunctionBuilder {
         Expression arg = (Expression) arguments.get(0);
         AggStateType type = (AggStateType) arg.getDataType();
 
-        return (AggregateFunction) nestedBuilder.build(nestedName, type.getMockedExpressions());
+        List<Expression> nestedArgumens = type.getSubTypes().stream().map(t -> {
+            return new SlotReference("mocked", t);
+        }).collect(Collectors.toList());
+
+        return (AggregateFunction) nestedBuilder.build(nestedName, nestedArgumens);
     }
 
     @Override

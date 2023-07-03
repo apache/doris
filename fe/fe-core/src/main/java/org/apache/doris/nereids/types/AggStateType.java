@@ -19,14 +19,11 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -59,12 +56,8 @@ public class AggStateType extends DataType {
         this.functionName = functionName;
     }
 
-    public List<Expression> getMockedExpressions() {
-        List<Expression> result = new ArrayList<Expression>();
-        for (int i = 0; i < subTypes.size(); i++) {
-            result.add(new SlotReference("mocked", subTypes.get(i), subTypeNullables.get(i)));
-        }
-        return result;
+    public List<DataType> getSubTypes() {
+        return subTypes;
     }
 
     @Override

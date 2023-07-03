@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * AggState combinator union
@@ -46,12 +47,13 @@ public class UnionCombinator extends AggregateFunction
         super(nested.getName() + AggStateFunctionBuilder.UNION_SUFFIX, arguments);
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
-        inputType = (AggStateType) arguments.get(0).getDataType();
+        inputType = new AggStateType(nested.getName(), nested.getArgumentsTypes(),
+                nested.getArguments().stream().map(Expression::nullable).collect(Collectors.toList()));
     }
 
     @Override
     public UnionCombinator withChildren(List<Expression> children) {
-        return new UnionCombinator(children, nested);
+        return new UnionCombinator(children, nested.withChildren(children));
     }
 
     @Override

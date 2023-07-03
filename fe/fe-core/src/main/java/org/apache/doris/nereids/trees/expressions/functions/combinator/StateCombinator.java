@@ -59,7 +59,7 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(children, nested);
+        return new StateCombinator(children, nested.withChildren(children));
     }
 
     @Override
