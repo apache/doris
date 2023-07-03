@@ -85,9 +85,9 @@ suite("test_collect_list_distinct") {
     sql """insert into ${table1} values (1, 90, NULL, "car");"""
     sql """insert into ${table3} values (1, 2, "12");"""
 
-    qt_select_tt  """ select * from ${table3};"""
-    qt_select_bd  """ select * from ${table1};"""
-    qt_select_bdp  """ select * from ${table2};"""
+    qt_select_tt  """ select * from ${table3} order by transfer_id;"""
+    qt_select_bd  """ select * from ${table1} order by delivery_id;"""
+    qt_select_bdp  """ select * from ${table2} order by delivery_product_id;"""
 
     // this select stmt can trigger column array call update_hashes_with_value
     qt_select """ select * from (
