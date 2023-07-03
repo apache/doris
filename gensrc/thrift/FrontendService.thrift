@@ -51,9 +51,9 @@ struct TColumnDesc {
   6: optional bool isAllowNull
   7: optional string columnKey
   8: optional list<TColumnDesc> children
-  9: optional i32 col_unique_id 
+  9: optional i32 colUniqueId 
   // If set, then this column will be attached to it's parent
-  10: optional i32 parent_col_unique_id
+  10: optional i32 parentColUniqueId
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -62,7 +62,6 @@ struct TColumnDesc {
 struct TColumnDef {
   1: required TColumnDesc columnDesc
   2: optional string comment
-  3: optional i32 colUniqueId
 }
 
 // Arguments to DescribeTable, which returns a list of column descriptors for a

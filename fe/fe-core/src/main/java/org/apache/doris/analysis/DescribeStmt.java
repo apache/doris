@@ -205,7 +205,6 @@ public class DescribeStmt extends ShowStmt {
                                 extras.add("BLOOM_FILTER");
                             }
                             String extraStr = StringUtils.join(extras, ",");
-
                             List<String> row = Arrays.asList(
                                     "",
                                     "",

@@ -177,7 +177,7 @@ public:
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              RowsetWriter* rowset_writer, std::shared_ptr<MowContext> mow_context,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
-             const std::shared_ptr<MemTracker>& flush_mem_tracker);
+             const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t index_id);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet->tablet_id(); }
@@ -301,6 +301,7 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     size_t _num_columns;
+    int64_t _index_id;
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {

@@ -154,6 +154,7 @@ Status NewOlapScanner::init() {
                 // tabletschema is bounded to rowset and tablet's schema maybe outdated,
                 //  so we have to use schema from a query plan witch FE puts it in query plans.
                 _tablet_schema->clear_columns();
+                // TODO(lhy) handle variant
                 for (const auto& column_desc : olap_scan_node.columns_desc) {
                     _tablet_schema->append_column(TabletColumn(column_desc));
                 }

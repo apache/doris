@@ -37,6 +37,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
@@ -184,7 +185,6 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
 
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id) {
-    const TabletColumn& variant = common_schema->column_by_uid(variant_col_unique_id);
     // Types of subcolumns by path from all tuples.
     std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
     for (const TabletSchemaSPtr& schema : schemas) {
@@ -231,10 +231,11 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 
     // TODO handle ambiguos path and deduce to JSONB type
 
+    std::string variant_col_name = common_schema->column_by_uid(variant_col_unique_id).name();
     // Append all common type columns of this variant
     for (int i = 0; i < tuple_paths.size(); ++i) {
         TabletColumn common_column;
-        const std::string& column_name = variant.name() + "." + tuple_paths[i].get_path();
+        const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
         get_column_by_type(tuple_types[i], column_name, common_column);
         common_column.set_parent_unique_id(variant_col_unique_id);
         common_column.set_path_info(tuple_paths[i]);
@@ -288,6 +289,118 @@ void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos)
                 block.get_by_position(variant_pos[i]).column->assume_mutable_ref());
         column.finalize();
     }
+}
+
+static TColumnDef get_columndef(const TabletColumn& column) {
+    TColumnDesc t_column_desc;
+    t_column_desc.__set_columnName(column.name());
+    t_column_desc.__set_columnLength(column.length());
+    t_column_desc.__set_colUniqueId(column.unique_id());
+    t_column_desc.__set_parentColUniqueId(column.parent_unique_d());
+    t_column_desc.__set_columnType(
+            DataTypeFactory::instance().create_data_type(column)->get_type_as_tprimitive_type());
+    t_column_desc.__set_isAllowNull(column.is_nullable());
+
+    if (!column.get_sub_columns().empty()) {
+        t_column_desc.__isset.children = true;
+    }
+    for (const TabletColumn& subcolumn : column.get_sub_columns()) {
+        TColumnDef t_child_column_def = get_columndef(subcolumn);
+        t_column_desc.children.push_back(std::move(t_child_column_def.columnDesc));
+    }
+    TColumnDef t_column_def;
+    t_column_def.__set_columnDesc(std::move(t_column_desc));
+    return t_column_def;
+}
+
+Status update_front_end_schema(UpdateSchemaRequest& request) {
+    TModifyColumnsRequest modify_request;
+    TModifyColumnsResult modify_res;
+    modify_request.__set_index_id(request.index_id);
+    modify_request.__set_table_id(request.tablet_id);
+    modify_request.__set_schema_version(request.schema_version);
+    if (request.new_columns_pos.empty() && request.modifying_columns.empty()) {
+        return Status::OK();
+    }
+    modify_request.__isset.newColumns = true;
+    for (int pos : request.new_columns_pos) {
+        modify_request.newColumns.push_back(get_columndef(request.from_schema->columns()[pos]));
+    }
+    modify_request.__isset.modifyColumns = true;
+    for (int pos : request.modifying_columns) {
+        CHECK(request.from_schema->columns()[pos].unique_id() > 0);
+        modify_request.modifyColumns.push_back(get_columndef(request.from_schema->columns()[pos]));
+    }
+    auto master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&modify_request, &modify_res](FrontendServiceConnection& client) {
+                client->modifyColumns(modify_res, modify_request);
+            },
+            config::txn_commit_rpc_timeout_ms);
+    if (!rpc_st.ok()) {
+        return Status::InternalError("Failed to do schema change, rpc error {}",
+                                     rpc_st.to_string());
+    }
+    if (modify_res.status.status_code != TStatusCode::CONFLICT_SCHEMA_VERSION &&
+        modify_res.status.status_code != TStatusCode::OK) {
+        LOG(WARNING) << fmt::format("Encouter unkown modifyColumns RPC error, status: {}, msg: {}",
+                                    modify_res.status.status_code, modify_res.status.error_msgs[0]);
+        return Status::InternalError(modify_res.status.error_msgs[0]);
+    }
+    CHECK(!modify_res.allColumns.empty());
+
+    // column_name->column
+    phmap::flat_hash_map<std::string, const TColumn*> column_name_map;
+    for (const TColumn& c : modify_res.allColumns) {
+        column_name_map[c.column_name] = &c;
+        // flatten it's subcolumns
+        if (c.column_type.type == TPrimitiveType::VARIANT) {
+            for (const TColumn& subcol : c.children_column) {
+                column_name_map[subcol.column_name] = &subcol;
+            }
+        }
+    }
+
+    // Schema version missmatch, CAS failed retry
+    if (modify_res.status.status_code == TStatusCode::CONFLICT_SCHEMA_VERSION) {
+        LOG(INFO) << fmt::format(
+                "Index {} meet conflict schema version, retry. Expected {} but meet {}",
+                modify_request.index_id, modify_request.schema_version, modify_res.schema_version);
+        if (--request.max_try <= 0) {
+            return Status::InternalError("Reach max retry, meet too many conflict schema version");
+        }
+        if (request.need_backoff) {
+            // TODO
+        }
+        // Get least common schema, and refresh new columns, and try again
+        std::vector<int> refreshed_new_columns_pos;
+        for (int pos : request.new_columns_pos) {
+            TabletColumn& new_column = request.from_schema->mutable_columns()[pos];
+            auto it = column_name_map.find(new_column.name());
+            if (it == column_name_map.end()) {
+                refreshed_new_columns_pos.push_back(pos);
+            }
+        }
+        std::vector<int> refreshed_modify_columns_pos;
+        // for (int pos : request.modifying_columns) {
+        //     // TODO update to least common schema
+        // }
+        // retry
+        request.modifying_columns = refreshed_modify_columns_pos;
+        request.new_columns_pos = refreshed_new_columns_pos;
+        RETURN_IF_ERROR(update_front_end_schema(request));
+        return Status::OK();
+    }
+    // Set unique id for new columns
+    for (int pos : request.new_columns_pos) {
+        TabletColumn& new_column = request.from_schema->mutable_columns()[pos];
+        auto it = column_name_map.find(new_column.name());
+        CHECK(it != column_name_map.end());
+        CHECK(it->second->__isset.col_unique_id);
+        new_column.set_unique_id(it->second->col_unique_id);
+    }
+    return Status::OK();
 }
 
 } // namespace doris::vectorized::schema_util

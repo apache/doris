@@ -42,6 +42,7 @@ namespace doris {
 namespace vectorized {
 class Block;
 class PathInData;
+class IDataType;
 } // namespace vectorized
 
 struct OlapTableIndexSchema;
@@ -63,7 +64,7 @@ public:
 
     int32_t unique_id() const { return _unique_id; }
     void set_unique_id(int32_t id) { _unique_id = id; }
-    std::string name() const { return _col_name; }
+    const std::string& name() const { return _col_name; }
     void set_name(std::string col_name) { _col_name = col_name; }
     FieldType type() const { return _type; }
     void set_type(FieldType type) { _type = type; }
@@ -113,6 +114,7 @@ public:
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
     const TabletColumn& get_sub_column(uint32_t i) const { return _sub_columns[i]; }
+    const std::vector<TabletColumn>& get_sub_columns() const { return _sub_columns; }
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -130,6 +132,7 @@ public:
     bool is_extracted_column() const { return !_column_path.empty(); };
     bool parent_unique_d() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
+    std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
 
 private:
     int32_t _unique_id;
@@ -234,6 +237,7 @@ public:
     Status have_column(const std::string& field_name) const;
     const TabletColumn& column_by_uid(int32_t col_unique_id) const;
     const std::vector<TabletColumn>& columns() const;
+    std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
     size_t num_null_columns() const { return _num_null_columns; }

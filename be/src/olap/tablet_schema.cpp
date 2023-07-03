@@ -538,6 +538,10 @@ void TabletColumn::set_path_info(const vectorized::PathInData& path) {
     _column_path = path;
 }
 
+vectorized::DataTypePtr TabletColumn::get_vec_type() const {
+    return vectorized::DataTypeFactory::instance().create_data_type(*this);
+}
+
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
                                    const TabletSchema& tablet_schema) {
     _index_id = index.index_id;
@@ -914,6 +918,10 @@ int32_t TabletSchema::field_index(int32_t col_unique_id) const {
 }
 
 const std::vector<TabletColumn>& TabletSchema::columns() const {
+    return _cols;
+}
+
+std::vector<TabletColumn>& TabletSchema::mutable_columns() {
     return _cols;
 }
 

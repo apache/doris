@@ -548,6 +548,9 @@ public class Column implements Writable, GsonPostProcessable {
 
         childrenTColumn.setColumnType(childrenTColumnType);
         childrenTColumn.setIsAllowNull(children.isAllowNull());
+        if (children.getUniqueId() > 0) {
+            childrenTColumn.setColUniqueId(children.getUniqueId());
+        }
         // TODO: If we don't set the aggregate type for children, the type will be
         //  considered as TAggregationType::SUM after deserializing in BE.
         //  For now, we make children inherit the aggregate type from their parent.
@@ -570,7 +573,7 @@ public class Column implements Writable, GsonPostProcessable {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
-        } else if (column.type.isStructType()) {
+        } else if (column.type.isStructType() || column.type.isVariantType()) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
             for (Column children : childrenColumns) {

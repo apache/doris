@@ -539,7 +539,8 @@ public class ColumnDef {
                 visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
                 genericAggregationName, typeList, nullableList);
         if (parentUniqueId > 0) {
-            col.setParentUniqueId(parentUniqueId); 
+            LOG.debug("set parentUniqueId {}", parentUniqueId);
+            col.setParentUniqueId(parentUniqueId);
         }
         return col;
     }

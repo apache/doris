@@ -1084,7 +1084,6 @@ public class SchemaChangeHandler extends AlterHandler {
      *      ADD COLUMN k1 int to rollup1,
      *      ADD COLUMN k1 int to rollup2
      * So that k1 will be added to base index 'twice', and we just ignore this repeat adding.
-     * 
      */
     private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
                                    Set<String> newColNameSet, boolean isBaseIndex,
@@ -1127,6 +1126,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     posIndex = i;
                 }
             }
+            LOG.debug("newColumn.getParentUniqueId {}", newColumn.getParentUniqueId());
             // Find target parent column
             if (newColumn.getParentUniqueId() > 0 && col.getUniqueId() == newColumn.getParentUniqueId()) {
                 parentColumn = col;
@@ -1137,12 +1137,11 @@ public class SchemaChangeHandler extends AlterHandler {
         if (hasPos && posIndex == -1) {
             throw new DdlException("Column[" + columnPos.getLastCol() + "] does not found");
         }
-        
+
         if (hasPos && newColumn.getParentUniqueId() > 0) {
             throw new DdlException("Column[" + columnPos.getLastCol() + "] pos confilict");
         }
 
-        
         // check if add to first
         if (columnPos != null && columnPos.isFirst()) {
             posIndex = -1;
@@ -1155,7 +1154,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // Not the target index
         if (newColumn.getParentUniqueId() > 0 && parentColumn == null) {
-            LOG.debug("Not the target index, parentColUniqueId {}", newColumn.getParentUniqueId()); 
+            LOG.debug("Not the target index, parentColUniqueId {}", newColumn.getParentUniqueId());
             return;
         }
 
@@ -1163,7 +1162,7 @@ public class SchemaChangeHandler extends AlterHandler {
         if (parentColumn != null) {
             parentColumn.addChildrenColumn(toAddColumn);
             LOG.debug("newSubColumn setUniqueId({}), modIndexSchema:{}, parentColum:{}",
-                        newColumnUniqueId, modIndexSchema, parentColumn.getName());
+                        newColumnUniqueId, modIndexSchema, parentColumn.toThrift());
             return;
         }
 

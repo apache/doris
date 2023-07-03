@@ -89,24 +89,24 @@ size_t getNumberOfDimensions(const IDataType& type) {
     return 0;
 }
 
-DataTypePtr get_data_type_by_column(const IColumn& column) {
-    auto idx = column.get_underlying_data_type();
-    if (WhichDataType(idx).is_simple()) {
-        return DataTypeFactory::instance().create_data_type(idx);
-    }
-    if (WhichDataType(idx).is_nothing()) {
-        return std::make_shared<DataTypeNothing>();
-    }
-    if (const auto* column_array = check_and_get_column<ColumnArray>(&column)) {
-        return std::make_shared<DataTypeArray>(get_data_type_by_column(column_array->get_data()));
-    }
-    if (const auto* column_nullable = check_and_get_column<ColumnNullable>(&column)) {
-        return make_nullable(get_data_type_by_column(column_nullable->get_nested_column()));
-    }
-    // TODO add more types
-    assert(false);
-    return nullptr;
-}
+// DataTypePtr get_data_type_by_column(const IColumn& column) {
+//     auto idx = column.get_underlying_data_type();
+//     if (WhichDataType(idx).is_simple()) {
+//         return DataTypeFactory::instance().create_data_type(idx);
+//     }
+//     if (WhichDataType(idx).is_nothing()) {
+//         return std::make_shared<DataTypeNothing>();
+//     }
+//     if (const auto* column_array = check_and_get_column<ColumnArray>(&column)) {
+//         return std::make_shared<DataTypeArray>(get_data_type_by_column(column_array->get_data()));
+//     }
+//     if (const auto* column_nullable = check_and_get_column<ColumnNullable>(&column)) {
+//         return make_nullable(get_data_type_by_column(column_nullable->get_nested_column()));
+//     }
+//     // TODO add more types
+//     assert(false);
+//     return nullptr;
+// }
 
 /// Recreates column with default scalar values and keeps sizes of arrays.
 ColumnPtr recreate_column_with_default_value(const ColumnPtr& column,
@@ -221,12 +221,14 @@ public:
         return 0;
     }
     size_t operator()(const Int64& x) {
-        // // Only Int64 | Int32 at present
-        // field_types.insert(FieldType::Int64);
-        // type_indexes.insert(TypeIndex::Int64);
-        // return 0;
         field_types.insert(FieldType::Int64);
-        if (x <= std::numeric_limits<Int32>::max() && x >= std::numeric_limits<Int32>::min()) {
+        if (x <= std::numeric_limits<Int8>::max() && x >= std::numeric_limits<Int8>::min()) {
+            type_indexes.insert(TypeIndex::Int8);
+        } else if (x <= std::numeric_limits<Int16>::max() &&
+                   x >= std::numeric_limits<Int16>::min()) {
+            type_indexes.insert(TypeIndex::Int16);
+        } else if (x <= std::numeric_limits<Int32>::max() &&
+                   x >= std::numeric_limits<Int32>::min()) {
             type_indexes.insert(TypeIndex::Int32);
         } else {
             type_indexes.insert(TypeIndex::Int64);
@@ -271,12 +273,12 @@ void get_field_info(const Field& field, FieldInfo* info) {
     };
 }
 
-ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, bool is_nullable_, bool is_root_)
-        : least_common_type(get_data_type_by_column(*data_)),
-          is_nullable(is_nullable_),
-          is_root(is_root_) {
-    data.push_back(std::move(data_));
-}
+// ColumnObject::Subcolumn::Subcolumn(MutableColumnPtr&& data_, bool is_nullable_, bool is_root_)
+//         : least_common_type(get_data_type_by_column(*data_)),
+//           is_nullable(is_nullable_),
+//           is_root(is_root_) {
+//     data.push_back(std::move(data_));
+// }
 
 ColumnObject::Subcolumn::Subcolumn(size_t size_, bool is_nullable_, bool is_root_)
         : least_common_type(std::make_shared<DataTypeNothing>()),
@@ -316,7 +318,8 @@ void ColumnObject::Subcolumn::insert(Field field) {
 
 void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
     data.push_back(type->create_column());
-    least_common_type = LeastCommonType {std::move(type)};
+    least_common_type = LeastCommonType {type};
+    data_types.push_back(type);
 }
 
 void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
@@ -453,13 +456,18 @@ void ColumnObject::Subcolumn::finalize() {
     if (num_of_defaults_in_prefix) {
         result_column->insert_many_defaults(num_of_defaults_in_prefix);
     }
-    for (auto& part : data) {
+    for (size_t i = 0; i < data.size(); ++i) {
+        auto& part = data[i];
+        auto from_type = data_types[i];
         part = part->convert_to_full_column_if_const();
-        auto from_type = get_data_type_by_column(*part);
         size_t part_size = part->size();
         if (!from_type->equals(*to_type)) {
             ColumnPtr ptr;
-            schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
+            Status st = schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
+            if (!st.ok()) {
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       st.to_string() + ", real_code:{}", st.code());
+            }
             part = ptr;
         }
         result_column->insert_range_from(*part, 0, part_size);

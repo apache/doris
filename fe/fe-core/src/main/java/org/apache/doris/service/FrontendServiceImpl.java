@@ -363,23 +363,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TypeDef typeDef = TypeDef.createTypeDef(tColumnDesc);
         boolean isAllowNull = tColumnDesc.isIsAllowNull();
         ColumnDef.DefaultValue defaultVal = ColumnDef.DefaultValue.NOT_SET;
-        // Dynamic table's Array default value should be '[]'
+        // Variant Column's Array default value should be '[]'
         if (typeDef.getType().isArrayType()) {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
         ColumnDef col = new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
                     defaultVal, comment, true);
         if (tColumnDesc.isSetParentColUniqueId()) {
-            col.setParentUniqueId(tColumnDesc.getParentColUniqueId()); 
+            col.setParentUniqueId(tColumnDesc.getParentColUniqueId());
         }
         if (tColumnDesc.isSetColUniqueId()) {
-            col.setParentUniqueId(tColumnDesc.getColUniqueId()); 
+            col.setUniqueId(tColumnDesc.getColUniqueId());
         }
+        LOG.debug("{} initColumnfromThrift", tColumnDesc);
         return col;
     }
 
     private void lightSchemaChangeAddColumns(OlapTable olapTable, List<TColumnDef> addColumns,
-                Map<Long, LinkedList<Column>> indexSchemaMap, long indexId) throws UserException, MetaNotFoundException {
+                Map<Long, LinkedList<Column>> indexSchemaMap,
+                long indexId) throws UserException, MetaNotFoundException {
         List<ColumnDef> columnDefs = new ArrayList<ColumnDef>();
         // prepare ColumnDef for new columns
         for (TColumnDef tColumnDef : addColumns) {
@@ -399,7 +401,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // create AddColumnsClause
             AddColumnsClause addColumnsClause = new AddColumnsClause(columnDefs, null, null);
             addColumnsClause.analyze(null);
-            
             // index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
             for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
@@ -440,24 +441,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Map<Integer, Column> colUniqueIdColumnMap = Maps.newHashMap();
         for (Column column : indexSchemaMap.get(indexId)) {
             colUniqueIdColumnMap.put(column.getUniqueId(), column);
-        } 
+            if (column.getType().isVariantType()) {
+                // Flatten children columns
+                for (Column childColumn : column.getChildren()) {
+                    colUniqueIdColumnMap.put(childColumn.getUniqueId(), childColumn);
+                }
+            }
+        }
+        LOG.debug("colUniqueIdColumnMap {}", colUniqueIdColumnMap);
         // prepare ColumnDef for modifying columns, only modify it's type
         for (TColumnDef tColumnDef : modifyColumns) {
             TColumnDesc tColumnDesc = tColumnDef.getColumnDesc();
             ColumnDef columnDef = initColumnfromThrift(tColumnDesc, "");
             if (columnDef.getUniqueId() > 0) {
                 Column targetColumn = colUniqueIdColumnMap.get(columnDef.getUniqueId());
-                targetColumn.setType(columnDef.getType()); 
+                targetColumn.setType(columnDef.getType());
                 continue;
             }
             if (columnDef.getParentUniqueId() > 0) {
                 Column targetColumn = colUniqueIdColumnMap.get(columnDef.getParentUniqueId());
-                targetColumn.setType(columnDef.getType()); 
+                targetColumn.setType(columnDef.getType());
                 continue;
             }
             Preconditions.checkState(false, "Not supported");
         }
-           
     }
 
     @Override
@@ -504,6 +511,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 for (Column column : olapTable.getSchemaByIndexId(request.getIndexId())) {
                     allColumns.add(column.toThrift());
                 }
+                result.setSchemaVersion(olapTable.getIndexSchemaVersion(request.getIndexId()));
                 result.setAllColumns(allColumns);
                 result.setStatus(status);
                 return result;
@@ -517,17 +525,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 olapTable.checkNormalStateForAlter();
 
                 // index id -> index schema
-                Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>(); 
+                Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
                 lightSchemaChangeAddColumns(olapTable, addColumns, indexSchemaMap, request.getIndexId());
                 lightSchemaChangeModifyColumns(olapTable, modifyColumns, indexSchemaMap, request.getIndexId());
 
-                //for light schema change add/modify column optimize, direct modify table meta.
+                // for light schema change add/modify column optimize, direct modify table meta.
                 List<Index> newIndexes = olapTable.getCopiedIndexes();
                 long jobId = Env.getCurrentEnv().getNextId();
                 Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
                         db, olapTable, indexSchemaMap, newIndexes, null, false, jobId, false);
 
-                //5. build all columns
+                // build all columns
                 for (Column column : olapTable.getSchemaByIndexId(request.getIndexId())) {
                     allColumns.add(column.toThrift());
                 }

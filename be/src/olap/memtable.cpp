@@ -57,6 +57,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/get_least_supertype.h"
 #include "vec/json/path_in_data.h"
 #include "vec/jsonb/serialize.h"
 
@@ -67,7 +68,7 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    RowsetWriter* rowset_writer, std::shared_ptr<MowContext> mow_context,
                    const std::shared_ptr<MemTracker>& insert_mem_tracker,
-                   const std::shared_ptr<MemTracker>& flush_mem_tracker)
+                   const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t index_id)
         : _tablet(std::move(tablet)),
           _keys_type(_tablet->keys_type()),
           _schema(schema),
@@ -81,7 +82,8 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _offsets_of_aggregate_states(schema->num_columns()),
           _total_size_of_aggregate_states(0),
           _mem_usage(0),
-          _mow_context(mow_context) {
+          _mow_context(mow_context),
+          _index_id(index_id) {
 #ifndef BE_TEST
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())),
@@ -527,7 +529,6 @@ Status MemTable::close() {
     return flush();
 }
 
-// This function could throw exeception, it's not expection safe
 Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
     if (block.rows() == 0 || _tablet_schema->num_variant_columns() == 0) {
         return Status::OK();
@@ -562,9 +563,69 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
     TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_tablet_schema);
     vectorized::Block flush_block(std::move(block));
 
-    // Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
+    // Get subcolumns name->column map
+    phmap::flat_hash_map<StringRef, const TabletColumn*, StringRefHash> subcolumn_map;
+    for (size_t i = 0; i < variant_column_pos.size(); ++i) {
+        size_t variant_pos = variant_column_pos[i];
+        const TabletColumn& variant_col = _tablet_schema->columns()[variant_pos];
+        std::for_each(
+                variant_col.get_sub_columns().begin(), variant_col.get_sub_columns().end(),
+                [&](const TabletColumn& subcolumn) {
+                    subcolumn_map[StringRef(subcolumn.name().data(), subcolumn.name().size())] =
+                            &subcolumn;
+                });
+    }
+
+    // column positions in flush schema
+    std::vector<int> modifying_columns_pos;
+    std::vector<int> new_columns_pos;
+
+    // If column already exist in original tablet schema, then we pick common type
+    // and cast column to common type, and modify tablet column to common type,
+    // otherwise it's a new column, we should add to frontend
+    auto column_integrate = [&](const TabletColumn& parent_variant,
+                                auto& column_entry_from_object) {
+        const std::string& column_name =
+                parent_variant.name() + "." + column_entry_from_object->path.get_path();
+        const vectorized::DataTypePtr& final_data_type_from_object =
+                column_entry_from_object->data.get_least_common_type();
+        auto it = subcolumn_map.find(column_name);
+        TabletColumn tablet_column;
+        if (it != subcolumn_map.end()) {
+            // Already exists column, check type equality, directly modify meta.
+            // If tablet column type is different from entry's column type, a cast will be performed later
+            const TabletColumn* original = it->second;
+            vectorized::DataTypePtr original_type = it->second->get_vec_type();
+            vectorized::DataTypePtr common_type;
+            vectorized::get_least_supertype<vectorized::LeastSupertypeOnError::Jsonb>(
+                    vectorized::DataTypes {original_type, final_data_type_from_object},
+                    &common_type);
+            if (!original_type->equals(*common_type)) {
+                // update to common type
+                modifying_columns_pos.push_back(flush_schema->num_columns());
+                vectorized::schema_util::get_column_by_type(common_type, column_name,
+                                                            tablet_column);
+                tablet_column.set_unique_id(original->unique_id());
+            } else {
+                tablet_column = *original;
+            }
+        } else {
+            vectorized::schema_util::get_column_by_type(final_data_type_from_object, column_name,
+                                                        tablet_column);
+            // New columns, directly add to meta, new column unique id need to be set
+            new_columns_pos.push_back(flush_schema->num_columns());
+        }
+        tablet_column.set_parent_unique_id(parent_variant.unique_id());
+        tablet_column.set_path_info(column_entry_from_object->path);
+        flush_schema->append_column(std::move(tablet_column));
+        flush_block.insert({column_entry_from_object->data.get_finalized_column_ptr()->get_ptr(),
+                            final_data_type_from_object, column_name});
+    };
+
+    // 1. Flatten variant column into flat columns, append flatten columns to the back of original Block and TabletSchema
     // those columns are extracted columns, leave none extracted columns remain in original variant column, which is
-    // JSONB format at present
+    // JSONB format at present.
+    // 2. Collect columns that need to be added or modified when data type changes or new columns encountered
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
         size_t variant_pos = variant_column_pos[i];
         vectorized::ColumnObject& object_column = assert_cast<vectorized::ColumnObject&>(
@@ -578,20 +639,26 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
                 root = entry;
                 continue;
             }
-            const std::string& column_name = parent_column.name() + "." + entry->path.get_path();
-            TabletColumn tablet_column;
-            vectorized::schema_util::get_column_by_type(entry->data.get_least_common_type(),
-                                                        column_name, tablet_column);
-            tablet_column.set_path_info(entry->path);
-            tablet_column.set_parent_unique_id(_tablet_schema->columns()[variant_pos].unique_id());
-            flush_schema->append_column(std::move(tablet_column));
-            flush_block.insert({entry->data.get_finalized_column_ptr()->get_ptr(),
-                                entry->data.get_least_common_type(), column_name});
+            column_integrate(parent_column, entry);
         }
         // Handle root column
         flush_block.get_by_position(variant_pos).column = root->data.get_finalized_column_ptr();
         flush_block.get_by_position(variant_pos).type = root->data.get_least_common_type();
     }
+
+    // Check new columns and modified columns and send FrontendService::modifyColumns RPC to
+    // 1. Get each unique if for sub columns, and record related column in FE meta.
+    // 2. Notify the Front end meta that some columns type changed.
+    // Those operation is based on the light weight schema change feature
+    vectorized::schema_util::UpdateSchemaRequest request;
+    request.from_schema = flush_schema;
+    request.new_columns_pos = new_columns_pos;
+    request.modifying_columns = modifying_columns_pos;
+    request.tablet_id = _tablet->table_id();
+    request.index_id = _index_id;
+    // For CAS
+    request.schema_version = _tablet_schema->schema_version();
+    RETURN_IF_ERROR(vectorized::schema_util::update_front_end_schema(request));
 
     {
         // Update rowset schema, tablet's tablet schema will be updated when build Rowset
@@ -608,6 +675,18 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
                 << ", but flush_schema is larger " << flush_schema->num_columns();
         rw_ctx.tablet_schema.swap(update_schema);
         VLOG_DEBUG << "dump rs schema: " << rw_ctx.tablet_schema->dump_structure();
+    }
+
+    // Cast to expected type
+    for (size_t i = 0; i < flush_block.columns(); ++i) {
+        auto expected_type = flush_schema->columns()[i].get_vec_type();
+        if (!expected_type->equals(*flush_block.get_by_position(i).type)) {
+            RETURN_IF_ERROR(vectorized::schema_util::cast_column(
+                    {flush_block.get_by_position(i).column, flush_block.get_by_position(i).type,
+                     ""},
+                    expected_type, &flush_block.get_by_position(i).column));
+            flush_block.get_by_position(i).type = expected_type;
+        }
     }
 
     ctx->flush_schema = flush_schema;

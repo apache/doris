@@ -85,4 +85,17 @@ void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id);
 
+// Modify column type or add new columns
+struct UpdateSchemaRequest {
+    TabletSchemaSPtr from_schema;
+    std::vector<int> new_columns_pos;
+    std::vector<int> modifying_columns;
+    int32_t tablet_id;
+    int index_id;
+    int schema_version;
+    bool need_backoff = false;
+    int max_try = 10;
+};
+Status update_front_end_schema(UpdateSchemaRequest& request);
+
 } // namespace  doris::vectorized::schema_util

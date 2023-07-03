@@ -88,7 +88,7 @@ public:
 
         Subcolumn(size_t size_, bool is_nullable_, bool is_root = false);
 
-        Subcolumn(MutableColumnPtr&& data_, bool is_nullable_, bool is_root = false);
+        // Subcolumn(MutableColumnPtr&& data_, bool is_nullable_, bool is_root = false);
 
         size_t size() const;
 
@@ -176,6 +176,7 @@ public:
         /// That means that the least common type for i-th prefix is the type of i-th part
         /// and it's the supertype for all type of column from 0 to i-1.
         std::vector<WrappedPtr> data;
+        std::vector<DataTypePtr> data_types;
         /// Until we insert any non-default field we don't know further
         /// least common type and we count number of defaults in prefix,
         /// which will be converted to the default type of final common type.

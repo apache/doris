@@ -36,6 +36,7 @@
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_jsonb.h"
@@ -351,6 +352,39 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
             }
 
             *type = std::make_shared<DataTypeDateTime>();
+            return;
+        }
+    }
+
+    /// For Arrays
+    {
+        bool have_array = false;
+        bool all_arrays = true;
+        DataTypes nested_types;
+        nested_types.reserve(types.size());
+        for (const auto& type : types) {
+            if (const DataTypeArray* type_array = typeid_cast<const DataTypeArray*>(type.get())) {
+                have_array = true;
+                nested_types.emplace_back(type_array->get_nested_type());
+            } else {
+                all_arrays = false;
+            }
+        }
+        if (have_array) {
+            if (!all_arrays) {
+                return throw_or_return<on_error>(
+                        types, ErrorCode::INVALID_ARGUMENT,
+                        "because some of them are Array and some of them are not", type);
+            }
+            DataTypePtr nested_type;
+            get_least_supertype<on_error>(nested_types, &nested_type);
+            /// When on_error == LeastSupertypeOnError::Null and we cannot get least supertype,
+            /// nested_type will be nullptr, we should return nullptr in this case.
+            if (!nested_type) {
+                *type = nullptr;
+                return;
+            }
+            *type = std::make_shared<DataTypeArray>(nested_type);
             return;
         }
     }

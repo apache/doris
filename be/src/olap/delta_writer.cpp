@@ -201,7 +201,7 @@ Status DeltaWriter::init() {
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
-    context.tablet_id = _tablet->table_id();
+    context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
     context.mow_context = std::make_shared<MowContext>(_cur_max_version, _req.txn_id, _rowset_ids,
@@ -352,7 +352,8 @@ void DeltaWriter::_reset_mem_table() {
                                                     _delete_bitmap);
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), mow_context,
-                                  mem_table_insert_tracker, mem_table_flush_tracker));
+                                  mem_table_insert_tracker, mem_table_flush_tracker,
+                                  _req.index_id));
 
     COUNTER_UPDATE(_segment_num, 1);
     _mem_table->set_callback([this](MemTableStat& stat) {
@@ -470,6 +471,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         vectorized::schema_util::get_least_common_schema(
                 {_tablet->tablet_schema(), rw_ctx.tablet_schema}, update_schema);
         _tablet->update_by_least_common_schema(update_schema);
+        VLOG_DEBUG << "dump updated tablet schema: " << update_schema->dump_structure();
     }
 
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,

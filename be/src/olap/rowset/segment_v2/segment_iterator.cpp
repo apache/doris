@@ -1491,6 +1491,7 @@ void SegmentIterator::_init_current_block(
             i >= block->columns()) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
+            // if (!block->get_by_position(i).type->equals())
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
 
             if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {

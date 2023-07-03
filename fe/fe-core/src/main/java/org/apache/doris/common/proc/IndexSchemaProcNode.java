@@ -48,6 +48,43 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         this.bfColumns = bfColumns;
     }
 
+    private void addOneRow(Column column, BaseProcResult result) {
+        if (column.getType().isVariantType()) {
+            // Flatten variant's sub columns
+            for (Column childColumn : column.getChildren()) {
+                addOneRow(childColumn, result);
+            }
+        }
+        // Extra string (aggregation and bloom filter)
+        List<String> extras = Lists.newArrayList();
+        if (column.getAggregationType() != null) {
+            extras.add(column.getAggregationString());
+        }
+        if (bfColumns != null && bfColumns.contains(column.getName())) {
+            extras.add("BLOOM_FILTER");
+        }
+        if (column.isAutoInc()) {
+            extras.add("AUTO_INCREMENT");
+        }
+        String extraStr = StringUtils.join(extras, ",");
+
+        List<String> rowList = Arrays.asList(column.getDisplayName(),
+                                             column.getOriginType().toString(),
+                                             column.isAllowNull() ? "Yes" : "No",
+                                             ((Boolean) column.isKey()).toString(),
+                                             column.getDefaultValue() == null
+                                                     ? FeConstants.null_string : column.getDefaultValue(),
+                                             extraStr);
+
+        if (column.getOriginType().isDateV2()) {
+            rowList.set(1, "DATE");
+        }
+        if (column.getOriginType().isDatetimeV2()) {
+            rowList.set(1, "DATETIME");
+        }
+        result.addRow(rowList);
+    }
+
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         Preconditions.checkNotNull(schema);
@@ -56,34 +93,7 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         result.setNames(TITLE_NAMES);
 
         for (Column column : schema) {
-            // Extra string (aggregation and bloom filter)
-            List<String> extras = Lists.newArrayList();
-            if (column.getAggregationType() != null) {
-                extras.add(column.getAggregationString());
-            }
-            if (bfColumns != null && bfColumns.contains(column.getName())) {
-                extras.add("BLOOM_FILTER");
-            }
-            if (column.isAutoInc()) {
-                extras.add("AUTO_INCREMENT");
-            }
-            String extraStr = StringUtils.join(extras, ",");
-
-            List<String> rowList = Arrays.asList(column.getDisplayName(),
-                                                 column.getOriginType().toString(),
-                                                 column.isAllowNull() ? "Yes" : "No",
-                                                 ((Boolean) column.isKey()).toString(),
-                                                 column.getDefaultValue() == null
-                                                         ? FeConstants.null_string : column.getDefaultValue(),
-                                                 extraStr);
-
-            if (column.getOriginType().isDateV2()) {
-                rowList.set(1, "DATE");
-            }
-            if (column.getOriginType().isDatetimeV2()) {
-                rowList.set(1, "DATETIME");
-            }
-            result.addRow(rowList);
+            addOneRow(column, result);
         }
         return result;
     }

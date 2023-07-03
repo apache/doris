@@ -83,7 +83,7 @@ public:
     explicit JsonbParserT(OS_TYPE& os) : writer_(os), stream_pos_(0), err_(JsonbErrType::E_NONE) {}
 
     // parse a UTF-8 JSON string
-    bool parse(const std::string& str, hDictInsert handler = nullptr) {
+    bool(parseconst std::string& str, hDictInsert handler = nullptr) {
         return parse(str.c_str(), (unsigned int)str.size(), handler);
     }
 
