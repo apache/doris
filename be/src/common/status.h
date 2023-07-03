@@ -353,19 +353,6 @@ public:
         return status;
     }
 
-    template <int code, bool stacktrace = true>
-    Status static Error() {
-        Status status;
-        status._code = code;
-#ifdef ENABLE_STACKTRACE
-        if constexpr (stacktrace && capture_stacktrace<code>()) {
-            status._err_msg = std::make_unique<ErrMsg>();
-            status._err_msg->_stack = get_stack_trace();
-        }
-#endif
-        return status;
-    }
-
     template <typename... Args>
     Status static Error(int code, std::string_view msg, Args&&... args) {
         Status status;
@@ -376,12 +363,6 @@ public:
         } else {
             status._err_msg->_msg = fmt::format(msg, std::forward<Args>(args)...);
         }
-        return status;
-    }
-
-    Status static Error(int code) {
-        Status status;
-        status._code = code;
         return status;
     }
 

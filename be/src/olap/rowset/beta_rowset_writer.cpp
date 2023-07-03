@@ -180,7 +180,8 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         std::vector<segment_v2::SegmentSharedPtr>* segments, size_t num) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>(
+                "BetaRowsetWriter::_load_noncompacted_segments _rowset_meta->fs get failed");
     }
     for (int seg_id = _segcompacted_point; seg_id < num; ++seg_id) {
         auto seg_path =
@@ -271,9 +272,9 @@ Status BetaRowsetWriter::_rename_compacted_segments(int64_t begin, int64_t end) 
                                                       _num_segcompacted);
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
-        LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
-                     << ". ret:" << ret << " errno:" << errno;
-        return Status::Error<ROWSET_RENAME_FILE_FAILED>();
+        return Status::Error<ROWSET_RENAME_FILE_FAILED>(
+                "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
+                errno);
     }
 
     // rename inverted index files
@@ -315,9 +316,9 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     }
     ret = rename(src_seg_path.c_str(), dst_seg_path.c_str());
     if (ret) {
-        LOG(WARNING) << "failed to rename " << src_seg_path << " to " << dst_seg_path
-                     << ". ret:" << ret << " errno:" << errno;
-        return Status::Error<ROWSET_RENAME_FILE_FAILED>();
+        return Status::Error<ROWSET_RENAME_FILE_FAILED>(
+                "failed to rename {} to {}. ret:{}, errno:{}", src_seg_path, dst_seg_path, ret,
+                errno);
     }
     // rename remaining inverted index files
     RETURN_IF_ERROR(_rename_compacted_indices(-1, -1, seg_id));
@@ -345,9 +346,9 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
                        << dst_idx_path;
             ret = rename(src_idx_path.c_str(), dst_idx_path.c_str());
             if (ret) {
-                LOG(WARNING) << "failed to rename " << src_idx_path << " to " << dst_idx_path
-                             << ". ret:" << ret << " errno:" << errno;
-                return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>();
+                return Status::Error<INVERTED_INDEX_RENAME_FILE_FAILED>(
+                        "failed to rename {} to {}. ret:{}, errno:{}", src_idx_path, dst_idx_path,
+                        ret, errno);
             }
             // Erase the origin index file cache
             InvertedIndexSearcherCache::instance()->erase(src_idx_path);
@@ -391,7 +392,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
-        status = Status::Error<SEGCOMPACTION_FAILED>();
+        status = Status::Error<SEGCOMPACTION_FAILED>(
+                "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state");
     } else if ((_num_segment - _segcompacted_point) >=
                config::segcompaction_threshold_segment_num) {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
@@ -421,7 +423,8 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
         return Status::OK();
     }
     if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>();
+        return Status::Error<SEGCOMPACTION_FAILED>(
+                "BetaRowsetWriter::_segcompaction_ramaining_if_necessary meet invalid state");
     }
     if (!_is_segcompacted() || _segcompacted_point == _num_segment) {
         // no need if never segcompact before or all segcompacted
@@ -448,8 +451,7 @@ Status BetaRowsetWriter::_do_add_block(const vectorized::Block* block,
                                        size_t row_offset, size_t input_row_num) {
     auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
     if (UNLIKELY(!s.ok())) {
-        LOG(WARNING) << "failed to append block: " << s.to_string();
-        return Status::Error<WRITER_DATA_WRITE_ERROR>();
+        return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
     }
     return Status::OK();
 }
@@ -570,7 +572,7 @@ Status BetaRowsetWriter::wait_flying_segcompaction() {
         LOG(INFO) << "wait flying segcompaction finish time:" << elapsed << "us";
     }
     if (_segcompaction_status.load() != OK) {
-        return Status::Error<SEGCOMPACTION_FAILED>();
+        return Status::Error<SEGCOMPACTION_FAILED>("BetaRowsetWriter meet invalid state.");
     }
     return Status::OK();
 }
@@ -752,7 +754,7 @@ RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
 Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr* file_writer) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     Status st = fs->create_file(path, file_writer);
     if (!st.ok()) {
@@ -795,7 +797,6 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         segment_id = segid_offset + _segment_start_id;
         st = create_file_writer(segment_id, &file_writer);
     }
-
     if (!st.ok()) {
         return st;
     }
@@ -846,13 +847,12 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                                                 const FlushContext* flush_ctx) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
-        LOG(WARNING) << "too many segments in rowset."
-                     << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
-                     << " max:" << config::max_segment_num_per_rowset
-                     << " _num_segment:" << _num_segment
-                     << " _segcompacted_point:" << _segcompacted_point
-                     << " _num_segcompacted:" << _num_segcompacted;
-        return Status::Error<TOO_MANY_SEGMENTS>();
+        return Status::Error<TOO_MANY_SEGMENTS>(
+                "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
+                "_segcompacted_point:{}, _num_segcompacted:{}",
+                _context.tablet_id, _context.rowset_id.to_string(),
+                config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
+                _num_segcompacted);
     } else {
         return _do_create_segment_writer(writer, false, -1, -1, flush_ctx);
     }
@@ -870,8 +870,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     uint64_t index_size;
     Status s = (*writer)->finalize(&segment_size, &index_size);
     if (!s.ok()) {
-        LOG(WARNING) << "failed to finalize segment: " << s.to_string();
-        return Status::Error(s.code());
+        return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing filename: " << (*writer)->get_data_dir()->path()
@@ -930,8 +929,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     auto s = (*writer)->finalize_footer(&segment_size);
     if (!s.ok()) {
-        LOG(WARNING) << "failed to finalize segment: " << s.to_string();
-        return Status::Error<WRITER_DATA_WRITE_ERROR>();
+        return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to finalize segment: {}",
+                                                      s.to_string());
     }
 
     SegmentStatistics segstat;

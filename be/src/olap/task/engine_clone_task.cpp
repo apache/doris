@@ -117,7 +117,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet != nullptr) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
-            return Status::Error<TRY_LOCK_FAILED>();
+            return Status::Error<TRY_LOCK_FAILED>(
+                    "EngineCloneTask::_do_clone meet try lock failed");
         }
         if (tablet->replica_id() < _clone_req.replica_id) {
             // `tablet` may be a dropped replica in FE, e.g:
