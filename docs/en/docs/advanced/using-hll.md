@@ -98,8 +98,7 @@ create table test_hll(
 Aggregate KEY (dt,id,name,province,os)
 distributed by hash(id) buckets 10
 PROPERTIES(
-	"replication_num" = "1",
-	"in_memory"="false"
+	"replication_num" = "1"
 );
 ```
 
