@@ -2723,7 +2723,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 return;
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);
-            
+
             binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
         } finally {
             olapTable.readUnlock();
