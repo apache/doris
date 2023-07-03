@@ -109,6 +109,7 @@ protected:
 
 class FullTextIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(FullTextIndexReader);
+
 public:
     explicit FullTextIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const TabletIndex* index_meta)
@@ -130,6 +131,7 @@ public:
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(StringTypeInvertedIndexReader);
+
 public:
     explicit StringTypeInvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                            const TabletIndex* index_meta)
@@ -184,6 +186,7 @@ public:
 
 class BkdIndexReader : public InvertedIndexReader {
     ENABLE_FACTORY_CREATOR(BkdIndexReader);
+
 public:
     explicit BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
                             const TabletIndex* index_meta);
@@ -193,7 +196,8 @@ public:
                 _compoundReader->close();
             } catch (const CLuceneError& e) {
                 // Handle exception, e.g., log it, but don't rethrow.
-                LOG(ERROR) << "Exception caught in BkdIndexReader destructor: " << e.what() << std::endl;
+                LOG(ERROR) << "Exception caught in BkdIndexReader destructor: " << e.what()
+                           << std::endl;
             } catch (...) {
                 // Handle all other exceptions, but don't rethrow.
                 LOG(ERROR) << "Unknown exception caught in BkdIndexReader destructor." << std::endl;

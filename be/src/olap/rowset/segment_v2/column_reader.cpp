@@ -513,8 +513,8 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
                     _file_reader->fs(), _file_reader->path().native(), index_meta);
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index = BkdIndexReader::create_shared(
-                _file_reader->fs(), _file_reader->path().native(), index_meta);
+        _inverted_index = BkdIndexReader::create_shared(_file_reader->fs(),
+                                                        _file_reader->path().native(), index_meta);
     } else {
         _inverted_index.reset();
     }
