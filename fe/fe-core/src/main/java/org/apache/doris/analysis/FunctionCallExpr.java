@@ -1844,7 +1844,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("shuffle")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_concat")
-                || fnName.getFunction().equalsIgnoreCase("array_apply")) {
+                || fnName.getFunction().equalsIgnoreCase("array_apply")
+                || fnName.getFunction().equalsIgnoreCase("array_contains_all")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }

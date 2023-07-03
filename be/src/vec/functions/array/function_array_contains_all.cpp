@@ -26,6 +26,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -48,136 +49,116 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeUInt8>();
-    }
-
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
-        // perpare the result column.
-        auto result_col = ColumnUInt8::create(input_rows_count, 0);
-
-        // fetch the input columns.
-        const auto& left_input_col = block.get_by_position(arguments[0]).column;
-        const auto& right_input_col = block.get_by_position(arguments[1]).column;
-
-        // remove the constness of the input columns if necessary.
-        const auto& [left_col_nullable, is_left_const] = unpack_if_const(left_input_col);
-        const auto& [right_col_nullable, is_right_const] = unpack_if_const(right_input_col);
-
-        // casts the columns in advance to avoid the repeated casting in the for loop.
-        // we won't access the cells until we're sure that they're not null,
-        // so it's safe to cast the columns in advance.
-        const ColumnArray* left_col_array = check_and_get_column<ColumnArray>(left_col_nullable);
-        const ColumnArray* right_col_array = check_and_get_column<ColumnArray>(right_col_nullable);
-
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            // FIXME(niebayes): the null checking seems already done in the frontend.
-            if (left_col_nullable->is_null_at(i) || right_col_nullable->is_null_at(i)) {
-                continue;
-            }
-
-            // each array is a cell in a column array.
-            // however, arrays in a column are flattened to reduce storage overhead.
-            // therefore, we need to use offsets to delimit among arrays and
-            // to locate the elements in an array.
-            const ColumnNullable* left_nested_col_nullable =
-                    check_and_get_column<ColumnNullable>(left_col_array->get_data());
-            const ColumnNullable* right_nested_col_nullable =
-                    check_and_get_column<ColumnNullable>(right_col_array->get_data());
-
-            const ColumnArray::Offsets64& left_offsets = left_col_array->get_offsets();
-            const ColumnArray::Offsets64& right_offsets = right_col_array->get_offsets();
-
-            // construct arrays.
-            const Array left_array = make_array(left_nested_col_nullable, left_offsets, i);
-            const Array right_array = make_array(right_nested_col_nullable, right_offsets, i);
-
-            // check if the left array contains all of the right elements.
-            auto result_data = &result_col->get_data()[i];
-            _check_left_contains_all_right(left_array, right_array, result_data);
-        }
-
-        // store the result column in the specified `result` column of the block.
-        block.replace_by_position(result, std::move(result_col));
-
-        return Status::OK();
-    }
-
-private:
-    // the internal array type.
-    using Offset = ColumnArray::Offset64;
-    struct Array {
-        const ColumnPtr& data;     // data[i] is the i-th element of the array.
-        const NullMap& null_map;   // null_map[i] = true if data[i] is null.
-        const Offset start_offset; // the offset of the first element in the array.
-        const Offset end_offset;   // the offset of the last element in the array.
-
-        Array(const ColumnPtr& data_, const NullMap& null_map_, const Offset start_offset_,
-              const Offset end_offset_)
-                : data {data_},
-                  null_map {null_map_},
-                  start_offset {start_offset_},
-                  end_offset {end_offset_} {}
-    };
-
-    // construct an `Array` instance from a ColumnArray.
-    static Array make_array(const ColumnNullable* col_nullable,
-                            const ColumnArray::Offsets64& offsets, const size_t cur_row) {
-        const ColumnPtr& data = col_nullable->get_nested_column_ptr();
-        const NullMap& null_map = col_nullable->get_null_map_data();
-        const Offset start_offset = cur_row == 0 ? 0 : offsets[cur_row - 1] + 1;
-        const Offset end_offset = offsets[cur_row];
-
-        return Array(data, null_map, start_offset, end_offset);
+        return make_nullable(std::make_shared<DataTypeUInt8>());
     }
 
     // the semantics of this function is to check if the left array contains all of the right elements.
     // it's important to note that the arrays are interpreted as sets, and hence the order of the elements
     // and the number of occurrences of each element are not taken into account.
-    void _check_left_contains_all_right(const Array& left_array, const Array& right_array,
-                                        UInt8* result) {
-        static constexpr UInt8 CONTAINS_ALL = 1;
-        static constexpr UInt8 NOT_CONTAINS_ALL = 0;
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        auto result_col = ColumnUInt8::create(input_rows_count, 0);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        // set the default result to NOT_CONTAINS_ALL.
-        *result = NOT_CONTAINS_ALL;
+        const auto& left_input_col = block.get_by_position(arguments[0]).column;
+        const auto& right_input_col = block.get_by_position(arguments[1]).column;
 
-        const bool left_has_nulls = !left_array.null_map.empty();
-        const bool right_has_nulls = !right_array.null_map.empty();
+        // since the input maybe literal, we have to remove constness accordingly.
+        // since the input maybe null, we make it nullable to unify the processing.
+        const auto left_col = make_nullable(unpack_if_const(left_input_col).first);
+        const auto right_col = make_nullable(unpack_if_const(right_input_col).first);
 
-        // the left array cannot contain all of the right elements if the right array has nulls while the left does not.
-        if (right_has_nulls && !left_has_nulls) {
-            return;
-        }
+        const ColumnNullable* left_col_nullable = check_and_get_column<ColumnNullable>(left_col);
+        const ColumnNullable* right_col_nullable = check_and_get_column<ColumnNullable>(right_col);
 
-        // for each element in the right array, check if it is contained in the left array.
-        // if any element is not contained, then the left array does not contain all of the right elements.
-        for (size_t j = right_array.start_offset; j <= right_array.end_offset; ++j) {
-            // skip null elements in the right array.
-            if (right_has_nulls && right_array.null_map[j]) {
+        const ColumnArray* left_col_array =
+                check_and_get_column<ColumnArray>(left_col_nullable->get_nested_column());
+        const ColumnArray* right_col_array =
+                check_and_get_column<ColumnArray>(right_col_nullable->get_nested_column());
+
+        // data columns are single-dimension columns which stores elements of all arrays.
+        const ColumnNullable* left_data_col_nullable =
+                check_and_get_column<ColumnNullable>(left_col_array->get_data());
+        const ColumnNullable* right_data_col_nullable =
+                check_and_get_column<ColumnNullable>(right_col_array->get_data());
+
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            if (left_col_nullable->is_null_at(row) || right_col_nullable->is_null_at(row)) {
+                result_null_map->get_data()[row] = 1;
                 continue;
             }
 
-            // true if the current element is contained in the left array.
-            bool contained = false;
-            for (size_t i = left_array.start_offset; i <= left_array.end_offset; ++i) {
-                // skip null elements in the left array.
-                if (left_has_nulls && left_array.null_map[i]) {
+            const auto& left_offsets = _get_offsets_of_row(left_col_array->get_offsets(), row);
+            const auto& right_offsets = _get_offsets_of_row(right_col_array->get_offsets(), row);
+
+            const bool left_has_nulls = _has_nulls(left_data_col_nullable, left_offsets);
+            const bool right_has_nulls = _has_nulls(right_data_col_nullable, right_offsets);
+
+            if (right_has_nulls && !left_has_nulls) {
+                continue;
+            }
+
+            // for each element in the right array, check if it is contained in the left array.
+            // if any element is not contained, then the left array does not contain all of the right elements.
+            bool contains_all = true;
+
+            for (size_t ri = right_offsets.first; ri <= right_offsets.second; ++ri) {
+                // skip null elements in the right array.
+                if (right_data_col_nullable->is_null_at(ri)) {
                     continue;
                 }
 
-                if (left_array.data->compare_at(i, j, *right_array.data, -1) == 0) {
-                    contained = true;
+                // true if the left array contains this element.
+                bool contained = false;
+
+                for (size_t li = left_offsets.first; li <= left_offsets.second; ++li) {
+                    // skip null elements in the left array.
+                    if (left_data_col_nullable->is_null_at(li)) {
+                        continue;
+                    }
+
+                    // ColumnNullable::compare_at will invoke the `compare_at` of the nested column.
+                    if (left_data_col_nullable->compare_at(li, ri, *right_data_col_nullable, -1) ==
+                        0) {
+                        contained = true;
+                        break;
+                    }
+                }
+
+                if (!contained) {
+                    contains_all = false;
                     break;
                 }
             }
-            if (!contained) {
-                return;
+
+            if (contains_all) {
+                result_col->get_data()[row] = 1;
             }
         }
 
-        // all elements in the right array are contained in the left array.
-        *result = CONTAINS_ALL;
+        auto result_col_nullable =
+                ColumnNullable::create(std::move(result_col), std::move(result_null_map));
+        block.replace_by_position(result, std::move(result_col_nullable));
+
+        return Status::OK();
+    }
+
+private:
+    // get the start and end offsets of the array at the given row.
+    std::pair<size_t, size_t> _get_offsets_of_row(const ColumnArray::Offsets64& offsets,
+                                                  const size_t row) {
+        const size_t start_offset = row == 0 ? 0 : offsets[row - 1] + 1;
+        const size_t end_offset = offsets[row];
+        return {start_offset, end_offset};
+    }
+
+    bool _has_nulls(const ColumnNullable* col_nullable, const std::pair<size_t, size_t>& offsets) {
+        for (size_t i = offsets.first; i <= offsets.second; ++i) {
+            if (col_nullable->is_null_at(i)) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 
