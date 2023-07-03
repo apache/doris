@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include <atomic>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -40,6 +41,7 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/proto_util.h"
+#include "util/time.h"
 #include "vec/sink/vdata_stream_sender.h"
 
 namespace doris::pipeline {
@@ -57,12 +59,11 @@ ExchangeSinkBuffer::~ExchangeSinkBuffer() = default;
 
 void ExchangeSinkBuffer::close() {
     for (const auto& pair : _instance_to_request) {
-        if (pair.second) {
-            pair.second->release_finst_id();
-            pair.second->release_query_id();
-            delete pair.second;
-        }
+        pair.second->release_finst_id();
+        pair.second->release_query_id();
     }
+    _instance_to_broadcast_package_queue.clear();
+    _instance_to_package_queue.clear();
     _instance_to_request.clear();
 }
 
@@ -102,9 +103,10 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
-    _instance_to_finst_id[low_id] = finst_id;
     _instance_to_sending_by_pipeline[low_id] = true;
     _instance_to_receiver_eof[low_id] = false;
+    _instance_to_rpc_time[low_id] = 0;
+    _construct_request(low_id, finst_id);
 }
 
 Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
@@ -146,7 +148,7 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
             send_now = true;
             _instance_to_sending_by_pipeline[ins_id.lo] = false;
         }
-        _instance_to_broadcast_package_queue[ins_id.lo].emplace(std::move(request));
+        _instance_to_broadcast_package_queue[ins_id.lo].emplace(request);
     }
     if (send_now) {
         RETURN_IF_ERROR(_send_rpc(ins_id.lo));
@@ -157,6 +159,8 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
 
 Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
+
+    DCHECK(_instance_to_sending_by_pipeline[id] == false);
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>& broadcast_q =
@@ -170,10 +174,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     if (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
         auto& request = q.front();
-        if (!_instance_to_request[id]) {
-            _construct_request(id);
-        }
-        auto brpc_request = _instance_to_request[id];
+        auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block) {
@@ -183,8 +184,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
+        closure->start_rpc_time = GetCurrentTimeNanos();
         closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                       const PTransmitDataResult& result) {
+                                       const PTransmitDataResult& result,
+                                       const int64_t& start_rpc_time) {
+            set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s = Status(result.status());
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -214,10 +218,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         auto& request = broadcast_q.front();
-        if (!_instance_to_request[id]) {
-            _construct_request(id);
-        }
-        auto brpc_request = _instance_to_request[id];
+        auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
         if (request.block_holder->get_block()) {
@@ -227,8 +228,11 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         closure->cntl.set_timeout_ms(request.channel->_brpc_timeout_ms);
         closure->addFailedHandler(
                 [&](const InstanceLoId& id, const std::string& err) { _failed(id, err); });
+        closure->start_rpc_time = GetCurrentTimeNanos();
         closure->addSuccessHandler([&](const InstanceLoId& id, const bool& eos,
-                                       const PTransmitDataResult& result) {
+                                       const PTransmitDataResult& result,
+                                       const int64_t& start_rpc_time) {
+            set_rpc_time(id, start_rpc_time, result.receive_time());
             Status s = Status(result.status());
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -257,15 +261,14 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         broadcast_q.pop();
     } else {
         _instance_to_sending_by_pipeline[id] = true;
-        return Status::OK();
     }
 
     return Status::OK();
 }
 
-void ExchangeSinkBuffer::_construct_request(InstanceLoId id) {
-    _instance_to_request[id] = new PTransmitDataParams();
-    _instance_to_request[id]->set_allocated_finst_id(&_instance_to_finst_id[id]);
+void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id) {
+    _instance_to_request[id] = std::make_unique<PTransmitDataParams>();
+    _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
     _instance_to_request[id]->set_allocated_query_id(&_query_id);
 
     _instance_to_request[id]->set_node_id(_dest_node_id);
@@ -295,4 +298,52 @@ bool ExchangeSinkBuffer::_is_receiver_eof(InstanceLoId id) {
     return _instance_to_receiver_eof[id];
 }
 
+void ExchangeSinkBuffer::get_max_min_rpc_time(int64_t* max_time, int64_t* min_time) {
+    int64_t local_max_time = 0;
+    int64_t local_min_time = INT64_MAX;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        if (time != 0) {
+            local_max_time = std::max(local_max_time, time);
+            local_min_time = std::min(local_min_time, time);
+        }
+    }
+    *max_time = local_max_time;
+    *min_time = local_min_time;
+}
+
+int64_t ExchangeSinkBuffer::get_sum_rpc_time() {
+    int64_t sum_time = 0;
+    for (auto& [id, time] : _instance_to_rpc_time) {
+        sum_time += time;
+    }
+    return sum_time;
+}
+
+void ExchangeSinkBuffer::set_rpc_time(InstanceLoId id, int64_t start_rpc_time,
+                                      int64_t receive_rpc_time) {
+    _rpc_count++;
+    int64_t rpc_spend_time = receive_rpc_time - start_rpc_time;
+    DCHECK(_instance_to_rpc_time.find(id) != _instance_to_rpc_time.end());
+    if (rpc_spend_time > 0) {
+        _instance_to_rpc_time[id] += rpc_spend_time;
+    }
+}
+
+void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
+    auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
+    auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
+    auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
+    auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
+    auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
+
+    int64_t max_rpc_time = 0, min_rpc_time = 0;
+    get_max_min_rpc_time(&max_rpc_time, &min_rpc_time);
+    _max_rpc_timer->set(max_rpc_time);
+    _min_rpc_timer->set(min_rpc_time);
+
+    _count_rpc->set(_rpc_count);
+    int64_t sum_time = get_sum_rpc_time();
+    _sum_rpc_timer->set(sum_time);
+    _avg_rpc_timer->set(sum_time / std::max(static_cast<int64_t>(1), _rpc_count.load()));
+}
 } // namespace doris::pipeline

@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <ostream>
+#include <unordered_map>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -42,6 +43,7 @@
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
+#include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
@@ -167,7 +169,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
                     _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
         }
         // skip write inverted index on load if skip_write_index_on_load is true
-        if (_opts.is_direct_write && _tablet_schema->skip_write_index_on_load()) {
+        if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
+            _tablet_schema->skip_write_index_on_load()) {
             skip_inverted_index = true;
         }
         // indexes for this column
@@ -279,7 +282,7 @@ void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
     // If we update/insert cache, if load failed rowset will not be visible but cached data
     // will be visible, and lead to inconsistency.
     if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
-        _opts.is_direct_write) {
+        _opts.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
         RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
     }
@@ -327,7 +330,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
     CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns());
+          block->columns() < _tablet_schema->num_columns())
+            << "block columns: " << block->columns()
+            << ", num key columns: " << _tablet_schema->num_key_columns()
+            << ", total schema columns: " << _tablet_schema->num_columns();
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
@@ -362,9 +368,14 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default = false;
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
-    // locate rows in base data
+    std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
+        specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+    }
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    // locate rows in base data
+    {
         for (size_t pos = row_pos; pos < num_rows; pos++) {
             std::string key = _full_encode_keys(key_columns, pos);
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
@@ -373,8 +384,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             RowLocation loc;
             // save rowset shared ptr so this rowset wouldn't delete
             RowsetSharedPtr rowset;
-            auto st = _tablet->lookup_row_key(key, false, &_mow_context->rowset_ids, &loc,
-                                              _mow_context->max_version, &rowset);
+            auto st = _tablet->lookup_row_key(key, false, specified_rowsets, &loc,
+                                              _mow_context->max_version, segment_caches, &rowset);
             if (st.is<NOT_FOUND>()) {
                 if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
                     return Status::InternalError("partial update key not exist before");
@@ -502,14 +513,18 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    if (_tablet_schema->is_partial_update() && _opts.is_direct_write) {
+    if (_tablet_schema->is_partial_update() && _opts.write_type == DataWriteType::TYPE_DIRECT) {
         RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
         return Status::OK();
     }
     CHECK(block->columns() >= _column_writers.size())
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size();
-    if (_tablet_schema->store_row_column() && _opts.is_direct_write) {
+    // Row column should be filled here when it's a directly write from memtable
+    // or it's schema change write(since column data type maybe changed, so we should reubild)
+    if (_tablet_schema->store_row_column() &&
+        (_opts.write_type == DataWriteType::TYPE_DIRECT ||
+         _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
     }
 
@@ -716,6 +731,14 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
+size_t SegmentWriter::try_get_inverted_index_file_size() {
+    size_t total_size = 0;
+    for (auto& column_writer : _column_writers) {
+        total_size += column_writer->get_inverted_index_size();
+    }
+    return total_size;
+}
+
 Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
@@ -744,12 +767,15 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             RETURN_IF_ERROR(_write_primary_key_index());
+            // IndexedColumnWriter write data pages mixed with segment data, we should use
+            // the stat from primary key index builder.
+            *index_size += _primary_key_index_builder->disk_size();
         } else {
             RETURN_IF_ERROR(_write_short_key_index());
+            *index_size = _file_writer->bytes_appended() - index_start;
         }
-        *index_size = _file_writer->bytes_appended() - index_start;
     }
-
+    _inverted_index_file_size = try_get_inverted_index_file_size();
     // reset all column writers and data_conveter
     clear();
 

@@ -71,6 +71,10 @@ Status VExplodeSplitTableFunction::process_init(Block* block) {
     auto& delimiter_const_column = block->get_by_position(delimiter_column_idx).column;
     if (is_column_const(*delimiter_const_column)) {
         _delimiter = delimiter_const_column->get_data_at(0);
+        if (_delimiter.empty()) {
+            return Status::InvalidArgument(
+                    "explode_split(test, delimiter) delimiter column must be not empty");
+        }
     } else {
         return Status::NotSupported(
                 "explode_split(test, delimiter) delimiter column must be const");

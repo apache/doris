@@ -164,6 +164,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
                         column.isKey(),
                         null,
                         column.isAllowNull(),
+                        column.isAutoInc(),
                         new DefaultValue(column.getDefaultValue() != null, column.getDefaultValue()),
                         column.getComment())
                 ).collect(Collectors.toList());

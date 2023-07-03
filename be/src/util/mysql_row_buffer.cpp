@@ -94,6 +94,7 @@ template <bool is_binary_format>
 MysqlRowBuffer<is_binary_format>::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
         delete[] _buf;
+        _buf = _default_buf;
     }
 }
 

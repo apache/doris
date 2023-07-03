@@ -23,13 +23,23 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Sets;
+
+import java.util.Set;
 
 /**
  * Check whether a user is permitted to scan specific tables.
  */
 public class UserAuthentication extends OneAnalysisRuleFactory {
+    Set<Class<?>> relationsToCheck = Sets.newHashSet(LogicalOlapScan.class, LogicalEsScan.class,
+            LogicalFileScan.class, LogicalSchemaScan.class);
 
     @Override
     public Rule build() {
@@ -43,15 +53,20 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
             return relation;
         }
-        String dbName = !relation.getQualifier().isEmpty() ? relation.getQualifier().get(0) : null;
-        String tableName = relation.getTable().getName();
-        if (!connectContext.getEnv().getAccessManager()
-                .checkTblPriv(connectContext, dbName, tableName, PrivPredicate.SELECT)) {
-            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
-                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    dbName + ": " + tableName);
-            throw new AnalysisException(message);
+
+        if (relationsToCheck.contains(relation.getClass())) {
+            String dbName =
+                    !relation.getQualifier().isEmpty() ? relation.getQualifier().get(0) : null;
+            String tableName = relation.getTable().getName();
+            if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, dbName,
+                    tableName, PrivPredicate.SELECT)) {
+                String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
+                        ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                        dbName + ": " + tableName);
+                throw new AnalysisException(message);
+            }
         }
+
         return relation;
     }
 }

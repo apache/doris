@@ -190,6 +190,37 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
+void ColumnStruct::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                            const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+void ColumnStruct::update_xxHash_with_value(size_t n, uint64_t& hash) const {
+    for (const auto& column : columns) {
+        column->update_xxHash_with_value(n, hash);
+    }
+}
+
+void ColumnStruct::update_crc_with_value(size_t n, uint64_t& crc) const {
+    for (const auto& column : columns) {
+        column->update_crc_with_value(n, crc);
+    }
+}
+
+void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
+                                            const uint8_t* __restrict null_data) const {
+    for (const auto& column : columns) {
+        column->update_hashes_with_value(hashes, null_data);
+    }
+}
+
+void ColumnStruct::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                          const uint8_t* __restrict null_data) const {
+    for (const auto& column : columns) {
+        column->update_crcs_with_value(hash, type, null_data);
+    }
+}
+
 void ColumnStruct::insert_indices_from(const IColumn& src, const int* indices_begin,
                                        const int* indices_end) {
     const ColumnStruct& src_concrete = assert_cast<const ColumnStruct&>(src);

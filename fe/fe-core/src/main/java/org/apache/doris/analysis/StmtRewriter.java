@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.qe.ConnectContext;
 
@@ -121,8 +120,8 @@ public class StmtRewriter {
             rewriteWhereClauseSubqueries(result, analyzer);
         }
         // Rewrite all subquery in the having clause
-        if (result.getHavingClauseAfterAnaylzed() != null
-                && result.getHavingClauseAfterAnaylzed().getSubquery() != null) {
+        if (result.getHavingClauseAfterAnalyzed() != null
+                && result.getHavingClauseAfterAnalyzed().getSubquery() != null) {
             result = rewriteHavingClauseSubqueries(result, analyzer);
         }
         result.sqlString = null;
@@ -176,7 +175,7 @@ public class StmtRewriter {
         // prepare parameters
         SelectList selectList = stmt.getSelectList();
         List<String> columnLabels = stmt.getColLabels();
-        Expr havingClause = stmt.getHavingClauseAfterAnaylzed();
+        Expr havingClause = stmt.getHavingClauseAfterAnalyzed();
         List<FunctionCallExpr> aggregateExprs = stmt.getAggInfo().getAggregateExprs();
         Preconditions.checkState(havingClause != null);
         Preconditions.checkState(havingClause.getSubquery() != null);
@@ -864,8 +863,7 @@ public class StmtRewriter {
             // For the case of a NOT IN with an eq join conjunct, replace the join
             // conjunct with a conjunct that uses the null-matching eq operator.
             if (expr instanceof InPredicate && markTuple == null) {
-                joinOp = VectorizedUtil.isVectorized()
-                        ? JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN : JoinOperator.LEFT_ANTI_JOIN;
+                joinOp = JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
                 List<TupleId> tIds = Lists.newArrayList();
                 joinConjunct.getIds(tIds, null);
                 if (tIds.size() <= 1 || !tIds.contains(inlineView.getDesc().getId())) {

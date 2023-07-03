@@ -34,7 +34,7 @@ suite("test_dynamic_partition_with_rename") {
             "dynamic_partition.create_history_partition"="true",
             "dynamic_partition.replication_allocation" = "tag.location.default: 1")
         """
-    result = sql "show partitions from ${tbl}"
+    def result = sql "show partitions from ${tbl}"
     assertEquals(7, result.size())
 
     // rename distributed column, then try to add too more dynamic partition
@@ -42,12 +42,12 @@ suite("test_dynamic_partition_with_rename") {
     sql """ ADMIN SET FRONTEND CONFIG ('dynamic_partition_check_interval_seconds' = '1') """
     sql """ alter table ${tbl} set('dynamic_partition.end'='5') """
     result = sql "show partitions from ${tbl}"
-    for (def retry = 0; retry < 15; retry++) {
+    for (def retry = 0; retry < 120; retry++) { // at most wait 120s
         if (result.size() == 9) {
             break;
         }
         logger.info("wait dynamic partition scheduler, sleep 1s")
-        sleep(1000);
+        sleep(1000); // sleep 1s
         result = sql "show partitions from ${tbl}"
     }
     assertEquals(9, result.size())

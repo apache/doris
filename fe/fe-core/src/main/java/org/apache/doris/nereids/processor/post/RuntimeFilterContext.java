@@ -20,6 +20,8 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -67,7 +70,7 @@ public class RuntimeFilterContext {
     // exprId to olap scan node slotRef because the slotRef will be changed when translating.
     private final Map<ExprId, SlotRef> exprIdToOlapScanNodeSlotRef = Maps.newHashMap();
 
-    private final Map<AbstractPhysicalJoin, List<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
+    private final Map<AbstractPhysicalJoin, Set<RuntimeFilter>> runtimeFilterOnHashJoinNode = Maps.newHashMap();
 
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
@@ -77,6 +80,21 @@ public class RuntimeFilterContext {
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
+
+    // cte to related joins map which can extract common runtime filter to cte inside
+    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newHashMap();
+
+    // cte candidates which can be pushed into common runtime filter into from outside
+    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newHashMap();
+
+    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+
+    // cte whose runtime filter has been extracted
+    private final Set<CTEId> processedCTE = Sets.newHashSet();
+
+    // cte whose outer runtime filter has been pushed down into
+    private final Set<CTEId> pushedDownCTE = Sets.newHashSet();
+
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
@@ -96,8 +114,28 @@ public class RuntimeFilterContext {
         return limits;
     }
 
+    public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
+        return cteProducerMap;
+    }
+
+    public Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> getCteRFPushDownMap() {
+        return cteRFPushDownMap;
+    }
+
+    public Map<CTEId, Set<PhysicalHashJoin>> getCteToJoinsMap() {
+        return cteToJoinsMap;
+    }
+
+    public Set<CTEId> getProcessedCTE() {
+        return processedCTE;
+    }
+
+    public Set<CTEId> getPushedDownCTE() {
+        return pushedDownCTE;
+    }
+
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
-        Preconditions.checkArgument(filter.getTargetExpr().getExprId() == id);
+        Preconditions.checkArgument(filter.getTargetExprs().stream().anyMatch(expr -> expr.getExprId() == id));
         this.targetExprIdToFilter.computeIfAbsent(id, k -> Lists.newArrayList()).add(filter);
     }
 
@@ -135,13 +173,13 @@ public class RuntimeFilterContext {
         return scanNodeOfLegacyRuntimeFilterTarget;
     }
 
-    public List<RuntimeFilter> getRuntimeFilterOnHashJoinNode(AbstractPhysicalJoin join) {
-        return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptyList());
+    public Set<RuntimeFilter> getRuntimeFilterOnHashJoinNode(AbstractPhysicalJoin join) {
+        return runtimeFilterOnHashJoinNode.getOrDefault(join, Collections.emptySet());
     }
 
     public void generatePhysicalHashJoinToRuntimeFilter() {
         targetExprIdToFilter.values().forEach(filters -> filters.forEach(filter -> runtimeFilterOnHashJoinNode
-                .computeIfAbsent(filter.getBuilderNode(), k -> Lists.newArrayList()).add(filter)));
+                .computeIfAbsent(filter.getBuilderNode(), k -> Sets.newHashSet()).add(filter)));
     }
 
     public Map<ExprId, List<RuntimeFilter>> getTargetExprIdToFilter() {

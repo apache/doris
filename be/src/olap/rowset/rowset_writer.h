@@ -20,6 +20,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <functional>
 #include <optional>
 
 #include "common/factory_creator.h"
@@ -80,11 +81,6 @@ public:
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
 
-    // we have to load segment data to build delete_bitmap for current segment,
-    // so we  build a tmp rowset ptr to load segment data.
-    // real build will be called in DeltaWriter close_wait.
-    virtual RowsetSharedPtr build_tmp() = 0;
-
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
 
@@ -100,8 +96,6 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
-    virtual int32_t get_atomic_num_segment() const = 0;
-
     virtual int32_t allocate_segment_id() = 0;
 
     virtual bool is_doing_segcompaction() const = 0;
@@ -112,6 +106,8 @@ public:
 
     virtual vectorized::schema_util::LocalSchemaChangeRecorder*
     mutable_schema_change_recorder() = 0;
+
+    virtual int64_t delete_bitmap_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

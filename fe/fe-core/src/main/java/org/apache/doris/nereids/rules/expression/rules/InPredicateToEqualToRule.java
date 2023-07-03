@@ -22,21 +22,13 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.util.ExpressionUtils;
-
-import com.google.common.base.Preconditions;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Paper: Quantifying TPC-H Choke Points and Their Optimizations
  * - Figure 14:
  * <p>
- * Rewrite InPredicate to disjunction, if there exists < 3 elements in InPredicate
- * Examples:
- * where A in (x, y) ==> where A = x or A = y
  * Examples:
  * where A in (x) ==> where A = x
  * where A not in (x) ==> where not A = x (After ExpressionTranslator, "not A = x" will be translated to "A != x")
@@ -50,20 +42,11 @@ public class InPredicateToEqualToRule extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
-        Expression cmpExpr = inPredicate.getCompareExpr();
-        List<Expression> options = inPredicate.getOptions();
-        Preconditions.checkArgument(options.size() > 0, "InPredicate.options should not be empty");
-        if (options.size() > 2 || isOptionContainNullLiteral(options)) {
-            return new InPredicate(cmpExpr.accept(this, context), options);
+        Expression left = inPredicate.getCompareExpr();
+        List<Expression> right = inPredicate.getOptions();
+        if (right.size() != 1) {
+            return new InPredicate(left.accept(this, context), right);
         }
-        Expression newCmpExpr = cmpExpr.accept(this, context);
-        List<Expression> disjunction = options.stream()
-                .map(option -> new EqualTo(newCmpExpr, option.accept(this, context)))
-                .collect(Collectors.toList());
-        return disjunction.isEmpty() ? BooleanLiteral.FALSE : ExpressionUtils.or(disjunction);
-    }
-
-    private boolean isOptionContainNullLiteral(List<Expression> options) {
-        return options.stream().anyMatch(Expression::isNullLiteral);
+        return new EqualTo(left.accept(this, context), right.get(0).accept(this, context));
     }
 }

@@ -90,7 +90,6 @@ public:
     int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
-    const NullIndicatorOffset& null_indicator_offset() const { return _null_indicator_offset; }
     bool is_materialized() const { return _is_materialized; }
     bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
 
@@ -349,6 +348,15 @@ public:
                 return true;
             }
             if (desc->collection_slots().size() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool has_hll_slot() const {
+        for (auto slot : _slots) {
+            if (slot->type().is_hll_type()) {
                 return true;
             }
         }

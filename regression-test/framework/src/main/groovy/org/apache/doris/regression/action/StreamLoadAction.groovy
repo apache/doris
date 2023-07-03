@@ -227,7 +227,7 @@ class StreamLoadAction implements SuiteAction {
                 def file = new File(context.config.cacheDataPath)
                 file.mkdirs();
 
-                if (file.exists() && file.isDirectory()) {
+                if (file.exists() && file.isDirectory() && context.config.enableCacheData) {
                     fileName = cacheHttpFile(client, fileName)
                 } else {
                     entity = new InputStreamEntity(httpGetStream(client, fileName))

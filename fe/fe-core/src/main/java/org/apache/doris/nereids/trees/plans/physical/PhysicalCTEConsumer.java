@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.exceptions.TransformException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -26,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
@@ -41,7 +44,7 @@ import java.util.Optional;
 /**
  * Physical CTE consumer.
  */
-public class PhysicalCTEConsumer extends PhysicalLeaf {
+public class PhysicalCTEConsumer extends PhysicalRelation {
 
     private final CTEId cteId;
     private final Map<Slot, Slot> producerToConsumerSlotMap;
@@ -77,10 +80,21 @@ public class PhysicalCTEConsumer extends PhysicalLeaf {
                                LogicalProperties logicalProperties,
                                PhysicalProperties physicalProperties,
                                Statistics statistics) {
-        super(PlanType.PHYSICAL_CTE_CONSUME, groupExpression, logicalProperties, physicalProperties, statistics);
+        super(RelationUtil.newRelationId(), PlanType.PHYSICAL_CTE_CONSUME, ImmutableList.of(), groupExpression,
+                logicalProperties, physicalProperties, statistics);
         this.cteId = cteId;
         this.consumerToProducerSlotMap = ImmutableMap.copyOf(consumerToProducerSlotMap);
         this.producerToConsumerSlotMap = ImmutableMap.copyOf(producerToConsumerSlotMap);
+    }
+
+    @Override
+    public OlapTable getTable() {
+        throw new TransformException("should not reach here");
+    }
+
+    @Override
+    public List<String> getQualifier() {
+        throw new TransformException("should not reach here");
     }
 
     public CTEId getCteId() {

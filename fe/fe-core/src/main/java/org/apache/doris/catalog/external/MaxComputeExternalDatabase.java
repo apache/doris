@@ -20,13 +20,11 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 
 /**
  * MaxCompute external database.
  */
-public class MaxComputeExternalDatabase extends ExternalDatabase<MaxComputeExternalTable>
-            implements GsonPostProcessable {
+public class MaxComputeExternalDatabase extends ExternalDatabase<MaxComputeExternalTable> {
     /**
      * Create MaxCompute external database.
      *

@@ -44,9 +44,11 @@ import java.util.stream.Collectors;
  * Top down job for rewrite, use pattern match.
  */
 public class RewriteTopDownJob extends Job {
+
     private static final EventProducer RULE_TRANSFORM_TRACER = new EventProducer(
             TransformEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(TransformEvent.class, NereidsPlanner.LOG)));
+
     private final Group group;
     private final List<Rule> rules;
 

@@ -27,11 +27,14 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class Statistics {
+    private static int K_BYTES = 1024;
+
     private final double rowCount;
 
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
-    private double computeSize;
+    // the byte size of one tuple
+    private double tupleSize;
 
     @Deprecated
     private double width;
@@ -47,6 +50,9 @@ public class Statistics {
      * @return the new ndv after filter
      */
     public static double computeNdv(double ndv, double newRowCount, double oldRowCount) {
+        if (newRowCount > oldRowCount) {
+            return ndv;
+        }
         double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
         double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
         return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
@@ -105,8 +111,8 @@ public class Statistics {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
             columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-            double nullFactor = (rowCount - columnStatistic.numNulls) / rowCount;
-            columnStatisticBuilder.setNumNulls(nullFactor * rowCount);
+            double numNulls = Math.min(columnStatistic.numNulls, rowCount - columnStatistic.ndv);
+            columnStatisticBuilder.setNumNulls(numNulls);
             columnStatisticBuilder.setCount(rowCount);
             statistics.addColumnStats(entry.getKey(), columnStatisticBuilder.build());
         }
@@ -143,13 +149,21 @@ public class Statistics {
         return this;
     }
 
-    public double computeSize() {
-        if (computeSize <= 0) {
-            computeSize = Math.max(1, expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum)
-            ) * rowCount;
+    private double computeTupleSize() {
+        if (tupleSize <= 0) {
+            tupleSize = expressionToColumnStats.values().stream()
+                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum);
+            tupleSize = Math.max(1, tupleSize);
         }
-        return computeSize;
+        return tupleSize;
+    }
+
+    public double computeSize() {
+        return computeTupleSize() * rowCount;
+    }
+
+    public double dataSizeFactor() {
+        return computeTupleSize() / K_BYTES;
     }
 
     @Override

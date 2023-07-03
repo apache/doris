@@ -154,6 +154,10 @@ public class Tablet extends MetaObject implements Writable {
         cooldownConfLock.writeLock().unlock();
     }
 
+    public long getCooldownReplicaId() {
+        return cooldownReplicaId;
+    }
+
     public Pair<Long, Long> getCooldownConf() {
         cooldownConfLock.readLock().lock();
         try {
@@ -243,6 +247,7 @@ public class Tablet extends MetaObject implements Writable {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion) {
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
+        List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -258,7 +263,15 @@ public class Tablet extends MetaObject implements Writable {
                 if (replica.checkVersionCatchUp(visibleVersion, false)) {
                     allQueryableReplica.add(replica);
                 }
+            } else if (state == ReplicaState.DECOMMISSION) {
+                if (replica.checkVersionCatchUp(visibleVersion, false)) {
+                    auxiliaryReplica.add(replica);
+                }
             }
+        }
+
+        if (allQueryableReplica.isEmpty()) {
+            allQueryableReplica = auxiliaryReplica;
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {

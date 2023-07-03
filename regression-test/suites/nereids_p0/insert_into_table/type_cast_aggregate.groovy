@@ -26,53 +26,65 @@ suite("nereids_insert_aggregate_type_cast") {
 
     sql '''insert into agg_t_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
+    sql 'sync'
     qt_11 'select * from agg_t_type_cast order by id, kint'
 
     sql '''insert into agg_t_type_cast with label label_agg_type_cast_cte
             with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
+    sql 'sync'
     qt_12 'select * from agg_t_type_cast order by id, kint'
 
     sql '''insert into agg_t_type_cast partition (p1, p2) with label label_agg_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
+    sql 'sync'
     qt_13 'select * from agg_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_t_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src'''
+    sql 'sync'
     qt_21 'select * from agg_light_sc_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_t_type_cast with label label_agg_light_sc_type_cast_cte
             with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte'''
+    sql 'sync'
     qt_22 'select * from agg_light_sc_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_t_type_cast partition (p1, p2) with label label_agg_light_sc_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4'''
+    sql 'sync'
     qt_23 'select * from agg_light_sc_t_type_cast order by id, kint'
 
     sql '''insert into agg_not_null_t_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
+    sql 'sync'
     qt_31 'select * from agg_not_null_t_type_cast order by id, kint'
 
     sql '''insert into agg_not_null_t_type_cast with label label_agg_not_null_type_cast_cte
             with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
+    sql 'sync'
     qt_32 'select * from agg_not_null_t_type_cast order by id, kint'
 
     sql '''insert into agg_not_null_t_type_cast partition (p1, p2) with label label_agg_not_null_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
+    sql 'sync'
     qt_33 'select * from agg_not_null_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_not_null_t_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id is not null'''
+    sql 'sync'
     qt_41 'select * from agg_light_sc_not_null_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_not_null_t_type_cast with label label_agg_light_sc_not_null_type_cast_cte
             with cte as (select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src)
             select * from cte where id is not null'''
+    sql 'sync'
     qt_42 'select * from agg_light_sc_not_null_t_type_cast order by id, kint'
 
     sql '''insert into agg_light_sc_not_null_t_type_cast partition (p1, p2) with label label_agg_light_sc_not_null_type_cast
             select id, ktint, ksint, kint, kbint, kdtv2, kdtm, kdbl from src where id < 4 and id is not null'''
+    sql 'sync'
     qt_43 'select * from agg_light_sc_not_null_t_type_cast order by id, kint'
 }

@@ -479,11 +479,16 @@ public:
 
     DataTypePtr get_return_type() const override { return _return_type; }
 
-    void add(AggregateDataPtr __restrict /*place*/, const IColumn** /*columns*/, size_t /*row_num*/,
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        LOG(WARNING) << " shouldn't going add function, there maybe some error about function "
-                     << _fn.name.function_name;
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "shouldn't going add function");
+        int64_t places_address[1];
+        places_address[0] = reinterpret_cast<int64_t>(place);
+        Status st =
+                this->data(_exec_place)
+                        .add(places_address, true, columns, row_num, row_num + 1, argument_types);
+        if (UNLIKELY(st != Status::OK())) {
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
+        }
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,

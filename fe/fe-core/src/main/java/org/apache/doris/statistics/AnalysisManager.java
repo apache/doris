@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeDBStmt;
+import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
 import org.apache.doris.analysis.DropStatsStmt;
@@ -33,6 +34,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -149,7 +152,15 @@ public class AnalysisManager extends Daemon implements Writable {
         return statisticsCache;
     }
 
-    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt) throws DdlException {
+    public void createAnalyze(AnalyzeStmt analyzeStmt, boolean proxy) throws DdlException {
+        if (analyzeStmt instanceof AnalyzeDBStmt) {
+            createAnalysisJobs((AnalyzeDBStmt) analyzeStmt, proxy);
+        } else if (analyzeStmt instanceof AnalyzeTblStmt) {
+            createAnalysisJob((AnalyzeTblStmt) analyzeStmt, proxy);
+        }
+    }
+
+    public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
@@ -157,6 +168,9 @@ public class AnalysisManager extends Daemon implements Writable {
         try {
             List<AnalyzeTblStmt> analyzeStmts = new ArrayList<>();
             for (TableIf table : tbls) {
+                if (table instanceof View) {
+                    continue;
+                }
                 TableName tableName = new TableName(analyzeDBStmt.getCtlIf().getName(), db.getFullName(),
                         table.getName());
                 AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeDBStmt.getAnalyzeProperties(), tableName,
@@ -173,7 +187,9 @@ public class AnalysisManager extends Daemon implements Writable {
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
                 analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
-            sendJobId(analysisInfos);
+            if (!analyzeDBStmt.isSync()) {
+                sendJobId(analysisInfos, proxy);
+            }
         } finally {
             db.readUnlock();
         }
@@ -181,12 +197,12 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     // Each analyze stmt corresponding to an analysis job.
-    public void createAnalysisJob(AnalyzeTblStmt stmt) throws DdlException {
+    public void createAnalysisJob(AnalyzeTblStmt stmt, boolean proxy) throws DdlException {
         AnalysisInfo jobInfo = buildAndAssignJob(stmt);
         if (jobInfo == null) {
             return;
         }
-        sendJobId(ImmutableList.of(jobInfo));
+        sendJobId(ImmutableList.of(jobInfo), proxy);
     }
 
     @Nullable
@@ -211,11 +227,12 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-
-        try {
-            updateTableStats(jobInfo);
-        } catch (Throwable e) {
-            throw new DdlException("Failed to update Table statistics");
+        if (!isSync) {
+            try {
+                updateTableStats(jobInfo);
+            } catch (Throwable e) {
+                throw new DdlException("Failed to update Table statistics");
+            }
         }
 
         if (isSync) {
@@ -238,10 +255,10 @@ public class AnalysisManager extends Daemon implements Writable {
         Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
         createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
         createTaskForMVIdx(jobInfo, analysisTaskInfos, false);
-
-        persistAnalysisJob(jobInfo);
-        analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-
+        if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
+            persistAnalysisJob(jobInfo);
+            analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
+        }
         try {
             updateTableStats(jobInfo);
         } catch (Throwable e) {
@@ -251,7 +268,7 @@ public class AnalysisManager extends Daemon implements Writable {
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
 
-    private void sendJobId(List<AnalysisInfo> analysisInfos) {
+    private void sendJobId(List<AnalysisInfo> analysisInfos, boolean proxy) {
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("Catalog_Name", ScalarType.createVarchar(1024)));
         columns.add(new Column("DB_Name", ScalarType.createVarchar(1024)));
@@ -271,7 +288,11 @@ public class AnalysisManager extends Daemon implements Writable {
         }
         ShowResultSet commonResultSet = new ShowResultSet(commonResultSetMetaData, resultRows);
         try {
-            ConnectContext.get().getExecutor().sendResultSet(commonResultSet);
+            if (!proxy) {
+                ConnectContext.get().getExecutor().sendResultSet(commonResultSet);
+            } else {
+                ConnectContext.get().getExecutor().setProxyResultSet(commonResultSet);
+            }
         } catch (Throwable t) {
             LOG.warn("Failed to send job id to user", t);
         }
@@ -292,9 +313,8 @@ public class AnalysisManager extends Daemon implements Writable {
      * TODO Supports incremental collection of statistics from materialized views
      */
     private Map<String, Set<String>> validateAndGetPartitions(TableIf table, Set<String> columnNames,
-            AnalysisType analysisType, AnalysisMode analysisMode) throws DdlException {
+            Set<String> partitionNames, AnalysisType analysisType, AnalysisMode analysisMode) throws DdlException {
         long tableId = table.getId();
-        Set<String> partitionNames = table.getPartitionNames();
 
         Map<String, Set<String>> columnToPartitions = columnNames.stream()
                 .collect(Collectors.toMap(
@@ -305,6 +325,13 @@ public class AnalysisManager extends Daemon implements Writable {
         if (analysisType == AnalysisType.HISTOGRAM) {
             // Collecting histograms does not need to support incremental collection,
             // and will automatically cover historical statistics
+            return columnToPartitions;
+        }
+
+        if (table instanceof HMSExternalTable) {
+            // TODO Currently, we do not support INCREMENTAL collection for external table.
+            // One reason is external table partition id couldn't convert to a Long value.
+            // Will solve this problem later.
             return columnToPartitions;
         }
 
@@ -361,6 +388,9 @@ public class AnalysisManager extends Daemon implements Writable {
         String tblName = tbl.getTbl();
         TableIf table = stmt.getTable();
         Set<String> columnNames = stmt.getColumnNames();
+        Set<String> partitionNames = stmt.getPartitionNames();
+        boolean partitionOnly = stmt.isPartitionOnly();
+        boolean isSamplingPartition = stmt.isSamplingPartition();
         int samplePercent = stmt.getSamplePercent();
         int sampleRows = stmt.getSampleRows();
         AnalysisType analysisType = stmt.getAnalysisType();
@@ -377,8 +407,12 @@ public class AnalysisManager extends Daemon implements Writable {
             stringJoiner.add(colName);
         }
         taskInfoBuilder.setColName(stringJoiner.toString());
+        taskInfoBuilder.setPartitionNames(partitionNames);
+        taskInfoBuilder.setPartitionOnly(partitionOnly);
+        taskInfoBuilder.setSamplingPartition(isSamplingPartition);
         taskInfoBuilder.setJobType(JobType.MANUAL);
         taskInfoBuilder.setState(AnalysisState.PENDING);
+        taskInfoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
         taskInfoBuilder.setAnalysisType(analysisType);
         taskInfoBuilder.setAnalysisMode(analysisMode);
         taskInfoBuilder.setAnalysisMethod(analysisMethod);
@@ -402,8 +436,8 @@ public class AnalysisManager extends Daemon implements Writable {
             taskInfoBuilder.setPeriodTimeInMs(periodTimeInMs);
         }
 
-        Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table,
-                columnNames, analysisType, analysisMode);
+        Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, columnNames,
+                partitionNames, analysisType, analysisMode);
         taskInfoBuilder.setColToPartitions(colToPartitions);
 
         return taskInfoBuilder.build();
@@ -417,6 +451,7 @@ public class AnalysisManager extends Daemon implements Writable {
         taskInfoBuilder.setTblName(jobInfo.tblName);
         taskInfoBuilder.setJobType(JobType.SYSTEM);
         taskInfoBuilder.setState(AnalysisState.PENDING);
+        taskInfoBuilder.setLastExecTimeInMs(System.currentTimeMillis());
         taskInfoBuilder.setAnalysisType(jobInfo.analysisType);
         taskInfoBuilder.setAnalysisMode(jobInfo.analysisMode);
         taskInfoBuilder.setAnalysisMethod(jobInfo.analysisMethod);
@@ -429,8 +464,8 @@ public class AnalysisManager extends Daemon implements Writable {
         try {
             TableIf table = StatisticsUtil
                     .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
-            Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table,
-                    jobInfo.colToPartitions.keySet(), jobInfo.analysisType, jobInfo.analysisMode);
+            Map<String, Set<String>> colToPartitions = validateAndGetPartitions(table, jobInfo.colToPartitions.keySet(),
+                    jobInfo.partitionNames, jobInfo.analysisType, jobInfo.analysisMode);
             taskInfoBuilder.setColToPartitions(colToPartitions);
         } catch (Throwable e) {
             throw new RuntimeException(e);
@@ -506,7 +541,9 @@ public class AnalysisManager extends Daemon implements Writable {
                 continue;
             }
             try {
-                logCreateAnalysisTask(analysisInfo);
+                if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
+                    logCreateAnalysisTask(analysisInfo);
+                }
             } catch (Exception e) {
                 throw new DdlException("Failed to create analysis task", e);
             }
@@ -514,13 +551,13 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     private void logCreateAnalysisTask(AnalysisInfo analysisInfo) {
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(analysisInfo);
         analysisTaskInfoMap.put(analysisInfo.taskId, analysisInfo);
+        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(analysisInfo);
     }
 
     private void logCreateAnalysisJob(AnalysisInfo analysisJob) {
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
         analysisJobInfoMap.put(analysisJob.jobId, analysisJob);
+        Env.getCurrentEnv().getEditLog().logCreateAnalysisJob(analysisJob);
     }
 
     private void createTaskForExternalTable(AnalysisInfo jobInfo,
@@ -541,6 +578,10 @@ public class AnalysisManager extends Daemon implements Writable {
         AnalysisInfo analysisInfo = colTaskInfoBuilder.setIndexId(-1L)
                 .setTaskId(taskId).setExternalTableLevelTask(true).build();
         analysisTasks.put(taskId, createTask(analysisInfo));
+        if (isSync) {
+            // For sync job, don't need to persist, return here and execute it immediately.
+            return;
+        }
         try {
             logCreateAnalysisJob(analysisInfo);
         } catch (Exception e) {
@@ -598,7 +639,8 @@ public class AnalysisManager extends Daemon implements Writable {
             updateOlapTableStats(table, params);
         }
 
-        // TODO support external table
+        // External Table doesn't collect table stats here.
+        // We create task for external table to collect table/partition level statistics.
     }
 
     @SuppressWarnings("rawtypes")
@@ -668,7 +710,7 @@ public class AnalysisManager extends Daemon implements Writable {
         long tblId = dropStatsStmt.getTblId();
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
-            Env.getCurrentEnv().getStatisticsCache().invidate(tblId, -1L, col);
+            Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
         }
     }
 
@@ -684,7 +726,7 @@ public class AnalysisManager extends Daemon implements Writable {
         checkPriv(anyTask);
         logKilled(analysisJobInfoMap.get(anyTask.getJobId()));
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
-            taskInfo.markAsKilled();
+            taskInfo.cancel();
             logKilled(taskInfo.info);
         }
     }
@@ -753,7 +795,7 @@ public class AnalysisManager extends Daemon implements Writable {
 
         public void cancel() {
             cancelled = true;
-            tasks.forEach(BaseAnalysisTask::markAsKilled);
+            tasks.forEach(BaseAnalysisTask::cancel);
         }
 
         public void execute() {
@@ -768,7 +810,7 @@ public class AnalysisManager extends Daemon implements Writable {
                 } catch (Throwable t) {
                     colNames.add(task.info.colName);
                     updateSyncTaskStatus(task, AnalysisState.FAILED);
-                    LOG.info("Failed to analyze, info: {}", task);
+                    LOG.warn("Failed to analyze, info: {}", task, t);
                 }
             }
             if (!colNames.isEmpty()) {

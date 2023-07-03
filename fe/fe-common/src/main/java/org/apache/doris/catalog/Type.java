@@ -112,7 +112,8 @@ public abstract class Type {
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
     public static final VariantType VARIANT = new VariantType();
-    public static final AnyType ANY_TYPE = new AnyType();
+    public static final AnyType ANY_STRUCT_TYPE = new AnyStructType();
+    public static final AnyType ANY_ELEMENT_TYPE = new AnyElementType();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
@@ -419,7 +420,7 @@ public abstract class Type {
     public boolean isStringType() {
         return isScalarType(PrimitiveType.VARCHAR)
                 || isScalarType(PrimitiveType.CHAR)
-                || isScalarType(PrimitiveType.STRING) || isScalarType(PrimitiveType.AGG_STATE);
+                || isScalarType(PrimitiveType.STRING);
     }
 
     public boolean isVarcharOrStringType() {
@@ -566,6 +567,10 @@ public abstract class Type {
 
     public boolean isStructType() {
         return this instanceof StructType;
+    }
+
+    public boolean isAnyType() {
+        return this instanceof AnyType;
     }
 
     public boolean isDate() {

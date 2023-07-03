@@ -30,6 +30,7 @@
 #include "io/fs/path.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "olap/tablet_schema.h"
 
 namespace lucene {
@@ -63,18 +64,6 @@ enum class InvertedIndexReaderType {
     BKD = 2,
 };
 
-enum class InvertedIndexQueryType {
-    UNKNOWN_QUERY = -1,
-    EQUAL_QUERY = 0,
-    LESS_THAN_QUERY = 1,
-    LESS_EQUAL_QUERY = 2,
-    GREATER_THAN_QUERY = 3,
-    GREATER_EQUAL_QUERY = 4,
-    MATCH_ANY_QUERY = 5,
-    MATCH_ALL_QUERY = 6,
-    MATCH_PHRASE_QUERY = 7,
-};
-
 class InvertedIndexReader {
 public:
     explicit InvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
@@ -106,9 +95,11 @@ public:
     static std::vector<std::wstring> get_analyse_result(const std::string& field_name,
                                                         const std::string& value,
                                                         InvertedIndexQueryType query_type,
-                                                        InvertedIndexCtx* inverted_index_ctx);
+                                                        InvertedIndexCtx* inverted_index_ctx,
+                                                        bool drop_duplicates = true);
 
 protected:
+    bool _is_range_query(InvertedIndexQueryType query_type);
     bool _is_match_query(InvertedIndexQueryType query_type);
     friend class InvertedIndexIterator;
     io::FileSystemSPtr _fs;

@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
@@ -63,14 +62,6 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected void doInitialize() throws UserException {
-        Preconditions.checkNotNull(desc);
-        computeColumnFilter();
-        initBackendPolicy();
-        initSchemaParams();
-    }
-
-    @Override
     protected String getFsName(FileSplit split) {
         return tableValuedFunction.getFsName();
     }
@@ -93,6 +84,11 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
+        return getLocationType(null);
+    }
+
+    @Override
+    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileType();
     }
 

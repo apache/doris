@@ -376,7 +376,7 @@ public class ConnectProcessor {
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 nereidsParseException = e;
-                LOG.info("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), originStmt);
             }
         }
@@ -561,6 +561,7 @@ public class ConnectProcessor {
             LOG.warn("Unknown command(" + code + ")");
             return;
         }
+        LOG.debug("handle command {}", command);
         ctx.setCommand(command);
         ctx.setStartTime();
 

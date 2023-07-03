@@ -65,9 +65,14 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 charType.setLength(fieldSchema.columnSize);
                 return charType;
             case "timestamp":
-            case "timestamptz":
+            case "timestamptz": {
                 // postgres can support microsecond
-                return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
             case "date":
                 return ScalarType.createDateV2Type();
             case "bool":

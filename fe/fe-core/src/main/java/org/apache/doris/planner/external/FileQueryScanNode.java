@@ -34,10 +34,17 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.hive.AcidInfo;
+import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.hudi.HudiScanNode;
+import org.apache.doris.planner.external.hudi.HudiSplit;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergSplit;
+import org.apache.doris.planner.external.paimon.PaimonScanNode;
+import org.apache.doris.planner.external.paimon.PaimonSplit;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -55,6 +62,9 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
+import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -63,6 +73,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,9 +88,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
-
-    protected int inputSplitNum = 0;
-    protected long inputFileSize = 0;
 
     /**
      * External file scan node for Query hms table
@@ -101,6 +109,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     /**
      * Init ExternalFileScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
+    @Override
     public void init() throws UserException {
         doInitialize();
     }
@@ -108,10 +117,13 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Init scan provider and schema related params.
     protected void doInitialize() throws UserException {
         Preconditions.checkNotNull(desc);
-        ExternalTable table = (ExternalTable) desc.getTable();
-        if (table.isView()) {
-            throw new AnalysisException(
-                String.format("Querying external view '%s.%s' is not supported", table.getDbName(), table.getName()));
+        if (desc.getTable() instanceof ExternalTable) {
+            ExternalTable table = (ExternalTable) desc.getTable();
+            if (table.isView()) {
+                throw new AnalysisException(
+                        String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
+                                table.getName()));
+            }
         }
         computeColumnFilter();
         initBackendPolicy();
@@ -142,11 +154,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
-    }
-
-    protected void initBackendPolicy() throws UserException {
-        backendPolicy.init();
-        numNodes = backendPolicy.numBackends();
     }
 
     /**
@@ -215,88 +222,113 @@ public abstract class FileQueryScanNode extends FileScanNode {
         params.setColumnIdxs(columnIdxs);
     }
 
+    @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
         List<Split> inputSplits = getSplits();
-        this.inputSplitNum = inputSplits.size();
+        this.inputSplitsNum = inputSplits.size();
         if (inputSplits.isEmpty()) {
             return;
         }
-        FileSplit inputSplit = (FileSplit) inputSplits.get(0);
-        TFileType locationType = getLocationType();
-        params.setFileType(locationType);
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
-        TFileCompressType fileCompressType = getFileCompressType(inputSplit);
-        params.setCompressType(fileCompressType);
-        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
-        if (isCsvOrJson) {
-            params.setFileAttributes(getFileAttributes());
-        }
-
-        // set hdfs params for hdfs file type.
-        Map<String, String> locationProperties = getLocationProperties();
-        if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
-            String fsName = getFsName(inputSplit);
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            tHdfsParams.setFsName(fsName);
-            params.setHdfsParams(tHdfsParams);
-
-            if (locationType == TFileType.FILE_BROKER) {
-                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
-                if (broker == null) {
-                    throw new UserException("No alive broker.");
-                }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
-            }
-        } else if (locationType == TFileType.FILE_S3) {
-            params.setProperties(locationProperties);
-        }
-
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
+            TFileScanRangeParams scanRangeParams = new TFileScanRangeParams(params);
             FileSplit fileSplit = (FileSplit) split;
-
-            TFileScanRangeParams scanRangeParams;
-            if (!isCsvOrJson) {
-                scanRangeParams = params;
-            } else {
-                // If fileFormatType is csv/json format, uncompressed files may be coexists with compressed files
-                // So we need set compressType separately
-                scanRangeParams = new TFileScanRangeParams(params);
-                scanRangeParams.setCompressType(getFileCompressType(fileSplit));
+            TFileType locationType = getLocationType(fileSplit.getPath().toString());
+            scanRangeParams.setFileType(locationType);
+            TFileCompressType fileCompressType = getFileCompressType(fileSplit);
+            scanRangeParams.setCompressType(fileCompressType);
+            boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+            if (isCsvOrJson) {
+                scanRangeParams.setFileAttributes(getFileAttributes());
             }
-            TScanRangeLocations curLocations = newLocations(scanRangeParams, backendPolicy);
+
+            // set hdfs params for hdfs file type.
+            Map<String, String> locationProperties = getLocationProperties();
+            if (fileFormatType == TFileFormatType.FORMAT_JNI) {
+                scanRangeParams.setProperties(locationProperties);
+            } else if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
+                String fsName = getFsName(fileSplit);
+                THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
+                tHdfsParams.setFsName(fsName);
+                scanRangeParams.setHdfsParams(tHdfsParams);
+
+                if (locationType == TFileType.FILE_BROKER) {
+                    FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    if (broker == null) {
+                        throw new UserException("No alive broker.");
+                    }
+                    scanRangeParams.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                }
+            } else if (locationType == TFileType.FILE_S3) {
+                scanRangeParams.setProperties(locationProperties);
+            }
+
+            TScanRangeLocations curLocations = newLocations(scanRangeParams);
 
             // If fileSplit has partition values, use the values collected from hive partitions.
             // Otherwise, use the values in file path.
+            boolean isACID = false;
+            if (fileSplit instanceof HiveSplit) {
+                HiveSplit hiveSplit = (HiveSplit) split;
+                isACID = hiveSplit.isACID();
+            }
             List<String> partitionValuesFromPath = fileSplit.getPartitionValues() == null
-                    ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys, false)
+                    ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys, false, isACID)
                     : fileSplit.getPartitionValues();
 
-            TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
+            TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
+                    locationType);
+            if (isACID) {
+                HiveSplit hiveSplit = (HiveSplit) split;
+                hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
+                TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+                tableFormatFileDesc.setTableFormatType(hiveSplit.getTableFormatType().value());
+                AcidInfo acidInfo = (AcidInfo) hiveSplit.getInfo();
+                TTransactionalHiveDesc transactionalHiveDesc = new TTransactionalHiveDesc();
+                transactionalHiveDesc.setPartition(acidInfo.getPartitionLocation());
+                List<TTransactionalHiveDeleteDeltaDesc> deleteDeltaDescs = new ArrayList<>();
+                for (DeleteDeltaInfo deleteDeltaInfo : acidInfo.getDeleteDeltas()) {
+                    TTransactionalHiveDeleteDeltaDesc deleteDeltaDesc = new TTransactionalHiveDeleteDeltaDesc();
+                    deleteDeltaDesc.setDirectoryLocation(deleteDeltaInfo.getDirectoryLocation());
+                    deleteDeltaDesc.setFileNames(deleteDeltaInfo.getFileNames());
+                    deleteDeltaDescs.add(deleteDeltaDesc);
+                }
+                transactionalHiveDesc.setDeleteDeltas(deleteDeltaDescs);
+                tableFormatFileDesc.setTransactionalHiveParams(transactionalHiveDesc);
+                rangeDesc.setTableFormatParams(tableFormatFileDesc);
+            }
             // external data lake table
             if (fileSplit instanceof IcebergSplit) {
                 // TODO: extract all data lake split to factory
                 IcebergScanNode.setIcebergParams(rangeDesc, (IcebergSplit) fileSplit);
+            } else if (fileSplit instanceof PaimonSplit) {
+                PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
+            } else if (fileSplit instanceof HudiSplit) {
+                HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
             }
 
-            // if (fileSplit instanceof HudiSplit) {
-            //     HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
-            // }
-
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+            TScanRangeLocation location = new TScanRangeLocation();
+            // Use consistent hash to assign the same scan range into the same backend among different queries
+            Backend selectedBackend = ConnectContext.get().getSessionVariable().enableFileCache
+                    ? backendPolicy.getNextConsistentBe(curLocations) : backendPolicy.getNextBe();
+            location.setBackendId(selectedBackend.getId());
+            location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+            curLocations.addToLocations(location);
             LOG.debug("assign to backend {} with table split: {} ({}, {}), location: {}",
                     curLocations.getLocations().get(0).getBackendId(), fileSplit.getPath(), fileSplit.getStart(),
                     fileSplit.getLength(), Joiner.on("|").join(fileSplit.getHosts()));
             scanRangeLocations.add(curLocations);
-            this.inputFileSize += fileSplit.getLength();
+            this.totalFileSize += fileSplit.getLength();
         }
         LOG.debug("create #{} ScanRangeLocations cost: {} ms",
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
 
-    private TScanRangeLocations newLocations(TFileScanRangeParams params, FederationBackendPolicy backendPolicy) {
+    private TScanRangeLocations newLocations(TFileScanRangeParams params) {
         // Generate on file scan range
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.setParams(params);
@@ -310,18 +342,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // Locations
         TScanRangeLocations locations = new TScanRangeLocations();
         locations.setScanRange(scanRange);
-
-        TScanRangeLocation location = new TScanRangeLocation();
-        Backend selectedBackend = backendPolicy.getNextBe();
-        location.setBackendId(selectedBackend.getId());
-        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
-        locations.addToLocations(location);
-
         return locations;
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys)
+                                               List<String> columnsFromPathKeys, TFileType locationType)
             throws UserException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
@@ -332,11 +357,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
-        if (getLocationType() == TFileType.FILE_HDFS) {
+        if (locationType == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3
-                || getLocationType() == TFileType.FILE_BROKER
-                || getLocationType() == TFileType.FILE_NET) {
+        } else if (locationType == TFileType.FILE_S3
+                || locationType == TFileType.FILE_BROKER
+                || locationType == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
@@ -345,6 +370,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     protected abstract TFileType getLocationType() throws UserException;
+
+    protected abstract TFileType getLocationType(String location) throws UserException;
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 

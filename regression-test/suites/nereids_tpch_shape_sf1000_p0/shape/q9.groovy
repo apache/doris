@@ -30,11 +30,7 @@ suite("q9") {
 
 
 
-    def result = sql "show backends;"
-    if (result.size() != 1) {
-        print("backends num: ${result.size()}");
-        return;
-    }
+sql 'set be_number_for_test=3'
 
     qt_select """
     explain shape plan

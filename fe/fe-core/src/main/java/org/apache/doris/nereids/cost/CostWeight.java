@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.qe.ConnectContext;
+
 import com.google.common.base.Preconditions;
 
 /**
@@ -32,12 +34,8 @@ import com.google.common.base.Preconditions;
  * An example is tpch q15.
  */
 public class CostWeight {
-    static final double CPU_WEIGHT = 1;
-    static final double MEMORY_WEIGHT = 1;
-    static final double NETWORK_WEIGHT = 1.5;
     static final double DELAY = 0.5;
 
-    static double nereidsCboPenaltyFactor = 0.7;
     final double cpuWeight;
     final double memoryWeight;
     final double networkWeight;
@@ -68,8 +66,11 @@ public class CostWeight {
     }
 
     public static CostWeight get() {
-        return new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
-            nereidsCboPenaltyFactor);
+        double cpuWeight = ConnectContext.get().getSessionVariable().getCboCpuWeight();
+        double memWeight = ConnectContext.get().getSessionVariable().getCboMemWeight();
+        double netWeight = ConnectContext.get().getSessionVariable().getCboNetWeight();
+        return new CostWeight(cpuWeight, memWeight, netWeight,
+                ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
     }
 
     //TODO: add it in session variable
@@ -79,9 +80,5 @@ public class CostWeight {
 
     public double weightSum(double cpuCost, double ioCost, double netCost) {
         return cpuCost * cpuWeight + ioCost * ioWeight + netCost * networkWeight;
-    }
-
-    public static void setNereidsCboPenaltyFactor(double nereidsCboPenaltyFactor) {
-        CostWeight.nereidsCboPenaltyFactor = nereidsCboPenaltyFactor;
     }
 }
