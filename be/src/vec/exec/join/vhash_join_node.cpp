@@ -508,6 +508,18 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    std::visit(Overload {[&](std::monostate&) {},
+                         [&](auto&& process_hashtable_ctx) {
+                             if (process_hashtable_ctx._arena) {
+                                 process_hashtable_ctx._arena.reset();
+                             }
+
+                             if (process_hashtable_ctx._serialize_key_arena) {
+                                 process_hashtable_ctx._serialize_key_arena.reset();
+                                 process_hashtable_ctx._serialized_key_buffer_size = 0;
+                             }
+                         }},
+               *_process_hashtable_ctx_variants);
     return VJoinNodeBase::close(state);
 }
 
