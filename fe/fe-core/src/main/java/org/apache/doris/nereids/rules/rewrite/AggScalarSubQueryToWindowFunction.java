@@ -109,7 +109,8 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      * is used to project apply output to original output, it is not affect this rule at all. so we ignore it.
      */
     @Override
-    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> plan, JobContext context) {
+        LogicalFilter<? extends Plan> filter = visitChildren(this, plan, context);
         return findApply(filter)
                 .filter(a -> check(filter, a))
                 .map(a -> rewrite(filter, a))
