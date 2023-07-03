@@ -21,6 +21,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -99,7 +100,7 @@ public class NereidsTracer {
 
     /** log property and cost pair when doing cost and enforcer task */
     public static void logPropertyAndCostEvent(
-            String groupId, List<Group> children, Plan plan, PhysicalProperties requestProperty, Cost cost) {
+            GroupId groupId, List<Group> children, Plan plan, PhysicalProperties requestProperty, Cost cost) {
         if (!shouldLog) {
             return;
         }
@@ -120,13 +121,13 @@ public class NereidsTracer {
 
     /** log enforcer event when we need to add enforcer */
     public static void logEnforcerEvent(
-            String groupId, Plan plan, PhysicalProperties inputProperty, PhysicalProperties outputProperty) {
+            GroupId groupId, Plan plan, PhysicalProperties inputProperty, PhysicalProperties outputProperty) {
         if (!shouldLog) {
             return;
         }
         JSONObject enforcerEventJson = new JSONObject();
         JSONObject enforcerMsg = new JSONObject();
-        enforcerMsg.put("GroupId", groupId);
+        enforcerMsg.put("GroupId", groupId.toString());
         enforcerMsg.put("Plan", ((AbstractPlan) plan).toJson());
         enforcerMsg.put("InputProperty", inputProperty.toString());
         enforcerMsg.put("OutputProperty", outputProperty.toString());
