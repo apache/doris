@@ -751,7 +751,7 @@ public class Memo {
                         if (costAndGroupExpression.isPresent()) {
                             Cost cost = costAndGroupExpression.get().first;
                             GroupExpression child = costAndGroupExpression.get().second;
-                            builder.append("\n    " + cost.getValue() + " " + prop)
+                            builder.append("\n\n    " + cost.getValue() + " " + prop)
                                     .append("\n     ").append(child)
                                     .append("\n     " + child.getInputPropertiesListOrEmpty(prop));
                         }
