@@ -138,10 +138,13 @@ public:
     bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
     bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
     bool has_bloom_filter_index(bool ngram) const {
-        return _bf_index_meta != nullptr &&
-               (ngram ? (_bf_index_meta->algorithm() == BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER)
-                      : (_bf_index_meta->algorithm() !=
-                         BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER));
+        if (_bf_index_meta == nullptr) return false;
+
+        if (ngram) {
+            return _bf_index_meta->algorithm() == BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
+        } else {
+            return _bf_index_meta->algorithm() != BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
+        }
     }
 
     // Check if this column could match `cond' using segment zone map.

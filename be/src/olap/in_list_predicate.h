@@ -411,7 +411,7 @@ public:
     }
 
     bool can_do_bloom_filter(bool ngram) const override {
-        return ngram ? false : PT == PredicateType::IN_LIST;
+        return PT == PredicateType::IN_LIST && !ngram;
     }
 
 private:

@@ -275,7 +275,7 @@ public:
     }
 
     bool can_do_bloom_filter(bool ngram) const override {
-        return ngram ? false : PT == PredicateType::EQ;
+        return PT == PredicateType::EQ && !ngram;
     }
 
     void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

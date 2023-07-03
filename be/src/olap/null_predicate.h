@@ -94,7 +94,7 @@ public:
         }
     }
 
-    bool can_do_bloom_filter(bool ngram) const override { return ngram ? false : _is_null; }
+    bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 
