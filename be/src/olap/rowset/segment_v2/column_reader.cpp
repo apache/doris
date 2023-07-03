@@ -505,16 +505,16 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
 
     if (is_string_type(type)) {
         if (parser_type != InvertedIndexParserType::PARSER_NONE) {
-            _inverted_index.reset(new FullTextIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta));
+            _inverted_index = FullTextIndexReader::create_unique(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
             return Status::OK();
         } else {
-            _inverted_index.reset(new StringTypeInvertedIndexReader(
-                    _file_reader->fs(), _file_reader->path().native(), index_meta));
+            _inverted_index = StringTypeInvertedIndexReader::create_unique(
+                    _file_reader->fs(), _file_reader->path().native(), index_meta);
         }
     } else if (is_numeric_type(type)) {
-        _inverted_index.reset(
-                new BkdIndexReader(_file_reader->fs(), _file_reader->path().native(), index_meta));
+        _inverted_index = BkdIndexReader::create_unique(
+                _file_reader->fs(), _file_reader->path().native(), index_meta);
     } else {
         _inverted_index.reset();
     }

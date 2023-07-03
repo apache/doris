@@ -108,6 +108,7 @@ protected:
 };
 
 class FullTextIndexReader : public InvertedIndexReader {
+    ENABLE_FACTORY_CREATOR(FullTextIndexReader);
 public:
     explicit FullTextIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const TabletIndex* index_meta)
@@ -128,6 +129,7 @@ public:
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
+    ENABLE_FACTORY_CREATOR(StringTypeInvertedIndexReader);
 public:
     explicit StringTypeInvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                            const TabletIndex* index_meta)
@@ -181,6 +183,7 @@ public:
 };
 
 class BkdIndexReader : public InvertedIndexReader {
+    ENABLE_FACTORY_CREATOR(BkdIndexReader);
 public:
     explicit BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
                             const TabletIndex* index_meta);
