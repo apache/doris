@@ -42,6 +42,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "util/time.h"
 
@@ -391,8 +392,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         }
         stats->partial_update_write_segment_us = MonotonicMicros() - t3;
         int64_t t4 = MonotonicMicros();
-        std::shared_lock rlock(tablet->get_header_lock());
-        tablet->save_meta();
+        RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
+                tablet->data_dir(), tablet->tablet_id(), tablet_txn_info.delete_bitmap,
+                version.second));
         stats->save_meta_time_us = MonotonicMicros() - t4;
     }
 

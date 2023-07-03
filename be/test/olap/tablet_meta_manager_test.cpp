@@ -26,6 +26,7 @@
 #include <fstream>
 #include <memory>
 #include <new>
+#include <roaring/roaring.hh>
 #include <string>
 
 #include "gtest/gtest_pred_impl.h"
@@ -106,6 +107,76 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     EXPECT_EQ(Status::OK(), s);
     // FIXME(Drogon): adapt for BinlogConfig default
     // EXPECT_EQ(_json_header, json_meta_read);
+}
+
+TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
+    TTabletId tablet_id = 1234;
+    int64_t version = 456;
+    RowsetId rowset_id;
+    rowset_id.init(2, 777, 888, 999);
+    int64_t segment_id = 5;
+    std::string key =
+            TabletMetaManager::encode_delete_bitmap_key(tablet_id, version, rowset_id, segment_id);
+
+    TTabletId de_tablet_id;
+    int64_t de_version;
+    RowsetId de_rowset_id;
+    int64_t de_segment_id;
+    TabletMetaManager::decode_delete_bitmap_key(key, &de_tablet_id, &de_version, &de_rowset_id,
+                                                &de_segment_id);
+    EXPECT_EQ(tablet_id, de_tablet_id);
+    EXPECT_EQ(version, de_version);
+    EXPECT_EQ(rowset_id, de_rowset_id);
+    EXPECT_EQ(segment_id, de_segment_id);
+}
+
+TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
+    int64_t test_tablet_id = 10086;
+    std::shared_ptr<DeleteBitmap> dbmp = std::make_shared<DeleteBitmap>(test_tablet_id);
+    auto gen1 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_row) {
+        for (int64_t rst = 0; rst < max_rst_id; ++rst) {
+            for (uint32_t seg = 0; seg < max_seg_id; ++seg) {
+                for (uint32_t row = 0; row < max_row; ++row) {
+                    dbmp->add({RowsetId {2, 0, 1, rst}, seg, 0}, row);
+                }
+            }
+        }
+    };
+    int64_t max_rst_id = 5;
+    int64_t max_seg_id = 5;
+    int64_t max_version = 300;
+    gen1(max_rst_id, max_seg_id, 10);
+    for (int64_t ver = 0; ver < max_version; ++ver) {
+        TabletMetaManager::save_delete_bitmap(_data_dir, test_tablet_id, dbmp, ver);
+    }
+    size_t num_keys = 0;
+    auto load_delete_bitmap_func = [&](int64_t tablet_id, RowsetId rowset_id, int64_t segment_id,
+                                       int64_t version, const string& val) {
+        EXPECT_EQ(tablet_id, test_tablet_id);
+        auto iter = dbmp->delete_bitmap.find({rowset_id, segment_id, 0});
+        EXPECT_NE(iter, dbmp->delete_bitmap.end());
+        auto bitmap = roaring::Roaring::read(val.data());
+        EXPECT_EQ(bitmap.cardinality(), 10);
+        ++num_keys;
+        return true;
+    };
+    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    EXPECT_EQ(num_keys, max_rst_id * max_seg_id * max_version);
+
+    num_keys = 0;
+    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 100);
+    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    EXPECT_EQ(num_keys, max_rst_id * max_seg_id * (max_version - 101));
+
+    num_keys = 0;
+    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 200);
+    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    EXPECT_EQ(num_keys, max_rst_id * max_seg_id * (max_version - 201));
+
+    num_keys = 0;
+    TabletMetaManager::remove_delete_bitmap_by_tablet_id(_data_dir, test_tablet_id);
+    TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
+    EXPECT_EQ(num_keys, 0);
 }
 
 } // namespace doris

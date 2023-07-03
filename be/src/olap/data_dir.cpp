@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <memory>
 #include <new>
+#include <roaring/roaring.hh>
 #include <set>
 #include <sstream>
 #include <string>
@@ -538,6 +539,24 @@ Status DataDir::load() {
             ++invalid_rowset_counter;
         }
     }
+
+    auto load_delete_bitmap_func = [this](int64_t tablet_id, RowsetId rowset_id, int64_t segment_id,
+                                          int64_t version, const string& val) {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (!tablet) {
+            return true;
+        }
+        const std::vector<RowsetMetaSharedPtr>& all_rowsets = tablet->tablet_meta()->all_rs_metas();
+        for (auto& rowset_meta : all_rowsets) {
+            // only process the rowset in _rs_metas
+            if (rowset_meta->rowset_id() == rowset_id) {
+                tablet->tablet_meta()->delete_bitmap().delete_bitmap[{
+                        rowset_id, segment_id, version}] |= roaring::Roaring::read(val.data());
+            }
+        }
+        return true;
+    };
+    TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func);
 
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,

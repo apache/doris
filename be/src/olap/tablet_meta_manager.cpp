@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <rocksdb/db.h>
+#include <rocksdb/write_batch.h>
 
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
@@ -28,6 +29,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "gutil/endian.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/data_dir.h"
@@ -212,6 +214,95 @@ Status TabletMetaManager::traverse_pending_publish(
     Status status =
             meta->iterate(META_COLUMN_FAMILY_INDEX, PENDING_PUBLISH_INFO, traverse_header_func);
     return status;
+}
+
+std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id, int64_t version,
+                                                        const RowsetId& rowset_id,
+                                                        int64_t segment_id) {
+    std::string key;
+    key.reserve(56);
+    key.append(DELETE_BITMAP);
+    put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
+    put_fixed64_le(&key, BigEndian::FromHost64(version));
+    put_fixed32_le(&key, BigEndian::FromHost32(rowset_id.version));
+    put_fixed64_le(&key, BigEndian::FromHost64(rowset_id.hi));
+    put_fixed64_le(&key, BigEndian::FromHost64(rowset_id.mi));
+    put_fixed64_le(&key, BigEndian::FromHost64(rowset_id.lo));
+    put_fixed64_le(&key, BigEndian::FromHost64(segment_id));
+    return key;
+}
+
+void TabletMetaManager::decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
+                                                 int64_t* version, RowsetId* rowset_id,
+                                                 int64_t* segment_id) {
+    DCHECK_EQ(enc_key.size(), 56);
+    *tablet_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 4));
+    *version = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 12));
+    rowset_id->version = BigEndian::ToHost32(UNALIGNED_LOAD32(enc_key.data() + 20));
+    rowset_id->hi = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 24));
+    rowset_id->mi = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 32));
+    rowset_id->lo = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 40));
+    *segment_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 48));
+}
+
+Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                             DeleteBitmapPtr delete_bimap, int64_t version) {
+    if (delete_bimap->delete_bitmap.empty()) {
+        return Status::OK();
+    }
+    OlapMeta* meta = store->get_meta();
+    rocksdb::WriteBatch batch;
+    rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
+    for (auto& [id, bitmap] : delete_bimap->delete_bitmap) {
+        auto& rowset_id = std::get<0>(id);
+        int64_t segment_id = std::get<1>(id);
+        std::string key = encode_delete_bitmap_key(tablet_id, version, rowset_id, segment_id);
+        std::string value(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(value.data());
+        batch.Put(cf, key, value);
+    }
+    return meta->put(&batch);
+}
+
+Status TabletMetaManager::traverse_delete_bitmap(
+        OlapMeta* meta,
+        std::function<bool(int64_t, RowsetId, int64_t, int64_t, const std::string&)> const& func) {
+    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        TTabletId tablet_id;
+        int64_t version;
+        RowsetId rowset_id;
+        int64_t segment_id;
+        decode_delete_bitmap_key(key, &tablet_id, &version, &rowset_id, &segment_id);
+        VLOG_NOTICE << "traverse delete bitmap, key: |" << tablet_id << "|" << rowset_id << "|"
+                    << segment_id << "|" << version;
+        return func(tablet_id, rowset_id, segment_id, version, value);
+    };
+    Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, DELETE_BITMAP, traverse_header_func);
+    return status;
+}
+
+Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                                           int64_t version) {
+    OlapMeta* meta = store->get_meta();
+    rocksdb::WriteBatch batch;
+    rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
+    auto lower_key = encode_delete_bitmap_key(tablet_id, 0, RowsetId(), 0);
+    auto upper_key = encode_delete_bitmap_key(tablet_id, version + 1, RowsetId(), 0);
+    batch.DeleteRange(cf, lower_key, upper_key);
+    LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
+              << " version: " << version;
+    return meta->put(&batch);
+}
+
+Status TabletMetaManager::remove_delete_bitmap_by_tablet_id(DataDir* store, TTabletId tablet_id) {
+    OlapMeta* meta = store->get_meta();
+    rocksdb::WriteBatch batch;
+    rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
+    auto lower_key = encode_delete_bitmap_key(tablet_id, 0, RowsetId(), 0);
+    auto upper_key = encode_delete_bitmap_key(tablet_id, INT64_MAX, RowsetId(), 0);
+    batch.DeleteRange(cf, lower_key, upper_key);
+    LOG(INFO) << "remove delete bitmap by tablet_id, tablet_id: " << tablet_id;
+    return meta->put(&batch);
 }
 
 } // namespace doris

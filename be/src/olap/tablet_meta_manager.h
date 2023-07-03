@@ -36,6 +36,8 @@ const std::string HEADER_PREFIX = "tabletmeta_";
 
 const std::string PENDING_PUBLISH_INFO = "ppi_";
 
+const std::string DELETE_BITMAP = "dlb_";
+
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
@@ -69,6 +71,24 @@ public:
 
     static Status traverse_pending_publish(
             OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
+
+    static Status save_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                     DeleteBitmapPtr delete_bimap, int64_t version);
+
+    static Status traverse_delete_bitmap(OlapMeta* meta,
+                                         std::function<bool(int64_t, RowsetId, int64_t, int64_t,
+                                                            const std::string&)> const& func);
+
+    static std::string encode_delete_bitmap_key(TTabletId tablet_id, int64_t version,
+                                                const RowsetId& rowset_id, int64_t segment_id);
+
+    static void decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
+                                         int64_t* version, RowsetId* rowset_id,
+                                         int64_t* segment_id);
+    static Status remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
+                                                   int64_t version);
+
+    static Status remove_delete_bitmap_by_tablet_id(DataDir* store, TTabletId tablet_id);
 };
 
 } // namespace doris

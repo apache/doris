@@ -42,6 +42,7 @@
 #include <random>
 #include <set>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 #include "agent/task_worker_pool.h"
@@ -64,6 +65,7 @@
 #include "olap/single_replica_compaction.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/memory/mem_tracker.h"
@@ -696,6 +698,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
 
+    // cleand unused delete bitmap for deleted tablet
+    _clean_unused_delete_bitmap();
+
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
@@ -768,6 +773,32 @@ void StorageEngine::_clean_unused_rowset_metas() {
         LOG(INFO) << "remove " << invalid_rowset_metas.size()
                   << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
+    }
+}
+
+void StorageEngine::_clean_unused_delete_bitmap() {
+    std::unordered_set<int64_t> removed_tablets;
+    auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, RowsetId rowset_id,
+                                                             int64_t segment_id, int64_t version,
+                                                             const std::string& val) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            if (removed_tablets.insert(tablet_id).second) {
+                LOG(INFO) << "clean ununsed delete bitmap for deleted tablet, tablet_id: "
+                          << tablet_id;
+            }
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(), clean_delete_bitmap_func);
+        for (auto id : removed_tablets) {
+            TabletMetaManager::remove_delete_bitmap_by_tablet_id(data_dir, id);
+        }
+        LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
+                  << ", deleted tablets size: " << removed_tablets.size();
+        removed_tablets.clear();
     }
 }
 

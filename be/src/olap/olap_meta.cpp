@@ -216,6 +216,29 @@ Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry
     return Status::OK();
 }
 
+Status OlapMeta::put(rocksdb::WriteBatch* batch) {
+    DorisMetrics::instance()->meta_write_request_total->increment(1);
+
+    rocksdb::Status s;
+    {
+        int64_t duration_ns = 0;
+        Defer defer([&] {
+            DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
+        });
+        SCOPED_RAW_TIMER(&duration_ns);
+
+        WriteOptions write_options;
+        write_options.sync = config::sync_tablet_meta;
+        s = _db->Write(write_options, batch);
+    }
+
+    if (!s.ok()) {
+        LOG(WARNING) << "rocks db put batch failed, reason:" << s.ToString();
+        return Status::Error<META_PUT_ERROR>();
+    }
+    return Status::OK();
+}
+
 Status OlapMeta::remove(const int column_family_index, const std::string& key) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
     auto& handle = _handles[column_family_index];
