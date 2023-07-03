@@ -65,6 +65,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean normalized;
     private final boolean ordinalIsResolved;
     private final boolean generated;
+    private final boolean hasPushed;
 
     /**
      * Desc: Constructor for LogicalAggregate.
@@ -81,13 +82,19 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
      * Distinct Agg
      */
     public LogicalAggregate(List<NamedExpression> namedExpressions, boolean generated, CHILD_TYPE child) {
-        this(ImmutableList.copyOf(namedExpressions), namedExpressions, false, true, generated, Optional.empty(),
+        this(ImmutableList.copyOf(namedExpressions), namedExpressions, false, true, generated, false, Optional.empty(),
                 Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalAggregate(List<NamedExpression> namedExpressions, boolean generated, boolean hasPushed,
+            CHILD_TYPE child) {
+        this(ImmutableList.copyOf(namedExpressions), namedExpressions, false, true, generated, hasPushed,
+                Optional.empty(), Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalAggregate(List<Expression> groupByExpressions,
             List<NamedExpression> outputExpressions, boolean ordinalIsResolved, CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, false, ordinalIsResolved, false, Optional.empty(),
+        this(groupByExpressions, outputExpressions, false, ordinalIsResolved, false, false, Optional.empty(),
                 Optional.empty(), Optional.empty(), child);
     }
 
@@ -109,7 +116,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             boolean normalized,
             Optional<LogicalRepeat> sourceRepeat,
             CHILD_TYPE child) {
-        this(groupByExpressions, outputExpressions, normalized, false, false, sourceRepeat,
+        this(groupByExpressions, outputExpressions, normalized, false, false, false, sourceRepeat,
                 Optional.empty(), Optional.empty(), child);
     }
 
@@ -122,6 +129,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
             boolean normalized,
             boolean ordinalIsResolved,
             boolean generated,
+            boolean hasPushed,
             Optional<LogicalRepeat> sourceRepeat,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties,
@@ -132,6 +140,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
         this.normalized = normalized;
         this.ordinalIsResolved = ordinalIsResolved;
         this.generated = generated;
+        this.hasPushed = hasPushed;
         this.sourceRepeat = Objects.requireNonNull(sourceRepeat, "sourceRepeat cannot be null");
     }
 
@@ -161,6 +170,10 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
 
     public boolean isGenerated() {
         return generated;
+    }
+
+    public boolean hasPushed() {
+        return hasPushed;
     }
 
     @Override
@@ -228,25 +241,25 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     public LogicalAggregate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
-                sourceRepeat, Optional.empty(), Optional.empty(), children.get(0));
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
-                sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     @Override
     public LogicalAggregate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
-                sourceRepeat, Optional.empty(), logicalProperties, children.get(0));
+                hasPushed, sourceRepeat, Optional.empty(), logicalProperties, children.get(0));
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved, generated,
-                sourceRepeat, Optional.empty(), Optional.empty(), child());
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     @Override
@@ -257,17 +270,17 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public LogicalAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new LogicalAggregate<>(groupByExpressions, newOutput, normalized, ordinalIsResolved, generated,
-                sourceRepeat, Optional.empty(), Optional.empty(), child());
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), child());
     }
 
     public LogicalAggregate<Plan> withAggOutputChild(List<NamedExpression> newOutput, Plan newChild) {
         return new LogicalAggregate<>(groupByExpressions, newOutput, normalized, ordinalIsResolved, generated,
-                sourceRepeat, Optional.empty(), Optional.empty(), newChild);
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), newChild);
     }
 
     public LogicalAggregate<Plan> withNormalized(List<Expression> normalizedGroupBy,
             List<NamedExpression> normalizedOutput, Plan normalizedChild) {
         return new LogicalAggregate<>(normalizedGroupBy, normalizedOutput, true, ordinalIsResolved, generated,
-                sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
+                hasPushed, sourceRepeat, Optional.empty(), Optional.empty(), normalizedChild);
     }
 }

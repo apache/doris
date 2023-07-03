@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.function.Function;
+
 /**
  * PushdownDistinctThroughJoin
  */
@@ -39,7 +41,7 @@ public class PushdownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, JobContext context) {
         agg = visitChildren(this, agg, context);
-        if (!agg.isDistinct() || isLeaf(agg.child())) {
+        if (agg.hasPushed() || !agg.isDistinct() || isLeaf(agg.child())) {
             return agg;
         }
 
@@ -63,32 +65,28 @@ public class PushdownDistinctThroughJoin extends DefaultPlanRewriter<JobContext>
     }
 
     private Plan pushDistinct(LogicalJoin<? extends Plan, ? extends Plan> join) {
-        Plan left;
-        Plan right;
-        if (isLeaf(join.left())) {
-            left = withDistinct(join.left());
-        } else {
-            left = skipProjectPushDistinct(join.left());
-        }
-        if (isLeaf(join.right())) {
-            right = withDistinct(join.right());
-        } else {
-            right = skipProjectPushDistinct(join.right());
-        }
+        Function<Plan, Plan> pushChild = (Plan plan) -> {
+            if (isLeaf(plan)) {
+                return withDistinct(plan);
+            } else {
+                // Due to there isn't statistics during Rewrite, so we just push down through 1 join.
+                // return skipProjectPushDistinct(plan);
+                return withDistinct(plan);
+            }
+        };
+        Plan left = pushChild.apply(join.left());
+        Plan right = pushChild.apply(join.right());
         return join.withChildren(ImmutableList.of(left, right));
     }
 
     private Plan withDistinct(Plan plan) {
-        return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), true, plan);
+        return new LogicalAggregate<>(ImmutableList.copyOf(plan.getOutput()), true, true, plan);
     }
 
     private boolean isLeaf(Plan plan) {
         if (plan instanceof LogicalProject && ((LogicalProject<?>) plan).isAllSlots()) {
             plan = plan.child(0);
         }
-        if (plan instanceof LogicalJoin) {
-            return ((LogicalJoin<?, ?>) plan).isFilteringJoin();
-        }
-        return true;
+        return !(plan instanceof LogicalJoin);
     }
 }

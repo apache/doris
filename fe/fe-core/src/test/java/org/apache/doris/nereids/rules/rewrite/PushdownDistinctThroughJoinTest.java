@@ -36,7 +36,6 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
     private static final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
 
-
     @Test
     void testPushdownJoin() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
@@ -48,6 +47,14 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownDistinctThroughJoin())
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(logicalJoin()),
+                                        logicalAggregate(logicalOlapScan())
+                                )
+                        )
+                )
                 .printlnTree();
     }
 
@@ -64,6 +71,14 @@ class PushdownDistinctThroughJoinTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyTopDown(new PushdownDistinctThroughJoin())
+                .matches(
+                        logicalAggregate(
+                                logicalJoin(
+                                        logicalAggregate(logicalProject(logicalJoin())),
+                                        logicalAggregate(logicalOlapScan())
+                                )
+                        )
+                )
                 .printlnTree();
     }
 }
