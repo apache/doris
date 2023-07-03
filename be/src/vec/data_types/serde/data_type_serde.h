@@ -60,8 +60,14 @@ class IDataType;
 
 class DataTypeSerDe {
 public:
+    // Text serialization/deserialization of data types depend on some settings witch we define
+    // in formatOptions.
     struct FormatOptions {
-        bool use_lib_format = false;
+        /**
+         * if true, we will use olap format which defined in src/olap/types.h, but we do not suggest
+         * use this format in olap, because it is more slower, keep this option is for compatibility.
+         */
+        bool date_olap_format = false;
     };
 
 public:

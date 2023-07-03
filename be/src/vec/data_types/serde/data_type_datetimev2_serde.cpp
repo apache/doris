@@ -39,7 +39,7 @@ void DataTypeDateTimeV2SerDe::serialize_one_cell_to_text(const IColumn& column, 
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         std::string format = "%Y-%m-%d %H:%i:%s.%f";
         char buf[30];
         val.to_format_string(format.c_str(), format.size(), buf);
@@ -57,7 +57,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_text(IColumn& column, 
                                                                const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt64&>(column);
     UInt64 val = 0;
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> datetimev2_value;
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
         if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),

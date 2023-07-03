@@ -19,6 +19,7 @@
 #include "olap/types.h" // for TypeInfo
 #include "olap/wrapper_field.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -135,7 +136,7 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
             // make use c++ lib equals to wrapper field from_string behavior
             DataTypeSerDe::FormatOptions formatOptions;
-            formatOptions.use_lib_format = true;
+            formatOptions.date_olap_format = true;
 
             Status st = serde->deserialize_one_cell_from_text(*col, min_rb, formatOptions);
             EXPECT_EQ(st.ok(), true);
@@ -164,6 +165,27 @@ TEST(TextSerde, ScalaDataTypeSerdeTextTest) {
             EXPECT_EQ(max_s, max_s_d.to_string());
             EXPECT_EQ(rand_date, rand_s_d.to_string());
         }
+    }
+
+    // nullable data type with const column
+    {
+        DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+        DataTypePtr nullable_ptr = std::make_shared<DataTypeNullable>(data_type_ptr);
+        std::unique_ptr<WrapperField> rand_wf(
+                WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
+        std::string test_str = generate(128);
+        rand_wf->from_string(test_str, 0, 0);
+        Field string_field(test_str);
+        ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
+        DataTypeSerDe::FormatOptions default_format_option;
+        DataTypeSerDeSPtr serde = nullable_ptr->get_serde();
+        auto ser_col = ColumnString::create();
+        ser_col->reserve(1);
+        VectorBufferWriter buffer_writer(*ser_col.get());
+        serde->serialize_one_cell_to_text(*col, 0, buffer_writer, default_format_option);
+        StringRef rand_s_d = ser_col->get_data_at(0);
+        EXPECT_EQ(rand_wf->to_string(), rand_s_d.to_string());
     }
 }
 } // namespace doris::vectorized

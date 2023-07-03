@@ -36,7 +36,7 @@ void DataTypeDate64SerDe::serialize_one_cell_to_text(const IColumn& column, int 
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         tm time_tm;
         memset(&time_tm, 0, sizeof(time_tm));
         time_tm.tm_mday = static_cast<int>(int_val & 31);
@@ -61,12 +61,10 @@ Status DataTypeDate64SerDe::deserialize_one_cell_from_text(IColumn& column, Read
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         tm time_tm;
         char* res = strptime(rb.position(), "%Y-%m-%d", &time_tm);
         if (nullptr != res) {
-            std::cout << "y:" << time_tm.tm_year << " m:" << time_tm.tm_mon
-                      << " d:" << time_tm.tm_mday << std::endl;
             val = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 + time_tm.tm_mday;
         } else {
             // 1400 - 01 - 01
@@ -88,8 +86,7 @@ void DataTypeDateTimeSerDe::serialize_one_cell_to_text(const IColumn& column, in
     row_num = result.second;
 
     Int64 int_val = assert_cast<const ColumnInt64&>(*ptr).get_element(row_num);
-    std::cout << "datetime : " << int_val << std::endl;
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         tm time_tm;
         int64 part1 = (int_val / 1000000L);
         int64 part2 = (int_val - part1 * 1000000L);
@@ -119,7 +116,7 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_text(IColumn& column, Re
                                                              const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnInt64&>(column);
     Int64 val = 0;
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         tm time_tm;
         char* res = strptime(rb.position(), "%Y-%m-%d %H:%M:%S", &time_tm);
         if (nullptr != res) {
@@ -211,7 +208,6 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
         auto concrete_array = down_cast<const arrow::Date32Array*>(arrow_array);
         multiplier = 24 * 60 * 60; // day => secs
         for (size_t value_i = start; value_i < end; ++value_i) {
-            //            std::cout << "serde : " <<  concrete_array->Value(value_i) << std::endl;
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);

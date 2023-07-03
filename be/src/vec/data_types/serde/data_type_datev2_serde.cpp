@@ -49,7 +49,7 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_text(IColumn& column, Read
                                                            const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnUInt32&>(column);
     UInt32 val = 0;
-    if (options.use_lib_format) {
+    if (options.date_olap_format) {
         tm time_tm;
         char* res = strptime(rb.position(), "%Y-%m-%d", &time_tm);
         if (nullptr != res) {
@@ -88,8 +88,6 @@ void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const UIn
 void DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
-    std::cout << "column : " << column.get_name() << " data" << getTypeName(column.get_data_type())
-              << " array " << arrow_array->type_id() << std::endl;
     auto& col_data = static_cast<ColumnVector<UInt32>&>(column).get_data();
     auto concrete_array = down_cast<const arrow::Date64Array*>(arrow_array);
     int64_t divisor = 1;

@@ -158,5 +158,20 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             EXPECT_EQ(rand_date, rand_s_d);
         }
     }
+
+    // null data type
+    {
+        DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_STRING, 0, 0);
+        DataTypePtr nullable_ptr = std::make_shared<DataTypeNullable>(data_type_ptr);
+        std::unique_ptr<WrapperField> rand_wf(
+                WrapperField::create_by_type(FieldType::OLAP_FIELD_TYPE_STRING));
+        std::string test_str = generate(128);
+        rand_wf->from_string(test_str, 0, 0);
+        Field string_field(test_str);
+        ColumnPtr col = nullable_ptr->create_column_const(0, string_field);
+        EXPECT_EQ(rand_wf->to_string(), nullable_ptr->to_string(*col, 0));
+    }
 }
+
 } // namespace doris::vectorized
