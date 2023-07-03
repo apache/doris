@@ -921,6 +921,9 @@ CONF_mBool(enable_stack_trace, "true");
 // enable shrink memory, default is false
 CONF_Bool(enable_shrink_memory, "false");
 
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+CONF_mBool(allow_invalid_decimalv2_literal, "false");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
