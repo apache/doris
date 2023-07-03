@@ -428,7 +428,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                     strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
         }
         if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
-            properties.insert(std::pair(HTTP_TEMP_PARTITIONS, "true"));
+            properties.insert(std::pair(HTTP_PARTITIONS, http_req->header(HTTP_TEMP_PARTITIONS)));
         }
         if (ctx->timeout_second != -1) {
             properties.insert(std::pair(HTTP_TIMEOUT, std::to_string(ctx->timeout_second)));
