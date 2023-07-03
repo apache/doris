@@ -57,6 +57,10 @@ public class StateCombinator extends ScalarFunction
         }).collect(ImmutableList.toImmutableList()));
     }
 
+    public static StateCombinator create(AggregateFunction nested) {
+        return new StateCombinator(nested.getArguments(), nested);
+    }
+
     @Override
     public StateCombinator withChildren(List<Expression> children) {
         return new StateCombinator(children, nested);

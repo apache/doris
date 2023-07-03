@@ -448,11 +448,11 @@ public class NativeInsertStmt extends InsertStmt {
                 }
                 targetColumns.add(col);
             }
-            // hll column mush in mentionedColumns
+            // hll column must in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
                 if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
                     throw new AnalysisException(
-                            " object-stored column " + col.getName() + " mush in insert into columns");
+                            "object-stored column " + col.getName() + " must in insert into columns");
                 }
             }
         }
