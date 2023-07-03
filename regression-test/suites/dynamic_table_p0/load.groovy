@@ -78,7 +78,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     }
     def json_load_unique = {src_json, table_name ->
         //create table
-        table_name = "${table_name}_unique";
+        def table_name = "${table_name}_unique";
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name}(
@@ -127,7 +127,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     // sql """insert into test_btc_json_unique select * from test_btc_json"""
 
     // abnormal cases
-    table_name = "abnormal_cases" 
+    def table_name = "abnormal_cases" 
     sql """
             DROP TABLE IF EXISTS ${table_name};
     """
@@ -150,7 +150,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     load_json_data.call(table_name, 'true', 'json', 'true', "array_dimenssion.json", 'false')
 
     // load more
-    table_name = "gharchive";
+    def table_name = "gharchive";
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE gharchive (
@@ -202,7 +202,7 @@ suite("regression_test_dynamic_table", "dynamic_table"){
     }
 
     sql 'sync'
-    meta = sql_meta 'select * from gharchive limit 1'
+    def meta = sql_meta 'select * from gharchive limit 1'
     def array_cols = [
         "payload.commits.url",
         "payload.commits.sha",
