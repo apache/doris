@@ -780,7 +780,6 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
             }
         }
         if (is_thread_safe) {
-            LOG(INFO) << "xxxx PrefetchBufferedReader";
             // PrefetchBufferedReader needs thread-safe reader to prefetch data concurrently.
             *file_reader = std::make_shared<io::PrefetchBufferedReader>(profile, reader, file_range,
                                                                         io_ctx);
