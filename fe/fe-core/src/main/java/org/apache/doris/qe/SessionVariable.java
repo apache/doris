@@ -619,7 +619,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enablePipelineEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
-    public boolean enableAggState = true;
+    public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
