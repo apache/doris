@@ -48,7 +48,7 @@ Taking on these great visions means a path full of hurdles. We need to figure ou
 
 We believe that life is miserable for either the developers or the users, so we decided to tackle more challenges so that our users would suffer less. Now we are happy to announce our progress with Apache Doris 2.0 Beta. These are what you can expect from this new version:
 
-# A 10-Time Performance Increase
+# A 10 times Performance Increase
 
 High performance is what our users identify us with. It has been repeatedly proven by the test results of Apache Doris on ClickBench and TPC-H benchmarks during the past year. But there remain some differences between benchmarking and real-life application:
 
