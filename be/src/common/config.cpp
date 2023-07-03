@@ -1029,6 +1029,8 @@ DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 // max_write_buffer_number for rocksdb
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
+DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
+
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");

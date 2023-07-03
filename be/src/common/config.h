@@ -1045,6 +1045,9 @@ DECLARE_Int64(max_external_file_meta_cache_num);
 // max_write_buffer_number for rocksdb
 DECLARE_Int32(rocksdb_max_write_buffer_number);
 
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+DECLARE_mBool(allow_invalid_decimalv2_literal);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
