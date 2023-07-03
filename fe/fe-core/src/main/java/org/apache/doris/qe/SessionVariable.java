@@ -350,6 +350,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
+    public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
+
+    public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
+
+    public static final String CBO_NET_WEIGHT = "cbo_net_weight";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -669,6 +675,39 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
     private int beNumberForTest = -1;
 
+    public double getCboCpuWeight() {
+        return cboCpuWeight;
+    }
+
+    public void setCboCpuWeight(double cboCpuWeight) {
+        this.cboCpuWeight = cboCpuWeight;
+    }
+
+    public double getCboMemWeight() {
+        return cboMemWeight;
+    }
+
+    public void setCboMemWeight(double cboMemWeight) {
+        this.cboMemWeight = cboMemWeight;
+    }
+
+    public double getCboNetWeight() {
+        return cboNetWeight;
+    }
+
+    public void setCboNetWeight(double cboNetWeight) {
+        this.cboNetWeight = cboNetWeight;
+    }
+
+    @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
+    private double cboCpuWeight = 1.0;
+
+    @VariableMgr.VarAttr(name = CBO_MEM_WEIGHT)
+    private double cboMemWeight = 1.0;
+
+    @VariableMgr.VarAttr(name = CBO_NET_WEIGHT)
+    private double cboNetWeight = 1.5;
+
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
@@ -759,8 +798,8 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enableSingleReplicaInsert = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
-    public boolean enableFunctionPushdown = true;
+    @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN, fuzzy = true)
+    public boolean enableFunctionPushdown = false;
 
     @VariableMgr.VarAttr(name = FORBID_UNKNOWN_COLUMN_STATS)
     public boolean forbidUnknownColStats = false;
@@ -995,8 +1034,10 @@ public class SessionVariable implements Serializable, Writable {
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
+            this.enableFunctionPushdown = false;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
+            this.enableFunctionPushdown = true;
         }
         this.runtimeFilterType = 1 << randomInt;
         switch (randomInt) {
@@ -1020,37 +1061,41 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
-        // pull_request_id default value is 0
-        switch (Config.pull_request_id % 4) {
-            case 0:
-                this.enablePipelineEngine = true;
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = true;
-                break;
-            case 1:
-                this.enablePipelineEngine = true;
-                this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = false;
-                break;
-            case 2:
-                this.enablePipelineEngine = false;
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = true;
-                break;
-            case 3:
-                this.enablePipelineEngine = false;
-                this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                this.enableNereidsPlanner = false;
-                break;
-            default:
-                break;
+        // pull_request_id default value is 0. When it is 0, use default (global) session variable.
+        if (Config.pull_request_id > 0) {
+            switch (Config.pull_request_id % 4) {
+                case 0:
+                    this.enablePipelineEngine = true;
+                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
+                    break;
+                case 1:
+                    this.enablePipelineEngine = true;
+                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
+                    break;
+                case 2:
+                    this.enablePipelineEngine = false;
+                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = true;
+                    break;
+                case 3:
+                    this.enablePipelineEngine = false;
+                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
+                    this.enableNereidsPlanner = false;
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {
-            if (Config.pull_request_id % 2 == 1) {
-                this.batchSize = 4064;
-            } else {
-                this.batchSize = 50;
+            if (Config.pull_request_id > 0) {
+                if (Config.pull_request_id % 2 == 1) {
+                    this.batchSize = 4064;
+                } else {
+                    this.batchSize = 50;
+                }
             }
         }
 

@@ -37,11 +37,6 @@ suite ("sum_devide_count") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    test {
-        sql "create materialized view kavg as select k1,k4,avg(k2) from d_table group by k1,k4;"
-        exception "errCode = 2,"
-    }
-
     createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"

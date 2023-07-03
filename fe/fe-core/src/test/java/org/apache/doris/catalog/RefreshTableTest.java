@@ -76,6 +76,7 @@ public class RefreshTableTest extends TestWithFeService {
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
         RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt("test1", null);
+        Assertions.assertTrue(refreshCatalogStmt.isInvalidCache());
         try {
             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);
         } catch (Exception e) {
@@ -97,6 +98,7 @@ public class RefreshTableTest extends TestWithFeService {
         } catch (Exception e) {
             // Do nothing
         }
+        Assertions.assertFalse(((ExternalCatalog) test1).isInitialized());
     }
 
     @Test

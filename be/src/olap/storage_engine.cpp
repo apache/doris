@@ -162,6 +162,9 @@ StorageEngine::~StorageEngine() {
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
     }
+    if (_calc_delete_bitmap_thread_pool) {
+        _calc_delete_bitmap_thread_pool->shutdown();
+    }
     _clear();
     _s_instance = nullptr;
 }
@@ -556,6 +559,7 @@ void StorageEngine::stop() {
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
+    THREAD_JOIN(_async_publish_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)            \
@@ -772,7 +776,11 @@ void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_ta
         LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
                                  version);
 
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(WARNING) << fmt::format("tablet_id: {} not found", tablet_id);
+            continue;
+        }
         tablet->gc_binlogs(version);
     }
 }

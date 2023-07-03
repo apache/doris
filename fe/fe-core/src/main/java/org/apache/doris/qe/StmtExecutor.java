@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArrayLiteral;
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -314,6 +315,8 @@ public class StmtExecutor {
                         .collect(Collectors.joining(",")));
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
+        builder.isNereids(context.getState().isNereids ? "Yes" : "No");
+        builder.isPipeline(context.getSessionVariable().enablePipelineEngine ? "Yes" : "No");
         return builder.build();
     }
 
@@ -719,7 +722,7 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
+                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
                     handleDeleteStmt();
                 } else {
                     handleDdlStmt();
@@ -736,6 +739,8 @@ public class StmtExecutor {
                 handleLockTablesStmt();
             } else if (parsedStmt instanceof UnsupportedStmt) {
                 handleUnsupportedStmt();
+            } else if (parsedStmt instanceof AnalyzeStmt) {
+                handleAnalyzeStmt();
             } else {
                 context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
@@ -899,10 +904,10 @@ public class StmtExecutor {
             unifiedLoadStmt.init();
             final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
             parsedStmt = proxyStmt;
-            if (!(proxyStmt instanceof LoadStmt)) {
+            if (!(proxyStmt instanceof LoadStmt) && !(proxyStmt instanceof CreateRoutineLoadStmt)) {
                 Preconditions.checkState(
-                        parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).needLoadManager(),
-                        "enable_unified_load=true, should be external insert stmt");
+                        parsedStmt instanceof InsertStmt,
+                        "enable_unified_load=true, should be insert stmt");
             }
         }
 
@@ -1899,6 +1904,10 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
+    private void handleAnalyzeStmt() throws DdlException {
+        context.env.getAnalysisManager().createAnalyze((AnalyzeStmt) parsedStmt, isProxy);
+    }
+
     // Process switch catalog
     private void handleSwitchStmt() throws AnalysisException {
         SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
@@ -1922,8 +1931,6 @@ public class StmtExecutor {
         if (prepareStmt.isBinaryProtocol()) {
             sendStmtPrepareOK();
         }
-        // context.getState().setEof();
-        context.getState().setOk();
     }
 
 
@@ -1965,6 +1972,10 @@ public class StmtExecutor {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
+    private List<PrimitiveType> exprToStringType(List<Expr> exprs) {
+        return exprs.stream().map(e -> PrimitiveType.STRING).collect(Collectors.toList());
+    }
+
     private void sendStmtPrepareOK() throws IOException {
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
@@ -1979,13 +1990,27 @@ public class StmtExecutor {
         int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
         serializer.writeInt2(numParams);
         // reserved_1
-        // serializer.writeInt1(0);
+        serializer.writeInt1(0);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         if (numParams > 0) {
-            sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
-                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+            // send field one by one
+            // TODO use real type instead of string, for JDBC client it's ok
+            // but for other client, type should be correct
+            List<PrimitiveType> types = exprToStringType(prepareStmt.getPlaceHolderExprList());
+            List<String> colNames = prepareStmt.getColLabelsOfPlaceHolders();
+            LOG.debug("sendFields {}, {}", colNames, types);
+            for (int i = 0; i < colNames.size(); ++i) {
+                serializer.reset();
+                serializer.writeField(colNames.get(i), Type.fromPrimitiveType(types.get(i)));
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
         }
-        context.getState().setOk();
+        // send EOF if nessessary
+        if (!context.getMysqlChannel().clientDeprecatedEOF()) {
+            context.getState().setEof();
+        } else {
+            context.getState().setOk();
+        }
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {
@@ -2520,6 +2545,11 @@ public class StmtExecutor {
 
     public void setProfileType(ProfileType profileType) {
         this.profileType = profileType;
+    }
+
+
+    public void setProxyResultSet(ShowResultSet proxyResultSet) {
+        this.proxyResultSet = proxyResultSet;
     }
 }
 

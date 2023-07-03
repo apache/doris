@@ -129,6 +129,8 @@ DEFINE_mBool(enable_query_memory_overcommit, "true");
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
+DEFINE_mInt64(pre_serialize_keys_limit_bytes, "16777216");
+
 // the port heartbeat service used
 DEFINE_Int32(heartbeat_service_port, "9050");
 // the count of heart beat service
@@ -145,6 +147,8 @@ DEFINE_Int32(push_worker_count_high_priority, "3");
 DEFINE_Int32(publish_version_worker_count, "8");
 // the count of tablet thread to publish version
 DEFINE_Int32(tablet_publish_txn_max_thread, "32");
+// the timeout of EnginPublishVersionTask
+DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
 // the count of thread to clear transaction task
@@ -353,7 +357,7 @@ DEFINE_mDouble(compaction_promotion_ratio, "0.05");
 
 // the smallest size of rowset promotion. When the rowset is less than this config, this
 // rowset will be not given to base compaction. The unit is m byte.
-DEFINE_mInt64(compaction_promotion_min_size_mbytes, "64");
+DEFINE_mInt64(compaction_promotion_min_size_mbytes, "128");
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
 // this size, size_based policy may not do to cumulative compaction. The unit is m byte.
@@ -502,25 +506,6 @@ DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DEFINE_Int32(max_free_io_buffers, "128");
 
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DEFINE_Bool(disable_mem_pools, "false");
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DEFINE_mString(chunk_reserved_bytes_limit, "0");
-// 1024, The minimum chunk allocator size (in bytes)
-DEFINE_Int32(min_chunk_reserved_bytes, "1024");
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
-
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
 DEFINE_Bool(enable_quadratic_probing, "false");
@@ -589,7 +574,7 @@ DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 DEFINE_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-DEFINE_mInt32(thrift_rpc_timeout_ms, "10000");
+DEFINE_mInt32(thrift_rpc_timeout_ms, "20000");
 
 // txn commit rpc timeout
 DEFINE_mInt32(txn_commit_rpc_timeout_ms, "10000");
@@ -666,7 +651,7 @@ DEFINE_mBool(transfer_large_data_by_brpc, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
-DEFINE_mInt64(max_runnings_transactions_per_txn_map, "100");
+DEFINE_mInt64(max_runnings_transactions_per_txn_map, "2000");
 
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
@@ -937,7 +922,7 @@ DEFINE_Bool(enable_java_support, "true");
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
-DEFINE_mInt16(pipeline_short_query_timeout_s, "20");
+DEFINE_Bool(enable_workload_group_for_scan, "false");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -990,7 +975,7 @@ DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "true");
+DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
 // In the case of time series compaction, the execution of compaction is adjusted
@@ -1000,9 +985,9 @@ DEFINE_Validator(compaction_policy, [](const std::string config) -> bool {
     return config == "size_based" || config == "time_series";
 });
 // the size of input files for each compaction
-DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "1024");
+DEFINE_mInt64(time_series_compaction_goal_size_mbytes, "512");
 // the minimum number of input files for each compaction if time_series_compaction_goal_size_mbytes not meets
-DEFINE_mInt64(time_series_compaction_file_count_threshold, "10000");
+DEFINE_mInt64(time_series_compaction_file_count_threshold, "2000");
 // if compaction has not been performed within 3600 seconds, a compaction will be triggered
 DEFINE_mInt64(time_series_compaction_time_threshold_seconds, "3600");
 
@@ -1038,6 +1023,11 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+
+// max_write_buffer_number for rocksdb
+DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
+
+DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
 
 #ifdef BE_TEST
 // test s3

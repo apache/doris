@@ -169,6 +169,9 @@ DECLARE_mBool(enable_query_memory_overcommit);
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
+// reach mem limit, don't serialize in batch
+DECLARE_mInt64(pre_serialize_keys_limit_bytes);
+
 // the port heartbeat service used
 DECLARE_Int32(heartbeat_service_port);
 // the count of heart beat service
@@ -185,6 +188,8 @@ DECLARE_Int32(push_worker_count_high_priority);
 DECLARE_Int32(publish_version_worker_count);
 // the count of tablet thread to publish version
 DECLARE_Int32(tablet_publish_txn_max_thread);
+// the timeout of EnginPublishVersionTask
+DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
 // the count of thread to clear transaction task
@@ -537,25 +542,6 @@ DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 // For each io buffer size, the maximum number of buffers the IoMgr will hold onto
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DECLARE_Int32(max_free_io_buffers);
-
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DECLARE_Bool(disable_mem_pools);
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DECLARE_mString(chunk_reserved_bytes_limit);
-// 1024, The minimum chunk allocator size (in bytes)
-DECLARE_Int32(min_chunk_reserved_bytes);
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DECLARE_mBool(disable_chunk_allocator_in_vec);
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -962,7 +948,7 @@ DECLARE_Bool(enable_java_support);
 DECLARE_Bool(enable_fuzzy_mode);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_mInt16(pipeline_short_query_timeout_s);
+DECLARE_Bool(enable_workload_group_for_scan);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1053,6 +1039,12 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+
+// max_write_buffer_number for rocksdb
+DECLARE_Int32(rocksdb_max_write_buffer_number);
+
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+DECLARE_mBool(allow_invalid_decimalv2_literal);
 
 #ifdef BE_TEST
 // test s3

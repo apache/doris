@@ -411,7 +411,7 @@ public class CreateTableStmt extends DdlStmt {
                         PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " property only support unique key table");
             }
             if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-                enableUniqueKeyMergeOnWrite = true;
+                enableUniqueKeyMergeOnWrite = false;
                 if (properties != null) {
                     // `analyzeXXX` would modify `properties`, which will be used later,
                     // so we just clone a properties map here.
@@ -429,7 +429,7 @@ public class CreateTableStmt extends DdlStmt {
                 if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
                     type = AggregateType.NONE;
                 }
-                if (enableUniqueKeyMergeOnWrite) {
+                if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite) {
                     type = AggregateType.NONE;
                 }
                 for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
@@ -528,7 +528,7 @@ public class CreateTableStmt extends DdlStmt {
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc
                         || partitionDesc instanceof ColumnPartitionDesc) {
-                    partitionDesc.analyze(columnDefs, properties, keysDesc);
+                    partitionDesc.analyze(columnDefs, properties);
                 } else {
                     throw new AnalysisException("Currently only support range"
                             + " and list partition with engine type olap");

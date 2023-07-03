@@ -224,7 +224,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         auto s = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return Status::Error<ROWSET_READER_INIT>();
+            return Status::Error<ROWSET_READER_INIT>(s.to_string());
         }
         if (iter->empty()) {
             continue;
@@ -268,7 +268,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context,
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
         _iterator.reset();
-        return Status::Error<ROWSET_READER_INIT>();
+        return Status::Error<ROWSET_READER_INIT>(s.to_string());
     }
     return Status::OK();
 }

@@ -36,8 +36,12 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
+
+    private static boolean convertDateToNull = false;
+
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+        convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
     }
 
     @Override
@@ -136,7 +140,7 @@ public class JdbcMySQLClient extends JdbcClient {
             String catalogName = getCatalogName(conn);
             tableName = modifyTableNameIfNecessary(tableName);
             rs = getColumns(databaseMetaData, catalogName, dbName, tableName);
-            List<String> primaryKeys = getPrimaryKeys(dbName, tableName);
+            List<String> primaryKeys = getPrimaryKeys(databaseMetaData, catalogName, dbName, tableName);
             boolean needGetDorisColumns = true;
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
@@ -196,30 +200,23 @@ public class JdbcMySQLClient extends JdbcClient {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), field.isKey(), null,
                     field.isAllowNull(), field.isAutoincrement(), field.getDefaultValue(), field.getRemarks(),
-                    true, null, -1, null,
-                    null, null, null));
+                    true, null, -1, null));
         }
         return dorisTableSchema;
     }
 
-    @Override
-    protected List<String> getPrimaryKeys(String dbName, String tableName) {
-        List<String> primaryKeys = Lists.newArrayList();
-        Connection conn = null;
+    protected List<String> getPrimaryKeys(DatabaseMetaData databaseMetaData, String catalogName,
+                                          String dbName, String tableName) throws SQLException {
         ResultSet rs = null;
-        try {
-            conn = getConnection();
-            DatabaseMetaData databaseMetaData = conn.getMetaData();
-            rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
-            while (rs.next()) {
-                String columnName = rs.getString("COLUMN_NAME");
-                primaryKeys.add(columnName);
-            }
-        } catch (SQLException e) {
-            throw new JdbcClientException("Failed to get primary keys for table", e);
-        } finally {
-            close(rs, conn);
+        List<String> primaryKeys = Lists.newArrayList();
+
+        rs = databaseMetaData.getPrimaryKeys(dbName, null, tableName);
+        while (rs.next()) {
+            String columnName = rs.getString("COLUMN_NAME");
+            primaryKeys.add(columnName);
         }
+        rs.close();
+
         return primaryKeys;
     }
 
@@ -288,6 +285,9 @@ public class JdbcMySQLClient extends JdbcClient {
                 if (scale > 6) {
                     scale = 6;
                 }
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "FLOAT":
@@ -337,5 +337,10 @@ public class JdbcMySQLClient extends JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
+    }
+
+    private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
+        return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
     }
 }

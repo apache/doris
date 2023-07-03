@@ -26,6 +26,12 @@
 #include <atomic>
 #include <string>
 
+#if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
+#include <unistd.h>
+#else
+#include <mach/vm_page_size.h>
+#endif
+
 #include "common/logging.h"
 #ifdef USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
@@ -45,6 +51,14 @@ public:
     static void init();
 
     static inline bool initialized() { return _s_initialized; }
+
+    static int get_page_size() {
+#if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
+        return getpagesize();
+#else
+        return vm_page_size;
+#endif
+    }
 
     // Get total physical memory in bytes (if has cgroups memory limits, return the limits).
     static inline int64_t physical_mem() {
@@ -83,6 +97,22 @@ public:
 #endif
         return 0;
     }
+
+    static inline int64_t get_je_all_arena_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
+        return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
+    }
+
+    static inline void je_purge_all_arena_dirty_pages() {
+#ifdef USE_JEMALLOC
+        // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
+        jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
+                  nullptr, 0);
+#endif
+    }
+
     static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
     static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
@@ -94,6 +124,13 @@ public:
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
     static void refresh_allocator_mem();
 
+    /** jemalloc pdirty is number of pages within unused extents that are potentially
+      * dirty, and for which madvise() or similar has not been called.
+      *
+      * So they will be subtracted from RSS to make accounting more
+      * accurate, since those pages are not really RSS but a memory
+      * that can be used at anytime via jemalloc.
+      */
     static inline void refresh_proc_mem_no_allocator_cache() {
         _s_proc_mem_no_allocator_cache =
                 PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem);

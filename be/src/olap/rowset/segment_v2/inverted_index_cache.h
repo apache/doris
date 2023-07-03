@@ -18,6 +18,7 @@
 #pragma once
 
 #include <CLucene.h> // IWYU pragma: keep
+#include <CLucene/config/repl_wchar.h>
 #include <CLucene/util/Misc.h>
 #include <butil/macros.h>
 #include <glog/logging.h>
@@ -35,6 +36,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "olap/lru_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/slice.h"
 #include "util/time.h"
@@ -183,7 +185,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexCacheHandle);
 };
 
-enum class InvertedIndexQueryType;
 class InvertedIndexQueryCacheHandle;
 
 class InvertedIndexQueryCache {
@@ -201,9 +202,14 @@ public:
             key_buf.append("/");
             key_buf.append(column_name);
             key_buf.append("/");
-            key_buf.append(1, static_cast<char>(query_type));
+            auto query_type_str = InvertedIndexQueryType_toString(query_type);
+            if (query_type_str.empty()) {
+                return "";
+            }
+            key_buf.append(query_type_str);
             key_buf.append("/");
-            key_buf.append(lucene::util::Misc::toString(value.c_str()));
+            auto str = lucene_wcstoutf8string(value.c_str(), value.length());
+            key_buf.append(str);
             return key_buf;
         }
     };

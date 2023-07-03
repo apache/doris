@@ -264,7 +264,7 @@ public class ExprTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Expr readExpr = Expr.readIn(dis);
         Assert.assertTrue(readExpr instanceof ArithmeticExpr);
-        Assert.assertEquals("cos(1) + 100 / 200", readExpr.toSql());
+        Assert.assertEquals("(cos(1) + (100 / 200))", readExpr.toSql());
 
         // 3. delete files
         dis.close();

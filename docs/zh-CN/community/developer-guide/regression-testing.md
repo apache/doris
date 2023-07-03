@@ -605,7 +605,7 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
 
 1. 启动 Container
 
-    Doris 目前支持 es, mysql, pg, hive, sqlserver, oracle, iceberg, hudi 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
+    Doris 目前支持 es, mysql, pg, hive, sqlserver, oracle, iceberg, hudi, trino 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
 
     默认情况下，可以直接通过以下命令启动所有外部数据源的 Docker container：
     （注意，hive和hudi container 需要下载预制的数据文件，请参阅下面 hive和hudi 相关的文档。）
@@ -795,6 +795,20 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
       ```
 
       更多使用方式可参阅 [Hudi 官方文档](https://hudi.apache.org/docs/docker_demo)。
+
+   10. Trino
+       Trino 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/trino 下。
+       模版文件：
+       * gen_env.sh.tpl ：用于生成 HDFS相关端口号，无需修改，若出现端口冲突，可以对端口号进行修改。
+       * hive.properties.tpl ：用于配置trino catalog 信息，无需修改。
+       * trino_hive.env.tpl ：Hive 的环境配置信息，无需修改。
+       * trino_hive.yaml.tpl ：Docker compose 文件，无需修改。
+         启动 Trino docker 后，会配置一套 Trino + hive catalog 环境，此时 Trino 拥有两个catalog
+       1. hive
+       2. tpch（trino docker 自带）
+
+       更多使用方式可参阅 [Trino 官方文档](https://trino.io/docs/current/installation/containers.html)
+
 2. 运行回归测试
 
     外表相关的回归测试默认是关闭的，可以修改 `regression-test/conf/regression-conf.groovy` 中的以下配置来开启：

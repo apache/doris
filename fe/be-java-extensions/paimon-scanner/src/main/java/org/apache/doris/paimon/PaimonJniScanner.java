@@ -21,6 +21,7 @@ import org.apache.doris.common.jni.JniScanner;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
+import org.apache.doris.common.jni.vec.TableSchema;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.log4j.Logger;
@@ -70,12 +71,12 @@ public class PaimonJniScanner extends JniScanner {
         warehouse = params.get("warehouse");
         splitAddress = Long.parseLong(params.get("split_byte"));
         lengthByte = Integer.parseInt(params.get("length_byte"));
-        LOG.info("splitAddress:" + splitAddress);
-        LOG.info("lengthByte:" + lengthByte);
         dbName = params.get("db_name");
         tblName = params.get("table_name");
         String[] requiredFields = params.get("required_fields").split(",");
-        String[] types = params.get("columns_types").split(",");
+        String[] types = Arrays.stream(params.get("columns_types").split("#"))
+            .map(s -> s.replaceAll("\\s+", ""))
+            .toArray(String[]::new);
         ids = params.get("columns_id").split(",");
         ColumnType[] columnTypes = new ColumnType[types.length];
         for (int i = 0; i < types.length; i++) {
@@ -126,7 +127,7 @@ public class PaimonJniScanner extends JniScanner {
                 while ((record = batch.next()) != null) {
                     columnValue.setOffsetRow((ColumnarRow) record);
                     for (int i = 0; i < ids.length; i++) {
-                        columnValue.setIdx(i);
+                        columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
                     rows++;
@@ -138,6 +139,12 @@ public class PaimonJniScanner extends JniScanner {
             throw new RuntimeException(e);
         }
         return rows;
+    }
+
+    @Override
+    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
+        // do nothing
+        return null;
     }
 
     private Catalog create(CatalogContext context) throws IOException {

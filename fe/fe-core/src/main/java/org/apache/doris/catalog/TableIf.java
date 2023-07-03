@@ -132,7 +132,7 @@ public interface TableIf {
 
     DatabaseIf getDatabase();
 
-    Optional<ColumnStatistic> getColumnStatistic();
+    Optional<ColumnStatistic> getColumnStatistic(String colName);
 
     /**
      * Doris table type.

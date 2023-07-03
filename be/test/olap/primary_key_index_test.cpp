@@ -71,6 +71,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_EQ("9998", builder.max_key().to_string());
     segment_v2::PrimaryKeyIndexMetaPB index_meta;
     EXPECT_TRUE(builder.finalize(&index_meta));
+    EXPECT_EQ(builder.disk_size(), file_writer->bytes_appended());
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 

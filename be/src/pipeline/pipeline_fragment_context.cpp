@@ -125,6 +125,9 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
+    if (_query_ctx->get_task_group()) {
+        _task_group_entity = _query_ctx->get_task_group()->task_entity();
+    }
     _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
@@ -154,9 +157,12 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         _runtime_state->set_is_cancelled(true);
 
         LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
-        for (auto& task : _tasks) {
-            LOG(WARNING) << task->debug_string();
-        }
+
+        // Print detail informations below when you debugging here.
+        //
+        // for (auto& task : _tasks) {
+        //     LOG(WARNING) << task->debug_string();
+        // }
 
         _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
@@ -244,8 +250,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_desc_tbl(desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
-    RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                          request.fragment.plan, *desc_tbl, &_root_plan));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
+                                  request.fragment.plan, *desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -675,7 +682,7 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (get_task_group()) {
+    if (_task_group_entity) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {

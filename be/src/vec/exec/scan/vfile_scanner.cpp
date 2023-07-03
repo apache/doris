@@ -61,6 +61,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/scan/avro_jni_reader.h"
 #include "vec/exec/scan/hudi_jni_reader.h"
 #include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -348,13 +349,12 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
-        // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
+        // remove nullable here, let the get_function decide whether nullable
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                remove_nullable(return_type)->get_type_id());
         ColumnsWithTypeAndName arguments {
-                arg,
-                {DataTypeString().create_column_const(
-                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
-                 std::make_shared<DataTypeString>(), ""}};
+                arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast =
                 SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
         idx = _src_block_name_to_idx[slot_desc->col_name()];
@@ -714,6 +714,12 @@ Status VFileScanner::_get_next_reader() {
                                                        _io_ctx.get(), _is_dynamic_schema);
             init_status =
                     ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_AVRO: {
+            _cur_reader = AvroJNIReader::create_unique(_state, _profile, _params, _file_slot_descs);
+            init_status = ((AvroJNIReader*)(_cur_reader.get()))
+                                  ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
         default:

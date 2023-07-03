@@ -158,9 +158,14 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
+        PhysicalHashJoin newJoin = new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, hint, markJoinSlotReference,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
                 children.get(0), children.get(1));
+        if (groupExpression.isPresent()) {
+            newJoin.setMutableState("group", groupExpression.get().getOwnerGroup().getGroupId().asInt());
+        }
+        return newJoin;
     }
 
     @Override

@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -53,10 +52,10 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
             List<String> partitions, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts cannot be null"));
-        this.colNames = Utils.copyIfNotNull(colNames);
-        this.hints = Utils.copyIfNotNull(hints);
-        this.partitions = Utils.copyIfNotNull(partitions);
+        this.nameParts = Utils.copyRequiredList(nameParts);
+        this.colNames = Utils.copyRequiredList(colNames);
+        this.hints = Utils.copyRequiredList(hints);
+        this.partitions = Utils.copyRequiredList(partitions);
     }
 
     public List<String> getColNames() {

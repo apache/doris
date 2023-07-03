@@ -14,6 +14,7 @@ PhysicalQuickSort
 ----------------------PhysicalProject
 ------------------------filter(( not (o_comment like '%special%requests%')))
 --------------------------PhysicalOlapScan[orders]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer]
 

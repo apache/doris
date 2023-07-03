@@ -67,6 +67,7 @@ parser code {:
     public boolean isVerbose = false;
     public String wild;
     public Expr where;
+    public ArrayList<PlaceHolderExpr> placeholder_expr_list = Lists.newArrayList();
 
     // List of expected tokens ids from current parsing state for generating syntax error message
     private final List<Integer> expectedTokenIds = Lists.newArrayList();
@@ -279,6 +280,7 @@ terminal String
     KW_BUILD,
     KW_BUILTIN,
     KW_BY,
+    KW_CACHED,
     KW_CANCEL,
     KW_CASE,
     KW_CAST,
@@ -855,6 +857,7 @@ nonterminal Separator opt_field_term, opt_line_term, separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
+nonterminal WorkloadGroupPattern workload_group_pattern;
 nonterminal String ident_or_star;
 nonterminal Integer opt_skip_lines;
 
@@ -908,6 +911,7 @@ nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 nonterminal Boolean opt_force;
+nonterminal Boolean opt_cached;
 nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
@@ -1074,7 +1078,11 @@ stmt ::=
     | switch_stmt:stmt
     {: RESULT = stmt; :}
     | query_stmt:query
-    {: RESULT = query; :}
+    {:
+        RESULT = query;
+        query.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
+    :}
     | drop_stmt:stmt
     {: RESULT = stmt; :}
     | recover_stmt:stmt
@@ -1828,7 +1836,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -1854,7 +1862,7 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
-            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
             opt_partition:partition
@@ -2859,6 +2867,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, resourcePattern, privs);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, workloadGroupPattern, privs);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, workloadGroupPattern, privs);
+    :}
     | KW_GRANT string_list:roles KW_TO user_identity:userId
     {:
         RESULT = new GrantStmt(roles, userId);
@@ -2891,6 +2907,17 @@ resource_pattern ::=
     :}
     ;
 
+workload_group_pattern ::=
+    ident_or_star:workloadGroupName
+    {:
+        RESULT = new WorkloadGroupPattern(workloadGroupName);
+    :}
+    | STRING_LITERAL:workloadGroupName
+    {:
+        RESULT = new WorkloadGroupPattern(workloadGroupName);
+    :}
+    ;
+
 ident_or_star ::=
     STAR
     {:
@@ -2919,6 +2946,14 @@ revoke_stmt ::=
     | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, resourcePattern, privs);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, workloadGroupPattern, privs);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_WORKLOAD KW_GROUP workload_group_pattern:workloadGroupPattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, workloadGroupPattern, privs);
     :}
     | KW_REVOKE string_list:roles KW_FROM user_identity:userId
     {:
@@ -3620,6 +3655,17 @@ opt_external ::=
     :}
     ;
 
+opt_cached ::=
+    /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_CACHED
+    {:
+        RESULT = true;
+    :}
+    ;
+
 opt_force ::=
      /* empty */
     {:
@@ -4036,9 +4082,9 @@ show_param ::=
         RESULT = new ShowTableStatsStmt(tbl, partitionNames);
     :}
     /* show column stats */
-    | KW_COLUMN KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
+    | KW_COLUMN opt_cached:cached KW_STATS table_name:tbl opt_col_list:cols opt_partition_names:partitionNames
     {:
-        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames);
+        RESULT = new ShowColumnStatsStmt(tbl, cols, partitionNames, cached);
     :}
     /* show column histogram */
     | KW_COLUMN KW_HISTOGRAM table_name:tbl opt_col_list:cols
@@ -5185,6 +5231,8 @@ prepare_stmt ::=
     KW_PREPARE variable_name:name KW_FROM select_stmt:s
     {:
         RESULT = new PrepareStmt(s, name, false);
+        s.setPlaceHolders(parser.placeholder_expr_list);
+        parser.placeholder_expr_list.clear();
     :}
     ;
 
@@ -6741,9 +6789,9 @@ literal ::=
   | KW_NULL
   {: RESULT = new NullLiteral(); :}
   | PLACEHOLDER
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | MOD 
-  {: RESULT = new PlaceHolderExpr(); :}
+  {: RESULT = new PlaceHolderExpr(); parser.placeholder_expr_list.add((PlaceHolderExpr) RESULT); :}
   | UNMATCHED_STRING_LITERAL:l expr:e
   {:
     // we have an unmatched string literal.
@@ -7226,6 +7274,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BUILD:id
     {: RESULT = id; :}
+    | KW_CACHED:id
+    {: RESULT = id; :}
     | KW_CHAIN:id
     {: RESULT = id; :}
     | KW_CHAR:id
@@ -7574,6 +7624,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_FEATURE:id
     {: RESULT = id; :}
+    | KW_FRONTENDS:id
+    {: RESULT = id; :}
     | KW_MAP:id
     {: RESULT = id; :}
     | KW_VARCHAR:id
@@ -7605,6 +7657,8 @@ keyword ::=
     | KW_INCREMENTAL:id
     {: RESULT = id; :}
     | KW_PERIOD:id
+    {: RESULT = id; :}
+    | KW_PERCENT:id
     {: RESULT = id; :}
     ;
 

@@ -154,7 +154,8 @@ public:
         _doc = std::make_unique<lucene::document::Document>();
         _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
+        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
             _analyzer = std::make_unique<lucene::analysis::standard::StandardAnalyzer>();
         } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
@@ -163,10 +164,10 @@ public:
             chinese_analyzer->setLanguage(L"chinese");
             chinese_analyzer->initDict(config::inverted_index_dict_path);
             auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
-            if (mode == INVERTED_INDEX_PARSER_COARSE_GRANULARITY) {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-            } else {
+            if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
                 chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+            } else {
+                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
             }
             _analyzer.reset(chinese_analyzer);
         } else {
@@ -222,6 +223,11 @@ public:
         if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
             _parser_type == InvertedIndexParserType::PARSER_CHINESE) {
             new_char_token_stream(field_value_data, field_value_size, _field);
+        } else if (_parser_type == InvertedIndexParserType::PARSER_UNICODE) {
+            auto stringReader = _CLNEW lucene::util::SimpleInputStreamReader(
+                    new lucene::util::AStringReader(field_value_data, field_value_size),
+                    lucene::util::SimpleInputStreamReader::UTF8);
+            _field->setValue(stringReader);
         } else {
             new_field_value(field_value_data, field_value_size, _field);
         }
@@ -403,7 +409,9 @@ public:
             FINALLY_FINALIZE_OUTPUT(meta_out)
             FINALLY_FINALIZE_OUTPUT(data_out)
             FINALLY_FINALIZE_OUTPUT(index_out)
-            FINALLY_FINALIZE_OUTPUT(dir)
+            if constexpr (field_is_numeric_type(field_type)) {
+                FINALLY_FINALIZE_OUTPUT(dir)
+            }
             LOG(WARNING) << "Inverted index writer finish error occurred: " << e.what();
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "Inverted index writer finish error occurred");

@@ -42,7 +42,8 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
                 + "unique key(k1, k2)\n"
                 + "distributed by hash(k1) buckets 4\n"
                 + "properties(\n"
-                + "    \"replication_num\"=\"1\"\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"enable_unique_key_merge_on_write\" = \"true\" \n"
                 + ")");
         createTable("create table t2 (\n"
                 + "    k1 int,\n"
