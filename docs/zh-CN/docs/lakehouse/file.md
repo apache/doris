@@ -42,7 +42,7 @@ under the License.
 
 ```
 > DESC FUNCTION s3 (
-    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "format" = "parquet",
@@ -67,7 +67,7 @@ under the License.
 	
 ```
 s3(
-    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "format" = "parquet",
@@ -113,7 +113,7 @@ s3(
 
 ```
 s3 (
-    "URI" = "https://bucket1/inventory.dat",
+    "uri" = "https://bucket1/inventory.dat",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "format" = "csv",
@@ -129,7 +129,7 @@ s3 (
 
 ```
 SELECT * FROM s3(
-    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "format" = "parquet",
@@ -154,7 +154,7 @@ Table Value Function 可以出现在 SQL 中，Table 能出现的任意位置。
 ```
 CREATE VIEW v1 AS 
 SELECT * FROM s3(
-    "URI" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
+    "uri" = "http://127.0.0.1:9312/test2/test.snappy.parquet",
     "s3.access_key"= "ak",
     "s3.secret_key" = "sk",
     "format" = "parquet",
