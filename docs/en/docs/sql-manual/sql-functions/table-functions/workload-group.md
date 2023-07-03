@@ -36,7 +36,7 @@ workload_groups
 
 ### description
 
-Table-Value-Function, generate a temporary table named `workload_groups`. This tvf is used to view informations about current workload groups.
+Table-Value-Function, generate a temporary table named `workload_groups`. This tvf is used to view information about workload groups for which current user has permission.
 
 This function is used in `FROM` clauses.
 

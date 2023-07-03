@@ -81,7 +81,7 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
             return false;
         }
         AbstractPhysicalSort that = (AbstractPhysicalSort) o;
-        return Objects.equals(orderKeys, that.orderKeys);
+        return phase == that.phase && Objects.equals(orderKeys, that.orderKeys);
     }
 
     @Override

@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
+select
     o_year,
     sum(case
         when nation = 'BRAZIL' then volume

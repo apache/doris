@@ -254,6 +254,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
             for (int i = 0; i < childrenProperties.size(); i++) {
                 if (childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageAny
                         || childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecStorageGather
+                        || childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecGather
                         || (childrenProperties.get(i).getDistributionSpec() instanceof DistributionSpecHash
                         && ((DistributionSpecHash) childrenProperties.get(i).getDistributionSpec())
                         .getShuffleType() == ShuffleType.NATURAL)) {

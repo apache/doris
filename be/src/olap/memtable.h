@@ -31,8 +31,6 @@
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/olap_common.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
 #include "runtime/memory/mem_tracker.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
@@ -75,8 +73,8 @@ public:
     class Iter {
     public:
         Iter(Tie& tie) : _tie(tie), _next(tie._begin + 1) {}
-        size_t left() { return _left; }
-        size_t right() { return _right; }
+        size_t left() const { return _left; }
+        size_t right() const { return _right; }
 
         // return false means no more ranges
         bool next() {
@@ -130,7 +128,7 @@ private:
 
 class RowInBlockComparator {
 public:
-    RowInBlockComparator(const Schema* schema) : _schema(schema) {}
+    RowInBlockComparator(const TabletSchema* tablet_schema) : _tablet_schema(tablet_schema) {}
     // call set_block before operator().
     // only first time insert block to create _input_mutable_block,
     // so can not Comparator of construct to set pblock
@@ -138,8 +136,8 @@ public:
     int operator()(const RowInBlock* left, const RowInBlock* right) const;
 
 private:
-    const Schema* _schema;
-    vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
+    const TabletSchema* _tablet_schema;
+    vectorized::MutableBlock* _pblock; //  corresponds to Memtable::_input_mutable_block
 };
 
 class MemTableStat {
@@ -150,7 +148,6 @@ public:
         sort_ns += stat.sort_ns;
         agg_ns += stat.agg_ns;
         put_into_output_ns += stat.put_into_output_ns;
-        delete_bitmap_ns += stat.delete_bitmap_ns;
         segment_writer_ns += stat.segment_writer_ns;
         duration_ns += stat.duration_ns;
         sort_times += stat.sort_times;
@@ -164,7 +161,6 @@ public:
     int64_t sort_ns = 0;
     int64_t agg_ns = 0;
     int64_t put_into_output_ns = 0;
-    int64_t delete_bitmap_ns = 0;
     int64_t segment_writer_ns = 0;
     int64_t duration_ns = 0;
     int64_t sort_times = 0;
@@ -173,14 +169,14 @@ public:
 
 class MemTable {
 public:
-    MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* tablet_schema,
+    MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             RowsetWriter* rowset_writer, std::shared_ptr<MowContext> mow_context,
+             RowsetWriter* rowset_writer, bool enable_unique_key_mow,
              const std::shared_ptr<MemTracker>& insert_mem_tracker,
              const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
 
-    int64_t tablet_id() const { return _tablet->tablet_id(); }
+    int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const {
         return _insert_mem_tracker->consumption() + _arena->used_size() +
                _flush_mem_tracker->consumption();
@@ -216,12 +212,6 @@ private:
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
-    Status _generate_delete_bitmap(int32_t segment_id);
-
-    // serialize block to row store format and append serialized data into row store column
-    // in block
-    void serialize_block_to_row_column(vectorized::Block& block);
-
     // Unfold variant column to Block
     // Eg. [A | B | C | (D, E, F)]
     // After unfold block structure changed to -> [A | B | C | D | E | F]
@@ -230,9 +220,9 @@ private:
     Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx);
 
 private:
-    TabletSharedPtr _tablet;
+    int64_t _tablet_id;
+    bool _enable_unique_key_mow = false;
     const KeysType _keys_type;
-    Schema* _schema;
     const TabletSchema* _tablet_schema;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
@@ -253,11 +243,6 @@ private:
     std::unique_ptr<vectorized::Arena> _arena;
     // The object buffer pool for convert tuple to row
     ObjectPool _agg_buffer_pool;
-    // Only the rows will be inserted into SkipList can acquire the owner ship from
-    // `_agg_buffer_pool`
-    ObjectPool _agg_object_pool;
-
-    size_t _schema_size;
 
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
