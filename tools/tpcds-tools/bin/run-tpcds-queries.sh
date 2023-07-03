@@ -99,14 +99,14 @@ check_prerequest() {
 
 check_prerequest "mysql --version" "mysql"
 
-#shellcheck source=/dev/null
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD:-}
 
-echo "FE_HOST: ${FE_HOST}"
-echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
-echo "USER: ${USER}"
-echo "DB: ${DB}"
+echo "FE_HOST: ${FE_HOST:='127.0.0.1'}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT:='9030'}"
+echo "USER: ${USER:='root'}"
+echo "DB: ${DB:='tpcds'}"
+echo "Time Unit: ms"
 
 TPCDS_QUERIES_DIR="${CURDIR}/queries"
 RESULT_DIR="${CURDIR}/result"
