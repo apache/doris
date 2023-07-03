@@ -45,6 +45,7 @@ HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
+#ifdef USE_HADOOP_HDFS
     if (_profile != nullptr) {
         const char* hdfs_profile_name = "HdfsIO";
         ADD_TIMER(_profile, hdfs_profile_name);
@@ -57,6 +58,7 @@ HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
         _hdfs_profile.total_total_zero_copy_bytes_read = ADD_CHILD_COUNTER(
                 _profile, "TotalZeroCopyBytesRead", TUnit::BYTES, hdfs_profile_name);
     }
+#endif
 }
 
 HdfsFileReader::~HdfsFileReader() {
@@ -67,6 +69,7 @@ Status HdfsFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
+#ifdef USE_HADOOP_HDFS
         if (_profile != nullptr) {
             struct hdfsReadStatistics* hdfs_statistics = nullptr;
             auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
@@ -84,6 +87,7 @@ Status HdfsFileReader::close() {
             hdfsFileFreeReadStatistics(hdfs_statistics);
             hdfsFileClearReadStatistics(_handle->file());
         }
+#endif
     }
     return Status::OK();
 }
