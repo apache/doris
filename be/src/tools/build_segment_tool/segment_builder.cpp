@@ -64,12 +64,12 @@ int main(int argc, char** argv, char** envp) {
               << " format:" << FLAGS_format;
     std::string build_dir = FLAGS_data_path;
     // clear & create output dir before build start
-    std::filesystem::path output_path(std::filesystem::path(build_dir + "/output" ));
+    std::filesystem::path output_path(std::filesystem::path(build_dir + "/output"));
     std::filesystem::remove_all(output_path);
     if (!std::filesystem::create_directory(output_path)) {
         LOG(FATAL) << "create output path fail.";
     }
-    
+
     auto t0 = std::chrono::steady_clock::now();
     doris::DorisMetrics::instance()->initialize(false, {}, {});
     doris::BuildHelper* instance = doris::BuildHelper::init_instance();

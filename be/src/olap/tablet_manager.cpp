@@ -99,7 +99,7 @@ TabletManager::~TabletManager() {
 }
 
 Status TabletManager::add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
-                                           bool update_meta, bool force) {
+                                          bool update_meta, bool force) {
     Status res = Status::OK();
     VLOG_NOTICE << "begin to add tablet to TabletManager. "
                 << "tablet_id=" << tablet_id << ", force=" << force;

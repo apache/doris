@@ -146,8 +146,9 @@ Status BuildHelper::build() {
     BuilderScannerMemtable scanner(new_tablet, _build_dir, _file_type);
     scanner.doSegmentBuild(files);
 
-    std::string new_header_path =
-            _build_dir + "/output/" + std::to_string(new_tablet->tablet_id()) + "/" + std::to_string(new_tablet->tablet_id()) + ".hdr";
+    std::string new_header_path = _build_dir + "/output/" +
+                                  std::to_string(new_tablet->tablet_id()) + "/" +
+                                  std::to_string(new_tablet->tablet_id()) + ".hdr";
     TabletMetaSharedPtr new_tablet_meta = std::make_shared<TabletMeta>();
     new_tablet->generate_tablet_meta_copy(new_tablet_meta);
     auto st = new_tablet_meta->save(new_header_path);
