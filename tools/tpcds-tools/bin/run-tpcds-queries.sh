@@ -29,11 +29,10 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-TPCDS_QUERIES_DIR="${CURDIR}/../queries"
 
 usage() {
     echo "
-This script is used to run TPC-DS 103 queries, 
+This script is used to run TPC-DS 99 queries, 
 will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
 Usage: $0 
   "
@@ -47,6 +46,7 @@ OPTS=$(getopt \
 
 eval set -- "${OPTS}"
 HELP=0
+SCALE_FACTOR=1
 
 if [[ $# == 0 ]]; then
     usage
@@ -58,6 +58,10 @@ while true; do
         HELP=1
         shift
         ;;
+    -s)
+    	SCALE_FACTOR=$2
+	shift 2
+	;;
     --)
         shift
         break
@@ -71,6 +75,14 @@ done
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
+fi
+
+if [[ ${SCALE_FACTOR} -eq 1 ]]; then
+   echo "Running tpcds sf 1 queries"
+   TPCDS_QUERIES_DIR="${CURDIR}/../queries_1"
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
+   echo "Running tpcds sf 100 queries"
+   TPCDS_QUERIES_DIR="${CURDIR}/../queries_100"
 fi
 
 check_prerequest() {
@@ -94,6 +106,11 @@ echo "USER: ${USER:='root'}"
 echo "DB: ${DB:='tpcds'}"
 echo "Time Unit: ms"
 
+TPCDS_QUERIES_DIR="${CURDIR}/queries"
+RESULT_DIR="${CURDIR}/result"
+rm -rf "${RESULT_DIR}"
+mkdir -p "${RESULT_DIR}"
+
 run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
@@ -105,29 +122,49 @@ echo '============================================'
 run_sql "show table status;"
 echo '============================================'
 
-sum=0
-IFS=';'
+touch result.csv
+cold_run_sum=0
+best_hot_run_sum=0
 i=1
-query_strs=$(cat "${TPCDS_QUERIES_DIR}/tpcds_queries.sql")
-for query_str in ${query_strs}; do
-    # echo '============================================'
-    # echo "${query_str} "
-    # echo '============================================'
-    total=0
-    run=3
-    # Each query is executed ${run} times and takes the average time
-    for ((j = 0; j < run; j++)); do
-        # if [[ $i -lt 70 ]]; then continue; fi #########
-        start=$(date +%s%3N)
-        mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments -e"${query_str}" >/dev/null
-        end=$(date +%s%3N)
-        total=$((total + end - start))
-    done
-    cost=$((total / run))
-    echo "q${i}: ${cost} ms"
-    sum=$((sum + cost))
-    i=$((i + 1))
-done <"${TPCDS_QUERIES_DIR}/tpcds_queries.sql"
-echo "Total cost: ${sum} ms"
+for i in {1..99}; do
+    cold=0
+    hot1=0
+    hot2=0
+    echo -ne "query${i}\t" | tee -a result.csv
+    start=$(date +%s%3N)
+    mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT}  < ${TPCDS_QUERIES_DIR}/query${i}.sql > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    end=$(date +%s%3N)
+    cold=$((end - start))
+    echo -ne "${cold}\t" | tee -a result.csv
 
+    start=$(date +%s%3N)
+    mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT}  < ${TPCDS_QUERIES_DIR}/query${i}.sql > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    end=$(date +%s%3N)
+    hot1=$((end - start))
+    echo -ne "${hot1}\t" | tee -a result.csv
+
+    start=$(date +%s%3N)
+    mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT}  < ${TPCDS_QUERIES_DIR}/query${i}.sql > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    end=$(date +%s%3N)
+    hot2=$((end - start))
+    echo -ne "${hot2}\t" | tee -a result.csv
+
+    cold_run_sum=$((cold_run_sum + cold))
+    if [[ ${hot1} -lt ${hot2} ]]; then
+        best_hot_run_sum=$((best_hot_run_sum + hot1))
+        echo -ne "${hot1}" | tee -a result.csv
+        echo "" | tee -a result.csv
+    else
+        best_hot_run_sum=$((best_hot_run_sum + hot2))
+        echo -ne "${hot2}" | tee -a result.csv
+        echo "" | tee -a result.csv
+    fi
+done
+
+echo "Total cold run time: ${cold_run_sum} ms"
+echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
+
+find "${RESULT_DIR}" -name "*.log" -type f -size 0c | xargs -n 1 rm -f
+echo 'Failed tpcds queries.'
+ls ${RESULT_DIR}/*.log
