@@ -230,10 +230,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private Plan parseAndAnalyzeHiveView(TableIf table, CascadesContext cascadesContext) {
         HMSExternalTable hiveTable = (HMSExternalTable) table;
         ConnectContext ctx = cascadesContext.getConnectContext();
-        String currentCatalog = ctx.getCurrentCatalog().getName();
+        String previousCatalog = ctx.getCurrentCatalog().getName();
+        String previousDb = ctx.getDatabase();
         ctx.changeDefaultCatalog(hiveTable.getCatalog().getName());
         Plan hiveViewPlan = parseAndAnalyzeView(hiveTable.getViewText(), cascadesContext);
-        ctx.changeDefaultCatalog(currentCatalog);
+        ctx.changeDefaultCatalog(previousCatalog);
+        ctx.setDatabase(previousDb);
         return hiveViewPlan;
     }
 
