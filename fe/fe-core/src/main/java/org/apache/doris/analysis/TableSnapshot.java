@@ -55,6 +55,10 @@ public class TableSnapshot {
         return time;
     }
 
+    public void setTime(String time) {
+        this.time = time;
+    }
+
     public long getVersion() {
         return version;
     }

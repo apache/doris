@@ -55,6 +55,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -173,11 +174,16 @@ public class HudiScanNode extends HiveScanNode {
         }
 
         HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
-        Option<HoodieInstant> latestInstant = timeline.lastInstant();
-        if (!latestInstant.isPresent()) {
-            return new ArrayList<>();
+        String queryInstant;
+        if (desc.getRef().getTableSnapshot() != null) {
+            queryInstant = desc.getRef().getTableSnapshot().getTime();
+        } else {
+            Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
+            if (!snapshotInstant.isPresent()) {
+                return Collections.emptyList();
+            }
+            queryInstant = snapshotInstant.get().getTimestamp();
         }
-        String queryInstant = latestInstant.get().getTimestamp();
         // Non partition table will get one dummy partition
         List<HivePartition> partitions = getPartitions();
         try {
