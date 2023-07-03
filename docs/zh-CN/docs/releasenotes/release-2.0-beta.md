@@ -213,7 +213,7 @@ properties (
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/compute_node](https://doris.apache.org/zh-CN/docs/dev/advanced/compute_node)
 
-第二种，冷热分层。在存储方面，冷热数据数据往往面临不同频次的查询和响应速度要求，因此通常可以将冷数据存储在成本更低的存储介质中。在过去版本中 Apache Doris 支持对表分区进行生命周期管理，通过后台任务将热数据从 SSD 自动冷却到 HDD，但 HDD 上的数据是以多副本的方式存储的，并没有做到最大程度的成本节约，因此对于冷数据存储成本仍然有较大的优化空间。在 Apache Doris 2.0 版本中推出了[冷热数据分层功能]([https://mp.weixin.qq.com/s/mP3GfVxx8nvh0HseFZSV_A](https://mp.weixin.qq.com/s/mP3GfVxx8nvh0HseFZSV_A)) ，冷热数据分层功能使 Apache Doris 可以将冷数据下沉到存储成本更加低廉的对象存储中，同时冷数据在对象存储上的保存方式也从多副本变为单副本，存储成本进一步降至原先的三分之一，同时也减少了因存储附加的计算资源成本和网络开销成本。通过实际测算，存储成本最高可以降低超过 70%！
+第二种，冷热分层。在存储方面，冷热数据往往面临不同频次的查询和响应速度要求，因此通常可以将冷数据存储在成本更低的存储介质中。在过去版本中 Apache Doris 支持对表分区进行生命周期管理，通过后台任务将热数据从 SSD 自动冷却到 HDD，但 HDD 上的数据是以多副本的方式存储的，并没有做到最大程度的成本节约，因此对于冷数据存储成本仍然有较大的优化空间。在 Apache Doris 2.0 版本中推出了[冷热数据分层功能]([https://mp.weixin.qq.com/s/mP3GfVxx8nvh0HseFZSV_A](https://mp.weixin.qq.com/s/mP3GfVxx8nvh0HseFZSV_A)) ，冷热数据分层功能使 Apache Doris 可以将冷数据下沉到存储成本更加低廉的对象存储中，同时冷数据在对象存储上的保存方式也从多副本变为单副本，存储成本进一步降至原先的三分之一，同时也减少了因存储附加的计算资源成本和网络开销成本。通过实际测算，存储成本最高可以降低超过 70%！
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation](https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation)
 
