@@ -142,12 +142,11 @@ DecimalType OlapTableValidator::_get_decimalv3_min_or_max(const TypeDescriptor& 
     return value;
 }
 
-
 Status OlapTableValidator::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                        bool is_nullable, vectorized::ColumnPtr column,
-                                        size_t slot_index, Bitmap* filter_bitmap,
-                                        bool* stop_processing, fmt::memory_buffer& error_prefix,
-                                        vectorized::IColumn::Permutation* rows) {
+                                            bool is_nullable, vectorized::ColumnPtr column,
+                                            size_t slot_index, Bitmap* filter_bitmap,
+                                            bool* stop_processing, fmt::memory_buffer& error_prefix,
+                                            vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == column->size()));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
@@ -393,10 +392,9 @@ Status OlapTableValidator::_validate_column(RuntimeState* state, const TypeDescr
     return Status::OK();
 }
 
-
 Status OlapTableValidator::validate_data(RuntimeState* state, vectorized::Block* block,
-                                      Bitmap* filter_bitmap, int* filtered_rows,
-                                      bool* stop_processing) {
+                                         Bitmap* filter_bitmap, int* filtered_rows,
+                                         bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         block->get_by_position(i).column =

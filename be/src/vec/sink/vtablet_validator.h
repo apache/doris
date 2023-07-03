@@ -69,7 +69,6 @@ namespace doris {
 namespace stream_load {
 
 class OlapTableValidator {
-
 public:
     OlapTableValidator(TupleDescriptor* output_tuple_desc)
             : _output_tuple_desc(output_tuple_desc) {}
@@ -79,7 +78,7 @@ public:
     // invalid row number is set in Bitmap
     // set stop_processing if we want to stop the whole process now.
     Status validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
-                          int* filtered_rows, bool* stop_processing);
+                         int* filtered_rows, bool* stop_processing);
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
