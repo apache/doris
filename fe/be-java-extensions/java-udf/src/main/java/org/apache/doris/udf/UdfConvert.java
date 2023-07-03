@@ -242,15 +242,13 @@ public class UdfConvert {
         if (isNullable) {
             for (int i = 0; i < numRows; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 16L));
-                    UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
+                    UdfUtils.copyMemory(null, columnAddr + (i * 16L), bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
                     argument[i] = new BigInteger(UdfUtils.convertByteOrder(bytes));
                 } // else is the current row is null
             }
         } else {
             for (int i = 0; i < numRows; ++i) {
-                long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * 16L));
-                UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
+                UdfUtils.copyMemory(null, columnAddr + (i * 16L), bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
                 argument[i] = new BigInteger(UdfUtils.convertByteOrder(bytes));
             }
         }
@@ -261,19 +259,19 @@ public class UdfConvert {
             long columnAddr) {
         BigDecimal[] argument = new BigDecimal[numRows];
         byte[] bytes = new byte[(int) typeLen];
+        LOG.info("convertDecimalArg: " + scale + " " + typeLen + " " + isNullable + " " + numRows + " " + nullMapAddr
+                + " " + columnAddr);
         if (isNullable) {
             for (int i = 0; i < numRows; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {
-                    long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * typeLen));
-                    UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
+                    UdfUtils.copyMemory(null, columnAddr + (i * typeLen), bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
                     BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
                     argument[i] = new BigDecimal(bigInteger, scale); //show to pass scale info
                 } // else is the current row is null
             }
         } else {
             for (int i = 0; i < numRows; ++i) {
-                long value = UdfUtils.UNSAFE.getLong(null, columnAddr + (i * typeLen));
-                UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
+                UdfUtils.copyMemory(null, columnAddr + (i * typeLen), bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
                 BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
                 argument[i] = new BigDecimal(bigInteger, scale);
             }
@@ -1648,8 +1646,8 @@ public class UdfConvert {
             if (UdfUtils.UNSAFE.getByte(nullMapAddr + row) == 0) {
                 for (int offsetRow = 0; offsetRow < currentRowNum; ++offsetRow) {
                     if ((UdfUtils.UNSAFE.getByte(null, nestedNullMapAddr + (offsetStart + offsetRow)) == 0)) {
-                        long value = UdfUtils.UNSAFE.getLong(null, dataAddr + 16L * (offsetRow + offsetStart));
-                        UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
+                        UdfUtils.copyMemory(null, dataAddr + 16L * (offsetRow + offsetStart), bytes,
+                                UdfUtils.BYTE_ARRAY_OFFSET, 16);
                         data.add(new BigInteger(UdfUtils.convertByteOrder(bytes)));
                     } else { // in the array row, current offset is null
                         data.add(null);
@@ -1659,8 +1657,8 @@ public class UdfConvert {
         } else {
             for (int offsetRow = 0; offsetRow < currentRowNum; ++offsetRow) {
                 if ((UdfUtils.UNSAFE.getByte(null, nestedNullMapAddr + (offsetStart + offsetRow)) == 0)) {
-                    long value = UdfUtils.UNSAFE.getLong(null, dataAddr + 16L * (offsetRow + offsetStart));
-                    UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
+                    UdfUtils.copyMemory(null, dataAddr + 16L * (offsetRow + offsetStart), bytes,
+                            UdfUtils.BYTE_ARRAY_OFFSET, 16);
                     data.add(new BigInteger(UdfUtils.convertByteOrder(bytes)));
                 } else { // in the array row, current offset is null
                     data.add(null);
@@ -1679,8 +1677,8 @@ public class UdfConvert {
             if (UdfUtils.UNSAFE.getByte(nullMapAddr + row) == 0) {
                 for (int offsetRow = 0; offsetRow < currentRowNum; ++offsetRow) {
                     if ((UdfUtils.UNSAFE.getByte(null, nestedNullMapAddr + (offsetStart + offsetRow)) == 0)) {
-                        long value = UdfUtils.UNSAFE.getLong(null, dataAddr + typeLen * (offsetRow + offsetStart));
-                        UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
+                        UdfUtils.copyMemory(null, dataAddr + typeLen * (offsetRow + offsetStart), bytes,
+                                UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
                         BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
                         data.add(new BigDecimal(bigInteger, scale));
                     } else { // in the array row, current offset is null
@@ -1691,8 +1689,8 @@ public class UdfConvert {
         } else {
             for (int offsetRow = 0; offsetRow < currentRowNum; ++offsetRow) {
                 if ((UdfUtils.UNSAFE.getByte(null, nestedNullMapAddr + (offsetStart + offsetRow)) == 0)) {
-                    long value = UdfUtils.UNSAFE.getLong(null, dataAddr + typeLen * (offsetRow + offsetStart));
-                    UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
+                    UdfUtils.copyMemory(null, dataAddr + typeLen * (offsetRow + offsetStart), bytes,
+                            UdfUtils.BYTE_ARRAY_OFFSET, typeLen);
                     BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
                     data.add(new BigDecimal(bigInteger, scale));
                 } else { // in the array row, current offset is null
