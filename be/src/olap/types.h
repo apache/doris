@@ -296,7 +296,8 @@ public:
 
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("ArrayTypeInfo not support from_string");
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "ArrayTypeInfo not support from_string");
     }
 
     std::string to_string(const void* src) const override {
