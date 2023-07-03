@@ -59,9 +59,9 @@ while true; do
         shift
         ;;
     -s)
-    	SCALE_FACTOR=$2
-	shift 2
-	;;
+        SCALE_FACTOR=$2
+        shift 2
+        ;;
     --)
         shift
         break
@@ -78,14 +78,14 @@ if [[ "${HELP}" -eq 1 ]]; then
 fi
 
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
-   echo "Running tpcds sf 1 queries"
-   TPCDS_QUERIES_DIR="${CURDIR}/../queries_1"
+    echo "Running tpcds sf 1 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries_1"
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
-   echo "Running tpcds sf 100 queries"
-   TPCDS_QUERIES_DIR="${CURDIR}/../queries_100"
+    echo "Running tpcds sf 100 queries"
+    TPCDS_QUERIES_DIR="${CURDIR}/../queries_100"
 else
-   echo "${SCALE_FACTOR} scale is NOT support currently."
-   exit 1
+    echo "${SCALE_FACTOR} scale is NOT support currently."
+    exit 1
 fi
 
 check_prerequest() {
@@ -137,19 +137,19 @@ for i in {1..99}; do
     hot2=0
     echo -ne "query${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments < "${TPCDS_QUERIES_DIR}"/query"${i}".sql > /dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments < "${TPCDS_QUERIES_DIR}"/query"${i}".sql > /dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments < "${TPCDS_QUERIES_DIR}"/query"${i}".sql > /dev/null
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >/dev/null
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv

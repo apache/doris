@@ -59,9 +59,9 @@ while true; do
         shift
         ;;
     -s)
-    	SCALE_FACTOR=$2
-	shift 2
-	;;
+        SCALE_FACTOR=$2
+        shift 2
+        ;;
     --)
         shift
         break
@@ -110,7 +110,7 @@ if [[ ${SCALE_FACTOR} -eq 1 ]]; then
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf100.sql
-else 
+else
     echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi
 
