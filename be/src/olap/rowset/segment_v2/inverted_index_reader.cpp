@@ -543,7 +543,7 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         LOG(WARNING) << "bkd index: " << index_file.string() << " not exist.";
         return;
     }
-    _compoundReader = new DorisCompoundReader(
+    _compoundReader = std::make_unique<DorisCompoundReader>(
             DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
             config::inverted_index_read_buffer_size);
 }
