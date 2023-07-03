@@ -1,8 +1,3 @@
-
-
-
-
-
 select  dt.d_year
  	,item.i_brand_id brand_id
  	,item.i_brand brand

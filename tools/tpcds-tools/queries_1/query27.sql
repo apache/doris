@@ -1,8 +1,3 @@
-
-
-
-
-
 select  i_item_id,
         s_state, grouping(s_state) g_state,
         avg(ss_quantity) agg1,

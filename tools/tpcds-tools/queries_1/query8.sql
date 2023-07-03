@@ -1,8 +1,3 @@
-
-
-
-
-
 select  s_store_name
       ,sum(ss_net_profit)
  from store_sales

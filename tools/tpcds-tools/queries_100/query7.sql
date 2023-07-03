@@ -1,8 +1,3 @@
-
-
-
-
-
 select  i_item_id, 
         avg(ss_quantity) agg1,
         avg(ss_list_price) agg2,

@@ -1,8 +1,3 @@
-
-
-
-
-
 select  count(*) 
 from store_sales
     ,household_demographics 

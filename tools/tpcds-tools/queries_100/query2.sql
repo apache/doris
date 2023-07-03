@@ -1,8 +1,3 @@
-
-
-
-
-
 with wscs as
  (select sold_date_sk
         ,sales_price

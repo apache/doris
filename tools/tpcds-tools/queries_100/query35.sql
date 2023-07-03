@@ -1,8 +1,3 @@
-
-
-
-
-
 select   
   ca_state,
   cd_gender,

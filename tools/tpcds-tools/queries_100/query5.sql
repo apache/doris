@@ -1,8 +1,3 @@
-
-
-
-
-
 with ssr as
  (select s_store_id,
         sum(sales_price) as sales,

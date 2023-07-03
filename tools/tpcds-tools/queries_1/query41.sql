@@ -1,8 +1,3 @@
-
-
-
-
-
 select  distinct(i_product_name)
  from item i1
  where i_manufact_id between 704 and 704+40 

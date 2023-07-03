@@ -83,6 +83,9 @@ if [[ ${SCALE_FACTOR} -eq 1 ]]; then
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
    echo "Running tpcds sf 100 queries"
    TPCDS_QUERIES_DIR="${CURDIR}/../queries_100"
+else
+   echo "${SCALE_FACTOR} scale is NOT support currently."
+   exit 1
 fi
 
 check_prerequest() {
@@ -100,11 +103,10 @@ check_prerequest "mysql --version" "mysql"
 source "${CURDIR}/../conf/doris-cluster.conf"
 export MYSQL_PWD=${PASSWORD:-}
 
-echo "FE_HOST: ${FE_HOST:='127.0.0.1'}"
-echo "FE_QUERY_PORT: ${FE_QUERY_PORT:='9030'}"
-echo "USER: ${USER:='root'}"
-echo "DB: ${DB:='tpcds'}"
-echo "Time Unit: ms"
+echo "FE_HOST: ${FE_HOST}"
+echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
+echo "USER: ${USER}"
+echo "DB: ${DB}"
 
 TPCDS_QUERIES_DIR="${CURDIR}/queries"
 RESULT_DIR="${CURDIR}/result"
@@ -121,6 +123,9 @@ run_sql "show variables;"
 echo '============================================'
 run_sql "show table status;"
 echo '============================================'
+run_sql "analyze database ${DB};"
+echo '============================================'
+echo "Time Unit: ms"
 
 touch result.csv
 cold_run_sum=0
@@ -132,19 +137,19 @@ for i in {1..99}; do
     hot2=0
     echo -ne "query${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT}  < ${TPCDS_QUERIES_DIR}/query${i}.sql > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments < "${TPCDS_QUERIES_DIR}"/query"${i}".sql > /dev/null
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT}  < ${TPCDS_QUERIES_DIR}/query${i}.sql > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments < "${TPCDS_QUERIES_DIR}"/query"${i}".sql > /dev/null
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h${FE_HOST} -u${USER} -P${FE_QUERY_PORT}  < ${TPCDS_QUERIES_DIR}/query${i}.sql > ${RESULT_DIR}/result${i}.out 2>${RESULT_DIR}/result${i}.log
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments < "${TPCDS_QUERIES_DIR}"/query"${i}".sql > /dev/null
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv
@@ -164,7 +169,3 @@ done
 echo "Total cold run time: ${cold_run_sum} ms"
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpcds queries.'
-
-find "${RESULT_DIR}" -name "*.log" -type f -size 0c | xargs -n 1 rm -f
-echo 'Failed tpcds queries.'
-ls ${RESULT_DIR}/*.log

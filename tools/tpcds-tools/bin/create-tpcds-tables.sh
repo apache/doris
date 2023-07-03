@@ -77,7 +77,7 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-if [[ ${SCALE_FACTOR} -ne 1 ]] && [[ ${SCALE_FACTOR} -ne 100]]; then
+if [[ ${SCALE_FACTOR} -ne 1 ]] && [[ ${SCALE_FACTOR} -ne 100 ]]; then
     echo "${SCALE_FACTOR} scale is not supported"
     exit 1
 fi
@@ -107,9 +107,11 @@ mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}"
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables.sql
-elif [[ ${SCALE_FACTOR} -eq 1 ]]; then
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpcds-tables-sf100.sql
+else 
+    echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi
 
 echo "tpcds tables has been created"

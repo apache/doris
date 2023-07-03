@@ -1,8 +1,3 @@
-
-
-
-
-
 with customer_total_return as
  (select cr_returning_customer_sk as ctr_customer_sk
         ,ca_state as ctr_state, 

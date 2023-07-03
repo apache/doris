@@ -1,8 +1,3 @@
-
-
-
-
-
 select  *
 from (select avg(ss_list_price) B1_LP
             ,count(ss_list_price) B1_CNT

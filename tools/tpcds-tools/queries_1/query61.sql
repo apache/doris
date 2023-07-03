@@ -1,8 +1,3 @@
-
-
-
-
-
 select  promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
 from
   (select sum(ss_ext_sales_price) promotions
