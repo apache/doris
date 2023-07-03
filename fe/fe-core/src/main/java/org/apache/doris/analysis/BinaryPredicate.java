@@ -379,14 +379,14 @@ public class BinaryPredicate extends Predicate implements Writable {
                 return getChild(1).getType();
             } else if (getChild(0).getType().isDateV2()
                     && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(1)).canConvertToDateV2(Type.DATEV2)) {
+                if (((StringLiteral) getChild(1)).canRepresentByDateV2(Type.DATEV2)) {
                     return Type.DATEV2;
                 } else {
                     return Type.DATETIMEV2;
                 }
             } else if (getChild(1).getType().isDateV2()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(0)).canConvertToDateV2(Type.DATEV2)) {
+                if (((StringLiteral) getChild(0)).canRepresentByDateV2(Type.DATEV2)) {
                     return Type.DATEV2;
                 } else {
                     return Type.DATETIMEV2;

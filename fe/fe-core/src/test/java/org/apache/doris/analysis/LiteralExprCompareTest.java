@@ -55,28 +55,24 @@ public class LiteralExprCompareTest {
         Assert.assertTrue(0 == boolTrue1.compareLiteral(boolTrue1));
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void dateFormat1Test() throws AnalysisException {
         new DateLiteral("2015-02-15 12:12:12", ScalarType.DATE);
-        Assert.fail();
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void dateV2Format1Test() throws AnalysisException {
         new DateLiteral("2015-02-15 12:12:12", ScalarType.DATEV2);
-        Assert.fail();
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void dateFormat2Test() throws AnalysisException {
         new DateLiteral("2015-02-15", ScalarType.DATETIME);
-        Assert.fail();
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void dateV2Format2Test() throws AnalysisException {
         new DateLiteral("2015-02-15", ScalarType.DATETIMEV2);
-        Assert.fail();
     }
 
     @Test

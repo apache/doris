@@ -64,13 +64,13 @@ public class RewriteDateLiteralRuleTest {
     public void testWithIntFormatDateV2() throws Exception {
         String query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME + ".tb2 where k1 > 20210301";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000'"));
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > 20210301 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000'"));
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > 20210301223344 from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:33:44.000'"));
     }
 
     public void testWithStringFormatDate() throws Exception {
@@ -94,7 +94,8 @@ public class RewriteDateLiteralRuleTest {
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:33'"));
 
-        query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01  16:22:33' from " + DB_NAME + ".tb1";
+        query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01 16:22:33' from " + DB_NAME
+                + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 16:22:33'"));
 
@@ -108,7 +109,7 @@ public class RewriteDateLiteralRuleTest {
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01dd 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > NULL"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '80-03-01 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
@@ -126,7 +127,7 @@ public class RewriteDateLiteralRuleTest {
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '20210301' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '20210301233234.34' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
@@ -134,35 +135,35 @@ public class RewriteDateLiteralRuleTest {
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME + ".tb2 where k1 > '2021-03-01'";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 00:00:00.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01 11:22:33' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:33'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:33.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01 16:22:33' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 16:22:33'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 16:22:33.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '20210301T221133' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 11:22:00.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '80-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '1980-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '1980-03-01 11:22:00.000'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '12-03-01 11:22' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2012-03-01 11:22:00'"));
+        Assert.assertTrue(planString.contains("`k1` > '2012-03-01 11:22:00.000'"));
     }
 
     public void testWithDoubleFormatDate() throws Exception {

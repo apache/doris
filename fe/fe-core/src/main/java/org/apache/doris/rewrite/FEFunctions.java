@@ -199,17 +199,17 @@ public class FEFunctions {
 
     @FEFunction(name = "year", argTypes = { "DATETIME" }, returnType = "SMALLINT")
     public static IntLiteral year(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).getYear(), Type.INT);
+        return new IntLiteral(((DateLiteral) arg).getYear(), Type.SMALLINT);
     }
 
     @FEFunction(name = "month", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral month(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).getMonth(), Type.INT);
+        return new IntLiteral(((DateLiteral) arg).getMonth(), Type.TINYINT);
     }
 
     @FEFunction(name = "day", argTypes = { "DATETIME" }, returnType = "TINYINT")
     public static IntLiteral day(LiteralExpr arg) throws AnalysisException {
-        return new IntLiteral(((DateLiteral) arg).getDay(), Type.INT);
+        return new IntLiteral(((DateLiteral) arg).getDay(), Type.TINYINT);
     }
 
     @FEFunction(name = "unix_timestamp", argTypes = { "DATETIME" }, returnType = "INT")

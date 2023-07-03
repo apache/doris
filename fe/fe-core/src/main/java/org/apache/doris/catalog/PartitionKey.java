@@ -485,7 +485,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         case DATEV2:
                         case DATETIMEV2: {
                             DateLiteral key = (DateLiteral) keys.get(i);
-                            typeAndKey.add(new JsonPrimitive(key.convertToString(type)));
+                            typeAndKey.add(new JsonPrimitive(key.getStringValue()));
                         }
                             break;
                         case CHAR:

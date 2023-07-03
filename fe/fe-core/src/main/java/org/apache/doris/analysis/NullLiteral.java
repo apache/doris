@@ -37,6 +37,9 @@ public class NullLiteral extends LiteralExpr {
 
     private static final LiteralExpr INT_EXPR;
 
+    // whether this NullLiteral is created because of error.
+    private boolean err = false;
+
     static {
         try {
             INT_EXPR =  new IntLiteral("0", Type.INT);
@@ -50,14 +53,30 @@ public class NullLiteral extends LiteralExpr {
         analysisDone();
     }
 
+    public NullLiteral(boolean err) {
+        type = Type.NULL;
+        this.err = err;
+        analysisDone();
+    }
+
     public static NullLiteral create(Type type) {
         NullLiteral l = new NullLiteral();
         l.type = type;
         return l;
     }
 
+    public static NullLiteral createErr(Type type) {
+        NullLiteral l = new NullLiteral(true);
+        l.type = type;
+        return l;
+    }
+
     protected NullLiteral(NullLiteral other) {
         super(other);
+    }
+
+    public boolean isErr() {
+        return err;
     }
 
     @Override

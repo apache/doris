@@ -54,6 +54,11 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
         if (!valueExpr.isConstant()) {
             return expr;
         }
+        // TODO:(zcl) delete the whole rule after we refactor datetimev2 finished.
+        if (valueExpr instanceof NullLiteral && ((NullLiteral) valueExpr).isErr()) {
+            throw new AnalysisException("Incorrect datetime value in expression: "
+                    + expr.toSql().replace("= NULL", "is not legal Datelike Literal"));
+        }
         // Only consider CastExpr and try our best to convert non-date_literal
         // to date_literal，to be compatible with MySQL
         if (valueExpr instanceof CastExpr) {

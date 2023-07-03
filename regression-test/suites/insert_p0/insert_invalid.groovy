@@ -148,7 +148,7 @@ suite("insert_invalid") {
     """
     test {
         sql """ insert into datatype_invalid values ('2022-02-29', 'a'); """
-        exception "Invalid value"
+        exception "Insert has filtered data in strict mode"
     }
 
     sql """ set enable_insert_strict=false; """

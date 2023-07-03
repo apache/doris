@@ -940,7 +940,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
             "是否启用file cache。该变量只有在be.conf中enable_file_cache=true时才有效，"
                     + "如果be.conf中enable_file_cache=false，该BE节点的file cache处于禁用状态。",
-            "Set wether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
+            "Set whether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
                     + "The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCache = false;
 

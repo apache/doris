@@ -184,16 +184,16 @@ public class StringLiteral extends LiteralExpr {
             newLiteral.checkValueValid();
         } catch (AnalysisException e) {
             LOG.info("{} is illegal value for date-like type, insert null instead", value);
-            return NullLiteral.create(targetType);
+            return NullLiteral.createErr(targetType);
         }
         return newLiteral;
     }
 
-    public boolean canConvertToDateV2(Type targetType) {
+    public boolean canRepresentByDateV2(Type targetType) {
         try {
             Preconditions.checkArgument(targetType.isDateV2());
-            new DateLiteral(value, targetType);
-            return true;
+            DateLiteral val = new DateLiteral(value, targetType);
+            return val.getHour() == 0 && val.getMinute() == 0 && val.getSecond() == 0 && val.getMicrosecond() == 0;
         } catch (AnalysisException e) {
             return false;
         }

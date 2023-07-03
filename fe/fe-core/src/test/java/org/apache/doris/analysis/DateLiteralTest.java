@@ -181,13 +181,11 @@ public class DateLiteralTest {
         try {
             DateLiteral dateLiteral = new DateLiteral();
             dateLiteral.fromDateFormatStr("%Y%m%d%H%i%s%f", "20201209123456123456", false);
-            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkRange"));
-
         } catch (InvalidFormatException e) {
             e.printStackTrace();
             hasException = true;
         }
-        Assert.assertFalse(hasException);
+        Assert.assertTrue(hasException);
     }
 
     @Test
@@ -398,12 +396,11 @@ public class DateLiteralTest {
         try {
             DateLiteral dateLiteral = new DateLiteral();
             dateLiteral.fromDateFormatStr("%Y%m%d%H%i%s%f", "20201209123456123456", false, Type.DATETIMEV2);
-            Assert.assertFalse(Deencapsulation.invoke(dateLiteral, "checkRange"));
 
         } catch (InvalidFormatException e) {
             e.printStackTrace();
             hasException = true;
         }
-        Assert.assertFalse(hasException);
+        Assert.assertTrue(hasException);
     }
 }

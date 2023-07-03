@@ -745,6 +745,10 @@ public class ScalarType extends Type {
         }
     }
 
+    public void setScalarScale(int scale) {
+        this.scale = scale;
+    }
+
     public boolean isLengthSet() {
         return getPrimitiveType() == PrimitiveType.HLL || len > 0 || !Strings.isNullOrEmpty(lenStr);
     }

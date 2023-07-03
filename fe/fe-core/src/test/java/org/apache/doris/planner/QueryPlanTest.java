@@ -1711,12 +1711,11 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertTrue(explainString.contains(Config.enable_date_conversion
                 ? "VEMPTYSET"
                 : "PREDICATES: `day` = '2020-10-30 10:00:01'"));
-        //invalid date
-
+        // invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `day` = '2020-10-32'"));
-
+        Assert.assertTrue(explainString
+                        .contains("Incorrect datetime value: '2020-10-32' in expression: `day` = '2020-10-32'"));
         //invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '20201032'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
