@@ -108,11 +108,6 @@ echo "USER: ${USER:='root'}"
 echo "DB: ${DB:='tpcds'}"
 echo "Time Unit: ms"
 
-TPCDS_QUERIES_DIR="${CURDIR}/queries"
-RESULT_DIR="${CURDIR}/result"
-rm -rf "${RESULT_DIR}"
-mkdir -p "${RESULT_DIR}"
-
 run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
