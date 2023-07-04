@@ -25,22 +25,21 @@ import org.apache.commons.collections.MapUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class CacheBulkLoaderTest {
 
     @Test
     public void test() {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
-                10,
-                1000,
-                "TestThreadPool", 120, true);
+                10, 10, "TestThreadPool", 120, true);
 
         LoadingCache<String, String> testCache = CacheBuilder.newBuilder().maximumSize(100)
                 .expireAfterAccess(1, TimeUnit.MINUTES)
@@ -52,9 +51,7 @@ public class CacheBulkLoaderTest {
 
                     @Override
                     public String load(String key) {
-                        Assertions.assertTrue(
-                                Thread.currentThread().getName().startsWith("TestThreadPool")
-                        );
+                        Assertions.assertTrue(Thread.currentThread().getName().startsWith("TestThreadPool"));
                         try {
                             Thread.sleep(100);
                         } catch (InterruptedException interruptedException) {
@@ -64,10 +61,11 @@ public class CacheBulkLoaderTest {
                     }
                 });
 
-        List<String> testKeys = Arrays.asList("k1", "k2", "k3", "k4");
+        List<String> testKeys = IntStream.range(1, 101).boxed()
+                    .map(i -> String.format("k%d", i)).collect(Collectors.toList());
         try {
             Map<String, String> vMap = testCache.getAll(testKeys);
-            Assertions.assertTrue(MapUtils.isNotEmpty(vMap) && vMap.size() == 4);
+            Assertions.assertTrue(MapUtils.isNotEmpty(vMap) && vMap.size() == testKeys.size());
             for (String key : vMap.keySet()) {
                 Assertions.assertTrue(key.replace("k", "v").equals(vMap.get(key)));
             }
