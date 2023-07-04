@@ -90,6 +90,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vtablet_block_convertor.h"
+#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 class TExpr;
@@ -798,7 +799,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     }
 
     if (request.eos()) {
-        for (auto pid : _parent->_partition_ids) {
+        for (auto pid : _parent->_tablet_finder->partition_ids()) {
             request.add_partition_ids(pid);
         }
 
@@ -1031,14 +1032,16 @@ Status VOlapTableSink::init(const TDataSink& t_sink) {
     // if distributed column list is empty, we can ensure that tablet is with random distribution info
     // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
     // for the whole olap table sink
+    auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
     if (table_sink.partition.distributed_columns.empty()) {
         if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
-            findTabletMode = FindTabletMode::FIND_TABLET_EVERY_SINK;
+            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_SINK;
         } else {
-            findTabletMode = FindTabletMode::FIND_TABLET_EVERY_BATCH;
+            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_BATCH;
         }
     }
     _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
+    _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition, find_tablet_mode);
     return _vpartition->init();
 }
 
@@ -1221,56 +1224,6 @@ size_t VOlapTableSink::get_pending_bytes() const {
     return mem_consumption;
 }
 
-Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
-                                   const VOlapTablePartition** partition, uint32_t& tablet_index,
-                                   bool& stop_processing, bool& is_continue) {
-    Status status = Status::OK();
-    *partition = nullptr;
-    tablet_index = 0;
-    BlockRow block_row;
-    block_row = {block, row_index};
-    if (!_vpartition->find_partition(&block_row, partition)) {
-        RETURN_IF_ERROR(state->append_error_msg_to_file(
-                []() -> std::string { return ""; },
-                [&]() -> std::string {
-                    fmt::memory_buffer buf;
-                    fmt::format_to(buf, "no partition for this tuple. tuple={}",
-                                   block->dump_data(row_index, 1));
-                    return fmt::to_string(buf);
-                },
-                &stop_processing));
-        _number_filtered_rows++;
-        if (stop_processing) {
-            return Status::EndOfFile("Encountered unqualified data, stop processing");
-        }
-        is_continue = true;
-        return status;
-    }
-    if (!(*partition)->is_mutable) {
-        _number_immutable_partition_filtered_rows++;
-        is_continue = true;
-        return status;
-    }
-    if ((*partition)->num_buckets <= 0) {
-        std::stringstream ss;
-        ss << "num_buckets must be greater than 0, num_buckets=" << (*partition)->num_buckets;
-        return Status::InternalError(ss.str());
-    }
-    _partition_ids.emplace((*partition)->id);
-    if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
-        if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
-            tablet_index = _vpartition->find_tablet(&block_row, **partition);
-            _partition_to_tablet_map.emplace((*partition)->id, tablet_index);
-        } else {
-            tablet_index = _partition_to_tablet_map[(*partition)->id];
-        }
-    } else {
-        tablet_index = _vpartition->find_tablet(&block_row, **partition);
-    }
-
-    return status;
-}
-
 void VOlapTableSink::_generate_row_distribution_payload(
         ChannelDistributionPayload& channel_to_payload, const VOlapTablePartition* partition,
         uint32_t tablet_index, int row_idx, size_t row_cnt) {
@@ -1305,8 +1258,8 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
             continue;
         }
         bool is_continue = false;
-        RETURN_IF_ERROR(find_tablet(state, block, i, &partition, tablet_index, stop_processing,
-                                    is_continue));
+        RETURN_IF_ERROR(_tablet_finder->find_tablet(state, block, i, &partition, tablet_index,
+                                                    stop_processing, is_continue));
         if (is_continue) {
             continue;
         }
@@ -1375,14 +1328,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     bool stop_processing = false;
     std::vector<std::unordered_map<VNodeChannel*, Payload>> channel_to_payload;
     channel_to_payload.resize(_channels.size());
-    if (findTabletMode == FIND_TABLET_EVERY_BATCH) {
-        // Recaculate is needed
-        _partition_to_tablet_map.clear();
-    }
+    _tablet_finder->clear_for_new_batch();
     _row_distribution_watch.start();
     auto num_rows = block->rows();
     size_t partition_num = _vpartition->get_partitions().size();
-    if (partition_num == 1 && findTabletMode == FindTabletMode::FIND_TABLET_EVERY_SINK) {
+    if (partition_num == 1 && _tablet_finder->is_find_tablet_every_sink()) {
         RETURN_IF_ERROR(_single_partition_generate(state, block.get(), channel_to_payload, num_rows,
                                                    has_filtered_rows));
     } else {
@@ -1393,8 +1343,8 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             const VOlapTablePartition* partition = nullptr;
             bool is_continue = false;
             uint32_t tablet_index = 0;
-            RETURN_IF_ERROR(find_tablet(state, block.get(), i, &partition, tablet_index,
-                                        stop_processing, is_continue));
+            RETURN_IF_ERROR(_tablet_finder->find_tablet(
+                    state, block.get(), i, &partition, tablet_index, stop_processing, is_continue));
             if (is_continue) {
                 continue;
             }
@@ -1411,7 +1361,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     // Random distribution and the block belongs to a single tablet, we could optimize to append the whole
     // block into node channel.
     bool load_block_to_single_tablet =
-            !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
+            !_schema->is_dynamic_schema() && _tablet_finder->is_single_tablet();
     if (load_block_to_single_tablet) {
         SCOPED_RAW_TIMER(&_filter_ns);
         // Filter block
@@ -1606,8 +1556,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
             COUNTER_SET(_input_rows_counter, _number_input_rows);
             COUNTER_SET(_output_rows_counter, _number_output_rows);
-            COUNTER_SET(_filtered_rows_counter,
-                        _block_convertor->num_filtered_rows() + _number_filtered_rows);
+            COUNTER_SET(_filtered_rows_counter, _block_convertor->num_filtered_rows() +
+                                                        _tablet_finder->num_filtered_rows());
             COUNTER_SET(_send_data_timer, _send_data_ns);
             COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
             COUNTER_SET(_filter_timer, _filter_ns);
@@ -1628,8 +1578,9 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                           state->num_rows_load_unselected();
             state->set_num_rows_load_total(num_rows_load_total);
             state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
-                                                 _number_filtered_rows);
-            state->update_num_rows_load_unselected(_number_immutable_partition_filtered_rows);
+                                                 _tablet_finder->num_filtered_rows());
+            state->update_num_rows_load_unselected(
+                    _tablet_finder->num_immutable_partition_filtered_rows());
 
             // print log of add batch time of all node, for tracing load performance easily
             std::stringstream ss;
