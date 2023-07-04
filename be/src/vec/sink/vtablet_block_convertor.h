@@ -42,11 +42,13 @@ public:
     Status validate_and_convert_block(RuntimeState* state, vectorized::Block* input_block,
                                       std::shared_ptr<vectorized::Block>& block,
                                       vectorized::VExprContextSPtrs output_vexpr_ctxs,
-                                      int64_t& filtered_rows);
+                                      bool& has_filtered_rows);
 
     const Bitmap& filter_bitmap() { return _filter_bitmap; }
 
     int64_t validate_data_ns() const { return _validate_data_ns; }
+
+    int64_t num_filtered_rows() const { return _num_filtered_rows; }
 
 private:
     template <bool is_min>
@@ -86,6 +88,7 @@ private:
     Bitmap _filter_bitmap;
 
     int64_t _validate_data_ns = 0;
+    int64_t _num_filtered_rows = 0;
 };
 
 } // namespace stream_load

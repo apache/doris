@@ -57,7 +57,7 @@ namespace stream_load {
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
-        int64_t& filtered_rows) {
+        bool& has_filtered_rows) {
     DCHECK(input_block->rows() > 0);
 
     block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
@@ -67,12 +67,14 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
                 output_vexpr_ctxs, *input_block, block.get()));
     }
 
-    filtered_rows = 0;
+    int64_t filtered_rows = 0;
     {
         SCOPED_RAW_TIMER(&_validate_data_ns);
         _filter_bitmap.Reset(block->rows());
         bool stop_processing = false;
         RETURN_IF_ERROR(_validate_data(state, block.get(), filtered_rows, &stop_processing));
+        _num_filtered_rows += filtered_rows;
+        has_filtered_rows = filtered_rows > 0;
         if (stop_processing) {
             // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
             // because of "data unqualified"

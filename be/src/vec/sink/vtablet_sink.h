@@ -515,7 +515,7 @@ private:
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
     Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, int32_t filtered_rows);
+                                      size_t num_rows, bool has_filtered_rows);
 
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
