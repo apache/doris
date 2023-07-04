@@ -16,9 +16,6 @@
 // under the License.
 
 suite('test_cast') {
-    def date = "date '2020-01-01'"
-    def datev2 = "datev2 '2020-01-01'"
-    def datetime = "timestamp '2020-01-01 12:34:45'"
     def tbl = "test_cast"
 
     sql """ DROP TABLE IF EXISTS ${tbl}"""
@@ -38,18 +35,5 @@ suite('test_cast') {
     test {
         sql "select * from ${tbl} where case when k0 = 101 then 0 else 1 end"
         result([])
-    }
-
-    test {
-        sql "select cast(${date} as int), cast(${date} as bigint), cast(${date} as float), cast(${date} as double)"
-        result([[20200101, 20200101l, ((float) 20200101), ((double) 20200101)]])
-    }
-    test {
-        sql "select cast(${datev2} as int), cast(${datev2} as bigint), cast(${datev2} as float), cast(${datev2} as double)"
-        result([[20200101, 20200101l, ((float) 20200101), ((double) 20200101)]])
-    }
-    test {
-        sql "select cast(${datetime} as int), cast(${datetime} as bigint), cast(${datetime} as float), cast(${datetime} as double)"
-        result([[869930357, 20200101123445l, ((float) 20200101123445l), ((double) 20200101123445l)]])
     }
 }

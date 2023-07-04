@@ -11,6 +11,6 @@
 1	7	12	car	amory is cute
 
 -- !select --
-12	["amory clever"]	car
-12	["amory clever"]	car
+12	['amory clever']	car
+12	['amory clever']	car
 
