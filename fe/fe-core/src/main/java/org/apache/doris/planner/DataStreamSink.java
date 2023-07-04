@@ -20,18 +20,37 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.BitmapFilterPredicate;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.google.common.collect.Lists;
+import org.springframework.util.CollectionUtils;
+
+import java.util.List;
+
 /**
  * Data sink that forwards data to an exchange node.
  */
 public class DataStreamSink extends DataSink {
-    private final PlanNodeId exchNodeId;
+
+    private PlanNodeId exchNodeId;
 
     private DataPartition outputPartition;
+
+    protected TupleDescriptor outputTupleDesc;
+
+    protected List<Expr> projections;
+
+    protected List<Expr> conjuncts = Lists.newArrayList();
+
+    public DataStreamSink() {
+
+    }
 
     public DataStreamSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
@@ -42,23 +61,66 @@ public class DataStreamSink extends DataSink {
         return exchNodeId;
     }
 
+    public void setExchNodeId(PlanNodeId exchNodeId) {
+        this.exchNodeId = exchNodeId;
+    }
+
     @Override
     public DataPartition getOutputPartition() {
         return outputPartition;
     }
 
-    public void setPartition(DataPartition partition) {
-        outputPartition = partition;
+    public void setOutputPartition(DataPartition outputPartition) {
+        this.outputPartition = outputPartition;
+    }
+
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
+    public void setOutputTupleDesc(TupleDescriptor outputTupleDesc) {
+        this.outputTupleDesc = outputTupleDesc;
+    }
+
+    public List<Expr> getProjections() {
+        return projections;
+    }
+
+    public void setProjections(List<Expr> projections) {
+        this.projections = projections;
+    }
+
+    public List<Expr> getConjuncts() {
+        return conjuncts;
+    }
+
+    public void setConjuncts(List<Expr> conjuncts) {
+        this.conjuncts = conjuncts;
+    }
+
+    public void addConjunct(Expr conjunct) {
+        this.conjuncts.add(conjunct);
     }
 
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(prefix + "STREAM DATA SINK\n");
-        strBuilder.append(prefix + "  EXCHANGE ID: " + exchNodeId + "\n");
+        strBuilder.append(prefix).append("STREAM DATA SINK\n");
+        strBuilder.append(prefix).append("  EXCHANGE ID: ").append(exchNodeId);
         if (outputPartition != null) {
-            strBuilder.append(prefix + "  " + outputPartition.getExplainString(explainLevel));
+            strBuilder.append("\n").append(prefix).append("  ").append(outputPartition.getExplainString(explainLevel));
         }
+        if (!conjuncts.isEmpty()) {
+            Expr expr = PlanNode.convertConjunctsToAndCompoundPredicate(conjuncts);
+            strBuilder.append(prefix).append("  CONJUNCTS: ").append(expr.toSql()).append("\n");
+        }
+        if (!CollectionUtils.isEmpty(projections)) {
+            strBuilder.append(prefix).append("  PROJECTIONS: ")
+                    .append(PlanNode.getExplainString(projections)).append("\n");
+            strBuilder.append(prefix).append("  PROJECTION TUPLE: ").append(outputTupleDesc.getId());
+            strBuilder.append("\n");
+        }
+
         return strBuilder.toString();
     }
 
@@ -67,6 +129,19 @@ public class DataStreamSink extends DataSink {
         TDataSink result = new TDataSink(TDataSinkType.DATA_STREAM_SINK);
         TDataStreamSink tStreamSink =
                 new TDataStreamSink(exchNodeId.asInt(), outputPartition.toThrift());
+        for (Expr e : conjuncts) {
+            if  (!(e instanceof BitmapFilterPredicate)) {
+                tStreamSink.addToConjuncts(e.treeToThrift());
+            }
+        }
+        if (projections != null) {
+            for (Expr expr : projections) {
+                tStreamSink.addToOutputExprs(expr.treeToThrift());
+            }
+        }
+        if (outputTupleDesc != null) {
+            tStreamSink.setOutputTupleId(outputTupleDesc.getId().asInt());
+        }
         result.setStreamSink(tStreamSink);
         return result;
     }

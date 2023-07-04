@@ -52,7 +52,7 @@ public class BuildCTEAnchorAndCTEProducer extends OneRewriteRuleFactory {
             CTEId id = logicalCTE.findCTEId(s.getAlias());
             if (cascadesContext.cteReferencedCount(id)
                     <= ConnectContext.get().getSessionVariable().inlineCTEReferencedThreshold
-                    || !ConnectContext.get().getSessionVariable().enablePipelineEngine) {
+                    || !ConnectContext.get().getSessionVariable().getEnablePipelineEngine()) {
                 continue;
             }
             LogicalCTEProducer logicalCTEProducer = new LogicalCTEProducer(

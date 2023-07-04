@@ -56,8 +56,8 @@ bool ScanOperator::is_pending_finish() const {
     return _node->_scanner_ctx && !_node->_scanner_ctx->no_schedule();
 }
 
-Status ScanOperator::try_close() {
-    return _node->try_close();
+Status ScanOperator::try_close(RuntimeState* state) {
+    return _node->try_close(state);
 }
 
 bool ScanOperator::runtime_filters_are_ready_or_timeout() {

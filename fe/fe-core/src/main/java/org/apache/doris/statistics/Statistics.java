@@ -151,9 +151,11 @@ public class Statistics {
 
     private double computeTupleSize() {
         if (tupleSize <= 0) {
-            tupleSize = expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum);
-            tupleSize = Math.max(1, tupleSize);
+            double tempSize = 0.0;
+            for (ColumnStatistic s : expressionToColumnStats.values()) {
+                tempSize += s.avgSizeByte;
+            }
+            tupleSize = Math.max(1, tempSize);
         }
         return tupleSize;
     }

@@ -150,7 +150,7 @@ public class EnforceMissingPropertiesHelper {
             PhysicalProperties oldOutputProperty,
             PhysicalProperties newOutputProperty) {
         context.getCascadesContext().getMemo().addEnforcerPlan(enforcer, groupExpression.getOwnerGroup());
-        NereidsTracer.logEnforcerEvent(enforcer.getOwnerGroup().getGroupId().toString(), groupExpression.getPlan(),
+        NereidsTracer.logEnforcerEvent(enforcer.getOwnerGroup().getGroupId(), groupExpression.getPlan(),
                 oldOutputProperty, newOutputProperty);
         ENFORCER_TRACER.log(EnforcerEvent.of(groupExpression, ((PhysicalPlan) enforcer.getPlan()),
                 oldOutputProperty, newOutputProperty));

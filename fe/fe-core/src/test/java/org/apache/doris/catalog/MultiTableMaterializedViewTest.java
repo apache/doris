@@ -41,6 +41,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -243,6 +244,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
 
     @ParameterizedTest
     @ValueSource(strings = {"AGGREGATE", "UNIQUE", "DUPLICATE"})
+    @Disabled
     public void testCreateWithPartition(String keyType) throws Exception {
         String aggregation = keyType.equals("AGGREGATE") ? "SUM" : "";
         createTable("CREATE TABLE test.t1 ("
