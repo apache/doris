@@ -32,6 +32,7 @@ import java.util.Map;
  */
 public class SummaryProfile {
     // Summary
+    public static final String DORIS_VERSION = "Doris Version";
     public static final String PROFILE_ID = "Profile ID";
     public static final String TASK_TYPE = "Task Type";
     public static final String START_TIME = "Start Time";
@@ -55,7 +56,7 @@ public class SummaryProfile {
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
-    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
+    public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, DORIS_VERSION, TASK_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT, IS_CACHED,
             TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
@@ -161,6 +162,11 @@ public class SummaryProfile {
 
         public SummaryBuilder profileId(String val) {
             map.put(PROFILE_ID, val);
+            return this;
+        }
+
+        public SummaryBuilder dorisVersion(String val) {
+            map.put(DORIS_VERSION, val);
             return this;
         }
 
