@@ -86,7 +86,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             bottomUp(
                 new BindRelation(customTableResolver.orElse(null)),
-                new ReplaceAliasFunction(),
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
