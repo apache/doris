@@ -1927,12 +1927,11 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
-         opt_mv_partition:partitionDesc
          opt_distribution:distributionDesc
          opt_properties:properties
          KW_AS query_stmt:query
     {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
+        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, null, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
