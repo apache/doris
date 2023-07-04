@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/hdfs.h"
@@ -41,14 +42,21 @@ struct FileInfo;
 
 class HdfsFileSystemHandle {
 public:
-    HdfsFileSystemHandle(hdfsFS fs, bool cached)
-            : hdfs_fs(fs), from_cache(cached), _ref_cnt(0), _last_access_time(0), _invalid(false) {}
+    HdfsFileSystemHandle(hdfsFS fs, bool cached, bool is_kerberos)
+            : hdfs_fs(fs),
+              from_cache(cached),
+              _is_kerberos(is_kerberos),
+              _ref_cnt(0),
+              _create_time(_now()),
+              _last_access_time(0),
+              _invalid(false) {}
 
     ~HdfsFileSystemHandle() {
         DCHECK(_ref_cnt == 0);
         if (hdfs_fs != nullptr) {
-            // Even if there is an error, the resources associated with the hdfsFS will be freed.
-            hdfsDisconnect(hdfs_fs);
+            // DO NOT call hdfsDisconnect(), or we will meet "Filesystem closed"
+            // even if we create a new one
+            // hdfsDisconnect(hdfs_fs);
         }
         hdfs_fs = nullptr;
     }
@@ -67,7 +75,11 @@ public:
 
     int ref_cnt() { return _ref_cnt; }
 
-    bool invalid() { return _invalid; }
+    bool invalid() {
+        return _invalid ||
+               (_is_kerberos &&
+                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000);
+    }
 
     void set_invalid() { _invalid = true; }
 
@@ -77,8 +89,12 @@ public:
     const bool from_cache;
 
 private:
+    const bool _is_kerberos;
     // the number of referenced client
     std::atomic<int> _ref_cnt;
+    // For kerberos authentication, we need to save create time so that
+    // we can know if the kerberos ticket is expired.
+    std::atomic<uint64_t> _create_time;
     // HdfsFileSystemCache try to remove the oldest handler when the cache is full
     std::atomic<uint64_t> _last_access_time;
     // Client will set invalid if error thrown, and HdfsFileSystemCache will not reuse this handler
