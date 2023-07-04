@@ -423,7 +423,7 @@ Status DeltaWriter::build_rowset() {
     return Status::OK();
 }
 
-Status DeltaWriter::submit_calc_delete_bitmap_task(std::unique_ptr<RowsetWriter>* rowset_writer){
+Status DeltaWriter::submit_calc_delete_bitmap_task(std::unique_ptr<RowsetWriter>* rowset_writer) {
     if (!_tablet->enable_unique_key_merge_on_write()) {
         return Status::OK();
     }

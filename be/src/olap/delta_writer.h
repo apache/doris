@@ -130,7 +130,7 @@ public:
     int64_t num_rows_filtered() const;
 
     // For UT
-    DeleteBitmapPtr get_delete_bitmap() {return _delete_bitmap;}
+    DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,

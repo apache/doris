@@ -2997,8 +2997,7 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
                                   const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   DeleteBitmapPtr delete_bitmap, int64_t end_version,
-                                  CalcDeleteBitmapToken* token,
-                                  RowsetWriter* rowset_writer) {
+                                  CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer) {
     auto rowset_id = rowset->rowset_id();
     if (specified_rowsets.empty() || segments.empty()) {
         LOG(INFO) << "skip to construct delete bitmap tablet: " << tablet_id()
@@ -3007,18 +3006,20 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
     }
 
     OlapStopWatch watch;
-    doris::TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    doris::TabletSharedPtr tablet_ptr =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
     std::vector<DeleteBitmapPtr> seg_delete_bitmaps;
     for (size_t i = 0; i < segments.size(); i++) {
         auto& seg = segments[i];
         if (token != nullptr) {
-            RETURN_IF_ERROR(token->submit(tablet_ptr, rowset, seg, specified_rowsets,
-                                          end_version, rowset_writer));
+            RETURN_IF_ERROR(token->submit(tablet_ptr, rowset, seg, specified_rowsets, end_version,
+                                          rowset_writer));
         } else {
             DeleteBitmapPtr seg_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
             seg_delete_bitmaps.push_back(seg_delete_bitmap);
             RETURN_IF_ERROR(calc_segment_delete_bitmap(rowset, segments[i], specified_rowsets,
-                                       seg_delete_bitmap, end_version, rowset_writer));
+                                                       seg_delete_bitmap, end_version,
+                                                       rowset_writer));
         }
     }
 

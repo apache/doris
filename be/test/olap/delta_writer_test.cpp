@@ -857,7 +857,6 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
         res = delta_writer2->wait_flush();
         ASSERT_TRUE(res.ok());
-
     }
     TabletSharedPtr tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id);
     std::cout << "before publish, tablet row nums:" << tablet->num_rows() << std::endl;
@@ -886,8 +885,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
                                                    version, &pstats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset1->rowset_id()
-                  << ", num rows:" << rowset1->num_rows() << ", version:" << rowset1->version().first
-                  << "-" << rowset1->version().second << std::endl;
+                  << ", num rows:" << rowset1->num_rows()
+                  << ", version:" << rowset1->version().first << "-" << rowset1->version().second
+                  << std::endl;
         res = tablet->add_inc_rowset(rowset1);
         ASSERT_TRUE(res.ok());
         ASSERT_EQ(2, tablet->num_rows());
@@ -937,8 +937,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
                                                    version, &pstats);
         ASSERT_TRUE(res.ok());
         std::cout << "start to add inc rowset:" << rowset2->rowset_id()
-                  << ", num rows:" << rowset2->num_rows() << ", version:" << rowset2->version().first
-                  << "-" << rowset2->version().second << std::endl;
+                  << ", num rows:" << rowset2->num_rows()
+                  << ", version:" << rowset2->version().first << "-" << rowset2->version().second
+                  << std::endl;
         res = tablet->add_inc_rowset(rowset2);
         ASSERT_TRUE(res.ok());
         ASSERT_EQ(4, tablet->num_rows());
@@ -956,7 +957,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         StorageReadOptions opts;
         opts.stats = &stats;
         opts.tablet_schema = rowset1->tablet_schema();
-        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg({rowset1->rowset_id(), 0, cur_version}));
+        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
+                                              {rowset1->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset1->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -983,7 +985,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         StorageReadOptions opts;
         opts.stats = &stats;
         opts.tablet_schema = rowset2->tablet_schema();
-        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg({rowset2->rowset_id(), 0, cur_version}));
+        opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
+                                              {rowset2->rowset_id(), 0, cur_version}));
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset2->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;

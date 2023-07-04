@@ -46,15 +46,13 @@ public:
 
     Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
-                  const std::vector<RowsetSharedPtr>& target_rowsets,
-                  int64_t end_version, RowsetWriter* rowset_writer);
+                  const std::vector<RowsetSharedPtr>& target_rowsets, int64_t end_version,
+                  RowsetWriter* rowset_writer);
 
     // wait all tasks in token to be completed.
     Status wait();
 
-    void cancel() {
-        _thread_token->shutdown();
-    }
+    void cancel() { _thread_token->shutdown(); }
 
     Status get_delete_bitmap(DeleteBitmapPtr res_bitmap);
 
@@ -76,9 +74,7 @@ private:
 class CalcDeleteBitmapExecutor {
 public:
     CalcDeleteBitmapExecutor() {}
-    ~CalcDeleteBitmapExecutor() {
-        _thread_pool->shutdown();
-    }
+    ~CalcDeleteBitmapExecutor() { _thread_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.

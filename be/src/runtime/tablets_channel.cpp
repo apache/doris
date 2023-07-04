@@ -283,12 +283,13 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer,
 }
 
 void TabletsChannel::_add_error_tablet(
-        google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors, int64_t tablet_id, Status error) {
+        google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors, int64_t tablet_id,
+        Status error) {
     PTabletError* tablet_error = tablet_errors->Add();
     tablet_error->set_tablet_id(tablet_id);
     tablet_error->set_msg(error.to_string());
-    VLOG_PROGRESS << "close wait failed tablet " << tablet_id << " transaction_id "
-                  << _txn_id << "err msg " << error;
+    VLOG_PROGRESS << "close wait failed tablet " << tablet_id << " transaction_id " << _txn_id
+                  << "err msg " << error;
 }
 
 int64_t TabletsChannel::mem_consumption() {
