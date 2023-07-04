@@ -75,16 +75,13 @@ public:
     static Status save_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                      DeleteBitmapPtr delete_bimap, int64_t version);
 
-    static Status traverse_delete_bitmap(OlapMeta* meta,
-                                         std::function<bool(int64_t, RowsetId, int64_t, int64_t,
-                                                            const std::string&)> const& func);
+    static Status traverse_delete_bitmap(
+            OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
 
-    static std::string encode_delete_bitmap_key(TTabletId tablet_id, int64_t version,
-                                                const RowsetId& rowset_id, int64_t segment_id);
+    static std::string encode_delete_bitmap_key(TTabletId tablet_id, int64_t version);
 
     static void decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
-                                         int64_t* version, RowsetId* rowset_id,
-                                         int64_t* segment_id);
+                                         int64_t* version);
     static Status remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                                    int64_t version);
 

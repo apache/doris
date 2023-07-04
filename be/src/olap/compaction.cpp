@@ -49,6 +49,7 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_checksum_task.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -623,9 +624,19 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
 
+    int64_t cur_max_version = 0;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
+        cur_max_version = _tablet->max_version_unlocked().second;
         _tablet->save_meta();
+    }
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        auto st = TabletMetaManager::remove_old_version_delete_bitmap(
+                _tablet->data_dir(), _tablet->tablet_id(), cur_max_version);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to remove old version delete bitmap, st: " << st;
+        }
     }
     return Status::OK();
 }

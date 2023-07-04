@@ -778,8 +778,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
 
 void StorageEngine::_clean_unused_delete_bitmap() {
     std::unordered_set<int64_t> removed_tablets;
-    auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, RowsetId rowset_id,
-                                                             int64_t segment_id, int64_t version,
+    auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
                                                              const std::string& val) -> bool {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet == nullptr) {

@@ -44,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/beta_rowset.h"
@@ -540,19 +541,41 @@ Status DataDir::load() {
         }
     }
 
-    auto load_delete_bitmap_func = [this](int64_t tablet_id, RowsetId rowset_id, int64_t segment_id,
-                                          int64_t version, const string& val) {
+    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version, const string& val) {
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (!tablet) {
             return true;
         }
         const std::vector<RowsetMetaSharedPtr>& all_rowsets = tablet->tablet_meta()->all_rs_metas();
+        RowsetIdUnorderedSet rowset_ids;
         for (auto& rowset_meta : all_rowsets) {
+            rowset_ids.insert(rowset_meta->rowset_id());
+        }
+
+        DeleteBitmapPB delete_bitmap_pb;
+        delete_bitmap_pb.ParseFromString(val);
+        int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
+        int seg_ids_size = delete_bitmap_pb.segment_ids_size();
+        int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
+        CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size);
+
+        for (size_t i = 0; i < rst_ids_size; ++i) {
+            RowsetId rst_id;
+            rst_id.init(delete_bitmap_pb.rowset_ids(i));
             // only process the rowset in _rs_metas
-            if (rowset_meta->rowset_id() == rowset_id) {
-                tablet->tablet_meta()->delete_bitmap().delete_bitmap[{
-                        rowset_id, segment_id, version}] |= roaring::Roaring::read(val.data());
+            if (rowset_ids.find(rst_id) == rowset_ids.end()) {
+                continue;
             }
+            auto seg_id = delete_bitmap_pb.segment_ids(i);
+            auto iter = tablet->tablet_meta()->delete_bitmap().delete_bitmap.find(
+                    {rst_id, seg_id, version});
+            // This version of delete bitmap already exists
+            if (iter != tablet->tablet_meta()->delete_bitmap().delete_bitmap.end()) {
+                continue;
+            }
+            auto bitmap = delete_bitmap_pb.segment_delete_bitmaps(i).data();
+            tablet->tablet_meta()->delete_bitmap().delete_bitmap[{rst_id, seg_id, version}] =
+                    roaring::Roaring::read(bitmap);
         }
         return true;
     };

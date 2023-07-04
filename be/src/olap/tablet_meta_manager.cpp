@@ -216,66 +216,60 @@ Status TabletMetaManager::traverse_pending_publish(
     return status;
 }
 
-std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id, int64_t version,
-                                                        const RowsetId& rowset_id,
-                                                        int64_t segment_id) {
+std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id, int64_t version) {
     std::string key;
-    key.reserve(56);
+    key.reserve(20);
     key.append(DELETE_BITMAP);
     put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
     put_fixed64_le(&key, BigEndian::FromHost64(version));
-    put_fixed32_le(&key, BigEndian::FromHost32(rowset_id.version));
-    put_fixed64_le(&key, BigEndian::FromHost64(rowset_id.hi));
-    put_fixed64_le(&key, BigEndian::FromHost64(rowset_id.mi));
-    put_fixed64_le(&key, BigEndian::FromHost64(rowset_id.lo));
-    put_fixed64_le(&key, BigEndian::FromHost64(segment_id));
     return key;
 }
 
 void TabletMetaManager::decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
-                                                 int64_t* version, RowsetId* rowset_id,
-                                                 int64_t* segment_id) {
-    DCHECK_EQ(enc_key.size(), 56);
+                                                 int64_t* version) {
+    DCHECK_EQ(enc_key.size(), 20);
     *tablet_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 4));
     *version = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 12));
-    rowset_id->version = BigEndian::ToHost32(UNALIGNED_LOAD32(enc_key.data() + 20));
-    rowset_id->hi = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 24));
-    rowset_id->mi = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 32));
-    rowset_id->lo = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 40));
-    *segment_id = BigEndian::ToHost64(UNALIGNED_LOAD64(enc_key.data() + 48));
 }
 
 Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                              DeleteBitmapPtr delete_bimap, int64_t version) {
+    VLOG_NOTICE << "save delete bitmap, tablet_id:" << tablet_id << ", version: " << version;
     if (delete_bimap->delete_bitmap.empty()) {
         return Status::OK();
     }
     OlapMeta* meta = store->get_meta();
-    rocksdb::WriteBatch batch;
-    rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
+    DeleteBitmapPB delete_bitmap_pb;
     for (auto& [id, bitmap] : delete_bimap->delete_bitmap) {
         auto& rowset_id = std::get<0>(id);
         int64_t segment_id = std::get<1>(id);
-        std::string key = encode_delete_bitmap_key(tablet_id, version, rowset_id, segment_id);
-        std::string value(bitmap.getSizeInBytes(), '\0');
-        bitmap.write(value.data());
-        batch.Put(cf, key, value);
+        delete_bitmap_pb.add_rowset_ids(rowset_id.to_string());
+        delete_bitmap_pb.add_segment_ids(segment_id);
+        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(bitmap_data.data());
+        *(delete_bitmap_pb.add_segment_delete_bitmaps()) = std::move(bitmap_data);
     }
-    return meta->put(&batch);
+    std::string key = encode_delete_bitmap_key(tablet_id, version);
+    std::string val;
+    bool ok = delete_bitmap_pb.SerializeToString(&val);
+    if (!ok) {
+        auto msg = fmt::format("failed to serialize delete bitmap, tablet_id: {}, version: {}",
+                               tablet_id, version);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
+    return meta->put(META_COLUMN_FAMILY_INDEX, key, val);
 }
 
 Status TabletMetaManager::traverse_delete_bitmap(
-        OlapMeta* meta,
-        std::function<bool(int64_t, RowsetId, int64_t, int64_t, const std::string&)> const& func) {
+        OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func) {
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
         TTabletId tablet_id;
         int64_t version;
-        RowsetId rowset_id;
-        int64_t segment_id;
-        decode_delete_bitmap_key(key, &tablet_id, &version, &rowset_id, &segment_id);
-        VLOG_NOTICE << "traverse delete bitmap, key: |" << tablet_id << "|" << rowset_id << "|"
-                    << segment_id << "|" << version;
-        return func(tablet_id, rowset_id, segment_id, version, value);
+        decode_delete_bitmap_key(key, &tablet_id, &version);
+        VLOG_NOTICE << "traverse delete bitmap, tablet_id: " << tablet_id
+                    << ", version: " << version;
+        return func(tablet_id, version, value);
     };
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, DELETE_BITMAP, traverse_header_func);
     return status;
@@ -286,8 +280,8 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
     OlapMeta* meta = store->get_meta();
     rocksdb::WriteBatch batch;
     rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
-    auto lower_key = encode_delete_bitmap_key(tablet_id, 0, RowsetId(), 0);
-    auto upper_key = encode_delete_bitmap_key(tablet_id, version + 1, RowsetId(), 0);
+    auto lower_key = encode_delete_bitmap_key(tablet_id, 0);
+    auto upper_key = encode_delete_bitmap_key(tablet_id, version + 1);
     batch.DeleteRange(cf, lower_key, upper_key);
     LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
               << " version: " << version;
@@ -298,8 +292,8 @@ Status TabletMetaManager::remove_delete_bitmap_by_tablet_id(DataDir* store, TTab
     OlapMeta* meta = store->get_meta();
     rocksdb::WriteBatch batch;
     rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
-    auto lower_key = encode_delete_bitmap_key(tablet_id, 0, RowsetId(), 0);
-    auto upper_key = encode_delete_bitmap_key(tablet_id, INT64_MAX, RowsetId(), 0);
+    auto lower_key = encode_delete_bitmap_key(tablet_id, 0);
+    auto upper_key = encode_delete_bitmap_key(tablet_id, INT64_MAX);
     batch.DeleteRange(cf, lower_key, upper_key);
     LOG(INFO) << "remove delete bitmap by tablet_id, tablet_id: " << tablet_id;
     return meta->put(&batch);

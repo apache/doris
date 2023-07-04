@@ -20,7 +20,9 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <json2pb/json_to_pb.h>
+#include <stddef.h>
 
 #include <filesystem>
 #include <fstream>
@@ -112,22 +114,13 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
 TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
     TTabletId tablet_id = 1234;
     int64_t version = 456;
-    RowsetId rowset_id;
-    rowset_id.init(2, 777, 888, 999);
-    int64_t segment_id = 5;
-    std::string key =
-            TabletMetaManager::encode_delete_bitmap_key(tablet_id, version, rowset_id, segment_id);
+    std::string key = TabletMetaManager::encode_delete_bitmap_key(tablet_id, version);
 
     TTabletId de_tablet_id;
     int64_t de_version;
-    RowsetId de_rowset_id;
-    int64_t de_segment_id;
-    TabletMetaManager::decode_delete_bitmap_key(key, &de_tablet_id, &de_version, &de_rowset_id,
-                                                &de_segment_id);
+    TabletMetaManager::decode_delete_bitmap_key(key, &de_tablet_id, &de_version);
     EXPECT_EQ(tablet_id, de_tablet_id);
     EXPECT_EQ(version, de_version);
-    EXPECT_EQ(rowset_id, de_rowset_id);
-    EXPECT_EQ(segment_id, de_segment_id);
 }
 
 TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
@@ -150,28 +143,35 @@ TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
         TabletMetaManager::save_delete_bitmap(_data_dir, test_tablet_id, dbmp, ver);
     }
     size_t num_keys = 0;
-    auto load_delete_bitmap_func = [&](int64_t tablet_id, RowsetId rowset_id, int64_t segment_id,
-                                       int64_t version, const string& val) {
+    auto load_delete_bitmap_func = [&](int64_t tablet_id, int64_t version, const string& val) {
         EXPECT_EQ(tablet_id, test_tablet_id);
-        auto iter = dbmp->delete_bitmap.find({rowset_id, segment_id, 0});
-        EXPECT_NE(iter, dbmp->delete_bitmap.end());
-        auto bitmap = roaring::Roaring::read(val.data());
-        EXPECT_EQ(bitmap.cardinality(), 10);
+        DeleteBitmapPB delete_bitmap_pb;
+        delete_bitmap_pb.ParseFromString(val);
+        int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
+        int seg_ids_size = delete_bitmap_pb.segment_ids_size();
+        int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
+        EXPECT_EQ(rst_ids_size, max_rst_id * max_seg_id);
+        EXPECT_EQ(seg_ids_size, rst_ids_size);
+        EXPECT_EQ(seg_maps_size, rst_ids_size);
+        for (size_t i = 0; i < rst_ids_size; i++) {
+            auto bitmap = roaring::Roaring::read(delete_bitmap_pb.segment_delete_bitmaps(i).data());
+            EXPECT_EQ(bitmap.cardinality(), 10);
+        }
         ++num_keys;
         return true;
     };
     TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
-    EXPECT_EQ(num_keys, max_rst_id * max_seg_id * max_version);
+    EXPECT_EQ(num_keys, max_version);
 
     num_keys = 0;
     TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 100);
     TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
-    EXPECT_EQ(num_keys, max_rst_id * max_seg_id * (max_version - 101));
+    EXPECT_EQ(num_keys, max_version - 101);
 
     num_keys = 0;
     TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, 200);
     TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
-    EXPECT_EQ(num_keys, max_rst_id * max_seg_id * (max_version - 201));
+    EXPECT_EQ(num_keys, max_version - 201);
 
     num_keys = 0;
     TabletMetaManager::remove_delete_bitmap_by_tablet_id(_data_dir, test_tablet_id);
