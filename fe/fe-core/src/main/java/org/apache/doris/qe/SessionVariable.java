@@ -1019,11 +1019,11 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean ignoreColumnWithComplexType = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = {"用以开启强一致性读。"
-            + "在强一致性的需求场景下可将该将该变量设置为true，使导入数据在查询时实时可见。默认值为false。",
-            "To enable strong consistency reading. In scenarios where strong consistency is required, "
-                    + "this variable can be set to true to make loaded data immediately visible to queries. "
-                    + "The default value is false."
+    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = {"用以开启强一致读。Doris 默认支持同一个会话内的强一致性，"
+            + "即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。",
+            "Used to enable strong consistent reading. By default, Doris supports strong consistency "
+                    + "within the same session, that is, changes to data within the same session are visible in real time. "
+                    + "If you want strong consistent reads between sessions, set this variable to true. "
     })
     public boolean enableStrongConsistencyRead = false;
 

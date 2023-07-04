@@ -647,7 +647,7 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
 * `enable_strong_consistency_read`
 
-  用以开启强一致性读。在强一致性的需求场景下可将该将该变量设置为true，使导入数据在查询时实时可见。默认值为false。
+  用以开启强一致读。Doris 默认支持同一个会话内的强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。
 
 ***
 
