@@ -114,7 +114,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalCTEConsumer(
             PhysicalCTEConsumer cteConsumer, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 0);
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.MUST_SHUFFLE;
     }
 
     @Override
