@@ -15,29 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.constants;
+package org.apache.doris.analysis;
 
-public enum JobStatus {
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 
-    /**
-     * When the task is not started, the initial state will be triggered.
-     * The initial state can be started
-     */
-    RUNNING,
-    /**
-     * When the task execution encounters an exception or manually suspends the task,
-     * the pause state will be triggered.
-     * Pause state can be resumed
-     */
-    PAUSED,
-    /**
-     * When the task is manually stopped, the stop state will be triggered.
-     * The stop state cannot be resumed
-     */
-    STOPPED,
+/*
+  Stop routine load job by name
 
-    /**
-     * When the task is finished, the finished state will be triggered.
-     */
-    FINISHED
+  syntax:
+      STOP ROUTINE LOAD [database.]name
+ */
+public class StopJobStmt extends DdlStmt {
+
+    private final LabelName labelName;
+
+    public StopJobStmt(LabelName labelName) {
+        this.labelName = labelName;
+    }
+
+    public String getName() {
+        return labelName.getLabelName();
+    }
+
+    public String getDbFullName() {
+        return labelName.getDbName();
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        super.analyze(analyzer);
+        labelName.analyze(analyzer);
+    }
 }
