@@ -48,13 +48,18 @@ public class BuildCTEAnchorAndCTEProducer extends OneRewriteRuleFactory {
         }
         LogicalCTE logicalCTE = (LogicalCTE) p;
         LogicalPlan child = (LogicalPlan) logicalCTE.child();
-        for (int i = logicalCTE.getAliasQueries().size() - 1; i >= 0; i--) {
-            LogicalSubQueryAlias s = (LogicalSubQueryAlias) logicalCTE.getAliasQueries().get(i);
-            CTEId id = logicalCTE.findCTEId(s.getAlias());
-            if (cascadesContext.cteReferencedCount(id)
-                    <= ConnectContext.get().getSessionVariable().inlineCTEReferencedThreshold
-                    || !ConnectContext.get().getSessionVariable().getEnablePipelineEngine()) {
-                continue;
+        if (!(child instanceof LogicalEmptyRelation)) {
+            for (int i = logicalCTE.getAliasQueries().size() - 1; i >= 0; i--) {
+                LogicalSubQueryAlias s = (LogicalSubQueryAlias) logicalCTE.getAliasQueries().get(i);
+                CTEId id = logicalCTE.findCTEId(s.getAlias());
+                if (cascadesContext.cteReferencedCount(id)
+                        <= ConnectContext.get().getSessionVariable().inlineCTEReferencedThreshold
+                        || !ConnectContext.get().getSessionVariable().getEnablePipelineEngine()) {
+                    continue;
+                }
+                LogicalCTEProducer logicalCTEProducer = new LogicalCTEProducer(
+                        rewrite((LogicalPlan) s.child(), cascadesContext), id);
+                child = new LogicalCTEAnchor(logicalCTEProducer, child, id);
             }
         }
         return child;
