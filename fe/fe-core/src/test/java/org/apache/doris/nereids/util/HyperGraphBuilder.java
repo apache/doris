@@ -173,9 +173,6 @@ public class HyperGraphBuilder {
                 plan);
         JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
                 cascadesContext.getCurrentJobContext());
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
         HyperGraph hyperGraph = new HyperGraph();
