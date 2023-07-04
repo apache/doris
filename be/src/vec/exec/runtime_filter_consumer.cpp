@@ -76,20 +76,19 @@ bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
     return true;
 }
 
-Status RuntimeFilterConsumer::_acquire_runtime_filter(bool wait) {
+Status RuntimeFilterConsumer::_acquire_runtime_filter() {
     SCOPED_TIMER(_acquire_runtime_filter_timer);
     VExprSPtrs vexprs;
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
         IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
         bool ready = runtime_filter->is_ready();
-        if (!ready && wait) {
+        if (!ready) {
             ready = runtime_filter->await();
         }
         if (ready && !_runtime_filter_ctxs[i].apply_mark) {
             RETURN_IF_ERROR(runtime_filter->get_push_expr_ctxs(&vexprs));
             _runtime_filter_ctxs[i].apply_mark = true;
-        } else if ((wait || !runtime_filter->is_ready_or_timeout()) &&
-                   runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
+        } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
                    !_runtime_filter_ctxs[i].apply_mark) {
             _blocked_by_rf = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {

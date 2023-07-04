@@ -71,7 +71,7 @@ Status MultiCastDataStreamerSourceOperator::prepare(doris::RuntimeState* state) 
 }
 
 Status MultiCastDataStreamerSourceOperator::open(doris::RuntimeState* state) {
-    return _acquire_runtime_filter(state);
+    return _acquire_runtime_filter();
 }
 
 bool MultiCastDataStreamerSourceOperator::runtime_filters_are_ready_or_timeout() {
