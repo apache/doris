@@ -268,7 +268,7 @@ Status Channel::close_internal() {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         status = send_block((PBlock*)nullptr, true);
     }
-    // Don't wait for the last packet to finish, left it to close_wait.
+    // Don't wait for the last packet to finish, left it to commit_txn.
     if (status.is<ErrorCode::END_OF_FILE>()) {
         return Status::OK();
     } else {
