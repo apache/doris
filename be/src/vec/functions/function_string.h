@@ -1165,7 +1165,7 @@ private:
         }
     }
 };
-template<bool use_old_function>
+template <bool use_old_function>
 class FunctionStringRepeat : public IFunction {
 public:
     static constexpr auto name = "repeat";
