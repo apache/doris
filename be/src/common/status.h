@@ -336,7 +336,7 @@ public:
 
     template <int code, bool stacktrace = true, typename... Args>
     Status static Error(std::string_view msg, Args&&... args) {
-        return Error(code, msg, std::forward<Args>(args)...);
+        return Error<stacktrace>(code, msg, std::forward<Args>(args)...);
     }
 
     template <bool stacktrace = true, typename... Args>
