@@ -233,7 +233,7 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 
 Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
                                                  OlapReaderStatistics* stats,
-                                                 InvertedIndexIterator** iterator) {
+                                                 std::unique_ptr<InvertedIndexIterator>* iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
         RETURN_IF_ERROR(_inverted_index->new_iterator(stats, iterator));

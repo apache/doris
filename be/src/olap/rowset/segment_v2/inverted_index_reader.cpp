@@ -213,8 +213,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 }
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats,
-                                         InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(stats, shared_from_this());
+                                         std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
 
@@ -405,8 +405,8 @@ InvertedIndexReaderType FullTextIndexReader::type() {
 }
 
 Status StringTypeInvertedIndexReader::new_iterator(OlapReaderStatistics* stats,
-                                                   InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(stats, shared_from_this());
+                                                   std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
 
@@ -548,8 +548,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
             config::inverted_index_read_buffer_size);
 }
 
-Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(stats, shared_from_this());
+Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
 

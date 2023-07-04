@@ -120,7 +120,7 @@ public:
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     Status new_inverted_index_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
-                                       InvertedIndexIterator** iterator);
+                                       std::unique_ptr<InvertedIndexIterator>* iterator);
 
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
