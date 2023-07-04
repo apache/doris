@@ -118,13 +118,6 @@ Status EnginePublishVersionTask::finish() {
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
             TabletInfo tablet_info = tablet_rs.first;
-            bool first_time_update = false;
-            if (StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
-                        tablet_info.tablet_id, version.second) < 0) {
-                first_time_update = true;
-                StorageEngine::instance()->txn_manager()->update_tablet_version_txn(
-                        tablet_info.tablet_id, version.second, transaction_id);
-            }
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
                           << "tablet_id=" << tablet_info.tablet_id
@@ -154,6 +147,13 @@ Status EnginePublishVersionTask::finish() {
             // here and wait pre version publish or lock timeout
             if (tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                 tablet->enable_unique_key_merge_on_write()) {
+                bool first_time_update = false;
+                if (StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
+                            tablet_info.tablet_id, version.second) < 0) {
+                    first_time_update = true;
+                    StorageEngine::instance()->txn_manager()->update_tablet_version_txn(
+                            tablet_info.tablet_id, version.second, transaction_id);
+                }
                 Version max_version;
                 TabletState tablet_state;
                 {
