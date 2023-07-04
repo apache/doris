@@ -445,8 +445,8 @@ protected:
     using Self = HashTable;
     using cell_type = Cell;
 
-    size_t m_size = 0; /// Amount of elements
-    Cell* buf;         /// A piece of memory for all elements except the element with zero key.
+    size_t m_size = 0;   /// Amount of elements
+    Cell* buf {nullptr}; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
 

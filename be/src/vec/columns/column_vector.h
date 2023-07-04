@@ -274,6 +274,24 @@ public:
                                      const uint8_t* null_map,
                                      size_t max_row_byte_size) const override;
 
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
+        hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[n]), sizeof(T), hash);
+    }
+
+    void update_crc_with_value(size_t n, uint64_t& crc) const override {
+        if constexpr (!std::is_same_v<T, Int64>) {
+            crc = HashUtil::zlib_crc_hash(&data[n], sizeof(T), crc);
+        } else {
+            if (this->is_date_type() || this->is_datetime_type()) {
+                char buf[64];
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[n];
+                auto len = date_val.to_buffer(buf);
+                crc = HashUtil::zlib_crc_hash(buf, len, crc);
+            } else {
+                crc = HashUtil::zlib_crc_hash(&data[n], sizeof(T), crc);
+            }
+        }
+    }
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,

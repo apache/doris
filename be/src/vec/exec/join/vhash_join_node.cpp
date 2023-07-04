@@ -508,6 +508,18 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    std::visit(Overload {[&](std::monostate&) {},
+                         [&](auto&& process_hashtable_ctx) {
+                             if (process_hashtable_ctx._arena) {
+                                 process_hashtable_ctx._arena.reset();
+                             }
+
+                             if (process_hashtable_ctx._serialize_key_arena) {
+                                 process_hashtable_ctx._serialize_key_arena.reset();
+                                 process_hashtable_ctx._serialized_key_buffer_size = 0;
+                             }
+                         }},
+               *_process_hashtable_ctx_variants);
     return VJoinNodeBase::close(state);
 }
 
@@ -611,7 +623,12 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
     }
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+
+    // Here make _join_block release the columns' ptr
+    _join_block.set_columns(_join_block.clone_empty_columns());
+    mutable_join_block.clear();
+
+    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();

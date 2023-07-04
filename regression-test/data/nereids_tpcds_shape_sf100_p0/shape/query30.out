@@ -16,8 +16,9 @@ CteAnchor[cteId= ( CTEId#2=] )
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_year = 2002))
 --------------------------PhysicalOlapScan[date_dim]
---------------PhysicalProject
-----------------PhysicalOlapScan[customer_address]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[customer_address]
 --PhysicalTopN
 ----PhysicalDistribute
 ------PhysicalTopN
@@ -39,6 +40,7 @@ CteAnchor[cteId= ( CTEId#2=] )
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------CteConsumer[cteId= ( CTEId#2=] )
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------CteConsumer[cteId= ( CTEId#2=] )
 

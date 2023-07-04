@@ -369,12 +369,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return ImmutableList.of(gatherLocalAgg);
         } else {
             RequireProperties requireHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<Plan> hashLocalAgg = gatherLocalAgg
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
             return ImmutableList.<PhysicalHashAggregate<Plan>>builder()
-                    .add(gatherLocalAgg)
+                    // TODO: usually bad, disable it until we could do better cost computation.
+                    //.add(gatherLocalAgg)
                     .add(hashLocalAgg)
                     .build();
         }
@@ -481,7 +482,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return ImmutableList.of(gatherLocalGatherDistinctAgg);
         } else {
             RequireProperties requireHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<Plan> hashLocalHashGlobalAgg = gatherLocalGatherDistinctAgg
                     .withRequireTree(requireHash.withChildren(requireHash))
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
@@ -621,7 +622,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         );
 
         RequireProperties requireDistinctHash = RequireProperties.of(
-                PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
         PhysicalHashAggregate<? extends Plan> anyLocalHashGlobalGatherDistinctAgg
                 = anyLocalGatherGlobalGatherAgg.withChildren(ImmutableList.of(
                         anyLocalGatherGlobalAgg
@@ -636,7 +637,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .build();
         } else {
             RequireProperties requireGroupByHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<PhysicalHashAggregate<Plan>> anyLocalHashGlobalHashDistinctAgg
                     = anyLocalGatherGlobalGatherAgg.withRequirePropertiesAndChild(requireGroupByHash,
                             anyLocalGatherGlobalAgg
@@ -730,13 +731,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return ImmutableList.of(anyLocalGatherGlobalAgg);
         } else {
             RequireProperties requireHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
 
             PhysicalHashAggregate<Plan> anyLocalHashGlobalAgg = anyLocalGatherGlobalAgg
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
             return ImmutableList.<PhysicalHashAggregate<Plan>>builder()
-                    .add(anyLocalGatherGlobalAgg)
+                    // TODO: usually bad, disable it until we could do better cost computation.
+                    // .add(anyLocalGatherGlobalAgg)
                     .add(anyLocalHashGlobalAgg)
                     .build();
         }
@@ -841,7 +843,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             RequireProperties requireDistinctHash = RequireProperties.of(PhysicalProperties.createHash(
-                    distinctArguments, ShuffleType.AGGREGATE));
+                    distinctArguments, ShuffleType.REQUIRE));
             PhysicalHashAggregate<? extends Plan> hashLocalGatherGlobalAgg = gatherLocalGatherGlobalAgg
                     .withChildren(ImmutableList.of(gatherLocalAgg
                             .withRequire(requireDistinctHash)
@@ -853,7 +855,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .build();
         } else {
             RequireProperties requireGroupByHash = RequireProperties.of(PhysicalProperties.createHash(
-                    logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<PhysicalHashAggregate<Plan>> hashLocalHashGlobalAgg = gatherLocalGatherGlobalAgg
                     .withRequirePropertiesAndChild(requireGroupByHash, gatherLocalAgg
                             .withRequire(requireGroupByHash)
@@ -990,7 +992,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 requireGather, anyLocalGatherGlobalAgg);
 
         RequireProperties requireDistinctHash = RequireProperties.of(
-                PhysicalProperties.createHash(logicalAgg.getDistinctArguments(), ShuffleType.AGGREGATE));
+                PhysicalProperties.createHash(logicalAgg.getDistinctArguments(), ShuffleType.REQUIRE));
         PhysicalHashAggregate<? extends Plan> anyLocalHashGlobalGatherDistinctAgg
                 = anyLocalGatherGlobalGatherDistinctAgg
                     .withChildren(ImmutableList.of(anyLocalGatherGlobalAgg
@@ -1006,7 +1008,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .build();
         } else {
             RequireProperties requireGroupByHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<? extends Plan> anyLocalHashGlobalHashDistinctAgg
                     = anyLocalGatherGlobalGatherDistinctAgg
                     .withRequirePropertiesAndChild(requireGroupByHash, anyLocalGatherGlobalAgg
@@ -1069,12 +1071,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return ImmutableList.of(gatherLocalAgg);
         } else {
             RequireProperties requireHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<? extends Plan> hashLocalAgg = gatherLocalAgg
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
             return ImmutableList.<PhysicalHashAggregate<? extends Plan>>builder()
-                    .add(gatherLocalAgg)
+                    // TODO: usually bad, disable it until we could do better cost computation.
+                    // .add(gatherLocalAgg)
                     .add(hashLocalAgg)
                     .build();
         }
@@ -1156,7 +1159,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (logicalAgg.getGroupByExpressions().isEmpty()) {
             Collection<Expression> distinctArguments = logicalAgg.getDistinctArguments();
             RequireProperties requireDistinctHash = RequireProperties.of(PhysicalProperties.createHash(
-                    distinctArguments, ShuffleType.AGGREGATE));
+                    distinctArguments, ShuffleType.REQUIRE));
             PhysicalHashAggregate<? extends Plan> hashLocalGatherGlobalAgg = anyLocalGatherGlobalAgg
                     .withChildren(ImmutableList.of(anyLocalAgg
                             .withRequire(requireDistinctHash)
@@ -1168,7 +1171,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     .build();
         } else {
             RequireProperties requireHash = RequireProperties.of(
-                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.AGGREGATE));
+                    PhysicalProperties.createHash(logicalAgg.getGroupByExpressions(), ShuffleType.REQUIRE));
             PhysicalHashAggregate<? extends Plan> anyLocalHashGlobalAgg = anyLocalGatherGlobalAgg
                     .withRequire(requireHash)
                     .withPartitionExpressions(logicalAgg.getGroupByExpressions());
@@ -1338,7 +1341,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         RequireProperties requireGather = RequireProperties.of(PhysicalProperties.GATHER);
 
         RequireProperties requireDistinctHash = RequireProperties.of(
-                PhysicalProperties.createHash(logicalAgg.getDistinctArguments(), ShuffleType.AGGREGATE));
+                PhysicalProperties.createHash(logicalAgg.getDistinctArguments(), ShuffleType.REQUIRE));
 
         //phase 2
         PhysicalHashAggregate<? extends Plan> anyLocalHashGlobalAgg = new PhysicalHashAggregate<>(

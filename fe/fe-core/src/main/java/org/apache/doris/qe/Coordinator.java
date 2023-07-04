@@ -35,7 +35,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -311,7 +310,7 @@ public class Coordinator {
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
-        this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
+        this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine();
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -379,7 +378,7 @@ public class Coordinator {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
+        this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
@@ -2328,7 +2327,8 @@ public class Coordinator {
         // check whether the node fragment is bucket shuffle join fragment
         private boolean isBucketShuffleJoin(int fragmentId, PlanNode node) {
             if (ConnectContext.get() != null) {
-                if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
+                if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()
+                        && !ConnectContext.get().getSessionVariable().isEnableNereidsPlanner()) {
                     return false;
                 }
             }
@@ -2787,9 +2787,13 @@ public class Coordinator {
                             this.initiated, this.done, this.hasCanceled, backend.getId(),
                             DebugUtil.printId(localParam.fragment_instance_id), cancelReason.name());
                 }
-                if (fragmentInstancesMap.get(localParam.fragment_instance_id).getIsCancel()) {
+
+                RuntimeProfile profile = fragmentInstancesMap.get(localParam.fragment_instance_id);
+                if (profile.getIsDone() || profile.getIsCancel()) {
                     continue;
                 }
+
+                this.hasCanceled = true;
                 try {
                     Span span = ConnectContext.get() != null
                             ? ConnectContext.get().getTracer().spanBuilder("cancelPlanFragmentAsync")
@@ -2811,7 +2815,10 @@ public class Coordinator {
                     return false;
                 }
             }
-            this.hasCanceled = true;
+            if (!this.hasCanceled) {
+                return false;
+            }
+
             for (int i = 0; i < this.numInstances; i++) {
                 fragmentInstancesMap.get(rpcParams.local_params.get(i).fragment_instance_id).setIsCancel(true);
             }

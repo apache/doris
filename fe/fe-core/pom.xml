@@ -36,7 +36,6 @@ under the License.
         <awssdk.version>2.17.257</awssdk.version>
         <huaweiobs.version>3.1.1-hw-45</huaweiobs.version>
         <tencentcos.version>3.3.5</tencentcos.version>
-        <aliyunoss.version>3.2.2</aliyunoss.version>
     </properties>
     <profiles>
         <profile>
@@ -413,7 +412,6 @@ under the License.
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-aliyun</artifactId>
-            <version>${aliyunoss.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>

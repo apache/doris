@@ -191,6 +191,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
+
+    public static final String ENABLE_AGG_STATE = "enable_agg_state";
+
     public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
@@ -349,6 +352,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
+
+    public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
+
+    public static final String CBO_MEM_WEIGHT = "cbo_mem_weight";
+
+    public static final String CBO_NET_WEIGHT = "cbo_net_weight";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -607,7 +616,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
-    public boolean enablePipelineEngine = true;
+    private boolean enablePipelineEngine = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
+    public boolean enableAggState = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
@@ -668,6 +680,39 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BE_NUMBER_FOR_TEST)
     private int beNumberForTest = -1;
+
+    public double getCboCpuWeight() {
+        return cboCpuWeight;
+    }
+
+    public void setCboCpuWeight(double cboCpuWeight) {
+        this.cboCpuWeight = cboCpuWeight;
+    }
+
+    public double getCboMemWeight() {
+        return cboMemWeight;
+    }
+
+    public void setCboMemWeight(double cboMemWeight) {
+        this.cboMemWeight = cboMemWeight;
+    }
+
+    public double getCboNetWeight() {
+        return cboNetWeight;
+    }
+
+    public void setCboNetWeight(double cboNetWeight) {
+        this.cboNetWeight = cboNetWeight;
+    }
+
+    @VariableMgr.VarAttr(name = CBO_CPU_WEIGHT)
+    private double cboCpuWeight = 1.0;
+
+    @VariableMgr.VarAttr(name = CBO_MEM_WEIGHT)
+    private double cboMemWeight = 1.0;
+
+    @VariableMgr.VarAttr(name = CBO_NET_WEIGHT)
+    private double cboNetWeight = 1.5;
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
@@ -912,7 +957,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean dumpNereidsMemo = false;
 
     @VariableMgr.VarAttr(name = "memo_max_group_expression_size")
-    public int memoMaxGroupExpressionSize = 40000;
+    public int memoMaxGroupExpressionSize = 10000;
 
     @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
     public boolean enableMinidump = false;
@@ -1595,10 +1640,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
         this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
-    }
-
-    public boolean enablePipelineEngine() {
-        return enablePipelineEngine;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
@@ -2298,5 +2339,25 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableUnifiedLoad() {
         return enableUnifiedLoad;
+    }
+
+    public boolean getEnablePipelineEngine() {
+        return enablePipelineEngine;
+    }
+
+    public static boolean enablePipelineEngine() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enablePipelineEngine;
+    }
+
+    public static boolean enableAggState() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return true;
+        }
+        return connectContext.getSessionVariable().enableAggState;
     }
 }

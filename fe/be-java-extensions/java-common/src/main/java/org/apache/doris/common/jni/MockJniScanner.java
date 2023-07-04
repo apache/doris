@@ -111,6 +111,11 @@ public class MockJniScanner extends JniScanner {
         }
 
         @Override
+        public byte[] getStringAsBytes() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public LocalDate getDate() {
             return LocalDate.now();
         }
@@ -143,7 +148,7 @@ public class MockJniScanner extends JniScanner {
 
     private static final Logger LOG = Logger.getLogger(MockJniScanner.class);
 
-    private final int mockRows;
+    private int mockRows;
     private int readRows = 0;
     private final MockColumnValue columnValue = new MockColumnValue();
 

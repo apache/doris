@@ -20,6 +20,8 @@
 #include <fstream>
 
 #include "io/fs/benchmark/benchmark_factory.hpp"
+#include "io/fs/s3_file_write_bufferpool.h"
+#include "util/threadpool.h"
 
 DEFINE_string(fs_type, "hdfs", "Supported File System: s3, hdfs");
 DEFINE_string(operation, "create_write",
@@ -106,6 +108,15 @@ int main(int argc, char** argv) {
         std::cout << "failed to read conf from file \"conf_file\"" << std::endl;
         return 1;
     }
+
+    // init s3 write buffer pool
+    std::unique_ptr<doris::ThreadPool> buffered_reader_prefetch_thread_pool;
+    doris::ThreadPoolBuilder("BufferedReaderPrefetchThreadPool")
+            .set_min_threads(16)
+            .set_max_threads(64)
+            .build(&buffered_reader_prefetch_thread_pool);
+    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
+    s3_buffer_pool->init(524288000, 5242880, buffered_reader_prefetch_thread_pool.get());
 
     try {
         doris::io::MultiBenchmark multi_bm(FLAGS_fs_type, FLAGS_operation, std::stoi(FLAGS_threads),

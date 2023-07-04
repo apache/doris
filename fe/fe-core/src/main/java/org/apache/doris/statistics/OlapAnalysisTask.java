@@ -119,8 +119,8 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             stmtExecutor.execute();
             QueryState queryState = r.connectContext.getState();
             if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s",
-                        info.catalogName, info.dbName, info.colName, queryState.getErrorMessage()));
+                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
             }
         }
     }

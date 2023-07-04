@@ -315,6 +315,8 @@ public class StmtExecutor {
                         .collect(Collectors.joining(",")));
         builder.parallelFragmentExecInstance(String.valueOf(context.sessionVariable.getParallelExecInstanceNum()));
         builder.traceId(context.getSessionVariable().getTraceId());
+        builder.isNereids(context.getState().isNereids ? "Yes" : "No");
+        builder.isPipeline(context.getSessionVariable().getEnablePipelineEngine() ? "Yes" : "No");
         return builder.build();
     }
 
@@ -562,7 +564,7 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
-                && context.getSessionVariable().enablePipelineEngine()) {
+                && context.getSessionVariable().getEnablePipelineEngine()) {
             this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
                 this.offerRet = queryQueue.offer();
@@ -720,7 +722,7 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof UpdateStmt) {
                 handleUpdateStmt();
             } else if (parsedStmt instanceof DdlStmt) {
-                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getFromClause() != null) {
+                if (parsedStmt instanceof DeleteStmt && ((DeleteStmt) parsedStmt).getInsertStmt() != null) {
                     handleDeleteStmt();
                 } else {
                     handleDdlStmt();
@@ -1356,7 +1358,7 @@ public class StmtExecutor {
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
-        if (Config.enable_workload_group && context.sessionVariable.enablePipelineEngine()) {
+        if (Config.enable_workload_group && context.sessionVariable.getEnablePipelineEngine()) {
             coord.setTWorkloadGroups(context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context));
         }
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

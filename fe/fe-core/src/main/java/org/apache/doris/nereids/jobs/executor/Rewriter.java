@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
@@ -61,8 +62,10 @@ import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
+import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InlineCTE;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.NormalizeAggregate;
@@ -71,6 +74,8 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
+import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
+import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
@@ -202,7 +207,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
-                    bottomUp(new EliminateNotNull())
+                    bottomUp(new EliminateNotNull()),
+                    topDown(new ConvertInnerOrCrossJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -223,10 +229,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // this rule should invoke after ColumnPruning
             custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
 
-            topic("Intersection optimization",
+            topic("Set operation optimization",
                     // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
+                    topDown(new PushProjectThroughUnion(), new MergeProjects()),
                     bottomUp(new MergeSetOperations()),
-                    bottomUp(new BuildAggForUnion())
+                    bottomUp(new PushProjectIntoOneRowRelation()),
+                    topDown(new MergeOneRowRelationIntoUnion()),
+                    costBased(topDown(new InferSetOperatorDistinct())),
+                    topDown(new BuildAggForUnion())
             ),
 
             topic("Window optimization",
@@ -272,6 +282,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushdownFilterThroughProject(),
                             new MergeProjects()
                     ),
+                    custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),

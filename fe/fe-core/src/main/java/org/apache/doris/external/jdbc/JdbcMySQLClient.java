@@ -36,8 +36,12 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
+
+    private static boolean convertDateToNull = false;
+
     protected JdbcMySQLClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
+        convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
     }
 
     @Override
@@ -281,6 +285,9 @@ public class JdbcMySQLClient extends JdbcClient {
                 if (scale > 6) {
                     scale = 6;
                 }
+                if (convertDateToNull) {
+                    fieldSchema.setAllowNull(true);
+                }
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "FLOAT":
@@ -330,5 +337,10 @@ public class JdbcMySQLClient extends JdbcClient {
             default:
                 return Type.UNSUPPORTED;
         }
+    }
+
+    private boolean isConvertDatetimeToNull(JdbcClientConfig jdbcClientConfig) {
+        // Check if the JDBC URL contains "zeroDateTimeBehavior=convertToNull".
+        return jdbcClientConfig.getJdbcUrl().contains("zeroDateTimeBehavior=convertToNull");
     }
 }

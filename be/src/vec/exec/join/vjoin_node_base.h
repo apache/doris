@@ -80,7 +80,7 @@ protected:
     // Convert the intermediate blocks to the final result. For example, if the block from probe
     // side is non-nullable and the join op is righter outer join, we need to convert the non-nullable
     // columns from probe side to a nullable column.
-    Status _build_output_block(Block* origin_block, Block* output_block);
+    Status _build_output_block(Block* origin_block, Block* output_block, bool keep_origin = true);
     // Open probe side asynchronously.
     void _probe_side_open_thread(RuntimeState* state, std::promise<Status>* status);
 

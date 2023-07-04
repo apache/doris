@@ -403,6 +403,8 @@ insert into doris_sink select id,name from cdc_mysql_source;
 - **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
 - **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
 
+>注：需要在$FLINK_HOME/lib 目录下添加flink-sql-connector-mysql-cdc-2.3.0.jar
+
 ### 示例
 ```
 <FLINK_HOME>/bin/flink run \
@@ -465,7 +467,7 @@ CREATE TABLE DORIS_SINK(
   'username' = 'root',
   'password' = '',
   'sink.enable-delete' = 'false',        -- false表示不从RowKind获取事件类型
-  'sink.properties.columns' = 'name,age,__DORIS_DELETE_SIGN__'  -- 显示指定streamload的导入列
+  'sink.properties.columns' = 'id, name, __DORIS_DELETE_SIGN__'  -- 显示指定streamload的导入列
 );
 
 INSERT INTO KAFKA_SOURCE
