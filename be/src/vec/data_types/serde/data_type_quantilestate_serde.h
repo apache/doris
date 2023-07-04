@@ -48,6 +48,7 @@ public:
     Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
                                           const FormatOptions& options) const override {
         LOG(FATAL) << "Not support read QuantileState column from buffer";
+        return Status::NotSupported("Not support read QuantileState column from buffer");
     }
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
