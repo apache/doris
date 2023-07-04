@@ -72,7 +72,7 @@ private:
     FileHandleCache::Accessor _accessor;
     CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
-    [[maybe_unused]] RuntimeProfile* _profile;
+    RuntimeProfile* _profile;
 #ifdef USE_HADOOP_HDFS
     HDFSProfile _hdfs_profile;
 #endif
