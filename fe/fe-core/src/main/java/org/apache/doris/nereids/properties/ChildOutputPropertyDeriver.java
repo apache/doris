@@ -345,7 +345,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
                         .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
-                if (offset > 0) {
+                if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {
                     return PhysicalProperties.ANY;
