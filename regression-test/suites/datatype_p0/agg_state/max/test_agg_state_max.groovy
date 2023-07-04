@@ -19,6 +19,7 @@ suite("test_agg_state_max") {
     // todo: will core dump now, need fix.
     sql"set enable_nereids_planner=false;"
     
+    sql "set enable_agg_state=true"
     sql """ DROP TABLE IF EXISTS a_table; """
     sql """
             create table a_table(
