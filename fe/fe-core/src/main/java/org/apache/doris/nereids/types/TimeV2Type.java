@@ -36,7 +36,7 @@ public class TimeV2Type extends PrimitiveType {
     }
 
     private TimeV2Type() {
-        scale = 6;
+        scale = 0;
     }
 
     @Override

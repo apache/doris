@@ -44,4 +44,23 @@ suite("test_time_diff_microseconds") {
     qt_select1 """
         select timediff(t1,t2) from tbl_time order by id
     """
+
+    qt_select2 """
+        select timediff(
+            cast('0001-01-03 11:45:14' as Date ) , 
+            cast('0001-01-01 00:00:00.000000' as Date));
+    """
+
+    qt_select3 """
+        select timediff(
+        cast('0001-01-03 00:00:00.114514' as Datetimev2(6) ) , 
+        cast('0001-01-01 00:00:00.000000' as Datetimev2(6) ));
+    """
+
+
+    qt_select4 """
+        select timediff(
+        cast('0001-01-03 00:00:00.114514' as Datetimev2(3) ) , 
+        cast('0001-01-01 00:00:00.000000' as Datetimev2(5) ));
+    """
 }

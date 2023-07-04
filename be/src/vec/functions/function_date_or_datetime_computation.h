@@ -300,7 +300,9 @@ struct TimeDiffImpl {
             std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>,
                                 DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
     static constexpr bool UsingTimev2 = std::is_same_v<DateType1, DataTypeDateTimeV2> ||
-                                        std::is_same_v<DateType2, DataTypeDateTimeV2>;
+                                        std::is_same_v<DateType2, DataTypeDateTimeV2> ||
+                                        std::is_same_v<DateType1, DataTypeDateV2> ||
+                                        std::is_same_v<DateType2, DataTypeDateV2>;
     using ReturnType = std ::conditional_t<UsingTimev2, DataTypeTimeV2, DataTypeTime>;
 
     static constexpr auto name = "timediff";
