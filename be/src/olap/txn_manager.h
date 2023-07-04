@@ -211,11 +211,9 @@ private:
         }
     };
 
-    typedef std::unordered_map<TxnKey, std::map<TabletInfo, TabletTxnInfo>, TxnKeyHash, TxnKeyEqual>
-            txn_tablet_map_t;
-    typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
-    typedef std::unordered_map<int64_t, std::map<int64_t, DeltaWriter*>>
-            txn_tablet_delta_writer_map_t;
+    using txn_tablet_map_t = std::unordered_map<TxnKey, std::map<TabletInfo, TabletTxnInfo>, TxnKeyHash, TxnKeyEqual>;
+    using txn_partition_map_t = std::unordered_map<int64_t, std::unordered_set<int64_t>>;
+    using txn_tablet_delta_writer_map_t = std::unordered_map<int64_t, std::map<int64_t, DeltaWriter *>>;
 
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
