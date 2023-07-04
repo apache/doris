@@ -495,7 +495,7 @@ const char* Errno::str() {
 }
 
 const char* Errno::str(int no) {
-    if (nullptr != strerror_r(no, _buf, BUF_SIZE)) {
+    if (0 != strerror_r(no, _buf, BUF_SIZE)) {
         LOG(WARNING) << "fail to get errno string. [no='" << no << "', errno='" << errno << "']";
         snprintf(_buf, BUF_SIZE, "unknown errno");
     }
