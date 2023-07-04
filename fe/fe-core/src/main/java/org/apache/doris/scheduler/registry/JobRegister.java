@@ -17,7 +17,9 @@
 
 package org.apache.doris.scheduler.registry;
 
+import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.scheduler.executor.JobExecutor;
+import org.apache.doris.scheduler.job.Job;
 
 import java.io.IOException;
 
@@ -75,8 +77,8 @@ public interface JobRegister {
      * pause means event job will not be executed in the next cycle,but current cycle will not be interrupted
      * we can resume it by {@link #resumeJob(Long)}
      *
-     * @param eventId event job id
-     *                if eventId not exist, return false
+     * @param jodId job id
+     *                if jobId not exist, return false
      * @return true if pause success, false if pause failed
      */
     Boolean pauseJob(Long jodId);
@@ -99,6 +101,8 @@ public interface JobRegister {
      * @return true if resume success, false if resume failed
      */
     Boolean resumeJob(Long jobId);
+    
+    Long registerJob(Job job);
 
     /**
      * close job scheduler register

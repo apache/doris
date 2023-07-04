@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler;
 
+import org.apache.doris.analysis.CreateJobStmt;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
@@ -48,15 +49,20 @@ public class AsyncJobRegister implements JobRegister {
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, Long startTimeStamp, JobExecutor executor) {
-        return this.registerJob(name, intervalMs, startTimeStamp, null, executor);
+    public Long registerJob(String name, Long intervalMs, Long startTimeMs, JobExecutor executor) {
+        return this.registerJob(name, intervalMs, startTimeMs, null, executor);
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, Long startTimeStamp, Long endTimeStamp,
+    public Long registerJob(String name, Long intervalMs, Long startTimeMs, Long endTimeStamp,
                                  JobExecutor executor) {
 
-        Job job = new Job(name, intervalMs, startTimeStamp, endTimeStamp, executor);
+        Job job = new Job(name, intervalMs, startTimeMs, endTimeStamp, executor);
+        return asyncJobManager.registerJob(job);
+    }
+
+    @Override
+    public Long registerJob(Job job) {
         return asyncJobManager.registerJob(job);
     }
 

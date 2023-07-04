@@ -82,8 +82,8 @@ public class AsyncJobManager implements Closeable {
             log.warn("registerJob failed, job: {} param is invalid", job);
             return null;
         }
-        if (job.getStartTimestamp() != 0L) {
-            job.setNextExecuteTimestamp(job.getStartTimestamp() + job.getIntervalMilliSeconds());
+        if (job.getStartTimeMs() != 0L) {
+            job.setNextExecuteTimestamp(job.getStartTimeMs() + job.getIntervalMilliSeconds());
         } else {
             job.setNextExecuteTimestamp(System.currentTimeMillis() + job.getIntervalMilliSeconds());
         }
@@ -133,6 +133,11 @@ public class AsyncJobManager implements Closeable {
         }
         cancelJobAllTask(jobId);
         jobMap.get(jobId).stop();
+        return true;
+    }
+    
+    public boolean registerOneTimeJob(){
+        
         return true;
     }
 

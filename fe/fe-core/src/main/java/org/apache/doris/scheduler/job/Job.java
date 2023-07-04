@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.job;
 
+import org.apache.doris.scheduler.common.IntervalUnit;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.executor.JobExecutor;
 
@@ -34,13 +35,16 @@ import java.util.UUID;
 @Data
 public class Job {
 
-    public Job(String jobName, Long intervalMilliSeconds, Long startTimestamp, Long endTimestamp,
+    public Job(String jobName, Long intervalMilliSeconds, Long startTimeMs, Long endTimeMs,
                JobExecutor executor) {
         this.jobName = jobName;
         this.executor = executor;
-        this.intervalMilliSeconds = intervalMilliSeconds;
-        this.startTimestamp = null == startTimestamp ? 0L : startTimestamp;
-        this.endTimestamp = null == endTimestamp ? 0L : endTimestamp;
+        this.intervalMs = intervalMilliSeconds;
+        this.startTimeMs = null == startTimeMs ? 0L : startTimeMs;
+        this.endTimeMs = null == endTimeMs ? 0L : endTimeMs;
+    }
+
+    public Job() {
     }
 
     private Long jobId = UUID.randomUUID().getMostSignificantBits();
@@ -65,14 +69,18 @@ public class Job {
 
     private String errMsg;
 
-    private Long intervalMilliSeconds;
+    private IntervalUnit intervalUnit;
+
+    private boolean isCycleJob = false;
+
+    private Long intervalMs;
 
     private Long updateTime;
 
     private Long nextExecuteTimestamp;
-    private Long startTimestamp = 0L;
+    private Long startTimeMs = 0L;
 
-    private Long endTimestamp = 0L;
+    private Long endTimeMs = 0L;
 
     private Long firstExecuteTimestamp = 0L;
 
@@ -88,31 +96,31 @@ public class Job {
     }
 
     public boolean isExpired(long nextExecuteTimestamp) {
-        if (endTimestamp == 0L) {
+        if (endTimeMs == 0L) {
             return false;
         }
-        return nextExecuteTimestamp > endTimestamp;
+        return nextExecuteTimestamp > endTimeMs;
     }
 
     public boolean isTaskTimeExceeded() {
-        if (endTimestamp == 0L) {
+        if (endTimeMs == 0L) {
             return false;
         }
-        return System.currentTimeMillis() >= endTimestamp || nextExecuteTimestamp > endTimestamp;
+        return System.currentTimeMillis() >= endTimeMs || nextExecuteTimestamp > endTimeMs;
     }
 
     public boolean isExpired() {
-        if (endTimestamp == 0L) {
+        if (endTimeMs == 0L) {
             return false;
         }
-        return System.currentTimeMillis() >= endTimestamp;
+        return System.currentTimeMillis() >= endTimeMs;
     }
 
     public Long getExecuteTimestampAndGeneratorNext() {
         this.latestStartExecuteTimestamp = nextExecuteTimestamp;
         // todo The problem of delay should be considered. If it is greater than the ten-minute time window,
         //  should the task be lost or executed on a new time window?
-        this.nextExecuteTimestamp = latestStartExecuteTimestamp + intervalMilliSeconds;
+        this.nextExecuteTimestamp = latestStartExecuteTimestamp + intervalMs;
         return nextExecuteTimestamp;
     }
 
@@ -125,6 +133,10 @@ public class Job {
         this.errMsg = errMsg;
     }
 
+    public void finish() {
+        this.jobStatus = JobStatus.FINISHED;
+    }
+
     public void resume() {
         this.jobStatus = JobStatus.RUNNING;
     }
@@ -134,15 +146,17 @@ public class Job {
     }
 
     public boolean checkJobParam() {
-        if (startTimestamp != 0L && startTimestamp < System.currentTimeMillis()) {
+        if (startTimeMs != 0L && startTimeMs < System.currentTimeMillis()) {
             return false;
         }
-        if (endTimestamp != 0L && endTimestamp < System.currentTimeMillis()) {
+        if (endTimeMs != 0L && endTimeMs < System.currentTimeMillis()) {
             return false;
         }
-        if (intervalMilliSeconds == null || intervalMilliSeconds <= 0L) {
+        
+        if (isCycleJob && (intervalMs == null || intervalMs <= 0L)) {
             return false;
         }
         return null != executor;
     }
+    
 }
