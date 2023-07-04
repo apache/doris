@@ -322,11 +322,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
             return castResult;
         } catch (Throwable t) {
-            // if failed to cast a varchar literal to date like type, we throw an exception
-            if (cast.getDataType().isDateLikeType() && child instanceof VarcharLiteral) {
-                throw new AnalysisException(String.format("Incorrect datetime value: %s",
-                        ((VarcharLiteral) child).getValue()), t.getCause());
-            }
             return cast;
         }
     }
