@@ -24,6 +24,7 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -158,14 +159,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Map<CTEId, Statistics> cteIdToStats;
 
+    private CascadesContext cascadesContext;
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
                                 Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
-            Map<CTEId, Statistics> cteIdToStats) {
+            Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         this.groupExpression = groupExpression;
         this.forbidUnknownColStats = forbidUnknownColStats;
         this.totalColumnStatisticMap = columnStatisticMap;
         this.isPlayNereidsDump = isPlayNereidsDump;
         this.cteIdToStats = Objects.requireNonNull(cteIdToStats, "CTEIdToStats can't be null");
+        this.cascadesContext = context;
     }
 
     public Map<String, Histogram> getTotalHistogramMap() {
@@ -189,25 +193,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
                                            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
-            Map<CTEId, Statistics> cteIdToStats) {
+            Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(
-                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats);
+                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
         statsCalculator.estimate();
         return statsCalculator;
     }
 
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
+            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
         return StatsCalculator.estimate(groupExpression,
                 forbidUnknownColStats,
                 columnStatisticMap,
                 isPlayNereidsDump,
-                new HashMap<>());
+                new HashMap<>(), context);
     }
 
-    public static void estimate(GroupExpression groupExpression) {
+    // For unit test only
+    public static void estimate(GroupExpression groupExpression, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
-                new HashMap<>(), false, Collections.EMPTY_MAP);
+                new HashMap<>(), false, Collections.EMPTY_MAP, context);
         statsCalculator.estimate();
     }
 
@@ -997,6 +1002,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
         CTEId cteId = cteConsumer.getCteId();
+        cascadesContext.addCTEConsumerGroup(cteConsumer.getCteId(), groupExpression.getOwnerGroup(),
+                cteConsumer.getProducerToConsumerOutputMap());
         Statistics prodStats = cteIdToStats.get(cteId);
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
@@ -1021,11 +1028,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Void context) {
         Statistics statistics = groupExpression.childStatistics(0);
         cteIdToStats.put(cteProducer.getCteId(), statistics);
+        cascadesContext.updateConsumerStats(cteProducer.getCteId(), statistics);
         return statistics;
     }
 
     @Override
     public Statistics visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, Void context) {
+        cascadesContext.addCTEConsumerGroup(cteConsumer.getCteId(), groupExpression.getOwnerGroup(),
+                cteConsumer.getProducerToConsumerSlotMap());
         CTEId cteId = cteConsumer.getCteId();
         Statistics prodStats = cteIdToStats.get(cteId);
         if (prodStats == null) {
