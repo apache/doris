@@ -56,8 +56,8 @@ private:
     DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
 
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-                            vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
-                            bool* stop_processing, fmt::memory_buffer& error_prefix,
+                            vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
+                            fmt::memory_buffer& error_prefix,
                             vectorized::IColumn::Permutation* rows = nullptr);
 
     // make input data valid for OLAP table

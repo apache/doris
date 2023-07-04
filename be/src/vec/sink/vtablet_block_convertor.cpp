@@ -139,14 +139,13 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
 
 Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
                                                  bool is_nullable, vectorized::ColumnPtr column,
-                                                 size_t slot_index, Bitmap* filter_bitmap,
-                                                 bool* stop_processing,
+                                                 size_t slot_index, bool* stop_processing,
                                                  fmt::memory_buffer& error_prefix,
                                                  vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == column->size()));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
-        filter_bitmap->Set(row, true);
+        _filter_bitmap.Set(row, true);
         auto ret = state->append_error_msg_to_file([]() -> std::string { return ""; },
                                                    [&error_prefix, &error_msg]() -> std::string {
                                                        return fmt::to_string(error_prefix) +
@@ -160,8 +159,8 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
     auto column_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(*column);
     auto& real_column_ptr = column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
     auto null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
-    auto need_to_validate = [&null_map, &filter_bitmap](size_t j, size_t row) {
-        return !filter_bitmap->Get(row) && (null_map == nullptr || null_map[j] == 0);
+    auto need_to_validate = [&null_map, this](size_t j, size_t row) {
+        return !_filter_bitmap.Get(row) && (null_map == nullptr || null_map[j] == 0);
     };
 
     ssize_t last_invalid_row = -1;
@@ -213,7 +212,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         const auto column_string =
                 assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
         for (size_t j = 0; j < column->size(); ++j) {
-            if (!filter_bitmap->Get(j)) {
+            if (!_filter_bitmap.Get(j)) {
                 if (is_nullable && column_ptr && column_ptr->is_null_at(j)) {
                     continue;
                 }
@@ -325,8 +324,8 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
         RETURN_IF_ERROR(_validate_column(state, nested_type, type.contains_nulls[0],
-                                         column_array->get_data_ptr(), slot_index, filter_bitmap,
-                                         stop_processing, error_prefix, &permutation));
+                                         column_array->get_data_ptr(), slot_index, stop_processing,
+                                         error_prefix, &permutation));
         break;
     }
     case TYPE_MAP: {
@@ -343,11 +342,11 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         }
         fmt::format_to(error_prefix, "MAP type failed: ");
         RETURN_IF_ERROR(_validate_column(state, key_type, type.contains_nulls[0],
-                                         column_map->get_keys_ptr(), slot_index, filter_bitmap,
-                                         stop_processing, error_prefix, &permutation));
+                                         column_map->get_keys_ptr(), slot_index, stop_processing,
+                                         error_prefix, &permutation));
         RETURN_IF_ERROR(_validate_column(state, val_type, type.contains_nulls[1],
-                                         column_map->get_values_ptr(), slot_index, filter_bitmap,
-                                         stop_processing, error_prefix, &permutation));
+                                         column_map->get_values_ptr(), slot_index, stop_processing,
+                                         error_prefix, &permutation));
         break;
     }
     case TYPE_STRUCT: {
@@ -358,7 +357,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
         for (size_t sc = 0; sc < column_struct->tuple_size(); ++sc) {
             RETURN_IF_ERROR(_validate_column(state, type.children[sc], type.contains_nulls[sc],
                                              column_struct->get_column_ptr(sc), slot_index,
-                                             filter_bitmap, stop_processing, error_prefix));
+                                             stop_processing, error_prefix));
         }
         break;
     }
@@ -376,7 +375,7 @@ Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const Type
             if (row == last_invalid_row) {
                 continue;
             }
-            if (null_map[j] && !filter_bitmap->Get(row)) {
+            if (null_map[j] && !_filter_bitmap.Get(row)) {
                 fmt::format_to(error_msg, "null value for not null column, type={}",
                                type.debug_string());
                 last_invalid_row = row;
@@ -399,7 +398,7 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
         RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
-                                         &_filter_bitmap, stop_processing, error_prefix));
+                                         stop_processing, error_prefix));
     }
 
     filtered_rows = 0;
