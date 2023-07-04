@@ -79,8 +79,11 @@ public class JdbcTrinoClient extends JdbcClient {
         }
 
         if (trinoType.startsWith("timestamp")) {
-            // timestamp with picoseconds precision, will lose precision
-            return ScalarType.createDatetimeV2Type(JDBC_DATETIME_SCALE);
+            int scale = fieldSchema.getDecimalDigits();
+            if (scale > 6) {
+                scale = 6;
+            }
+            return ScalarType.createDatetimeV2Type(scale);
         }
 
         if (trinoType.startsWith("array")) {
