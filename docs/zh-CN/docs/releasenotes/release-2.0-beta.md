@@ -55,6 +55,8 @@ under the License.
 
 # 盲测性能 10 倍以上提升！
 
+## 全新查询优化器
+
 高性能是 Apache Doris 不断追求的目标。过去一年在 Clickbench、TPC-H 等公开测试数据集上的优异表现，已经证明了其在执行层以及算子优化方面做到了业界领先，但从 Benchmark 到真实业务场景之间还存在一定距离：
 
 -   Benchmark 更多是真实业务场景的抽象、提炼与简化，而现实场景往往可能面临更复杂的查询语句，这是测试所无法覆盖的；
@@ -70,69 +72,7 @@ under the License.
 
 如何开启：`SET enable_nereids_planner=true` 在 Apache Doris 2.0-beta 版本中全新查询优化器已经默认开启
 
-# 更广泛的分析场景支持
-
-## 10 倍以上性价比的日志分析方案
-
-从过去的实时报表和 Ad-hoc 等典型 OLAP 场景到 ELT/ETL、日志检索与分析等更多业务场景，Apache Doris 正在不断拓展应用场景的边界，而日志数据的统一存储与分析正是我们在 2.0 版本的重要突破。
-
-过去业界典型的日志存储分析架构难以同时兼顾 高吞吐实时写入、低成本大规模存储与高性能文本检索分析，只能在某一方面或某几方面做权衡取舍。而在 Apache Doris 2.0 版本中，我们引入了全新倒排索引、以满足字符串类型的全文检索和普通数值/日期等类型的等值、范围检索，同时进一步优化倒排索引的查询性能、使其更加契合日志数据分析的场景需求，同时结合过去在大规模数据写入和低成本存储等方面的优势，实现了更高性价比的日志分析方案。
-
-在相同硬件配置和数据集的测试表现上，Apache Doris 相对于 ElasticSearch 实现了日志数据写入速度提升 4 倍、存储空间降低 80%、查询性能提升 2 倍，再结合 Apache Doris 2.0 版本引入的冷热数据分层特性，整体性价比提升 10 倍以上。
-
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/8e56227c5e9040008d34e5803fc6ad5f~tplv-k3u1fbpfcp-zoom-1.image)
-
-除了日志分析场景的优化以外，在复杂数据类型方面，我们增加了全新的数据类型 Map/Struct，包括支持以上类型的高效写入、存储、分析函数以及类型之间的相互嵌套，以更好满足多模态数据分析的支持。
-
-详细介绍：[https://mp.weixin.qq.com/s/WJXKyudW8CJPqlUiAro_KQ](https://mp.weixin.qq.com/s/WJXKyudW8CJPqlUiAro_KQ)
-
-## 高并发数据服务支持
-
-与复杂 SQL 和大规模 ETL 作业不同，在诸如银行交易流水单号查询、保险代理人保单查询、电商历史订单查询、快递运单号查询等 Data Serving 场景，会面临大量一线业务人员及 C 端用户基于主键 ID 检索整行数据的需求，在过去此类需求往往需要引入 Apache HBase 等 KV 系统来应对点查询、Redis 作为缓存层来分担高并发带来的系统压力。
-
-对于基于列式存储引擎构建的 Apache Doris 而言，此类的点查询在数百列宽表上将会放大随机读取 IO，并且执行引擎对于此类简单 SQL 的解析、分发也将带来不必要的额外开销，往往需要更高效简洁的执行方式。因此在新版本中我们引入了全新的行列混合存储以及行级 Cache，使得单次读取整行数据时效率更高、大大减少磁盘访问次数，同时引入了点查询短路径优化、跳过执行引擎并直接使用快速高效的读路径来检索所需的数据，并引入了预处理语句复用执行 SQL 解析来减少 FE 开销。
-
-通过以上一系列优化，**Apache Doris 2.0 版本在并发能力上实现了数量级的提升**！在标准 YCSB 基准测试中，单台 16 Core 64G 内存 4*1T 硬盘规格的云服务器上实现了单节点 30000 QPS 的并发表现，较过去版本点查询并发能力提升超 20 倍！基于以上能力，Apache Doris 可以更好应对高并发数据服务场景的需求，替代 HBase 在此类场景中的能力，减少复杂技术栈带来的维护成本以及数据的冗余存储。
-
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/ac67fa19ddcc41319a21986a3d773aaa~tplv-k3u1fbpfcp-zoom-1.image)
-
-参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query)
-
-详细介绍：[https://mp.weixin.qq.com/s/Ow77-kFMWXFxugFXjOPHhg](https://mp.weixin.qq.com/s/Ow77-kFMWXFxugFXjOPHhg)
-
-## 更全面、更高性能的数据湖分析能力
-
-在 Apache Doris 1.2 版本中，我们发布了 Multi-Catalog 功能，支持了多种异构数据源的元数据自动映射与同步，实现了数据湖的无缝对接。依赖 数据读取、执行引擎、查询优化器方面的诸多优化，在标准测试集场景下，Apache Doris 在湖上数据的查询性能，较 Presto/Trino 有 3-5 倍的提升。
-
-在 2.0 版本中，我们进一步对数据湖分析能力进行了加强，不但支持了更多的数据源，同时针对用户的实际生产环境做了诸多优化，相较于 1.2 版本，能够在真实工作负载情况下显著提升性能。
-
-**更多数据源支持**
-
-- 支持 Hudi Copy-on-Write 表的 Snapshot Query 以及 Merge-on-Read 表的 Read Optimized Query 和 Read Optimized Query，后续将支持 Incremental Query 和 Time Traval。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hudi](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hudi)
-
-- JDBC Catalog 新增支持 Oceanbase，目前支持包括 MySQL、PostgreSQL、Oracle、SQLServer、Doris、Clickhouse、SAP HANA、Trino/Presto、Oceanbase 等近十种关系型数据库。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc)
-
-**数据权限管控**
-
-- 支持通过 Apache Range 对 Hive Catalog 进行鉴权，可以无缝对接用户现有的权限系统。同时还支持可扩展的鉴权插件，为任意 Catalog 实现自定义的鉴权方式。 参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hive](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hive)
-
-**性能进一步优化，最高提升数十倍**
-- 优化了大量小文件场景以及宽表场景的读取性能。通过小文件全量加载、小 IO 合并、数据预读等技术，显著降低远端存储的读取开销，在此类场景下，查询性能最高提升数十倍。
-- 优化了 ORC/Parquet 文件的读取性能，相较于 1.2 版本查询性能提升一倍。
-
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/f200f4c29e0f49c89aff82b703419cd3~tplv-k3u1fbpfcp-zoom-1.image)
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/a0a4ee700157441ab9d3aa0e2d1e90b6~tplv-k3u1fbpfcp-zoom-1.image)
-
-- 支持湖上数据的本地文件缓存。可以利用本地磁盘缓存 HDFS 或对象存储等远端存储系统上的数据，通过缓存加速访问相同数据的查询。在命中本地文件缓存的情况下，通过 Apache Doris 查询湖上数据的性能可与 Apache Doris 内部表持平，该功能可以极大提升湖上热数据的查询性能。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache](https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache)
-
-- 支持外表的统计信息收集。和 Apache Doris 内表一样，用户可以通过 Analyze 语句分析并收集指定外表的统计信息，结合 Nereids 全新查询优化器，能够更准确更智能地对复杂 SQL 进行查询计划的调优。以 TPC-H 标准测试数据集为例，无需手动改写 SQL 即可获得最优的查询计划并获得更好的性能表现。 参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/)
-
-- 优化了 JDBC Catalog 的数据写回性能。通过 PrepareStmt 和批量方式，用户通过 INSERT INTO 命令、通过 JDBC Catalog 将数据写回到 MySQL、Oracle 等关系型数据库的性能提升数十倍。
-
-![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/eb6683520fce4c65beb9cb8757afbb95~tplv-k3u1fbpfcp-zoom-1.image)
-
-
-# 自适应的并行执行模型
+## 自适应的并行执行模型
 
 过去 Apache Doris 的执行引擎是基于传统的火山模型构建，为了更好利用多机多核的并发能力，过去我们需要手动设置执行并发度（例如将 `parallel_fragment_exec_instance_num` 这一参数从默认值 1 手工设置为 8 或者 16），在存在大量查询任务时存在一系列问题：
 
@@ -153,7 +93,9 @@ under the License.
 
 如何开启：` Set enable_pipeline_engine = true  `该功能在 Apache Doris 2.0 版本中将默认开启，BE 在进行查询执行时默认将 SQL 的执行模型转变 Pipeline 的执行方式。`parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Apache Doris 默认配置为`0`，此时 Apache Doris 会自动感知每个 BE 的 CPU 核数并把并发度设置为 CPU 核数的一半，用户也可以实际根据自己的实际情况进行调整。对于从老版本升级的用户，建议用户将该参数设置成老版本中`parallel_fragment_exec_instance_num`的值。
 
-# 多业务资源隔离
+# 查询稳定性进一步提升
+
+## 多业务资源隔离
 
 随着用户规模的极速扩张，越来越多的用户将 Apache Doris 用于构建企业内部的统一分析平台。这一方面需要 Apache Doris 去承担更大规模的数据处理和分析，另一方面也需要 Apache Doris 同时去应对更多分析负载的挑战，而其中的关键在于如何保证不同负载能够在一个系统中稳定运行。
 
@@ -188,40 +130,78 @@ properties (
 
 参考文档：[https://doris.apache.org/zh-CN/docs/dev/admin-manual/workload-group/](https://doris.apache.org/zh-CN/docs/dev/admin-manual/workload-group/)
 
-# 极致弹性与存算分离！
+## 彻底告别 OOM
 
-过去 Apache Doris 凭借在易用性方面的诸多设计帮助用户大幅节约了计算与存储资源成本，而面向未来的云原生架构，我们已经走出了坚实的一步。
+在内存充足时内存管理通常对用户是无感的，但真实场景中往往面临着各式各样的极端 Case，这些都将为内存性能和稳定性带来挑战，尤其是在面临内存资源消耗巨大的复杂计算和大规模作业时，由于内存 OOM 导致查询失败甚至可能造成 BE 进程宕机。
 
-从降本增效的趋势出发，用户对于计算和存储资源的需求可以概括为以下几方面：
+因此我们逐渐统一内存数据结构、重构 MemTracker、开始支持查询内存软限，并引入进程内存超限后的 GC 机制，同时优化了高并发的查询性能等。在 2.0 版本中我们引入了全新的内存管理框架，通过有效的内存分配、统计、管控，在 Benchmark、压力测试和真实用户业务场景的反馈中，基本消除了内存热点以及 OOM 导致 BE 宕机的问题，即使发生 OOM 通常也可依据日志定位内存位置并针对性调优，从而让集群恢复稳定，对查询和导入的内存限制也更加灵活，在内存充足时让用户无需感知内存使用。
 
--   计算资源弹性：面对业务计算高峰时可以快速进行资源扩展提升效率，在计算低谷时可以快速缩容以降低成本；
--   存储成本更低：面对海量数据可以引入更为廉价的存储介质以降低成本，同时存储与计算单独设置、相互不干预；
--   业务负载隔离：不同的业务负载可以使用独立的计算资源，避免相互资源抢占；
--   数据管控统一：统一 Catalog、统一管理数据，可以更加便捷地分析数据。
+通过以上一系列优化，Apache Doris 2.0 版本在应对复杂计算以及大规模 ETL/ELT 操作时，内存资源得以有效控制，系统稳定性表现更上一个台阶。
 
-存算一体的架构在弹性需求不强的场景具有简单和易于维护的优势，但是在弹性需求较强的场景有一定的局限。而存算分离的架构本质是解决资源弹性的技术手段，在资源弹性方面有着更为明显的优势，但对于存储具有更高的稳定性要求，而存储的稳定性又会进一步影响到 OLAP 的稳定性以及业务的存续性，因此也引入了 Cache 管理、计算资源管理、垃圾数据回收等一系列机制。
+详细介绍：[https://mp.weixin.qq.com/s/Z5N-uZrFE3Qhn5zTyEDomQ](https://mp.weixin.qq.com/s/Z5N-uZrFE3Qhn5zTyEDomQ)
 
-而在与 Apache Doris 社区广大用户的交流中，我们发现用户对于存算分离的需求可以分为以下三类：
+# 高效稳定的数据写入
 
--   目前选择简单易用的存算一体架构，暂时没有资源弹性的需求；
--   欠缺稳定的大规模存储，要求在 Apache Doris 原有基础上提供弹性、负载隔离以及低成本；
--   有稳定的大规模存储，要求极致弹性架构、解决资源快速伸缩的问题，因此也需要更为彻底的存算分离架构；
+## 更高的实时数据写入效率
 
-为了满足前两类用户的需求，Apache Doris 2.0 版本中提供了可以兼容升级的存算分离方案：
+### 导入性能进一步提升
 
-第一种，计算节点。2.0 版本中我们引入了无状态的计算节点 Compute Node，专门用于数据湖分析。相对于原本存储计算一体的混合节点，Compute Node 不保存任何数据，在集群扩缩容时无需进行数据分片的负载均衡，因此在数据湖分析这种具有明显高峰的场景中可以灵活扩容、快速加入集群分摊计算压力。同时由于用户数据往往存储在 HDFS/S3 等远端存储中，执行查询时查询任务会优先调度到 Compute Node 执行，以避免内表与外表查询之间的计算资源抢占。
+聚焦于实时分析，我们在过去的几个版本中在不断增强实时分析能力，其中端到端的数据实时写入能力是优化的重要方向，在 Apache Doris 2.0 版本中，我们进一步强化了这一能力。通过 Memtable 不使用 Skiplist、并行下刷、单副本导入等优化，使得导入性能有了大幅提升：
 
-参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/compute_node](https://doris.apache.org/zh-CN/docs/dev/advanced/compute_node)
+-   使用 Stream Load 对 TPC-H 144G lineitem表 原始数据进行三副本导入 48 bucket 明细表，吞吐量提升 100%。
+-   使用 Stream Load 对 TPC-H 144G lineitem表 原始数据进行三副本导入 48 bucket Unique Key 表，吞吐量提升 200%。
+-   对 TPC-H 144G lineitem 表进行 insert into select 导入 48 bucket Duplicate 明细表，吞吐量提升 50%。
+-   对 TPC-H 144G lineitem 表进行 insert into select 导入 48 bucket UniqueKey 表，吞吐提升 150%。
 
-第二种，冷热分层。在存储方面，冷热数据往往面临不同频次的查询和响应速度要求，因此通常可以将冷数据存储在成本更低的存储介质中。在过去版本中 Apache Doris 支持对表分区进行生命周期管理，通过后台任务将热数据从 SSD 自动冷却到 HDD，但 HDD 上的数据是以多副本的方式存储的，并没有做到最大程度的成本节约，因此对于冷数据存储成本仍然有较大的优化空间。在 Apache Doris 2.0 版本中推出了[冷热数据分层功能]([https://mp.weixin.qq.com/s/mP3GfVxx8nvh0HseFZSV_A](https://mp.weixin.qq.com/s/mP3GfVxx8nvh0HseFZSV_A)) ，冷热数据分层功能使 Apache Doris 可以将冷数据下沉到存储成本更加低廉的对象存储中，同时冷数据在对象存储上的保存方式也从多副本变为单副本，存储成本进一步降至原先的三分之一，同时也减少了因存储附加的计算资源成本和网络开销成本。通过实际测算，存储成本最高可以降低超过 70%！
+### 数据高频写入更稳定
 
-参考文档：[https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation](https://doris.apache.org/zh-CN/docs/dev/advanced/cold_hot_separation)
+在高频数据写入过程中，小文件合并和写放大问题以及随之而来的磁盘 I/O和 CPU 资源开销是制约系统稳定性的关键，因此在 2.0 版本中我们引入了 Vertical Compaction 以及 Segment Compaction，用以彻底解决 Compaction 内存问题以及写入过程中的 Segment 文件过多问题，资源消耗降低 90%，速度提升 50%，**内存占用仅为原先的 10%。**
 
-后续计算节点会支持查询冷数据和存储节点的数据，从而实现能兼容升级的存算分离方案。
+详细介绍：[https://mp.weixin.qq.com/s/BqiMXRJ2sh4jxKdJyEgM4A](https://mp.weixin.qq.com/s/BqiMXRJ2sh4jxKdJyEgM4A)
 
-![image.png](https://p6-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/0f481b37faf640b3ae801025d27afba0~tplv-k3u1fbpfcp-watermark.image?)
-而为了满足第三类用户的需求，我们还将把 SelectDB Cloud 存算分离方案贡献回社区。这一方案在性能、功能成熟度、系统稳定性等方面经历了上百家企业生产环境的考验，后续功能合入的实际进展我们也将及时同步。
+### 数据表结构自动同步
 
+在过去版本中我们引入了毫秒级别的 Schema Change，而在最新版本 Flink-Doris-Connector 中，我们实现了从 MySQL 等关系型数据库到 Apache Doris 的一键整库同步。在实际测试中单个同步任务可以承载数千张表的实时并行写入，从此彻底告别过去繁琐复杂的同步流程，通过简单命令即可实现上游业务数据库的表结构及数据同步。同时当上游数据结构发生变更时，也可以自动捕获 Schema 变更并将 DDL 动态同步到 Doris 中，保证业务的无缝运行。
+
+详细介绍：[https://mp.weixin.qq.com/s/Ur4VpJtjByVL0qQNy_iQBw](https://mp.weixin.qq.com/s/Ur4VpJtjByVL0qQNy_iQBw)
+
+## 主键模型支持部分列更新
+
+在 Apache Doris 1.2 版本中我们引入了 Unique Key 模型的 Merg-on-Write 写时合并模式，在上游数据高频写入和更新的同时可以保证下游业务的高效稳定查询，实现了**实时写入和极速查询的统一。** 而 2.0 版本我们对 Unique Key 模型进行了全面增强。在功能上，支持了新的部分列更新能力，在上游多个源表同时写入时无需提前处理成宽表，直接通过部分列更新在写时完成 Join，大幅简化了宽表的写入流程。
+
+在性能上，2.0 版本大幅增强了 Unique Key 模型 Merge-on-Write 的大数据量写入性能和并发写入能力，大数据量导入较 1.2 版本有超过 50% 的性能提升，高并发导入有超过 10 倍的性能提升，并通过高效的并发处理机制来彻底解决了 publish timeout(Error -3115) 问题，同时由于 Doris 2.0 高效的 Compaction 机制，也不会出现 too many versions (Error-235) 问题。这使得 Merge-on-Write 能够在更广泛的场景下替代 Merge-on-Read 实现，同时我们还利用部分列更新能力来降低 UPDATE 语句和 DELETE 语句的计算成本，整体性能提升约 50%。
+
+### 部分列更新的使用示例（Stream Load）：
+
+例如有表结构如下
+
+```
+mysql> desc user_profile;
++------------------+-----------------+------+-------+---------+-------+
+| Field            | Type            | Null | Key   | Default | Extra |
++------------------+-----------------+------+-------+---------+-------+
+| id               | INT             | Yes  | true  | NULL    |       |
+| name             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
+| age              | INT             | Yes  | false | NULL    | NONE  |
+| city             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
+| balance          | DECIMALV3(9, 0) | Yes  | false | NULL    | NONE  |
+| last_access_time | DATETIME        | Yes  | false | NULL    | NONE  |
++------------------+-----------------+------+-------+---------+-------+
+```
+
+用户希望批量更新最近 10s 发生变化的用户的余额和访问时间，可以把数据组织在如下 csv 文件中
+
+```
+1,500,2023-07-03 12:00:01
+3,23,2023-07-03 12:00:02
+18,9999999,2023-07-03 12:00:03
+```
+
+然后通过 Stream Load，增加 Header `partial_columns:true`，并指定要导入的列名即可完成更新
+
+```
+curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load
+```
 
 # 更高的实时数据写入效率
 
@@ -284,15 +264,66 @@ mysql> desc user_profile;
 curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load
 ```
 
-# 彻底告别 OOM
+# 更广泛的分析场景支持
 
-在内存充足时内存管理通常对用户是无感的，但真实场景中往往面临着各式各样的极端 Case，这些都将为内存性能和稳定性带来挑战，尤其是在面临内存资源消耗巨大的复杂计算和大规模作业时，由于内存 OOM 导致查询失败甚至可能造成 BE 进程宕机。
+## 10 倍以上性价比的日志分析方案
 
-因此我们逐渐统一内存数据结构、重构 MemTracker、开始支持查询内存软限，并引入进程内存超限后的 GC 机制，同时优化了高并发的查询性能等。在 2.0 版本中我们引入了全新的内存管理框架，通过有效的内存分配、统计、管控，在 Benchmark、压力测试和真实用户业务场景的反馈中，基本消除了内存热点以及 OOM 导致 BE 宕机的问题，即使发生 OOM 通常也可依据日志定位内存位置并针对性调优，从而让集群恢复稳定，对查询和导入的内存限制也更加灵活，在内存充足时让用户无需感知内存使用。
+从过去的实时报表和 Ad-hoc 等典型 OLAP 场景到 ELT/ETL、日志检索与分析等更多业务场景，Apache Doris 正在不断拓展应用场景的边界，而日志数据的统一存储与分析正是我们在 2.0 版本的重要突破。
 
-通过以上一系列优化，Apache Doris 2.0 版本在应对复杂计算以及大规模 ETL/ELT 操作时，内存资源得以有效控制，系统稳定性表现更上一个台阶。
+过去业界典型的日志存储分析架构难以同时兼顾 高吞吐实时写入、低成本大规模存储与高性能文本检索分析，只能在某一方面或某几方面做权衡取舍。而在 Apache Doris 2.0 版本中，我们引入了全新倒排索引、以满足字符串类型的全文检索和普通数值/日期等类型的等值、范围检索，同时进一步优化倒排索引的查询性能、使其更加契合日志数据分析的场景需求，同时结合过去在大规模数据写入和低成本存储等方面的优势，实现了更高性价比的日志分析方案。
 
-详细介绍：[https://mp.weixin.qq.com/s/Z5N-uZrFE3Qhn5zTyEDomQ](https://mp.weixin.qq.com/s/Z5N-uZrFE3Qhn5zTyEDomQ)
+在相同硬件配置和数据集的测试表现上，Apache Doris 相对于 ElasticSearch 实现了日志数据写入速度提升 4 倍、存储空间降低 80%、查询性能提升 2 倍，再结合 Apache Doris 2.0 版本引入的冷热数据分层特性，整体性价比提升 10 倍以上。
+
+![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/8e56227c5e9040008d34e5803fc6ad5f~tplv-k3u1fbpfcp-zoom-1.image)
+
+除了日志分析场景的优化以外，在复杂数据类型方面，我们增加了全新的数据类型 Map/Struct，包括支持以上类型的高效写入、存储、分析函数以及类型之间的相互嵌套，以更好满足多模态数据分析的支持。
+
+详细介绍：[https://mp.weixin.qq.com/s/WJXKyudW8CJPqlUiAro_KQ](https://mp.weixin.qq.com/s/WJXKyudW8CJPqlUiAro_KQ)
+
+## 高并发数据服务支持
+
+与复杂 SQL 和大规模 ETL 作业不同，在诸如银行交易流水单号查询、保险代理人保单查询、电商历史订单查询、快递运单号查询等 Data Serving 场景，会面临大量一线业务人员及 C 端用户基于主键 ID 检索整行数据的需求，在过去此类需求往往需要引入 Apache HBase 等 KV 系统来应对点查询、Redis 作为缓存层来分担高并发带来的系统压力。
+
+对于基于列式存储引擎构建的 Apache Doris 而言，此类的点查询在数百列宽表上将会放大随机读取 IO，并且执行引擎对于此类简单 SQL 的解析、分发也将带来不必要的额外开销，往往需要更高效简洁的执行方式。因此在新版本中我们引入了全新的行列混合存储以及行级 Cache，使得单次读取整行数据时效率更高、大大减少磁盘访问次数，同时引入了点查询短路径优化、跳过执行引擎并直接使用快速高效的读路径来检索所需的数据，并引入了预处理语句复用执行 SQL 解析来减少 FE 开销。
+
+通过以上一系列优化，**Apache Doris 2.0 版本在并发能力上实现了数量级的提升**！在标准 YCSB 基准测试中，单台 16 Core 64G 内存 4*1T 硬盘规格的云服务器上实现了单节点 30000 QPS 的并发表现，较过去版本点查询并发能力提升超 20 倍！基于以上能力，Apache Doris 可以更好应对高并发数据服务场景的需求，替代 HBase 在此类场景中的能力，减少复杂技术栈带来的维护成本以及数据的冗余存储。
+
+![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/ac67fa19ddcc41319a21986a3d773aaa~tplv-k3u1fbpfcp-zoom-1.image)
+
+参考文档：[https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query](https://doris.apache.org/zh-CN/docs/dev/query-acceleration/hight-concurrent-point-query)
+
+详细介绍：[https://mp.weixin.qq.com/s/Ow77-kFMWXFxugFXjOPHhg](https://mp.weixin.qq.com/s/Ow77-kFMWXFxugFXjOPHhg)
+
+## 更全面、更高性能的数据湖分析能力
+
+在 Apache Doris 1.2 版本中，我们发布了 Multi-Catalog 功能，支持了多种异构数据源的元数据自动映射与同步，实现了数据湖的无缝对接。依赖 数据读取、执行引擎、查询优化器方面的诸多优化，在标准测试集场景下，Apache Doris 在湖上数据的查询性能，较 Presto/Trino 有 3-5 倍的提升。
+
+在 2.0 版本中，我们进一步对数据湖分析能力进行了加强，不但支持了更多的数据源，同时针对用户的实际生产环境做了诸多优化，相较于 1.2 版本，能够在真实工作负载情况下显著提升性能。
+
+**更多数据源支持**
+
+- 支持 Hudi Copy-on-Write 表的 Snapshot Query 以及 Merge-on-Read 表的 Read Optimized Query 和 Read Optimized Query，后续将支持 Incremental Query 和 Time Traval。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hudi](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hudi)
+
+- JDBC Catalog 新增支持 Oceanbase，目前支持包括 MySQL、PostgreSQL、Oracle、SQLServer、Doris、Clickhouse、SAP HANA、Trino/Presto、Oceanbase 等近十种关系型数据库。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/jdbc)
+
+**数据权限管控**
+
+- 支持通过 Apache Range 对 Hive Catalog 进行鉴权，可以无缝对接用户现有的权限系统。同时还支持可扩展的鉴权插件，为任意 Catalog 实现自定义的鉴权方式。 参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hive](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/hive)
+
+**性能进一步优化，最高提升数十倍**
+- 优化了大量小文件场景以及宽表场景的读取性能。通过小文件全量加载、小 IO 合并、数据预读等技术，显著降低远端存储的读取开销，在此类场景下，查询性能最高提升数十倍。
+- 优化了 ORC/Parquet 文件的读取性能，相较于 1.2 版本查询性能提升一倍。
+
+![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/f200f4c29e0f49c89aff82b703419cd3~tplv-k3u1fbpfcp-zoom-1.image)
+![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/a0a4ee700157441ab9d3aa0e2d1e90b6~tplv-k3u1fbpfcp-zoom-1.image)
+
+- 支持湖上数据的本地文件缓存。可以利用本地磁盘缓存 HDFS 或对象存储等远端存储系统上的数据，通过缓存加速访问相同数据的查询。在命中本地文件缓存的情况下，通过 Apache Doris 查询湖上数据的性能可与 Apache Doris 内部表持平，该功能可以极大提升湖上热数据的查询性能。参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache](https://doris.apache.org/zh-CN/docs/dev/lakehouse/filecache)
+
+- 支持外表的统计信息收集。和 Apache Doris 内表一样，用户可以通过 Analyze 语句分析并收集指定外表的统计信息，结合 Nereids 全新查询优化器，能够更准确更智能地对复杂 SQL 进行查询计划的调优。以 TPC-H 标准测试数据集为例，无需手动改写 SQL 即可获得最优的查询计划并获得更好的性能表现。 参考文档：[https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/](https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog/)
+
+- 优化了 JDBC Catalog 的数据写回性能。通过 PrepareStmt 和批量方式，用户通过 INSERT INTO 命令、通过 JDBC Catalog 将数据写回到 MySQL、Oracle 等关系型数据库的性能提升数十倍。
+
+![](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/eb6683520fce4c65beb9cb8757afbb95~tplv-k3u1fbpfcp-zoom-1.image)
 
 # 支持 Kubernetes 容器化部署
 
@@ -323,8 +354,6 @@ curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator
 - 限制了表达式树的深度，默认为 200；
 - array string 返回值 单引号变双引号；
 - 对 Doris的进程名重命名为 DorisFE 和 DorisBE；
-
-
 
 # 踏上 2.0 之旅
 
