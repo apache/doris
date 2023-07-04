@@ -41,7 +41,7 @@ protected:
     // Register and get all runtime filters at Init phase.
     Status _register_runtime_filter();
     // Get all arrived runtime filters at Open phase.
-    Status _acquire_runtime_filter(bool wait = true);
+    Status _acquire_runtime_filter();
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
 
