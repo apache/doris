@@ -3240,6 +3240,13 @@ Status Tablet::commit_phase_update_delete_bitmap(
               << ", rowset_ids to del: " << rowset_ids_to_del.size()
               << ", cur max_version: " << cur_version << ", transaction_id: " << txn_id
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+
+    for (auto iter = delete_bitmap->delete_bitmap.begin();
+         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
+        delete_bitmap->merge({std::get<0>(iter->first), std::get<1>(iter->first), cur_version},
+                             iter->second);
+        delete_bitmap->delete_bitmap.erase({std::get<0>(iter->first), std::get<1>(iter->first), 0});
+    }
     pre_rowset_ids = cur_rowset_ids;
     return Status::OK();
 }

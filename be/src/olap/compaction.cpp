@@ -615,10 +615,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
             for (auto& it : commit_tablet_txn_info_vec) {
                 DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
-                    _tablet->calc_compaction_output_rowset_delete_bitmap(
-                            _input_rowsets, _rowid_conversion, 0, UINT64_MAX,
-                            &missed_rows, &location_map, *it.delete_bitmap.get(),
-                            &output_delete_bitmap);
+                _tablet->calc_compaction_output_rowset_delete_bitmap(
+                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
+                        &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
                 it.delete_bitmap->merge(output_delete_bitmap);
                 // Step3: write back updated delete bitmap and tablet info.
                 it.rowset_ids.insert(_output_rowset->rowset_id());
