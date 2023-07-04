@@ -2676,9 +2676,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
         }
-        if (encounterAutoIncColumn && type != KeysType.DUP_KEYS) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_NOT_INT_DUPLICATE_TABLE);
-        }
     }
 
     /*
