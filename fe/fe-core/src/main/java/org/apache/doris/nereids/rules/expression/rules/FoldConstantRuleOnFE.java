@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
