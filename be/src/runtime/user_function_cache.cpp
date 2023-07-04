@@ -285,7 +285,7 @@ Status UserFunctionCache::_download_lib(const std::string& url,
 
     Md5Digest digest;
     HttpClient client;
-    int64_t file_size;
+    int64_t file_size = 0;
     RETURN_IF_ERROR(client.init(real_url));
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,
