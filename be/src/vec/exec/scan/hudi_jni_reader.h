@@ -46,7 +46,7 @@ class HudiJniReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(HudiJniReader);
 
 public:
-    static const std::string HADOOP_FS_PREFIX;
+    static const std::string HADOOP_CONF_PREFIX;
 
     HudiJniReader(const TFileScanRangeParams& scan_params, const THudiFileDesc& hudi_params,
                   const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,

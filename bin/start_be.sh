@@ -82,23 +82,23 @@ for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
         export DORIS_CLASSPATH="${f}"
     else
-        export DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     fi
 done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
 
@@ -107,7 +107,7 @@ fi
 if command -v hadoop >/dev/null 2>&1; then
     HADOOP_SYSTEM_CLASSPATH="$(hadoop classpath --glob)"
 fi
-export CLASSPATH="${HADOOP_SYSTEM_CLASSPATH}:${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
+export CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_SYSTEM_CLASSPATH}:${DORIS_HOME}/conf/"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
