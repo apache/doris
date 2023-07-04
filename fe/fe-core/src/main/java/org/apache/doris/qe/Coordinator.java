@@ -310,7 +310,7 @@ public class Coordinator {
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
-        this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
+        this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine();
         initQueryOptions(context);
 
         setFromUserProperty(context);

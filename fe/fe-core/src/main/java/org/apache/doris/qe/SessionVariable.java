@@ -616,7 +616,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableVectorizedEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true, expType = ExperimentalType.EXPERIMENTAL)
-    public boolean enablePipelineEngine = true;
+    private boolean enablePipelineEngine = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, expType = ExperimentalType.EXPERIMENTAL)
     public boolean enableAggState = false;
@@ -2339,6 +2339,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableUnifiedLoad() {
         return enableUnifiedLoad;
+    }
+
+    public boolean getEnablePipelineEngine() {
+        return enablePipelineEngine;
     }
 
     public static boolean enablePipelineEngine() {
