@@ -261,7 +261,7 @@ public:
 
     Status send_local_block(Block* block);
     // Flush buffered rows and close channel. This function don't wait the response
-    // of close operation, client should call commit_txn() to finish channel's close.
+    // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
     // can run parallel.
     Status close(RuntimeState* state);

@@ -166,9 +166,9 @@ Status TabletsChannel::close(
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
-                // to make sure tablet writer in `_broken_tablets` won't call `commit_txn` method.
-                // `commit_txn` might create the rowset and commit txn directly, and the subsequent
-                // publish version task will success, which can cause the replica inconsistency.
+                // tablet writer in `_broken_tablets` should not call `build_rowset` and
+                // `commit_txn` method, after that, the publish-version task will success,
+                // which can cause the replica inconsistency.
                 if (_is_broken_tablet(it.second->tablet_id())) {
                     LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
                                  << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
@@ -195,7 +195,7 @@ Status TabletsChannel::close(
             writer->wait_flush();
         }
 
-        // 3. Calculate delete bitmap for Unique Key MoW tables
+        // 3. build rowset
         for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
             Status st = (*it)->build_rowset();
             if (!st.ok()) {
@@ -203,6 +203,7 @@ Status TabletsChannel::close(
                 it = need_wait_writers.erase(it);
                 continue;
             }
+            // 3.1 calculate delete bitmap for Unique Key MoW tables
             st = (*it)->submit_calc_delete_bitmap_task();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
@@ -211,7 +212,7 @@ Status TabletsChannel::close(
             }
         }
 
-        // 4. wait for delete bitmap calculation complete
+        // 4. wait for delete bitmap calculation complete if necessary
         for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
             Status st = (*it)->wait_calc_delete_bitmap();
             if (!st.ok()) {
@@ -221,7 +222,7 @@ Status TabletsChannel::close(
             }
         }
 
-        // 2. wait delta writers and build the tablet vector
+        // 5. commit all writers
         for (auto writer : need_wait_writers) {
             PSlaveTabletNodes slave_nodes;
             if (write_single_replica) {

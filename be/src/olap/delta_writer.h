@@ -86,13 +86,13 @@ public:
 
     Status append(const vectorized::Block* block);
 
-    // flush the last memtable to flush queue, must call it before commit_txn()
+    // flush the last memtable to flush queue, must call it before build_rowset()
     Status close();
+    // wait for all memtables to be flushed.
+    // mem_consumption() should be 0 after this function returns.
     Status build_rowset();
     Status submit_calc_delete_bitmap_task();
     Status wait_calc_delete_bitmap();
-    // wait for all memtables to be flushed.
-    // mem_consumption() should be 0 after this function returns.
     Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes, const bool write_single_replica);
 
     bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*

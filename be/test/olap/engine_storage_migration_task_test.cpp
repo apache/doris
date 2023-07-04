@@ -194,6 +194,8 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
+    res = delta_writer->build_rowset();
+    EXPECT_EQ(Status::OK(), res);
     res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 

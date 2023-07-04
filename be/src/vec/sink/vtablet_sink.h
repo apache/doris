@@ -240,7 +240,7 @@ public:
     void clear_all_blocks();
 
     // two ways to stop channel:
-    // 1. mark_close()->close_wait() PS. commit_txn() will block waiting for the last AddBatch rpc response.
+    // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     void mark_close();
 
@@ -261,7 +261,7 @@ public:
     }
 
     // two ways to stop channel:
-    // 1. mark_close()->close_wait() PS. commit_txn() will block waiting for the last AddBatch rpc response.
+    // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     Status close_wait(RuntimeState* state);
 

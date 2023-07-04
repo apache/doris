@@ -396,7 +396,7 @@ Status VNodeChannel::open_wait() {
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.to_string()));
         } else if (is_last_rpc) {
-            // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's commit_txn
+            // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
             // will be blocked.
             _add_batches_finished = true;
         }
@@ -1501,7 +1501,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     }
 
     // Sender join() must put after node channels mark_close/cancel.
-    // But there is no specific sequence required between sender join() & commit_txn().
+    // But there is no specific sequence required between sender join() & close_wait().
     if (_sender_thread) {
         bthread_join(_sender_thread, nullptr);
         // We have to wait all task in _send_batch_thread_pool_token finished,
