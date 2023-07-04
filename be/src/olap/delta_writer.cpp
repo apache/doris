@@ -460,9 +460,9 @@ Status DeltaWriter::submit_calc_delete_bitmap_task() {
 
     LOG(INFO) << "submit calc delete bitmap task to executor, tablet_id: " << _tablet->tablet_id()
               << ", txn_id: " << _req.txn_id;
-    return _tablet->commit_phase_update_delete_bitmap(
-            _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
-            _calc_delete_bitmap_token.get(), nullptr);
+    return _tablet->commit_phase_update_delete_bitmap(_cur_rowset, _rowset_ids, _delete_bitmap,
+                                                      segments, _req.txn_id,
+                                                      _calc_delete_bitmap_token.get(), nullptr);
 }
 
 Status DeltaWriter::wait_calc_delete_bitmap() {
