@@ -36,7 +36,7 @@ Apache Doris is an easy-to-use, high-performance and real-time analytical databa
 
 All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
 
-🎉 Version 2.0.0 Alpha1 version released now. It is an alpha release that is aimed to be used for evaluating the new features of Doris 2.0. It's recommended to deploy 2.0.0 alpha1 version in a new test cluster for testing but **it should not be deployed in production clusters**. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-2.0.0Alpha1) here. 
+🎉 Version 2.0-beta version released now. The 2.0 beta version already has a better user experience in terms of functional integrity and system stability than 2.0 Alpha. We welcome all users who have requirements for the new features of the 2.0 version to deploy and upgrade. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-2.0-beta) here. 
 
 🎉 Version 1.2.5 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.2.5) here. 
 
