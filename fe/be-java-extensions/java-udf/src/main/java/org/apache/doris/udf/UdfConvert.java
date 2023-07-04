@@ -251,8 +251,6 @@ public class UdfConvert {
             long columnAddr) {
         BigDecimal[] argument = new BigDecimal[numRows];
         byte[] bytes = new byte[(int) typeLen];
-        LOG.info("convertDecimalArg: " + scale + " " + typeLen + " " + isNullable + " " + numRows + " " + nullMapAddr
-                + " " + columnAddr);
         if (isNullable) {
             for (int i = 0; i < numRows; ++i) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + i) == 0) {

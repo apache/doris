@@ -152,10 +152,11 @@ public class UdfExecutor extends BaseExecutor {
             case DECIMAL64:
                 return UdfConvert.convertDecimalArg(argTypes[argIdx].getScale(), 8L, isNullable, numRows, nullMapAddr,
                         columnAddr);
-            default:
-                Preconditions.checkState(false, "Not support type: " + argTypes[argIdx].toString());
+            default: {
                 LOG.info("Not support type: " + argTypes[argIdx].toString());
+                Preconditions.checkState(false, "Not support type: " + argTypes[argIdx].toString());
                 break;
+            }
         }
         return null;
     }
@@ -265,8 +266,8 @@ public class UdfExecutor extends BaseExecutor {
                     break;
                 }
                 default: {
-                    Preconditions.checkState(false, "Not support type " + argTypes[argIdx].toString());
                     LOG.info("Not support: " + argTypes[argIdx]);
+                    Preconditions.checkState(false, "Not support type " + argTypes[argIdx].toString());
                     break;
                 }
             }
@@ -290,7 +291,7 @@ public class UdfExecutor extends BaseExecutor {
             }
             return result;
         } catch (Exception e) {
-            LOG.info("evaluate2 Exception" + e.toString());
+            LOG.info("evaluate(int numRows, Object[] column) Exception: " + e.toString());
             throw new UdfRuntimeException("UDF failed to evaluate", e);
         }
     }
@@ -382,8 +383,8 @@ public class UdfExecutor extends BaseExecutor {
                 break;
             }
             default: {
+                LOG.info("Not support return type: " + retType);
                 Preconditions.checkState(false, "Not support type: " + retType.toString());
-                LOG.info("Not support " + retType);
                 break;
             }
         }
