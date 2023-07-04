@@ -317,7 +317,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
         this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
-        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId().toString(),
+        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId(),
                 groupExpression.children(), groupExpression.getPlan(), requestProperty, curTotalCost);
     }
 

@@ -917,9 +917,9 @@ public class HiveMetaStoreCache {
     @Data
     public static class FileCacheValue {
         // File Cache for self splitter.
-        private List<HiveFileStatus> files;
+        private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
-        private List<Split> splits;
+        private final List<Split> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
@@ -929,9 +929,6 @@ public class HiveMetaStoreCache {
         private AcidInfo acidInfo;
 
         public void addFile(RemoteFile file) {
-            if (files == null) {
-                files = Lists.newArrayList();
-            }
             HiveFileStatus status = new HiveFileStatus();
             status.setBlockLocations(file.getBlockLocations());
             status.setPath(file.getPath());
@@ -942,9 +939,6 @@ public class HiveMetaStoreCache {
         }
 
         public void addSplit(Split split) {
-            if (splits == null) {
-                splits = Lists.newArrayList();
-            }
             splits.add(split);
         }
 
