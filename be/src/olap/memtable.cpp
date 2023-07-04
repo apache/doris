@@ -124,6 +124,10 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         } else {
             function =
                     _tablet_schema->column(cid).get_aggregate_function(vectorized::AGG_LOAD_SUFFIX);
+            if (function == nullptr) {
+                LOG(WARNING) << "column get aggregate function failed, column="
+                             << _tablet_schema->column(cid).name();
+            }
         }
 
         DCHECK(function != nullptr);

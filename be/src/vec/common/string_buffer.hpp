@@ -24,11 +24,23 @@
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {
-class BufferWritable {
+
+class BufferWritable final {
 public:
-    virtual void write(const char* data, int len) = 0;
-    virtual void commit() = 0;
-    virtual ~BufferWritable() = default;
+    explicit BufferWritable(ColumnString& vector)
+            : _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
+
+    inline void write(const char* data, int len) {
+        _data.insert(data, data + len);
+        _now_offset += len;
+    }
+
+    inline void commit() {
+        _offsets.push_back(_offsets.back() + _now_offset);
+        _now_offset = 0;
+    }
+
+    ~BufferWritable() { DCHECK(_now_offset == 0); }
 
     template <typename T>
     void write_number(T data) {
@@ -36,24 +48,6 @@ public:
         fmt::format_to(buffer, "{}", data);
         write(buffer.data(), buffer.size());
     }
-};
-
-class VectorBufferWriter final : public BufferWritable {
-public:
-    explicit VectorBufferWriter(ColumnString& vector)
-            : _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
-
-    void write(const char* data, int len) override {
-        _data.insert(data, data + len);
-        _now_offset += len;
-    }
-
-    void commit() override {
-        _offsets.push_back(_offsets.back() + _now_offset);
-        _now_offset = 0;
-    }
-
-    ~VectorBufferWriter() override { DCHECK(_now_offset == 0); }
 
 private:
     ColumnString::Chars& _data;
@@ -61,25 +55,22 @@ private:
     size_t _now_offset = 0;
 };
 
+using VectorBufferWriter = BufferWritable;
+using BufferWriter = BufferWritable;
+
 class BufferReadable {
 public:
-    virtual ~BufferReadable() = default;
-    virtual void read(char* data, int len) = 0;
-    virtual StringRef read(int len) = 0;
-};
+    explicit BufferReadable(StringRef& ref) : _data(ref.data) {}
+    explicit BufferReadable(StringRef&& ref) : _data(ref.data) {}
+    ~BufferReadable() = default;
 
-class VectorBufferReader final : public BufferReadable {
-public:
-    explicit VectorBufferReader(StringRef& ref) : _data(ref.data) {}
-    explicit VectorBufferReader(StringRef&& ref) : _data(ref.data) {}
-
-    StringRef read(int len) override {
+    inline StringRef read(int len) {
         StringRef ref(_data, len);
         _data += len;
         return ref;
     }
 
-    void read(char* data, int len) override {
+    inline void read(char* data, int len) {
         memcpy(data, _data, len);
         _data += len;
     }
@@ -87,5 +78,8 @@ public:
 private:
     const char* _data;
 };
+
+using VectorBufferReader = BufferReadable;
+using BufferReader = BufferReadable;
 
 } // namespace doris::vectorized

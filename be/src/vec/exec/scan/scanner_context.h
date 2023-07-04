@@ -29,6 +29,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "concurrentqueue.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -66,9 +67,8 @@ public:
     virtual ~ScannerContext() = default;
     virtual Status init();
 
-    virtual vectorized::BlockUPtr get_free_block(bool* has_free_block,
-                                                 bool get_not_empty_block = false);
-    virtual void return_free_block(std::unique_ptr<vectorized::Block> block);
+    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
+    void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
     virtual void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);
@@ -120,7 +120,7 @@ public:
 
     void clear_and_join(VScanNode* node, RuntimeState* state);
 
-    virtual bool no_schedule();
+    bool no_schedule();
 
     std::string debug_string();
 
@@ -139,9 +139,8 @@ public:
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
     }
 
-    virtual int cal_thread_slot_num_by_free_block_num() {
+    int cal_thread_slot_num_by_free_block_num() {
         int thread_slot_num = 0;
-        std::lock_guard f(_free_blocks_lock);
         thread_slot_num = (_free_blocks_capacity + _block_per_scanner - 1) / _block_per_scanner;
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
         if (thread_slot_num <= 0) {
@@ -164,7 +163,7 @@ private:
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
-    virtual void _init_free_block(int pre_alloc_block_count, int real_block_size);
+    void _init_free_block(int pre_alloc_block_count, int real_block_size);
 
     RuntimeState* _state;
     VScanNode* _parent;
@@ -208,12 +207,11 @@ protected:
     std::atomic_bool _is_finished = false;
 
     // Lazy-allocated blocks for all scanners to share, for memory reuse.
-    doris::Mutex _free_blocks_lock;
-    std::vector<vectorized::BlockUPtr> _free_blocks;
+    moodycamel::ConcurrentQueue<vectorized::BlockUPtr> _free_blocks;
     // The current number of free blocks available to the scanners.
     // Used to limit the memory usage of the scanner.
     // NOTE: this is NOT the size of `_free_blocks`.
-    int32_t _free_blocks_capacity = 0;
+    std::atomic_int32_t _free_blocks_capacity = 0;
 
     int _batch_size;
     // The limit from SQL's limit clause

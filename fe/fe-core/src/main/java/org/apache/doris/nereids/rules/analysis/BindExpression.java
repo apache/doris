@@ -506,11 +506,29 @@ public class BindExpression implements AnalysisRuleFactory {
                             && (setOperation instanceof LogicalExcept || setOperation instanceof LogicalIntersect)) {
                         throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualified");
                     }
-
+                    // we need to do cast before set operation, because we maybe use these slot to do shuffle
+                    // so, we must cast it before shuffle to get correct hash code.
                     List<List<Expression>> castExpressions = setOperation.collectCastExpressions();
+                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+                    for (int i = 0; i < castExpressions.size(); i++) {
+                        if (castExpressions.stream().allMatch(SlotReference.class::isInstance)) {
+                            newChildren.add(setOperation.child(i));
+                        } else {
+                            List<NamedExpression> projections = castExpressions.get(i).stream()
+                                    .map(e -> {
+                                        if (e instanceof SlotReference) {
+                                            return (SlotReference) e;
+                                        } else {
+                                            return new Alias(e, e.toSql());
+                                        }
+                                    }).collect(ImmutableList.toImmutableList());
+                            LogicalProject<Plan> logicalProject = new LogicalProject<>(projections,
+                                    setOperation.child(i));
+                            newChildren.add(logicalProject);
+                        }
+                    }
                     List<NamedExpression> newOutputs = setOperation.buildNewOutputs(castExpressions.get(0));
-
-                    return setOperation.withNewOutputs(newOutputs);
+                    return setOperation.withNewOutputs(newOutputs).withChildren(newChildren.build());
                 })
             ),
             RuleType.BINDING_GENERATE_SLOT.build(

@@ -372,7 +372,7 @@ public class FunctionSet<T> {
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
                 specializedFunction = new ScalarFunction(f.getFunctionName(), newArgTypes, newRetType.get(0), f.hasVarArgs(),
-                        f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+                        f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), true, f.getNullableMode());
             } else {
                 throw new TypeException(templateFunction
                                 + " is not support for template since it's not a ScalarFunction");
@@ -417,7 +417,7 @@ public class FunctionSet<T> {
         if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;
             return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(newTypes), newRetType, f.hasVarArgs(),
-                    f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+                    f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), true, f.getNullableMode());
         }
         return null;
     }

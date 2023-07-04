@@ -127,8 +127,8 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
-                getLogicalProperties(), children.get(0));
+        return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override

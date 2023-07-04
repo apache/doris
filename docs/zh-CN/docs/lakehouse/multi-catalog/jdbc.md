@@ -254,7 +254,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -491,7 +491,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "o.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "io.prestosql.jdbc.PrestoDriver"
 );
 ```
 
@@ -596,7 +596,7 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
  
     这是因为在创建 catalog 时，填写的driver_class不正确，需要正确填写，如上方例子为大小写问题，应填写为 `"driver_class" = "com.mysql.jdbc.Driver"`
 
-5. 读取 MySQL 问题出现通信链路异常
+5. 读取 MySQL 出现通信链路异常
 
     如果出现如下报错：
 
@@ -660,4 +660,26 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     在MYSQL中查询时添加“BINARY”关键字来强制区分大小写：select count(c_1) from table where BINARY c_1 = "aaa"; 或者在MYSQL中建表时候指定：
     CREATE TABLE table ( c_1 VARCHAR(255) CHARACTER SET binary ); 或者在初始化MYSQL数据库时指定校对规则来区分大小写：
     character-set-server=UTF-8 和 collation-server=utf8_bin。
- 
+
+10. 读取 SQLServer 出现通信链路异常
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[CANCELLED][INTERNAL_ERROR]UdfRuntimeException: Initialize datasource failed:
+    CAUSED BY: SQLServerException: The driver could not establish a secure connection to SQL Server by using Secure Sockets Layer (SSL) encryption.
+    Error: "sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException:
+    unable to find valid certification path to requested target". ClientConnectionId:a92f3817-e8e6-4311-bc21-7c66
+    ```
+
+    可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `encrypt=false` ,如 `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
+
+11. 读取 MySQL datetime 类型出现异常
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
+    
+    这是因为 JDBC 并不能处理 0000-00-00 00:00:00 这种时间格式，
+    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
+    这种情况下，JDBC 会把 0000-00-00 00:00:00 转换成 null，然后 Doris 会把 DateTime 类型的列按照可空类型处理，这样就可以正常读取了。

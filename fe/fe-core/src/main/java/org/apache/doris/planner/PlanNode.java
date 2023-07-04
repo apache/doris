@@ -39,7 +39,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -159,7 +158,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.tupleIds = Lists.newArrayList(tupleIds);
         this.tblRefIds = Lists.newArrayList(tupleIds);
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
+        this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
         this.statisticalType = statisticalType;
     }
@@ -170,7 +169,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.tupleIds = Lists.newArrayList();
         this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
+        this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
         this.statisticalType = statisticalType;
     }
@@ -188,7 +187,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.conjuncts = Expr.cloneList(node.conjuncts, null);
         this.cardinality = -1;
         this.compactData = node.compactData;
-        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + planNodeName : planNodeName;
+        this.planNodeName = "V" + planNodeName;
         this.numInstances = 1;
         this.statisticalType = statisticalType;
     }
@@ -416,7 +415,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         }
     }
 
-    protected Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
+    public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
@@ -825,7 +824,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return output.toString();
     }
 
-    protected String getExplainString(List<? extends Expr> exprs) {
+    public static String getExplainString(List<? extends Expr> exprs) {
         if (exprs == null) {
             return "";
         }

@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
-import com.google.common.base.Preconditions;
+import avro.shaded.com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -54,37 +54,39 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     private final List<Long> partitionIds;
     private final boolean singleReplicaLoad;
 
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, List<Column> cols,
-            boolean singleReplicaLoad, LogicalProperties logicalProperties, CHILD_TYPE child) {
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+            List<Column> cols, boolean singleReplicaLoad, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
         this(database, targetTable, partitionIds, cols, singleReplicaLoad, Optional.empty(), logicalProperties, child);
     }
 
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, List<Column> cols,
-            boolean singleReplicaLoad, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+            List<Column> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, child);
-        this.database = Preconditions.checkNotNull(database, "database != null in PhysicalOlapTableSink");
-        this.targetTable = Preconditions.checkNotNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = cols;
-        this.partitionIds = partitionIds;
+        this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
+        this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
+        this.cols = Utils.copyRequiredList(cols);
+        this.partitionIds = Utils.copyRequiredList(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
     }
 
     /**
      * Constructor
      */
-    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds, List<Column> cols,
-            boolean singleReplicaLoad, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
+    public PhysicalOlapTableSink(Database database, OlapTable targetTable, List<Long> partitionIds,
+            List<Column> cols, boolean singleReplicaLoad, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            CHILD_TYPE child) {
         super(PlanType.PHYSICAL_OLAP_TABLE_SINK, groupExpression, logicalProperties, physicalProperties,
                 statistics, child);
         this.database = Objects.requireNonNull(database, "database != null in PhysicalOlapTableSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in PhysicalOlapTableSink");
-        this.cols = Utils.copyIfNotNull(cols);
-        this.partitionIds = Utils.copyIfNotNull(partitionIds);
+        this.cols = Utils.copyRequiredList(cols);
+        this.partitionIds = Utils.copyRequiredList(partitionIds);
         this.singleReplicaLoad = singleReplicaLoad;
     }
 
@@ -111,8 +113,9 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "PhysicalOlapTableSink only accepts one child");
-        return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
-                getLogicalProperties(), children.get(0));
+        return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols,
+                singleReplicaLoad, groupExpression, getLogicalProperties(), physicalProperties,
+                statistics, children.get(0));
     }
 
     @Override

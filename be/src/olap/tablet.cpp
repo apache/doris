@@ -1670,15 +1670,18 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
                                                         TabletSharedPtr tablet, int64_t* permits) {
     std::vector<RowsetSharedPtr> compaction_rowsets;
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            if (!config::disable_compaction_trace_log &&
+                watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+                std::stringstream ss;
+                _cumulative_compaction->runtime_profile()->pretty_print(&ss);
+                LOG(WARNING) << "prepare cumulative compaction cost " << watch.elapsed_time() / 1e9
+                             << std::endl
+                             << ss.str();
             }
         });
-        ADOPT_TRACE(trace.get());
 
         StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
@@ -1698,15 +1701,18 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
-        scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+            if (!config::disable_compaction_trace_log &&
+                watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+                std::stringstream ss;
+                _base_compaction->runtime_profile()->pretty_print(&ss);
+                LOG(WARNING) << "prepare base compaction cost " << watch.elapsed_time() / 1e9
+                             << std::endl
+                             << ss.str();
             }
         });
-        ADOPT_TRACE(trace.get());
 
         StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
@@ -1734,9 +1740,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
 
 Status Tablet::prepare_single_replica_compaction(TabletSharedPtr tablet,
                                                  CompactionType compaction_type) {
-    scoped_refptr<Trace> trace(new Trace);
-    ADOPT_TRACE(trace.get());
-
     StorageEngine::instance()->create_single_replica_compaction(tablet, _single_replica_compaction,
                                                                 compaction_type);
     Status res = _single_replica_compaction->prepare_compact();
@@ -1749,8 +1752,6 @@ Status Tablet::prepare_single_replica_compaction(TabletSharedPtr tablet,
 }
 
 void Tablet::execute_single_replica_compaction(CompactionType compaction_type) {
-    scoped_refptr<Trace> trace(new Trace);
-    ADOPT_TRACE(trace.get());
     Status res = _single_replica_compaction->execute_compact();
     if (!res.ok()) {
         if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
@@ -1788,16 +1789,18 @@ std::vector<Version> Tablet::get_all_versions() {
 
 void Tablet::execute_compaction(CompactionType compaction_type) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
             if (!config::disable_compaction_trace_log &&
                 watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+                std::stringstream ss;
+                _cumulative_compaction->runtime_profile()->pretty_print(&ss);
+                LOG(WARNING) << "execute cumulative compaction cost " << watch.elapsed_time() / 1e9
+                             << std::endl
+                             << ss.str();
             }
         });
-        ADOPT_TRACE(trace.get());
 
         Status res = _cumulative_compaction->execute_compact();
         if (!res.ok()) {
@@ -1810,16 +1813,18 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         set_last_cumu_compaction_failure_time(0);
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
-        scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
             if (!config::disable_compaction_trace_log &&
                 watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+                std::stringstream ss;
+                _base_compaction->runtime_profile()->pretty_print(&ss);
+                LOG(WARNING) << "execute base compaction cost " << watch.elapsed_time() / 1e9
+                             << std::endl
+                             << ss.str();
             }
         });
-        ADOPT_TRACE(trace.get());
 
         Status res = _base_compaction->execute_compact();
         if (!res.ok()) {
@@ -1900,6 +1905,28 @@ Status Tablet::create_rowset_writer(RowsetWriterContext& context,
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, false, rowset_writer);
+}
+
+// create a rowset writer with rowset_id and seg_id
+// after writer, merge this transient rowset with original rowset
+Status Tablet::create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
+                                              std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.rowset_state = PREPARED;
+    context.segments_overlap = OVERLAPPING;
+    context.tablet_schema = std::make_shared<TabletSchema>();
+    context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
+    context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
+    context.newest_write_timestamp = UnixSeconds();
+    context.tablet_id = table_id();
+    // ATTN: context.tablet is a shared_ptr, can't simply set it's value to `this`. We should
+    // get the shared_ptr from tablet_manager.
+    context.tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
+    context.write_type = DataWriteType::TYPE_DIRECT;
+    RETURN_IF_ERROR(
+            create_transient_rowset_writer(context, rowset_ptr->rowset_id(), rowset_writer));
+    (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());
+    return Status::OK();
 }
 
 Status Tablet::create_transient_rowset_writer(RowsetWriterContext& context,
@@ -2699,12 +2726,11 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
     return Status::OK();
 }
 
-Status Tablet::lookup_row_key(
-        const Slice& encoded_key, bool with_seq_col,
-        const std::vector<RowsetSharedPtr>& specified_rowsets, RowLocation* row_location,
-        uint32_t version,
-        std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId>& segment_caches,
-        RowsetSharedPtr* rowset) {
+Status Tablet::lookup_row_key(const Slice& encoded_key, bool with_seq_col,
+                              const std::vector<RowsetSharedPtr>& specified_rowsets,
+                              RowLocation* row_location, uint32_t version,
+                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                              RowsetSharedPtr* rowset) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     if (_schema->has_sequence_col() && with_seq_col) {
@@ -2713,7 +2739,8 @@ Status Tablet::lookup_row_key(
     Slice key_without_seq = Slice(encoded_key.get_data(), encoded_key.get_size() - seq_col_length);
     RowLocation loc;
 
-    for (auto& rs : specified_rowsets) {
+    for (size_t i = 0; i < specified_rowsets.size(); i++) {
+        auto& rs = specified_rowsets[i];
         auto& segments_key_bounds = rs->rowset_meta()->get_segments_key_bounds();
         int num_segments = rs->num_segments();
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
@@ -2729,14 +2756,12 @@ Status Tablet::lookup_row_key(
             continue;
         }
 
-        auto iter = segment_caches.find(rs->rowset_id());
-        if (iter == segment_caches.end()) {
-            SegmentCacheHandle segment_cache_handle;
+        if (UNLIKELY(segment_caches[i] == nullptr)) {
+            segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), &segment_cache_handle, true));
-            iter = segment_caches.emplace(rs->rowset_id(), std::move(segment_cache_handle)).first;
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true));
         }
-        auto& segments = iter->second.get_segments();
+        auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
@@ -2845,7 +2870,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     // The data for each segment may be lookup multiple times. Creating a SegmentCacheHandle
     // will update the lru cache, and there will be obvious lock competition in multithreading
     // scenarios, so using a segment_caches to cache SegmentCacheHandle.
-    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     while (remaining > 0) {
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter));

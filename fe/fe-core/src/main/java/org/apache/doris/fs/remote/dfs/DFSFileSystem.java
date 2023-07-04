@@ -29,6 +29,7 @@ import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
+import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -54,7 +55,6 @@ import java.security.PrivilegedAction;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class DFSFileSystem extends RemoteFileSystem {
 
@@ -82,42 +82,61 @@ public class DFSFileSystem extends RemoteFileSystem {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
 
-        UserGroupInformation ugi = getUgi(conf);
-        AtomicReference<Exception> exception = new AtomicReference<>();
-
-        dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
-            try {
-                String username = properties.get(HdfsResource.HADOOP_USER_NAME);
-                if (username == null) {
-                    return FileSystem.get(new Path(remotePath).toUri(), conf);
-                } else {
-                    return FileSystem.get(new Path(remotePath).toUri(), conf, username);
-                }
-            } catch (Exception e) {
-                exception.set(e);
-                return null;
-            }
-        });
-
-        if (dfsFileSystem == null) {
-            LOG.error("errors while connect to " + remotePath, exception.get());
-            throw new UserException("errors while connect to " + remotePath, exception.get());
+        boolean hasRelogin = false;
+        UserGroupInformation ugi;
+        try {
+            // try use current ugi first to avoid relogin
+            // because it may be a time-consuming task
+            ugi = UserGroupInformation.getCurrentUser();
+        } catch (IOException e) {
+            LOG.warn("An IOException occurs when invoke "
+                    + "UserGroupInformation.getCurrentUser(), relogin immediately.", e);
+            ugi = doLogin(conf);
+            hasRelogin = true;
         }
+
+        do {
+            try {
+                dfsFileSystem = ugi.doAs((PrivilegedAction<FileSystem>) () -> {
+                    try {
+                        String username = properties.get(HdfsResource.HADOOP_USER_NAME);
+                        return username == null
+                                    ? FileSystem.get(new Path(remotePath).toUri(), conf)
+                                    : FileSystem.get(new Path(remotePath).toUri(), conf, username);
+                    } catch (IOException | InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+                LOG.debug("Reuse current ugi for dfs, remote path: {}", remotePath);
+                break;
+            } catch (SecurityException e) {
+                LOG.warn("A SecurityException occurs when invoke ugi.doAs(), "
+                            + "relogin and retry immediately.", e);
+                if (hasRelogin) {
+                    throw new UserException(e);
+                }
+                ugi = doLogin(conf);
+                hasRelogin = true;
+            }
+        } while (true);
+
+        Preconditions.checkNotNull(dfsFileSystem);
         operations = new HDFSFileOperations(dfsFileSystem);
         return dfsFileSystem;
     }
 
-    private UserGroupInformation getUgi(Configuration conf) throws UserException {
-        String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
-        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            conf.set("hadoop.security.authorization", "true");
-            UserGroupInformation.setConfiguration(conf);
+    private UserGroupInformation doLogin(Configuration conf) throws UserException {
+        if (AuthType.KERBEROS.getDesc().equals(
+                    conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null))) {
+            conf.set(HdfsResource.HADOOP_KERBEROS_AUTHORIZATION, "true");
             String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
             String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
+
+            UserGroupInformation.setConfiguration(conf);
             try {
                 UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
                 UserGroupInformation.setLoginUser(ugi);
-                LOG.info("kerberos authentication successful");
+                LOG.info("Login by kerberos authentication with principal: {}", principal);
                 return ugi;
             } catch (IOException e) {
                 throw new UserException(e);
@@ -128,7 +147,10 @@ public class DFSFileSystem extends RemoteFileSystem {
                 hadoopUserName = "hadoop";
                 LOG.debug(HdfsResource.HADOOP_USER_NAME + " is unset, use default user: hadoop");
             }
-            return UserGroupInformation.createRemoteUser(hadoopUserName);
+            UserGroupInformation ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            UserGroupInformation.setLoginUser(ugi);
+            LOG.info("Login by proxy user, hadoop.username: {}", hadoopUserName);
+            return ugi;
         }
     }
 

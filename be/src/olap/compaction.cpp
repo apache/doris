@@ -68,9 +68,27 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_index_size(0),
           _state(CompactionState::INITED) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
+    init_profile(label);
 }
 
 Compaction::~Compaction() {}
+
+void Compaction::init_profile(const std::string& label) {
+    _profile = std::make_unique<RuntimeProfile>(label);
+
+    _input_rowsets_data_size_counter =
+            ADD_COUNTER(_profile, "input_rowsets_data_size", TUnit::BYTES);
+    _input_rowsets_counter = ADD_COUNTER(_profile, "input_rowsets_count", TUnit::UNIT);
+    _input_row_num_counter = ADD_COUNTER(_profile, "input_row_num", TUnit::UNIT);
+    _input_segments_num_counter = ADD_COUNTER(_profile, "input_segments_num", TUnit::UNIT);
+    _merged_rows_counter = ADD_COUNTER(_profile, "merged_rows", TUnit::UNIT);
+    _filtered_rows_counter = ADD_COUNTER(_profile, "filtered_rows", TUnit::UNIT);
+    _output_rowset_data_size_counter =
+            ADD_COUNTER(_profile, "output_rowset_data_size", TUnit::BYTES);
+    _output_row_num_counter = ADD_COUNTER(_profile, "output_row_num", TUnit::UNIT);
+    _output_segments_num_counter = ADD_COUNTER(_profile, "output_segments_num", TUnit::UNIT);
+    _merge_rowsets_latency_timer = ADD_TIMER(_profile, "merge_rowsets_latency");
+}
 
 Status Compaction::compact() {
     RETURN_IF_ERROR(prepare_compact());
@@ -208,9 +226,9 @@ void Compaction::build_basic_info() {
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
-    TRACE_COUNTER_INCREMENT("input_rowsets_data_size", _input_rowsets_size);
-    TRACE_COUNTER_INCREMENT("input_row_num", _input_row_num);
-    TRACE_COUNTER_INCREMENT("input_segments_num", _input_num_segments);
+    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_size);
+    COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
+    COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
@@ -315,13 +333,16 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     Status res;
-    if (vertical_compaction) {
-        res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                             _input_rs_readers, _output_rs_writer.get(),
-                                             get_avg_segment_rows(), &stats);
-    } else {
-        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                     _input_rs_readers, _output_rs_writer.get(), &stats);
+    {
+        SCOPED_TIMER(_merge_rowsets_latency_timer);
+        if (vertical_compaction) {
+            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                                 _input_rs_readers, _output_rs_writer.get(),
+                                                 get_avg_segment_rows(), &stats);
+        } else {
+            res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+        }
     }
 
     if (!res.ok()) {
@@ -330,8 +351,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                      << ", output_version=" << _output_version;
         return res;
     }
-    TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
-    TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
+    COUNTER_UPDATE(_merged_rows_counter, stats.merged_rows);
+    COUNTER_UPDATE(_filtered_rows_counter, stats.filtered_rows);
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
@@ -340,9 +361,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         return Status::Error<ROWSET_BUILDER_INIT>();
     }
 
-    TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
-    TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
-    TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
+    COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
+    COUNTER_UPDATE(_output_row_num_counter, _output_rowset->num_rows());
+    COUNTER_UPDATE(_output_segments_num_counter, _output_rowset->num_segments());
 
     // 3. check correctness
     RETURN_IF_ERROR(check_correctness(stats));
@@ -399,10 +420,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
                  &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
                  this](int32_t column_uniq_id) {
-                    compact_column(
+                    auto st = compact_column(
                             _cur_tablet_schema->get_inverted_index(column_uniq_id)->index_id(),
                             src_segment_num, dest_segment_num, src_index_files, dest_index_files,
                             fs, index_writer_path, tablet_path, trans_vec, dest_segment_num_rows);
+                    if (!st.ok()) {
+                        LOG(ERROR) << "failed to do index compaction"
+                                   << ". tablet=" << _tablet->full_name()
+                                   << ". column uniq id=" << column_uniq_id << ". index_id= "
+                                   << _cur_tablet_schema->get_inverted_index(column_uniq_id)
+                                              ->index_id();
+                    }
                 });
 
         LOG(INFO) << "succeed to do index compaction"
@@ -465,8 +493,37 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                 //NOTE: here src_rs may be in building index progress, so it would not contain inverted index info.
                 bool all_have_inverted_index = std::all_of(
                         _input_rowsets.begin(), _input_rowsets.end(), [&](const auto& src_rs) {
-                            return src_rs->tablet_schema()->get_inverted_index(unique_id) !=
-                                   nullptr;
+                            BetaRowsetSharedPtr rowset =
+                                    std::static_pointer_cast<BetaRowset>(src_rs);
+                            if (rowset == nullptr) {
+                                return false;
+                            }
+                            auto fs = rowset->rowset_meta()->fs();
+
+                            auto index_meta =
+                                    rowset->tablet_schema()->get_inverted_index(unique_id);
+                            if (index_meta == nullptr) {
+                                return false;
+                            }
+                            for (auto i = 0; i < rowset->num_segments(); i++) {
+                                auto segment_file = rowset->segment_file_path(i);
+                                std::string inverted_index_src_file_path =
+                                        InvertedIndexDescriptor::get_index_file_name(
+                                                segment_file, index_meta->index_id());
+                                bool exists = false;
+                                if (fs->exists(inverted_index_src_file_path, &exists) !=
+                                    Status::OK()) {
+                                    LOG(ERROR)
+                                            << inverted_index_src_file_path << " fs->exists error";
+                                    return false;
+                                }
+                                if (!exists) {
+                                    LOG(WARNING) << inverted_index_src_file_path
+                                                 << " is not exists, will skip index compaction";
+                                    return false;
+                                }
+                            }
+                            return true;
                         });
                 if (all_have_inverted_index &&
                     field_is_slice_type(_cur_tablet_schema->column_by_uid(unique_id).type())) {

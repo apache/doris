@@ -24,6 +24,7 @@
 #include "io/fs/s3_common.h"
 #include "runtime/exec_env.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
@@ -59,26 +60,27 @@ void S3FileBuffer::submit() {
         _stream_ptr = std::make_shared<StringViewStream>(_buf.data, _size);
     }
 
-    ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()->submit_func(
-            [buf = this->shared_from_this()]() { buf->_on_upload(); });
+    _thread_pool->submit_func([buf = this->shared_from_this()]() { buf->_on_upload(); });
 }
 
-S3FileBufferPool::S3FileBufferPool() {
+void S3FileBufferPool::init(int32_t s3_write_buffer_whole_size, int32_t s3_write_buffer_size,
+                            doris::ThreadPool* thread_pool) {
     // the nums could be one configuration
-    size_t buf_num = config::s3_write_buffer_whole_size / config::s3_write_buffer_size;
-    DCHECK((config::s3_write_buffer_size >= 5 * 1024 * 1024) &&
-           (config::s3_write_buffer_whole_size > config::s3_write_buffer_size));
+    size_t buf_num = s3_write_buffer_whole_size / s3_write_buffer_size;
+    DCHECK((s3_write_buffer_size >= 5 * 1024 * 1024) &&
+           (s3_write_buffer_whole_size > s3_write_buffer_size));
     LOG_INFO("S3 file buffer pool with {} buffers", buf_num);
-    _whole_mem_buffer = std::make_unique<char[]>(config::s3_write_buffer_whole_size);
+    _whole_mem_buffer = std::make_unique<char[]>(s3_write_buffer_whole_size);
     for (size_t i = 0; i < buf_num; i++) {
-        Slice s {_whole_mem_buffer.get() + i * config::s3_write_buffer_size,
-                 static_cast<size_t>(config::s3_write_buffer_size)};
+        Slice s {_whole_mem_buffer.get() + i * s3_write_buffer_size,
+                 static_cast<size_t>(s3_write_buffer_size)};
         _free_raw_buffers.emplace_back(s);
     }
+    _thread_pool = thread_pool;
 }
 
 std::shared_ptr<S3FileBuffer> S3FileBufferPool::allocate(bool reserve) {
-    std::shared_ptr<S3FileBuffer> buf = std::make_shared<S3FileBuffer>();
+    std::shared_ptr<S3FileBuffer> buf = std::make_shared<S3FileBuffer>(_thread_pool);
     // if need reserve then we must ensure return buf with memory preserved
     if (reserve) {
         {

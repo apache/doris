@@ -61,7 +61,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
-        join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
+        join = visitChildren(this, join, context);
         Plan left = join.left();
         Plan right = join.right();
         Set<Expression> expressions = getAllExpressions(left, right, join.getOnClauseCondition());
@@ -91,7 +91,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
 
     @Override
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, JobContext context) {
-        filter = (LogicalFilter<? extends Plan>) super.visit(filter, context);
+        filter = visitChildren(this, filter, context);
         Set<Expression> filterPredicates = pullUpPredicates(filter);
         filterPredicates.removeAll(pullUpPredicates(filter.child()));
         filter.getConjuncts().forEach(filterPredicates::remove);

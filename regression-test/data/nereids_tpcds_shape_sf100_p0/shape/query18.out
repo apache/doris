@@ -33,9 +33,10 @@ PhysicalTopN
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter(c_birth_month IN (1, 2, 4, 7, 8, 10))
 --------------------------------------------------PhysicalOlapScan[customer]
---------------------------------------------PhysicalProject
-----------------------------------------------filter(ca_state IN ('WA', 'GA', 'NC', 'ME', 'WY', 'OK', 'IN'))
-------------------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------filter(ca_state IN ('WA', 'GA', 'NC', 'ME', 'WY', 'OK', 'IN'))
+--------------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((cast(cd_gender as VARCHAR(*)) = 'F')(cast(cd_education_status as VARCHAR(*)) = 'Advanced Degree'))

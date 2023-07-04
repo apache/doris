@@ -43,6 +43,8 @@ public class SummaryProfile {
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
+    public static final String IS_NEREIDS = "Is Nereids";
+    public static final String IS_PIPELINE = "Is Pipeline";
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
@@ -232,6 +234,16 @@ public class SummaryProfile {
 
         public SummaryBuilder traceId(String val) {
             map.put(TRACE_ID, val);
+            return this;
+        }
+
+        public SummaryBuilder isNereids(String isNereids) {
+            map.put(IS_NEREIDS, isNereids);
+            return this;
+        }
+
+        public SummaryBuilder isPipeline(String isPipeline) {
+            map.put(IS_PIPELINE, isPipeline);
             return this;
         }
 

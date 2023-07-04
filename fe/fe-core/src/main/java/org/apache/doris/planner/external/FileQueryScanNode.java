@@ -230,51 +230,42 @@ public abstract class FileQueryScanNode extends FileScanNode {
         if (inputSplits.isEmpty()) {
             return;
         }
-        FileSplit inputSplit = (FileSplit) inputSplits.get(0);
-        TFileType locationType = getLocationType();
-        params.setFileType(locationType);
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
-        TFileCompressType fileCompressType = getFileCompressType(inputSplit);
-        params.setCompressType(fileCompressType);
-        boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
-        if (isCsvOrJson) {
-            params.setFileAttributes(getFileAttributes());
-        }
-
-        // set hdfs params for hdfs file type.
-        Map<String, String> locationProperties = getLocationProperties();
-        if (fileFormatType == TFileFormatType.FORMAT_JNI || locationType == TFileType.FILE_S3) {
-            params.setProperties(locationProperties);
-        }
-        if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
-            String fsName = getFsName(inputSplit);
-            THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
-            tHdfsParams.setFsName(fsName);
-            params.setHdfsParams(tHdfsParams);
-
-            if (locationType == TFileType.FILE_BROKER) {
-                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
-                if (broker == null) {
-                    throw new UserException("No alive broker.");
-                }
-                params.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
-            }
-        }
-
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
+            TFileScanRangeParams scanRangeParams = new TFileScanRangeParams(params);
             FileSplit fileSplit = (FileSplit) split;
-
-            TFileScanRangeParams scanRangeParams;
-            if (!isCsvOrJson) {
-                scanRangeParams = params;
-            } else {
-                // If fileFormatType is csv/json format, uncompressed files may be coexists with compressed files
-                // So we need set compressType separately
-                scanRangeParams = new TFileScanRangeParams(params);
-                scanRangeParams.setCompressType(getFileCompressType(fileSplit));
+            TFileType locationType = getLocationType(fileSplit.getPath().toString());
+            scanRangeParams.setFileType(locationType);
+            TFileCompressType fileCompressType = getFileCompressType(fileSplit);
+            scanRangeParams.setCompressType(fileCompressType);
+            boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
+            if (isCsvOrJson) {
+                scanRangeParams.setFileAttributes(getFileAttributes());
             }
+
+            // set hdfs params for hdfs file type.
+            Map<String, String> locationProperties = getLocationProperties();
+            if (fileFormatType == TFileFormatType.FORMAT_JNI) {
+                scanRangeParams.setProperties(locationProperties);
+            } else if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
+                String fsName = getFsName(fileSplit);
+                THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
+                tHdfsParams.setFsName(fsName);
+                scanRangeParams.setHdfsParams(tHdfsParams);
+
+                if (locationType == TFileType.FILE_BROKER) {
+                    FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    if (broker == null) {
+                        throw new UserException("No alive broker.");
+                    }
+                    scanRangeParams.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
+                }
+            } else if (locationType == TFileType.FILE_S3) {
+                scanRangeParams.setProperties(locationProperties);
+            }
+
             TScanRangeLocations curLocations = newLocations(scanRangeParams);
 
             // If fileSplit has partition values, use the values collected from hive partitions.
@@ -288,7 +279,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     ? BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(), pathPartitionKeys, false, isACID)
                     : fileSplit.getPartitionValues();
 
-            TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys);
+            TFileRangeDesc rangeDesc = createFileRangeDesc(fileSplit, partitionValuesFromPath, pathPartitionKeys,
+                    locationType);
             if (isACID) {
                 HiveSplit hiveSplit = (HiveSplit) split;
                 hiveSplit.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE);
@@ -354,7 +346,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     private TFileRangeDesc createFileRangeDesc(FileSplit fileSplit, List<String> columnsFromPath,
-                                               List<String> columnsFromPathKeys)
+                                               List<String> columnsFromPathKeys, TFileType locationType)
             throws UserException {
         TFileRangeDesc rangeDesc = new TFileRangeDesc();
         rangeDesc.setStartOffset(fileSplit.getStart());
@@ -365,11 +357,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setColumnsFromPathKeys(columnsFromPathKeys);
 
-        if (getLocationType() == TFileType.FILE_HDFS) {
+        if (locationType == TFileType.FILE_HDFS) {
             rangeDesc.setPath(fileSplit.getPath().toUri().getPath());
-        } else if (getLocationType() == TFileType.FILE_S3
-                || getLocationType() == TFileType.FILE_BROKER
-                || getLocationType() == TFileType.FILE_NET) {
+        } else if (locationType == TFileType.FILE_S3
+                || locationType == TFileType.FILE_BROKER
+                || locationType == TFileType.FILE_NET) {
             // need full path
             rangeDesc.setPath(fileSplit.getPath().toString());
         }
@@ -378,6 +370,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     protected abstract TFileType getLocationType() throws UserException;
+
+    protected abstract TFileType getLocationType(String location) throws UserException;
 
     protected abstract TFileFormatType getFileFormatType() throws UserException;
 

@@ -40,7 +40,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -955,11 +954,7 @@ public class Analyzer {
         result = globalState.descTbl.addSlotDescriptor(d);
         result.setColumn(col);
         boolean isNullable;
-        if (VectorizedUtil.isVectorized()) {
-            isNullable = col.isAllowNull();
-        } else {
-            isNullable = col.isAllowNull() || isOuterJoined(d.getId());
-        }
+        isNullable = col.isAllowNull();
         result.setIsNullable(isNullable);
 
         slotRefMap.put(key, result);
@@ -2297,20 +2292,6 @@ public class Analyzer {
             return false;
         }
         return globalState.context.getSessionVariable().isEnableFoldConstantByBe();
-    }
-
-    /**
-     * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
-     * 'tupleIds', otherwise false:
-     * - the predicate needs to be bound by tupleIds
-     * - a Where clause predicate can only be correctly evaluated if for all outer-joined
-     *   referenced tids the last join to outer-join this tid has been materialized
-     * - an On clause predicate against the non-nullable side of an Outer Join clause
-     *   can only be correctly evaluated by the join node that materializes the
-     *   Outer Join clause
-     */
-    private boolean canEvalPredicate(PlanNode node, Expr e) {
-        return canEvalPredicate(node.getTblRefIds(), e);
     }
 
     /**

@@ -111,8 +111,8 @@ public class Statistics {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
             columnStatisticBuilder.setNdv(Math.min(columnStatistic.ndv, rowCount));
-            double nullFactor = (rowCount - columnStatistic.numNulls) / rowCount;
-            columnStatisticBuilder.setNumNulls(nullFactor * rowCount);
+            double numNulls = Math.min(columnStatistic.numNulls, rowCount - columnStatistic.ndv);
+            columnStatisticBuilder.setNumNulls(numNulls);
             columnStatisticBuilder.setCount(rowCount);
             statistics.addColumnStats(entry.getKey(), columnStatisticBuilder.build());
         }
@@ -151,9 +151,11 @@ public class Statistics {
 
     private double computeTupleSize() {
         if (tupleSize <= 0) {
-            tupleSize = expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum);
-            tupleSize = Math.max(1, tupleSize);
+            double tempSize = 0.0;
+            for (ColumnStatistic s : expressionToColumnStats.values()) {
+                tempSize += s.avgSizeByte;
+            }
+            tupleSize = Math.max(1, tempSize);
         }
         return tupleSize;
     }
