@@ -72,6 +72,7 @@ Status CalcDeleteBitmapToken::get_delete_bitmap(DeleteBitmapPtr res_bitmap) {
     for (auto bitmap : _delete_bitmaps) {
         res_bitmap->merge(*bitmap);
     }
+    _delete_bitmaps.clear();
     return Status::OK();
 }
 

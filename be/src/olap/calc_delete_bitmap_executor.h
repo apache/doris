@@ -39,6 +39,11 @@ enum RowsetTypePB : int;
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 // A thin wrapper of ThreadPoolToken to submit calc delete bitmap task.
+// Usage:
+// 1. create a token
+// 2. submit delete bitmap calculate tasks
+// 3. wait all tasks complete
+// 4. call `get_delete_bitmap()` to get the result of all tasks
 class CalcDeleteBitmapToken {
 public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
@@ -57,8 +62,6 @@ public:
     Status get_delete_bitmap(DeleteBitmapPtr res_bitmap);
 
 private:
-    friend class MemtableFlushTask;
-
     std::unique_ptr<ThreadPoolToken> _thread_token;
 
     std::shared_mutex _lock;
@@ -77,7 +80,6 @@ public:
     ~CalcDeleteBitmapExecutor() { _thread_pool->shutdown(); }
 
     // init should be called after storage engine is opened,
-    // because it needs path hash of each data dir.
     void init();
 
     std::unique_ptr<CalcDeleteBitmapToken> create_token();

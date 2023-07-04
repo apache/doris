@@ -89,8 +89,8 @@ public:
     // flush the last memtable to flush queue, must call it before commit_txn()
     Status close();
     Status build_rowset();
-    Status submit_calc_delete_bitmap_task(std::unique_ptr<RowsetWriter>* rowset_writer);
-    Status wait_calc_delete_bitmap(RowsetWriter* rowset_writer);
+    Status submit_calc_delete_bitmap_task();
+    Status wait_calc_delete_bitmap();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
     Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes, const bool write_single_replica);

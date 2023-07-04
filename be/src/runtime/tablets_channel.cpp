@@ -196,17 +196,14 @@ Status TabletsChannel::close(
         }
 
         // 3. Calculate delete bitmap for Unique Key MoW tables
-        std::map<DeltaWriter*, std::unique_ptr<RowsetWriter>> partial_update_writers;
         for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
-            partial_update_writers.emplace(*it, nullptr);
-            auto res = partial_update_writers.find(*it);
             Status st = (*it)->build_rowset();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
                 it = need_wait_writers.erase(it);
                 continue;
             }
-            st = (*it)->submit_calc_delete_bitmap_task(&(res->second));
+            st = (*it)->submit_calc_delete_bitmap_task();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
                 it = need_wait_writers.erase(it);
@@ -216,8 +213,7 @@ Status TabletsChannel::close(
 
         // 4. wait for delete bitmap calculation complete
         for (auto it = need_wait_writers.begin(); it != need_wait_writers.end(); it++) {
-            auto res = partial_update_writers.find(*it);
-            Status st = (*it)->wait_calc_delete_bitmap(res->second.get());
+            Status st = (*it)->wait_calc_delete_bitmap();
             if (!st.ok()) {
                 _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
                 it = need_wait_writers.erase(it);
