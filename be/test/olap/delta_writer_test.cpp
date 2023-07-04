@@ -623,10 +623,9 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->build_rowset();
     ASSERT_TRUE(res.ok());
-    std::unique_ptr<RowsetWriter> rowsetWriter;
-    res = delta_writer->submit_calc_delete_bitmap_task(&rowsetWriter);
+    res = delta_writer->submit_calc_delete_bitmap_task();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->wait_calc_delete_bitmap(rowsetWriter.get());
+    res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
     res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     ASSERT_TRUE(res.ok());
@@ -711,10 +710,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->build_rowset();
     ASSERT_TRUE(res.ok());
-    std::unique_ptr<RowsetWriter> rowset_writer;
-    res = delta_writer->submit_calc_delete_bitmap_task(&rowset_writer);
+    res = delta_writer->submit_calc_delete_bitmap_task();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->wait_calc_delete_bitmap(rowset_writer.get());
+    res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
     res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
     ASSERT_TRUE(res.ok());
@@ -828,10 +826,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
         res = delta_writer1->build_rowset();
         ASSERT_TRUE(res.ok());
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        res = delta_writer1->submit_calc_delete_bitmap_task(&rowset_writer);
+        res = delta_writer1->submit_calc_delete_bitmap_task();
         ASSERT_TRUE(res.ok());
-        res = delta_writer1->wait_calc_delete_bitmap(rowset_writer.get());
+        res = delta_writer1->wait_calc_delete_bitmap();
         ASSERT_TRUE(res.ok());
         res = delta_writer1->commit_txn(PSlaveTabletNodes(), false);
         ASSERT_TRUE(res.ok());
@@ -903,17 +900,17 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         // commit, calc delete bitmap should happen here
         res = delta_writer2->build_rowset();
         ASSERT_TRUE(res.ok());
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        res = delta_writer2->submit_calc_delete_bitmap_task(&rowset_writer);
+        res = delta_writer2->submit_calc_delete_bitmap_task();
         ASSERT_TRUE(res.ok());
-        res = delta_writer2->wait_calc_delete_bitmap(rowset_writer.get());
+        res = delta_writer2->wait_calc_delete_bitmap();
         ASSERT_TRUE(res.ok());
 
         // verify that delete bitmap calculated correctly
         // since the delete bitmap not published, versions are 0
         auto delete_bitmap = delta_writer2->get_delete_bitmap();
         ASSERT_TRUE(delete_bitmap->contains({rowset1->rowset_id(), 0, 0}, 0));
-        ASSERT_TRUE(delete_bitmap->contains({rowset_writer->rowset_id(), 0, 0}, 1));
+        // We can't get the rowset id of rowset2 now, will check the delete bitmap
+        // contains row 0 of rowset2 at L929.
 
         res = delta_writer2->commit_txn(PSlaveTabletNodes(), false);
         ASSERT_TRUE(res.ok());
@@ -930,6 +927,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
 
         std::cout << "start to publish txn" << std::endl;
         rowset2 = tablet_related_rs.begin()->second;
+        ASSERT_TRUE(delete_bitmap->contains({rowset2->rowset_id(), 0, 0}, 1));
+
         TabletPublishStatistics pstats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
