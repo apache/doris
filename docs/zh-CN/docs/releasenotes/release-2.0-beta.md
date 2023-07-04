@@ -203,67 +203,6 @@ mysql> desc user_profile;
 curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load
 ```
 
-# 更高的实时数据写入效率
-
-## 导入性能进一步提升
-
-聚焦于实时分析，我们在过去的几个版本中在不断增强实时分析能力，其中端到端的数据实时写入能力是优化的重要方向，在 Apache Doris 2.0 版本中，我们进一步强化了这一能力。通过 Memtable 不使用 Skiplist、并行下刷、单副本导入等优化，使得导入性能有了大幅提升：
-
--   使用 Stream Load 对 TPC-H 144G lineitem表 原始数据进行三副本导入 48 bucket 明细表，吞吐量提升 100%。
--   使用 Stream Load 对 TPC-H 144G lineitem表 原始数据进行三副本导入 48 bucket Unique Key 表，吞吐量提升 200%。
--   对 TPC-H 144G lineitem 表进行 insert into select 导入 48 bucket Duplicate 明细表，吞吐量提升 50%。
--   对 TPC-H 144G lineitem 表进行 insert into select 导入 48 bucket UniqueKey 表，吞吐提升 150%。
-
-## 数据高频写入更稳定
-
-在高频数据写入过程中，小文件合并和写放大问题以及随之而来的磁盘 I/O和 CPU 资源开销是制约系统稳定性的关键，因此在 2.0 版本中我们引入了 Vertical Compaction 以及 Segment Compaction，用以彻底解决 Compaction 内存问题以及写入过程中的 Segment 文件过多问题，资源消耗降低 90%，速度提升 50%，**内存占用仅为原先的 10%。**
-
-详细介绍：[https://mp.weixin.qq.com/s/BqiMXRJ2sh4jxKdJyEgM4A](https://mp.weixin.qq.com/s/BqiMXRJ2sh4jxKdJyEgM4A)
-
-## 数据表结构自动同步
-
-在过去版本中我们引入了毫秒级别的 Schema Change，而在最新版本 Flink-Doris-Connector 中，我们实现了从 MySQL 等关系型数据库到 Apache Doris 的一键整库同步。在实际测试中单个同步任务可以承载数千张表的实时并行写入，从此彻底告别过去繁琐复杂的同步流程，通过简单命令即可实现上游业务数据库的表结构及数据同步。同时当上游数据结构发生变更时，也可以自动捕获 Schema 变更并将 DDL 动态同步到 Doris 中，保证业务的无缝运行。
-
-详细介绍：[https://mp.weixin.qq.com/s/Ur4VpJtjByVL0qQNy_iQBw](https://mp.weixin.qq.com/s/Ur4VpJtjByVL0qQNy_iQBw)
-
-# 主键模型支持部分列更新
-
-在 Apache Doris 1.2 版本中我们引入了 Unique Key 模型的 Merg-on-Write 写时合并模式，在上游数据高频写入和更新的同时可以保证下游业务的高效稳定查询，实现了**实时写入和极速查询的统一。** 而 2.0 版本我们对 Unique Key 模型进行了全面增强。在功能上，支持了新的部分列更新能力，在上游多个源表同时写入时无需提前处理成宽表，直接通过部分列更新在写时完成 Join，大幅简化了宽表的写入流程。
-
-在性能上，2.0 版本大幅增强了 Unique Key 模型 Merge-on-Write 的大数据量写入性能和并发写入能力，大数据量导入较 1.2 版本有超过 50% 的性能提升，高并发导入有超过 10 倍的性能提升，并通过高效的并发处理机制来彻底解决了 publish timeout(Error -3115) 问题，同时由于 Doris 2.0 高效的 Compaction 机制，也不会出现 too many versions (Error-235) 问题。这使得 Merge-on-Write 能够在更广泛的场景下替代 Merge-on-Read 实现，同时我们还利用部分列更新能力来降低 UPDATE 语句和 DELETE 语句的计算成本，整体性能提升约 50%。
-
-## 部分列更新的使用示例（Stream Load）：
-
-例如有表结构如下
-
-```
-mysql> desc user_profile;
-+------------------+-----------------+------+-------+---------+-------+
-| Field            | Type            | Null | Key   | Default | Extra |
-+------------------+-----------------+------+-------+---------+-------+
-| id               | INT             | Yes  | true  | NULL    |       |
-| name             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
-| age              | INT             | Yes  | false | NULL    | NONE  |
-| city             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
-| balance          | DECIMALV3(9, 0) | Yes  | false | NULL    | NONE  |
-| last_access_time | DATETIME        | Yes  | false | NULL    | NONE  |
-+------------------+-----------------+------+-------+---------+-------+
-```
-
-用户希望批量更新最近 10s 发生变化的用户的余额和访问时间，可以把数据组织在如下 csv 文件中
-
-```
-1,500,2023-07-03 12:00:01
-3,23,2023-07-03 12:00:02
-18,9999999,2023-07-03 12:00:03
-```
-
-然后通过 Stream Load，增加 Header `partial_columns:true`，并指定要导入的列名即可完成更新
-
-```
-curl  --location-trusted -u root: -H "partial_columns:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://127.0.0.1:48037/api/db1/user_profile/_stream_load
-```
-
 # 更广泛的分析场景支持
 
 ## 10 倍以上性价比的日志分析方案
