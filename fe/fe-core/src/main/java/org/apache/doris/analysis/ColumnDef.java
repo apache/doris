@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -88,6 +89,12 @@ public class ColumnDef {
             this.defaultValueExprDef = new DefaultValueExprDef(exprName);
         }
 
+        public DefaultValue(boolean isSet, String value, String exprName, Long precision) {
+            this.isSet = isSet;
+            this.value = value;
+            this.defaultValueExprDef = new DefaultValueExprDef(exprName, precision);
+        }
+
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
@@ -104,14 +111,60 @@ public class ColumnDef {
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 
+        public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
+            if (precision > 6 || precision < 0) {
+                throw new IllegalArgumentException("column's default value current_timestamp"
+                            + " precision must be between 0 and 6");
+            }
+            if (precision == 0) {
+                return new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
+            }
+            String value = CURRENT_TIMESTAMP + "(" + precision + ")";
+            String exprName = NOW;
+            return new DefaultValue(true, value, exprName, precision);
+        }
+
         public boolean isCurrentTimeStamp() {
             return "CURRENT_TIMESTAMP".equals(value) && NOW.equals(defaultValueExprDef.getExprName());
         }
 
+        public boolean isCurrentTimeStampWithPrecision() {
+            return defaultValueExprDef != null && value.startsWith(CURRENT_TIMESTAMP + "(")
+                    && NOW.equals(defaultValueExprDef.getExprName());
+        }
+
+        public long getCurrentTimeStampPrecision() {
+            if (isCurrentTimeStampWithPrecision()) {
+                return Long.parseLong(value.substring(CURRENT_TIMESTAMP.length() + 1, value.length() - 1));
+            }
+            return 0;
+        }
+
         public String getValue() {
-            return isCurrentTimeStamp()
-                    ? LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ')
-                    : value;
+            if (isCurrentTimeStamp()) {
+                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+            } else if (isCurrentTimeStampWithPrecision()) {
+                long precision = getCurrentTimeStampPrecision();
+                String format = "yyyy-MM-dd HH:mm:ss";
+                if (precision == 0) {
+                    return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()).toString().replace('T', ' ');
+                } else if (precision == 1) {
+                    format = "yyyy-MM-dd HH:mm:ss.S";
+                } else if (precision == 2) {
+                    format = "yyyy-MM-dd HH:mm:ss.SS";
+                } else if (precision == 3) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSS";
+                } else if (precision == 4) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSSS";
+                } else if (precision == 5) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSSSS";
+                } else if (precision == 6) {
+                    format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
+                }
+                return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
+                        .format(DateTimeFormatter.ofPattern(format));
+            }
+            return value;
         }
     }
 
@@ -456,6 +509,17 @@ public class ColumnDef {
                     new DateLiteral(defaultValue, scalarType);
                 } else {
                     if (defaultValueExprDef.getExprName().equals(DefaultValue.NOW)) {
+                        if (defaultValueExprDef.getPrecision() != null) {
+                            Long defaultValuePrecision = defaultValueExprDef.getPrecision();
+                            String typeStr = scalarType.toString();
+                            int typePrecision =
+                                    Integer.parseInt(typeStr.substring(typeStr.indexOf("(") + 1, typeStr.indexOf(")")));
+                            if (defaultValuePrecision > typePrecision) {
+                                typeStr = typeStr.replace("V2", "");
+                                throw new AnalysisException("default value precision: " + defaultValue
+                                        + " can not be greater than type precision: " + typeStr);
+                            }
+                        }
                         break;
                     } else {
                         throw new AnalysisException("date literal [" + defaultValue + "] is invalid");
