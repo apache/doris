@@ -127,6 +127,11 @@ public class HiveMetaStoreCache {
     }
 
     private void init() {
+        /**
+         * Because the partitionValuesCache|partitionCache|fileCache use the same executor for batch loading,
+         * we need to be very careful and try to avoid the circular dependency of there tasks
+         * which will bring out thread deak-locks.
+         * */
         partitionValuesCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(new CacheBulkLoader<PartitionValueCacheKey, HivePartitionValues>() {
