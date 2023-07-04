@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vtablet_validator.h"
+#include "vec/sink/vtablet_block_convertor.h"
 
 #include <fmt/format.h>
 #include <google/protobuf/stubs/common.h>
@@ -54,8 +54,38 @@
 namespace doris {
 namespace stream_load {
 
+Status OlapTableBlockConvertor::validate_and_convert_block(
+        RuntimeState* state, vectorized::Block* input_block,
+        std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
+        int64_t& filtered_rows) {
+    DCHECK(input_block->rows() > 0);
+
+    block = vectorized::Block::create_shared(input_block->get_columns_with_type_and_name());
+    if (!output_vexpr_ctxs.empty()) {
+        // Do vectorized expr here to speed up load
+        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+                output_vexpr_ctxs, *input_block, block.get()));
+    }
+
+    filtered_rows = 0;
+    {
+        SCOPED_RAW_TIMER(&_validate_data_ns);
+        _filter_bitmap.Reset(block->rows());
+        bool stop_processing = false;
+        RETURN_IF_ERROR(_validate_data(state, block.get(), filtered_rows, &stop_processing));
+        if (stop_processing) {
+            // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
+            // because of "data unqualified"
+            return Status::EndOfFile("Encountered unqualified data, stop processing");
+        }
+        _convert_to_dest_desc_block(block.get());
+    }
+
+    return Status::OK();
+}
+
 template <bool is_min>
-DecimalV2Value OlapTableValidator::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
+DecimalV2Value OlapTableBlockConvertor::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
     std::map<std::pair<int, int>, DecimalV2Value>* pmap;
     if constexpr (is_min) {
         pmap = &_min_decimalv2_val;
@@ -81,7 +111,7 @@ DecimalV2Value OlapTableValidator::_get_decimalv2_min_or_max(const TypeDescripto
 }
 
 template <typename DecimalType, bool IsMin>
-DecimalType OlapTableValidator::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
+DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescriptor& type) {
     std::map<int, typename DecimalType::NativeType>* pmap;
     if constexpr (std::is_same_v<DecimalType, vectorized::Decimal32>) {
         pmap = IsMin ? &_min_decimal32_val : &_max_decimal32_val;
@@ -107,11 +137,12 @@ DecimalType OlapTableValidator::_get_decimalv3_min_or_max(const TypeDescriptor& 
     return value;
 }
 
-Status OlapTableValidator::_validate_column(RuntimeState* state, const TypeDescriptor& type,
-                                            bool is_nullable, vectorized::ColumnPtr column,
-                                            size_t slot_index, Bitmap* filter_bitmap,
-                                            bool* stop_processing, fmt::memory_buffer& error_prefix,
-                                            vectorized::IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_validate_column(RuntimeState* state, const TypeDescriptor& type,
+                                                 bool is_nullable, vectorized::ColumnPtr column,
+                                                 size_t slot_index, Bitmap* filter_bitmap,
+                                                 bool* stop_processing,
+                                                 fmt::memory_buffer& error_prefix,
+                                                 vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == column->size()));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
@@ -357,9 +388,8 @@ Status OlapTableValidator::_validate_column(RuntimeState* state, const TypeDescr
     return Status::OK();
 }
 
-Status OlapTableValidator::validate_data(RuntimeState* state, vectorized::Block* block,
-                                         Bitmap* filter_bitmap, int* filtered_rows,
-                                         bool* stop_processing) {
+Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::Block* block,
+                                               int64_t& filtered_rows, bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         block->get_by_position(i).column =
@@ -369,17 +399,17 @@ Status OlapTableValidator::validate_data(RuntimeState* state, vectorized::Block*
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
         RETURN_IF_ERROR(_validate_column(state, desc->type(), desc->is_nullable(), column, i,
-                                         filter_bitmap, stop_processing, error_prefix));
+                                         &_filter_bitmap, stop_processing, error_prefix));
     }
 
-    *filtered_rows = 0;
+    filtered_rows = 0;
     for (int i = 0; i < block->rows(); ++i) {
-        *filtered_rows += filter_bitmap->Get(i);
+        filtered_rows += _filter_bitmap.Get(i);
     }
     return Status::OK();
 }
 
-void OlapTableValidator::convert_to_dest_desc_block(doris::vectorized::Block* block) {
+void OlapTableBlockConvertor::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
     for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
