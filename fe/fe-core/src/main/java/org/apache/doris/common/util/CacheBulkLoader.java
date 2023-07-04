@@ -27,29 +27,25 @@ import com.google.common.collect.Streams;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public abstract class CacheBulkLoader<K, V> extends CacheLoader<K, V> {
 
-    protected abstract ThreadPoolExecutor getExecutor();
-
-    protected abstract Function<K, V> getLoadFunc();
+    protected abstract ExecutorService getExecutor();
 
     @Override
     public Map<K, V> loadAll(Iterable<? extends K> keys)
-            throws ExecutionException, InterruptedException {
-        Map<K, V> vMap = Maps.newLinkedHashMap();
+                throws ExecutionException, InterruptedException {
         List<Pair<? extends K, Future<V>>> pList = Streams.stream(keys)
-                .map(key -> Pair.of(key, getExecutor().submit(() -> getLoadFunc().apply(key))))
+                .map(key -> Pair.of(key, getExecutor().submit(() -> load(key))))
                 .collect(Collectors.toList());
 
+        Map<K, V> vMap = Maps.newLinkedHashMap();
         for (Pair<? extends K, Future<V>> p : pList) {
             vMap.put(p.first, p.second.get());
         }
         return ImmutableMap.copyOf(vMap);
     }
-
 }

@@ -90,7 +90,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -110,7 +110,7 @@ public class HiveMetaStoreCache {
 
     private final HMSExternalCatalog catalog;
     private JobConf jobConf;
-    private final ThreadPoolExecutor executor;
+    private final ExecutorService executor;
 
     // cache from <dbname-tblname> -> <values of partitions>
     private LoadingCache<PartitionValueCacheKey, HivePartitionValues> partitionValuesCache;
@@ -120,7 +120,7 @@ public class HiveMetaStoreCache {
     private volatile AtomicReference<LoadingCache<FileCacheKey, FileCacheValue>> fileCacheRef
             = new AtomicReference<>();
 
-    public HiveMetaStoreCache(HMSExternalCatalog catalog, ThreadPoolExecutor executor) {
+    public HiveMetaStoreCache(HMSExternalCatalog catalog, ExecutorService executor) {
         this.catalog = catalog;
         this.executor = executor;
         init();
@@ -131,16 +131,9 @@ public class HiveMetaStoreCache {
         partitionValuesCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(new CacheBulkLoader<PartitionValueCacheKey, HivePartitionValues>() {
-                    private final Function<PartitionValueCacheKey, HivePartitionValues> loadFunc = key -> load(key);
-
                     @Override
-                    protected ThreadPoolExecutor getExecutor() {
+                    protected ExecutorService getExecutor() {
                         return HiveMetaStoreCache.this.executor;
-                    }
-
-                    @Override
-                    protected Function<PartitionValueCacheKey, HivePartitionValues> getLoadFunc() {
-                        return loadFunc;
                     }
 
                     @Override
@@ -153,16 +146,9 @@ public class HiveMetaStoreCache {
         partitionCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(new CacheBulkLoader<PartitionCacheKey, HivePartition>() {
-                    private final Function<PartitionCacheKey, HivePartition> loadFunc = key -> load(key);
-
                     @Override
-                    protected ThreadPoolExecutor getExecutor() {
+                    protected ExecutorService getExecutor() {
                         return HiveMetaStoreCache.this.executor;
-                    }
-
-                    @Override
-                    protected Function<PartitionCacheKey, HivePartition> getLoadFunc() {
-                        return loadFunc;
                     }
 
                     @Override
@@ -195,16 +181,9 @@ public class HiveMetaStoreCache {
         }
 
         CacheLoader<FileCacheKey, FileCacheValue> loader = new CacheBulkLoader<FileCacheKey, FileCacheValue>() {
-            private final Function<FileCacheKey, FileCacheValue> loadFunc = key -> load(key);
-
             @Override
-            protected ThreadPoolExecutor getExecutor() {
+            protected ExecutorService getExecutor() {
                 return HiveMetaStoreCache.this.executor;
-            }
-
-            @Override
-            protected Function<FileCacheKey, FileCacheValue> getLoadFunc() {
-                return loadFunc;
             }
 
             @Override
