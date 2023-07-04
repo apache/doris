@@ -18,19 +18,19 @@ CteAnchor[cteId= ( CTEId#3=] )
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
-------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
+------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws_wh.ws_order_number)
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
+------------------------CteConsumer[cteId= ( CTEId#3=] )
+--------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = web_returns.wr_order_number)
+----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN](web_returns.wr_order_number = ws_wh.ws_order_number)
---------------------------PhysicalProject
-----------------------------CteConsumer[cteId= ( CTEId#3=] )
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------CteConsumer[cteId= ( CTEId#3=] )
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[web_returns]
---------------------hashJoin[RIGHT_SEMI_JOIN](ws1.ws_order_number = ws_wh.ws_order_number)
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------CteConsumer[cteId= ( CTEId#3=] )
 ----------------------PhysicalDistribute
 ------------------------hashJoin[INNER_JOIN](ws1.ws_web_site_sk = web_site.web_site_sk)
 --------------------------hashJoin[INNER_JOIN](ws1.ws_ship_addr_sk = customer_address.ca_address_sk)

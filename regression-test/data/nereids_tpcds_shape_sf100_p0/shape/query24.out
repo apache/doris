@@ -39,15 +39,17 @@ CteAnchor[cteId= ( CTEId#0=] )
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((cast(i_color as VARCHAR(*)) = 'beige'))
-----------------------CteConsumer[cteId= ( CTEId#0=] )
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter((cast(i_color as VARCHAR(*)) = 'beige'))
+------------------------CteConsumer[cteId= ( CTEId#0=] )
 ------------PhysicalDistribute
 --------------PhysicalAssertNumRows
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------CteConsumer[cteId= ( CTEId#0=] )
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------CteConsumer[cteId= ( CTEId#0=] )
 

@@ -765,16 +765,25 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         _multi_cast_stream_sink_senders.resize(sender_size);
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
+
+            auto row_desc =
+                    !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
+                            ? RowDescriptor(
+                                      _runtime_state->desc_tbl(),
+                                      {thrift_sink.multi_cast_stream_sink.sinks[i].output_tuple_id},
+                                      {false})
+                            : sink_->row_desc();
             // 1. create the data stream sender sink
             _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
-                    _runtime_state.get(), _runtime_state->obj_pool(), sender_id, sink_->row_desc(),
+                    _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], 16 * 1024, false));
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
-                            next_operator_builder_id(), i, multi_cast_data_streamer);
+                            next_operator_builder_id(), i, multi_cast_data_streamer,
+                            thrift_sink.multi_cast_stream_sink.sinks[i]);
             new_pipeline->add_operator(source_op);
 
             // 3. create and set sink operator of data stream sender for new pipeline
