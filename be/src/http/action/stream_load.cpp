@@ -433,6 +433,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         if (ctx->timeout_second != -1) {
             properties.insert(std::pair(HTTP_TIMEOUT, std::to_string(ctx->timeout_second)));
         }
+        for (const auto& property : http_req->headers()) {
+            properties.insert(std::pair(property.first, property.second));
+        }
         request.__set_properties(properties);
     } else {
         // deprecated
