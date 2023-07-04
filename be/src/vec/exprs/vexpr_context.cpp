@@ -245,8 +245,21 @@ Status VExprContext::execute_conjuncts_and_filter_block(
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
-        RETURN_IF_CATCH_EXCEPTION(
-                Block::filter_block_internal(block, columns_to_filter, result_filter));
+        try {
+            Block::filter_block_internal(block, columns_to_filter, result_filter);
+        } catch (const Exception& e) {
+            std::string str;
+            for (auto ctx : ctxs) {
+                if (str.length()) {
+                    str += ",";
+                }
+                str += ctx->root()->debug_string();
+            }
+
+            return Status::InternalError(
+                    "filter_block_internal meet exception, exprs=[{}], exception={}", str,
+                    e.what());
+        }
     }
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();

@@ -33,7 +33,7 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
                                           1)) {
         bool positive = value[0] != '-';
 
-        //Regular expression guarantees hour and minute mush be int
+        //Regular expression guarantees hour and minute must be int
         int hour = std::stoi(value.substr(1, 2).as_string());
         int minute = std::stoi(value.substr(4, 2).as_string());
 

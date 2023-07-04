@@ -309,7 +309,14 @@ public class HiveMetaStoreCache {
             // So we need to recursively list data location.
             // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
             RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
-            locatedFiles.files().forEach(result::addFile);
+            for (RemoteFile remoteFile : locatedFiles.files()) {
+                Path srcPath = remoteFile.getPath();
+                Path convertedPath = S3Util.toScanRangeLocation(srcPath.toString());
+                if (!convertedPath.toString().equals(srcPath.toString())) {
+                    remoteFile.setPath(convertedPath);
+                }
+                result.addFile(remoteFile);
+            }
         } catch (Exception e) {
             // User may manually remove partition under HDFS, in this case,
             // Hive doesn't aware that the removed partition is missing.
@@ -362,7 +369,8 @@ public class HiveMetaStoreCache {
                     for (int i = 0; i < splits.length; i++) {
                         org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
                         // todo: get modification time
-                        result.addSplit(new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null, null));
+                        Path splitFilePath = S3Util.toScanRangeLocation(fs.getPath().toString());
+                        result.addSplit(new FileSplit(splitFilePath, fs.getStart(), fs.getLength(), -1, null, null));
                     }
                 }
 
@@ -909,9 +917,9 @@ public class HiveMetaStoreCache {
     @Data
     public static class FileCacheValue {
         // File Cache for self splitter.
-        private List<HiveFileStatus> files;
+        private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
-        private List<Split> splits;
+        private final List<Split> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
@@ -921,9 +929,6 @@ public class HiveMetaStoreCache {
         private AcidInfo acidInfo;
 
         public void addFile(RemoteFile file) {
-            if (files == null) {
-                files = Lists.newArrayList();
-            }
             HiveFileStatus status = new HiveFileStatus();
             status.setBlockLocations(file.getBlockLocations());
             status.setPath(file.getPath());
@@ -934,9 +939,6 @@ public class HiveMetaStoreCache {
         }
 
         public void addSplit(Split split) {
-            if (splits == null) {
-                splits = Lists.newArrayList();
-            }
             splits.add(split);
         }
 

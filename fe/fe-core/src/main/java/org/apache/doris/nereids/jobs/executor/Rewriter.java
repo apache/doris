@@ -30,6 +30,7 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
@@ -206,7 +207,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
-                    bottomUp(new EliminateNotNull())
+                    bottomUp(new EliminateNotNull()),
+                    topDown(new ConvertInnerOrCrossJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -280,6 +282,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushdownFilterThroughProject(),
                             new MergeProjects()
                     ),
+                    custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),

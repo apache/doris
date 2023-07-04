@@ -121,12 +121,6 @@ if [[ "${DORIS_TOOLCHAIN}" == "gcc" ]]; then
         export DORIS_GCC_HOME
     fi
 
-    gcc_ver="$("${DORIS_GCC_HOME}/bin/gcc" -dumpfullversion -dumpversion)"
-    required_ver="11.0.0"
-    if [[ ! "$(printf '%s\n' "${required_ver}" "${gcc_ver}" | sort -V | head -n1)" = "${required_ver}" ]]; then
-        echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
-        exit 1
-    fi
     export CC="${DORIS_GCC_HOME}/bin/gcc"
     export CXX="${DORIS_GCC_HOME}/bin/g++"
     if test -x "${DORIS_GCC_HOME}/bin/ld"; then
@@ -140,12 +134,6 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
         export DORIS_CLANG_HOME
     fi
 
-    clang_ver="$("${DORIS_CLANG_HOME}/bin/clang" -dumpfullversion -dumpversion)"
-    required_ver="16.0.0"
-    if [[ ! "$(printf '%s\n' "${required_ver}" "${clang_ver}" | sort -V | head -n1)" = "${required_ver}" ]]; then
-        echo "Error: CLANG version (${clang_ver}) must be greater than or equal to ${required_ver}"
-        exit 1
-    fi
     export CC="${DORIS_CLANG_HOME}/bin/clang"
     export CXX="${DORIS_CLANG_HOME}/bin/clang++"
     if test -x "${DORIS_CLANG_HOME}/bin/ld.lld"; then
