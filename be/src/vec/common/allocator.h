@@ -54,6 +54,7 @@
 #define DISABLE_MREMAP 1
 #endif
 #include "common/exception.h"
+#include "runtime/thread_context.h"
 #include "vec/common/mremap.h"
 
 /// Required for older Darwin builds, that lack definition of MAP_ANONYMOUS
@@ -88,9 +89,15 @@ public:
     // alloc will continue to execute, so the consume memtracker is forced.
     void memory_check(size_t size) const;
     // Increases consumption of this tracker by 'bytes'.
-    void consume_memory(size_t size) const;
-    void release_memory(size_t size) const;
-    void throw_bad_alloc(const std::string& err) const;
+    static void consume_memory(size_t size) { CONSUME_THREAD_MEM_TRACKER(size); }
+
+    static void release_memory(size_t size) { RELEASE_THREAD_MEM_TRACKER(size); }
+
+    static void throw_bad_alloc(const std::string& err) {
+        LOG(WARNING) << err;
+        doris::MemTrackerLimiter::print_log_process_usage(err);
+        throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
+    }
 
     /// Allocate memory range.
     void* alloc(size_t size, size_t alignment = 0) {
@@ -138,7 +145,7 @@ public:
     }
 
     /// Free memory range.
-    void free(void* buf, size_t size = -1) {
+    static void free(void* buf, size_t size = -1) {
         if (use_mmap && size >= doris::config::mmap_threshold) {
             DCHECK(size != -1);
             if (0 != munmap(buf, size)) {

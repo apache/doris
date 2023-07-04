@@ -30,7 +30,6 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
-#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
@@ -140,24 +139,6 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_check(size_t size) const {
     sys_memory_check(size);
     memory_tracker_check(size);
-}
-
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::consume_memory(size_t size) const {
-    CONSUME_THREAD_MEM_TRACKER(size);
-}
-
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::release_memory(size_t size) const {
-    RELEASE_THREAD_MEM_TRACKER(size);
-}
-
-template <bool clear_memory_, bool mmap_populate, bool use_mmap>
-void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
-        const std::string& err) const {
-    LOG(WARNING) << err;
-    doris::MemTrackerLimiter::print_log_process_usage(err);
-    throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 
 template class Allocator<true, true, true>;

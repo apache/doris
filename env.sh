@@ -18,6 +18,7 @@
 # under the License.
 
 # check DORIS_HOME
+export ENABLE_PCH=0
 export LC_ALL=C
 
 if [[ -z "${DORIS_HOME}" ]]; then
