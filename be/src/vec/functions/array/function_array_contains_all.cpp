@@ -26,7 +26,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -76,11 +75,14 @@ public:
         const ColumnArray* right_col_array =
                 check_and_get_column<ColumnArray>(right_col_nullable->get_nested_column());
 
-        // data columns are single-dimension columns which stores elements of all arrays.
+        // data columns are single-dimension columns which store elements of all arrays.
         const ColumnNullable* left_data_col_nullable =
                 check_and_get_column<ColumnNullable>(left_col_array->get_data());
         const ColumnNullable* right_data_col_nullable =
                 check_and_get_column<ColumnNullable>(right_col_array->get_data());
+
+        const ColumnArray::Offsets64& left_offsets = left_col_array->get_offsets();
+        const ColumnArray::Offsets64& right_offsets = right_col_array->get_offsets();
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             if (left_col_nullable->is_null_at(row) || right_col_nullable->is_null_at(row)) {
@@ -88,11 +90,15 @@ public:
                 continue;
             }
 
-            const auto& left_offsets = _get_offsets_of_row(left_col_array->get_offsets(), row);
-            const auto& right_offsets = _get_offsets_of_row(right_col_array->get_offsets(), row);
+            const size_t left_begin = left_offsets[row - 1];
+            const size_t left_end = left_offsets[row];
 
-            const bool left_has_nulls = _has_nulls(left_data_col_nullable, left_offsets);
-            const bool right_has_nulls = _has_nulls(right_data_col_nullable, right_offsets);
+            const size_t right_begin = right_offsets[row - 1];
+            const size_t right_end = right_offsets[row];
+
+            const bool left_has_nulls = _has_nulls(left_data_col_nullable, left_begin, left_end);
+            const bool right_has_nulls =
+                    _has_nulls(right_data_col_nullable, right_begin, right_end);
 
             if (right_has_nulls && !left_has_nulls) {
                 continue;
@@ -102,7 +108,7 @@ public:
             // if any element is not contained, then the left array does not contain all of the right elements.
             bool contains_all = true;
 
-            for (size_t ri = right_offsets.first; ri <= right_offsets.second; ++ri) {
+            for (size_t ri = right_begin; ri < right_end; ++ri) {
                 // skip null elements in the right array.
                 if (right_data_col_nullable->is_null_at(ri)) {
                     continue;
@@ -111,7 +117,7 @@ public:
                 // true if the left array contains this element.
                 bool contained = false;
 
-                for (size_t li = left_offsets.first; li <= left_offsets.second; ++li) {
+                for (size_t li = left_begin; li < left_end; ++li) {
                     // skip null elements in the left array.
                     if (left_data_col_nullable->is_null_at(li)) {
                         continue;
@@ -144,16 +150,8 @@ public:
     }
 
 private:
-    // get the start and end offsets of the array at the given row.
-    std::pair<size_t, size_t> _get_offsets_of_row(const ColumnArray::Offsets64& offsets,
-                                                  const size_t row) {
-        const size_t start_offset = row == 0 ? 0 : offsets[row - 1] + 1;
-        const size_t end_offset = offsets[row];
-        return {start_offset, end_offset};
-    }
-
-    bool _has_nulls(const ColumnNullable* col_nullable, const std::pair<size_t, size_t>& offsets) {
-        for (size_t i = offsets.first; i <= offsets.second; ++i) {
+    bool _has_nulls(const ColumnNullable* col_nullable, const size_t begin, const size_t end) {
+        for (size_t i = begin; i < end; ++i) {
             if (col_nullable->is_null_at(i)) {
                 return true;
             }
