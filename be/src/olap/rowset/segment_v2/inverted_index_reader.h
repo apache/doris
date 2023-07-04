@@ -72,7 +72,8 @@ public:
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) = 0;
+    virtual Status new_iterator(OlapReaderStatistics* stats,
+                                std::unique_ptr<InvertedIndexIterator>* iterator) = 0;
     virtual Status query(OlapReaderStatistics* stats, const std::string& column_name,
                          const void* query_value, InvertedIndexQueryType query_type,
                          roaring::Roaring* bit_map) = 0;
@@ -116,7 +117,8 @@ public:
             : InvertedIndexReader(fs, path, index_meta) {}
     ~FullTextIndexReader() override = default;
 
-    Status new_iterator(OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) override;
+    Status new_iterator(OlapReaderStatistics* stats,
+                        std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  roaring::Roaring* bit_map) override;
@@ -138,7 +140,8 @@ public:
             : InvertedIndexReader(fs, path, index_meta) {}
     ~StringTypeInvertedIndexReader() override = default;
 
-    Status new_iterator(OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) override;
+    Status new_iterator(OlapReaderStatistics* stats,
+                        std::unique_ptr<InvertedIndexIterator>* iterator) override;
     Status query(OlapReaderStatistics* stats, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,
                  roaring::Roaring* bit_map) override;
@@ -205,7 +208,8 @@ public:
         }
     }
 
-    Status new_iterator(OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) override;
+    Status new_iterator(OlapReaderStatistics* stats,
+                        std::unique_ptr<InvertedIndexIterator>* iterator) override;
 
     Status query(OlapReaderStatistics* stats, const std::string& column_name,
                  const void* query_value, InvertedIndexQueryType query_type,

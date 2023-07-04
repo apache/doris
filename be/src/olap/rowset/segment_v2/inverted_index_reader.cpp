@@ -404,8 +404,8 @@ InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
 }
 
-Status StringTypeInvertedIndexReader::new_iterator(OlapReaderStatistics* stats,
-                                                   std::unique_ptr<InvertedIndexIterator>* iterator) {
+Status StringTypeInvertedIndexReader::new_iterator(
+        OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) {
     *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
@@ -548,7 +548,8 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
             config::inverted_index_read_buffer_size);
 }
 
-Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) {
+Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats,
+                                    std::unique_ptr<InvertedIndexIterator>* iterator) {
     *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
