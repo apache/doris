@@ -48,12 +48,15 @@ class SyncerUtils {
         return String.format("ccr_sync_job:%s:%d:%d", context.db, tableId, context.seq)
     }
 
-    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table) throws TException {
+    static TGetBinlogResult getBinLog(FrontendClientImpl clientImpl, SyncerContext context, String table, Long tableId) throws TException {
         TGetBinlogRequest request = new TGetBinlogRequest()
         setAuthorInformation(request, context)
         request.setDb(context.db)
         if (!table.isEmpty()) {
             request.setTable(table)
+        }
+        if (tableId != -1) {
+            request.setTableId(tableId)
         }
         request.setPrevCommitSeq(context.seq)
         return clientImpl.client.getBinlog(request)

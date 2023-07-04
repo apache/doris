@@ -628,7 +628,11 @@ class Syncer {
     Boolean getBinlog(String table = "", Boolean update = true) {
         logger.info("Get binlog from source cluster ${context.config.feSourceThriftNetworkAddress}, binlog seq: ${context.seq}")
         FrontendClientImpl clientImpl = context.getSourceFrontClient()
-        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, context, table)
+        Long tableId = -1
+        if (!table.isEmpty() && context.sourceTableMap.containsKey(table)) {
+            tableId = context.sourceTableMap.get(table).id
+        }
+        TGetBinlogResult result = SyncerUtils.getBinLog(clientImpl, context, table, tableId)
         return checkGetBinlog(table, result, update)
     }
 
