@@ -282,10 +282,10 @@ public class Memo {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "Cannot init memo by a GroupPlan");
 
         // initialize children recursively
-        List<Group> childrenGroups = plan.children()
-                .stream()
-                .map(this::init)
-                .collect(ImmutableList.toImmutableList());
+        List<Group> childrenGroups = new ArrayList<>(plan.arity());
+        for (Plan child : plan.children()) {
+            childrenGroups.add(init(child));
+        }
 
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);

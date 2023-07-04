@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
@@ -160,6 +161,14 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     public PhysicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
                 selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, Optional.empty(),
+                logicalProperties.get());
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
+                selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, groupExpression,
                 logicalProperties.get());
     }
 

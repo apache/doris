@@ -129,6 +129,13 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
+                logicalProperties.get(), physicalProperties, statistics);
+    }
+
+    @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalStorageLayerAggregate(

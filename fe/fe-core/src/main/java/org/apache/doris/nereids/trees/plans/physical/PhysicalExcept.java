@@ -85,6 +85,12 @@ public class PhysicalExcept extends PhysicalSetOperation {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalExcept(qualifier, groupExpression, logicalProperties.get(), children);
+    }
+
+    @Override
     public PhysicalExcept withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExcept(qualifier, Optional.empty(),

@@ -120,6 +120,13 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, groupExpression,
+                logicalProperties, children.get(0));
+    }
+
+    @Override
     public LogicalProperties computeLogicalProperties() {
         return UnboundLogicalProperties.INSTANCE;
     }

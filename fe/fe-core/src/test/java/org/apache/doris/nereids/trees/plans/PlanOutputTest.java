@@ -99,6 +99,12 @@ public class PlanOutputTest {
                     }
 
                     @Override
+                    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+                            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+                        return null;
+                    }
+
+                    @Override
                     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                             Statistics statsDeriveResult) {
                         return null;

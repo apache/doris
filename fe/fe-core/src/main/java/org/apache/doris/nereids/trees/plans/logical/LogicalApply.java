@@ -221,4 +221,12 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 correlationSlot, subqueryExpr, correlationFilter,
                 markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, left(), right());
     }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalApply<>(groupExpression, logicalProperties, correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, subCorrespondingConjunct, needAddSubOutputToProjects, children.get(0),
+                children.get(1));
+    }
 }

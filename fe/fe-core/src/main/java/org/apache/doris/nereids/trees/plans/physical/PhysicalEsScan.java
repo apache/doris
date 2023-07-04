@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -102,6 +103,12 @@ public class PhysicalEsScan extends PhysicalRelation {
 
     @Override
     public PhysicalEsScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+        return new PhysicalEsScan(id, table, qualifier, distributionSpec, groupExpression, logicalProperties.get());
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEsScan(id, table, qualifier, distributionSpec, groupExpression, logicalProperties.get());
     }
 
