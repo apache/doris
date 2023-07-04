@@ -625,6 +625,10 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
     {
         std::shared_lock rlock(_tablet->get_header_lock());
+        if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION &&
+            config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+            _tablet->save_cumulative_layer_point(_output_rowset->end_version() + 1);
+        }
         _tablet->save_meta();
     }
     return Status::OK();

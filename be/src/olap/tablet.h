@@ -112,6 +112,7 @@ public:
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
+    void save_cumulative_layer_point(int64_t new_point);
     inline int64_t cumulative_promotion_size() const;
     inline void set_cumulative_promotion_size(int64_t new_size);
 
@@ -706,6 +707,13 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
             << "Unexpected cumulative point: " << new_point
             << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
+}
+
+inline void Tablet::save_cumulative_layer_point(int64_t new_point) {
+    CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
+            << "Unexpected cumulative point: " << new_point
+            << ", origin: " << _cumulative_point.load();
+    _tablet_meta->set_cumulative_layer_point(new_point);
 }
 
 inline int64_t Tablet::cumulative_promotion_size() const {
