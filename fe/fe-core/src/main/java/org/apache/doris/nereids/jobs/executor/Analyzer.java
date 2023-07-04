@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
 import org.apache.doris.nereids.rules.analysis.RegisterCTE;
+import org.apache.doris.nereids.rules.analysis.ReplaceAliasFunction;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
@@ -86,6 +87,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             bottomUp(
                 new BindRelation(customTableResolver.orElse(null)),
+                new ReplaceAliasFunction(),
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
