@@ -154,10 +154,10 @@ public:
 
     void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
         auto real_data = data->get_data_at(0);
-        if (real_data.data == nullptr) {
+        if (real_data.data() == nullptr) {
             hash = HashUtil::xxHash64NullWithSeed(hash);
         } else {
-            hash = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hash);
+            hash = HashUtil::xxHash64WithSeed(real_data.data(), real_data.size(), hash);
         }
     }
 

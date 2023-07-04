@@ -195,9 +195,8 @@ void ProcessHashTableProbe<JoinOpType>::_pre_serialize_key(
         }
 
         for (size_t i = 0; i < key_rows; ++i) {
-            serialized_keys[i].data =
-                    reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size);
-            serialized_keys[i].size = 0;
+            serialized_keys[i].replace(
+                    reinterpret_cast<char*>(_serialized_key_buffer + i * max_one_row_byte_size), 0);
         }
 
         for (const auto column : key_columns) {

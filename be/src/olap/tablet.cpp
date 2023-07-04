@@ -2896,7 +2896,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             num_read -= 1;
         }
         for (size_t i = 0; i < num_read; i++, row_id++) {
-            Slice key = Slice(index_column->get_data_at(i).data, index_column->get_data_at(i).size);
+            Slice key = Slice(index_column->get_data_at(i));
             RowLocation loc;
             // same row in segments should be filtered
             if (delete_bitmap->contains({rowset_id, seg->id(), 0}, row_id)) {

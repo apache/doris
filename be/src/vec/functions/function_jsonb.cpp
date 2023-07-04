@@ -169,13 +169,12 @@ public:
                     FunctionJsonbParseState* state = reinterpret_cast<FunctionJsonbParseState*>(
                             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
 
-                    if (!state->default_value_parser.parse(default_value.data,
-                                                           default_value.size)) {
+                    if (!state->default_value_parser.parse(default_value.data(),
+                                                           default_value.size())) {
                         error = state->default_value_parser.getErrorCode();
-                        return Status::InvalidArgument(
-                                "invalid default json value: {} , error: {}",
-                                std::string_view(default_value.data, default_value.size),
-                                JsonbErrMsg::getErrMsg(error));
+                        return Status::InvalidArgument("invalid default json value: {} , error: {}",
+                                                       std::string_view(default_value),
+                                                       JsonbErrMsg::getErrMsg(error));
                     }
                     state->has_const_default_value = true;
                 }
@@ -548,7 +547,7 @@ public:
             const char* l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                            rdata.data, rdata.size, is_invalid_json_path);
+                            rdata.data(), rdata.size(), is_invalid_json_path);
         } //for
     }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
@@ -570,8 +569,8 @@ public:
             int r_size = roffsets[i] - roffsets[i - 1];
             const char* r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
-            inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, ldata.data,
-                            ldata.size, r_raw, r_size, is_invalid_json_path);
+            inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, ldata.data(),
+                            ldata.size(), r_raw, r_size, is_invalid_json_path);
         } //for
     }     //function
 };
@@ -703,7 +702,7 @@ public:
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, ldata.data, ldata.size, r_raw_str, r_str_size,
+            inner_loop_impl(i, res, null_map, ldata.data(), ldata.size(), r_raw_str, r_str_size,
                             is_invalid_json_path);
         } //for
     }     //function
@@ -721,7 +720,7 @@ public:
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, rdata.data, rdata.size,
+            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, rdata.data(), rdata.size(),
                             is_invalid_json_path);
         } //for
     }     //function

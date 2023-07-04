@@ -262,7 +262,7 @@ public:
         DCHECK(_item_size == assert_cast<const Self&>(rhs)._item_size)
                 << _item_size << " " << assert_cast<const Self&>(rhs)._item_size;
         auto obj = assert_cast<const Self&>(rhs).get_data_at(row);
-        memcpy(&_data[self_row * _item_size], obj.data, _item_size);
+        memcpy(&_data[self_row * _item_size], obj.data(), _item_size);
     }
 
     void replace_column_data_default(size_t self_row = 0) override {

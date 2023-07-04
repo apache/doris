@@ -348,7 +348,8 @@ public:
 
     bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
         for (size_t i = 0; i != count; ++i) {
-            const auto found = _values->find(dict_words[i].data, dict_words[i].size) ^ _opposite;
+            const auto found =
+                    _values->find(dict_words[i].data(), dict_words[i].size()) ^ _opposite;
             if (found == (PT == PredicateType::IN_LIST)) {
                 return true;
             }

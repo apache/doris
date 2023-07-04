@@ -407,7 +407,7 @@ public:
 
     void update_crc_with_value(size_t n, uint64_t& crc) const override {
         auto data_ref = get_data_at(n);
-        crc = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, crc);
+        crc = HashUtil::zlib_crc_hash(data_ref.data(), data_ref.size(), crc);
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {

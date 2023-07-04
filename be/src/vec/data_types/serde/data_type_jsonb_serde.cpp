@@ -27,13 +27,14 @@ Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
     const auto col_index = index_check_const(row_idx, col_const);
     const auto jsonb_val = data.get_data_at(col_index);
     // jsonb size == 0 is NULL
-    if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
-        if (UNLIKELY(0 != result.push_null())) {
+    if (jsonb_val.data() == nullptr || jsonb_val.empty()) {
+        if (0 != result.push_null()) [[unlikely]] {
             return Status::InternalError("pack mysql buffer failed.");
         }
     } else {
-        std::string json_str = JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
-        if (UNLIKELY(0 != result.push_string(json_str.c_str(), json_str.size()))) {
+        std::string json_str =
+                JsonbToJson::jsonb_to_json_string(jsonb_val.data(), jsonb_val.size());
+        if (0 != result.push_string(json_str.c_str(), json_str.size())) [[unlikely]] {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }

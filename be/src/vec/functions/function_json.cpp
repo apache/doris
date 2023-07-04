@@ -1035,9 +1035,9 @@ public:
             const auto& search_val = col_search_string->get_data_at(i);
             const auto& path_val = col_path_string->get_data_at(i);
 
-            std::string_view json_string(json_val.data, json_val.size);
-            std::string_view search_string(search_val.data, search_val.size);
-            std::string_view path_string(path_val.data, path_val.size);
+            std::string_view json_string(json_val);
+            std::string_view search_string(search_val);
+            std::string_view path_string(path_val);
 
             rapidjson::Document document;
             auto target_val = get_json_object<JSON_FUN_STRING>(json_string, path_string, &document);

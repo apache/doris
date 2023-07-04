@@ -407,24 +407,24 @@ public:
         if (arguments.size() > 1) {
             auto& col = *block.get_by_position(arguments[1]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) {
-                upper = *string_ref.data;
+            if (string_ref.size() > 0) {
+                upper = string_ref.front();
             }
         }
 
         if (arguments.size() > 2) {
             auto& col = *block.get_by_position(arguments[2]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) {
-                lower = *string_ref.data;
+            if (string_ref.size() > 0) {
+                lower = string_ref.front();
             }
         }
 
         if (arguments.size() > 3) {
             auto& col = *block.get_by_position(arguments[3]).column;
             auto string_ref = col.get_data_at(0);
-            if (string_ref.size > 0) {
-                number = *string_ref.data;
+            if (string_ref.size() > 0) {
+                number = string_ref.front();
             }
         }
 

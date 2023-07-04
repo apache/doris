@@ -131,20 +131,20 @@ Status DataTypeStringSerDe::_write_column_to_mysql(const IColumn& column,
     auto& col = assert_cast<const ColumnString&>(column);
     const auto col_index = index_check_const(row_idx, col_const);
     const auto string_val = col.get_data_at(col_index);
-    if (string_val.data == nullptr) {
-        if (string_val.size == 0) {
+    if (string_val.data() == nullptr) {
+        if (string_val.empty()) {
             // 0x01 is a magic num, not useful actually, just for present ""
             char* tmp_val = reinterpret_cast<char*>(0x01);
-            if (UNLIKELY(0 != result.push_string(tmp_val, string_val.size))) {
+            if (0 != result.push_string(tmp_val, string_val.size())) [[unlikely]] {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            if (UNLIKELY(0 != result.push_null())) {
+            if (0 != result.push_null()) [[unlikely]] {
                 return Status::InternalError("pack mysql buffer failed.");
             }
         }
     } else {
-        if (UNLIKELY(0 != result.push_string(string_val.data, string_val.size))) {
+        if (0 != result.push_string(string_val.data(), string_val.size())) [[unlikely]] {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
