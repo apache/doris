@@ -82,6 +82,7 @@ class RefCountClosure;
 
 namespace stream_load {
 
+class OlapTableValidator;
 class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
@@ -494,28 +495,6 @@ private:
                                       ChannelDistributionPayload& channel_to_payload,
                                       size_t num_rows, int32_t filtered_rows);
 
-    // make input data valid for OLAP table
-    // return number of invalid/filtered rows.
-    // invalid row number is set in Bitmap
-    // set stop_processing if we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
-                          int* filtered_rows, bool* stop_processing);
-
-    template <bool is_min>
-    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
-
-    template <typename DecimalType, bool IsMin>
-    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
-
-    Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-                            vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
-                            bool* stop_processing, fmt::memory_buffer& error_prefix,
-                            vectorized::IColumn::Permutation* rows = nullptr);
-
-    // some output column of output expr may have different nullable property with dest slot desc
-    // so here need to do the convert operation
-    void _convert_to_dest_desc_block(vectorized::Block* block);
-
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
@@ -565,16 +544,7 @@ private:
     bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
-    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
-
-    std::map<int, int32_t> _max_decimal32_val;
-    std::map<int, int32_t> _min_decimal32_val;
-    std::map<int, int64_t> _max_decimal64_val;
-    std::map<int, int64_t> _min_decimal64_val;
-    std::map<int, int128_t> _max_decimal128_val;
-    std::map<int, int128_t> _min_decimal128_val;
-
+    std::unique_ptr<OlapTableValidator> _validator;
     // Stats for this
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
