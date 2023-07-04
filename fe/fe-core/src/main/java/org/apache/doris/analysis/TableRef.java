@@ -763,8 +763,12 @@ public class TableRef implements ParseNode, Writable {
         if (alias != null) {
             aliasSql = ToSqlUtils.getIdentSql(alias);
         }
-        String tblName = name.toSql() + ((aliasSql != null) ? " " + aliasSql : "");
-        return tblName;
+        StringBuilder output = new StringBuilder("");
+        output.append(name.toSql() + ((aliasSql != null) ? " " + aliasSql : ""));
+        if (partitionNames != null) {
+            output.append(" ") .append(partitionNames.toSql());
+        }
+        return output.toString();
     }
 
     public String tableRefToDigest() {
