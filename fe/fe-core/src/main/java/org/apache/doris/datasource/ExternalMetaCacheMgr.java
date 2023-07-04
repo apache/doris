@@ -30,7 +30,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Cache meta of external catalog
@@ -44,11 +44,13 @@ public class ExternalMetaCacheMgr {
     private Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
-    private Executor executor;
+    private ThreadPoolExecutor executor;
 
     public ExternalMetaCacheMgr() {
-        executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_external_cache_loader_thread_pool_size,
-                "ExternalMetaCacheMgr", true);
+        executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                Config.max_external_cache_loader_thread_pool_size,
+                Config.max_external_cache_loader_thread_pool_size * 1000,
+                "ExternalMetaCacheMgr", 120, true);
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -69,7 +71,7 @@ public class ExternalMetaCacheMgr {
         if (cache == null) {
             synchronized (schemaCacheMap) {
                 if (!schemaCacheMap.containsKey(catalog.getId())) {
-                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog, executor));
+                    schemaCacheMap.put(catalog.getId(), new ExternalSchemaCache(catalog));
                 }
                 cache = schemaCacheMap.get(catalog.getId());
             }

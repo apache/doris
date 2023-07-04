@@ -1705,7 +1705,7 @@ public class Config extends ConfigBase {
      * Max thread pool size for loading external meta cache
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static int max_external_cache_loader_thread_pool_size = 10;
+    public static int max_external_cache_loader_thread_pool_size = 64;
 
     /**
      * Max cache num of external catalog's file
