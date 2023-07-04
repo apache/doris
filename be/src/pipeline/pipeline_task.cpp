@@ -265,7 +265,8 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::try_close() {
-    return _source->try_close();
+    _sink->try_close(_state);
+    return _source->try_close(_state);
 }
 
 Status PipelineTask::close() {
