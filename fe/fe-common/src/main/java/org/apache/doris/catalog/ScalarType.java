@@ -432,9 +432,9 @@ public class ScalarType extends Type {
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
         if (!Config.enable_date_conversion) {
-            return new ScalarType(PrimitiveType.TIMEV2);
+            return new ScalarType(PrimitiveType.TIME);
         }
-        ScalarType type = new ScalarType(PrimitiveType.TIME);
+        ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
         return type;
