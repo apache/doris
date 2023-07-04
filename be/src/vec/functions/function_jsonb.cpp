@@ -436,82 +436,7 @@ private:
                                               ColumnString::Offsets& res_offsets, NullMap& null_map,
                                               const std::unique_ptr<JsonbWriter>& writer,
                                               std::unique_ptr<JsonbToJson>& formater,
-                                              const char* l_raw, int l_size, const char* r_raw,
-                                              int r_size, bool& is_invalid_json_path) {
-        String path(r_raw, r_size);
-
-        if (null_map[i]) {
-            StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            return;
-        }
-
-        // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-        JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
-        if (UNLIKELY(!doc || !doc->getValue())) {
-            StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            return;
-        }
-
-        // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value = doc->getValue()->findPath(r_raw, r_size, is_invalid_json_path, nullptr);
-
-        if (UNLIKELY(!value) || is_invalid_json_path) {
-            StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            return;
-        }
-
-        if constexpr (ValueType::only_get_type) {
-            StringOP::push_value_string(std::string_view(value->typeName()), i, res_data,
-                                        res_offsets);
-            return;
-        }
-
-        if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
-            writer->reset();
-            writer->writeValue(value);
-            StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
-                                                         writer->getOutput()->getSize()),
-                                        i, res_data, res_offsets);
-        } else {
-            if (LIKELY(value->isString())) {
-                auto str_value = (JsonbStringVal*)value;
-                StringOP::push_value_string(
-                        std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
-                        res_offsets);
-            } else if (value->isNull()) {
-                StringOP::push_value_string("null", i, res_data, res_offsets);
-            } else if (value->isTrue()) {
-                StringOP::push_value_string("true", i, res_data, res_offsets);
-            } else if (value->isFalse()) {
-                StringOP::push_value_string("false", i, res_data, res_offsets);
-            } else if (value->isInt8()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt8Val*)value)->val()), i,
-                                            res_data, res_offsets);
-            } else if (value->isInt16()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt16Val*)value)->val()), i,
-                                            res_data, res_offsets);
-            } else if (value->isInt32()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt32Val*)value)->val()), i,
-                                            res_data, res_offsets);
-            } else if (value->isInt64()) {
-                StringOP::push_value_string(std::to_string(((const JsonbInt64Val*)value)->val()), i,
-                                            res_data, res_offsets);
-            } else {
-                if (!formater) {
-                    formater.reset(new JsonbToJson());
-                }
-                StringOP::push_value_string(formater->to_json_string(value), i, res_data,
-                                            res_offsets);
-            }
-        }
-    }
-
-    static ALWAYS_INLINE void inner_loop_impl_tmp(size_t i, ColumnString::Chars& res_data,
-                                              ColumnString::Offsets& res_offsets, NullMap& null_map,
-                                              const std::unique_ptr<JsonbWriter>& writer,
-                                              std::unique_ptr<JsonbToJson>& formater,
-                                              const char* l_raw, int l_size, JsonbPath& path, bool& is_invalid_json_path) {
-
+                                              const char* l_raw, int l_size, JsonbPath& path) {
         if (null_map[i]) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
@@ -527,7 +452,7 @@ private:
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
         JsonbValue* value = doc->getValue()->findValue(path, nullptr);
 
-        if (UNLIKELY(!value) || is_invalid_json_path) {
+        if (UNLIKELY(!value)) {
             StringOP::push_null_string(i, res_data, res_offsets, null_map);
             return;
         }
@@ -674,8 +599,13 @@ public:
             int r_size = roffsets[i] - roffsets[i - 1];
             const char* r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
+                is_invalid_json_path = true;
+            }
+
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                            r_raw, r_size, is_invalid_json_path);
+                            path);
         } //for
     }     //function
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
@@ -693,14 +623,16 @@ public:
         std::unique_ptr<JsonbToJson> formater;
 
         JsonbPath path;
-        path.parsePath_tmp(rdata.data, rdata.size);
+        if (!path.seek(rdata.data, rdata.size)) {
+            is_invalid_json_path = true;
+        }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             int l_size = loffsets[i] - loffsets[i - 1];
             const char* l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
-            inner_loop_impl_tmp(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                                path, is_invalid_json_path);
+            inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
+                            path);
         } //for
     }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
@@ -722,8 +654,13 @@ public:
             int r_size = roffsets[i] - roffsets[i - 1];
             const char* r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
+            JsonbPath path;
+            if (!path.seek(r_raw, r_size)) {
+                is_invalid_json_path = true;
+            }
+
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, ldata.data,
-                            ldata.size, r_raw, r_size, is_invalid_json_path);
+                            ldata.size, path);
         } //for
     }     //function
 };
@@ -738,8 +675,7 @@ struct JsonbExtractImpl {
 private:
     static ALWAYS_INLINE void inner_loop_impl(size_t i, Container& res, NullMap& null_map,
                                               const char* l_raw_str, int l_str_size,
-                                              const char* r_raw_str, int r_str_size,
-                                              bool& is_invalid_json_path) {
+                                              JsonbPath& path) {
         if (null_map[i]) {
             res[i] = 0;
             return;
@@ -754,10 +690,9 @@ private:
         }
 
         // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-        JsonbValue* value =
-                doc->getValue()->findPath(r_raw_str, r_str_size, is_invalid_json_path, nullptr);
+        JsonbValue* value = doc->getValue()->findValue(path, nullptr);
 
-        if (UNLIKELY(!value) || is_invalid_json_path) {
+        if (UNLIKELY(!value)) {
             if constexpr (!only_check_exists) {
                 null_map[i] = 1;
             }
@@ -815,87 +750,6 @@ private:
         }
     }
 
-static ALWAYS_INLINE void inner_loop_impl_tmp(size_t i, Container& res, NullMap& null_map,
-                                              const char* l_raw_str, int l_str_size,
-                                              JsonbPath& path,
-                                              bool& is_invalid_json_path) {
-    if (null_map[i]) {
-        res[i] = 0;
-        return;
-    }
-
-    // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
-    JsonbDocument* doc = JsonbDocument::createDocument(l_raw_str, l_str_size);
-    if (UNLIKELY(!doc || !doc->getValue())) {
-        null_map[i] = 1;
-        res[i] = 0;
-        return;
-    }
-
-    // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-    JsonbValue* value =
-            doc->getValue()->findValue(path, nullptr);
-
-    if (UNLIKELY(!value) || is_invalid_json_path) {
-        if constexpr (!only_check_exists) {
-            null_map[i] = 1;
-        }
-        res[i] = 0;
-        return;
-    }
-
-    // if only check path exists, it's true here and skip check value
-    if constexpr (only_check_exists) {
-        res[i] = 1;
-        return;
-    }
-
-    if constexpr (std::is_same_v<void, typename ValueType::T>) {
-        if (value->isNull()) {
-            res[i] = 1;
-        } else {
-            res[i] = 0;
-        }
-    } else if constexpr (std::is_same_v<bool, typename ValueType::T>) {
-        if (value->isTrue()) {
-            res[i] = 1;
-        } else if (value->isFalse()) {
-            res[i] = 0;
-        } else {
-            null_map[i] = 1;
-            res[i] = 0;
-        }
-    } else if constexpr (std::is_same_v<int32_t, typename ValueType::T>) {
-        if (value->isInt8() || value->isInt16() || value->isInt32()) {
-            res[i] = (int32_t)((const JsonbIntVal*)value)->val();
-        } else {
-            null_map[i] = 1;
-            res[i] = 0;
-        }
-    } else if constexpr (std::is_same_v<int64_t, typename ValueType::T>) {
-        if (value->isInt8() || value->isInt16() || value->isInt32() || value->isInt64()) {
-            res[i] = ((const JsonbIntVal*)value)->val();
-        } else {
-            null_map[i] = 1;
-            res[i] = 0;
-        }
-    } else if constexpr (std::is_same_v<double, typename ValueType::T>) {
-        if (value->isDouble()) {
-            res[i] = ((const JsonbDoubleVal*)value)->val();
-        } else if (value->isInt8() || value->isInt16() || value->isInt32() ||
-                   value->isInt64()) {
-            res[i] = ((const JsonbIntVal*)value)->val();
-        } else {
-            null_map[i] = 1;
-            res[i] = 0;
-        }
-    } else {
-        LOG(FATAL) << "unexpected type ";
-    }
-
-    }
-
-
 public:
     // for jsonb_extract_int/int64/double
     static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
@@ -917,8 +771,12 @@ public:
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, r_raw_str, r_str_size,
-                            is_invalid_json_path);
+            JsonbPath path;
+            if (!path.seek(r_raw_str, r_str_size)) {
+                is_invalid_json_path = true;
+            }
+
+            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
         } //for
     }     //function
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
@@ -936,8 +794,12 @@ public:
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
             int r_str_size = roffsets[i] - roffsets[i - 1];
 
-            inner_loop_impl(i, res, null_map, ldata.data, ldata.size, r_raw_str, r_str_size,
-                            is_invalid_json_path);
+            JsonbPath path;
+            if (!path.seek(r_raw_str, r_str_size)) {
+                is_invalid_json_path = true;
+            }
+
+            inner_loop_impl(i, res, null_map, ldata.data, ldata.size, path);
         } //for
     }     //function
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
@@ -947,7 +809,9 @@ public:
         res.resize(size);
 
         JsonbPath path;
-        path.parsePath_tmp(rdata.data, rdata.size);
+        if (!path.seek(rdata.data, rdata.size)) {
+            is_invalid_json_path = true;
+        }
 
         for (size_t i = 0; i < loffsets.size(); i++) {
             if constexpr (only_check_exists) {
@@ -957,8 +821,7 @@ public:
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
             int l_str_size = loffsets[i] - loffsets[i - 1];
 
-            inner_loop_impl_tmp(i, res, null_map, l_raw_str, l_str_size, path,
-                            is_invalid_json_path);
+            inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
         } //for
     }     //function
 };
