@@ -518,7 +518,8 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id,
+                                        int64_t* flush_size) {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
                   << ", memsize: " << memtable->memory_usage()
                   << ", rows: " << memtable->stat().raw_rows;
@@ -533,7 +534,8 @@ Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id, 
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+Status BetaRowsetWriter::_do_flush_memtable(MemTable* memtable, int32_t segment_id,
+                                            int64_t* flush_size) {
     SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
     std::unique_ptr<vectorized::Block> block = memtable->to_block();
 
@@ -1018,8 +1020,8 @@ Status BetaRowsetWriter::unfold_variant_column(vectorized::Block& block, FlushCo
         if (_rowset_meta->tablet_schema()->field_index(name) == -1) {
             const auto& tcolumn = schema_view.column_name_to_column[name];
             TabletColumn new_column(tcolumn);
-            mutable_schema_change_recorder()->add_extended_columns(
-                    column, schema_view.schema_version);
+            mutable_schema_change_recorder()->add_extended_columns(column,
+                                                                   schema_view.schema_version);
         }
     }
 
