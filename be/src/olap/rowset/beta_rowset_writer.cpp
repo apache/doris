@@ -47,6 +47,7 @@
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
+#include "runtime/thread_context.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/columns/column.h"
@@ -519,9 +520,22 @@ Status BetaRowsetWriter::flush() {
 }
 
 Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
+                  << ", memsize: " << memtable->memory_usage()
+                  << ", rows: " << memtable->stat().raw_rows;
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
-    //SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
+    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush_memtable(memtable, segment_id, flush_size)));
+    // TODO: _delta_writer_callback(_stat);
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
+                  << ", flushsize: " << *flush_size;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+    SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
     std::unique_ptr<vectorized::Block> block = memtable->to_block();
 
     FlushContext ctx;
@@ -531,11 +545,8 @@ Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id, 
         RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
-    //SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
+    SCOPED_RAW_TIMER(&memtable->stat().segment_writer_ns);
     RETURN_IF_ERROR(flush_single_memtable(block.get(), flush_size, &ctx));
-    //_delta_writer_callback(_stat);
-    DorisMetrics::instance()->memtable_flush_total->increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     return Status::OK();
 }
 

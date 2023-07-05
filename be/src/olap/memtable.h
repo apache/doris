@@ -197,6 +197,10 @@ public:
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
+    MemTableStat& stat() { return _stat; }
+
+    std::shared_ptr<MemTracker> flush_mem_tracker() { return _flush_mem_tracker; }
+
 private:
     // for vectorized
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
