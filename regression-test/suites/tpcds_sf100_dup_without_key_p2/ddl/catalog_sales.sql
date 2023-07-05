@@ -34,9 +34,9 @@ CREATE TABLE IF NOT EXISTS catalog_sales (
     cs_net_paid_inc_ship_tax decimal(7,2),
     cs_net_profit decimal(7,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(cs_item_sk, cs_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true",
   "colocate_with" = "catalog"
 );

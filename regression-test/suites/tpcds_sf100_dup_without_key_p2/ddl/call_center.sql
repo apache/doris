@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS call_center (
   cc_gmt_offset decimal(5,2),
   cc_tax_percentage decimal(5,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(cc_call_center_sk) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

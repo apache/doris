@@ -41,6 +41,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
@@ -69,8 +70,7 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_ipv4.h"
-#include "vec/data_types/data_type_ipv6.h"
+#include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -84,6 +84,7 @@
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/template_helpers.hpp"
 
 class DateLUTImpl;
 
@@ -222,8 +223,9 @@ struct ConvertImpl {
     using ToFieldType = typename ToDataType::FieldType;
 
     template <typename Additions = void*>
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/, bool check_overflow [[maybe_unused]] = false,
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/,
+                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -246,6 +248,7 @@ struct ConvertImpl {
             typename ColVecTo::MutablePtr col_to = nullptr;
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
+                ToDataType::check_type_scale(scale);
                 col_to = ColVecTo::create(0, scale);
             } else {
                 col_to = ColVecTo::create();
@@ -290,8 +293,7 @@ struct ConvertImpl {
                                             .to_int64(),
                                     vec_to.get_scale(),
                                     vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                        } else if constexpr (IsDateV2Type<
-                                FromDataType> &&
+                        } else if constexpr (IsDateV2Type<FromDataType> &&
                                              IsDataTypeDecimal<ToDataType>) {
                             vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
                                     reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
@@ -417,8 +419,8 @@ struct ConvertImpl {
   */
 template <typename T, typename Name>
 struct ConvertImpl<std::enable_if_t<!T::is_parametric, T>, T, Name> {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/) {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
         return Status::OK();
     }
@@ -754,8 +756,9 @@ template <typename ToDataType, typename Name>
 struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/, bool check_overflow [[maybe_unused]] = false,
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t /*input_rows_count*/,
+                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -836,14 +839,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
         return try_read_datetime_v2_text(x, rb, scale);
     }
 
-    if constexpr (IsIPv4Type<DataType>) {
-        return try_read_ipv4_text(x, rb);
-    }
-
-    if constexpr (IsIPv6Type<DataType>) {
-        return try_read_ipv6_text(x, rb);
-    }
-
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
                   std::is_same_v<DataTypeTime, DataType>) {
         // cast from string to time(float64)
@@ -862,8 +857,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
         return try_read_bool_text(x, rb);
     }
 
-    if constexpr (std::is_integral_v<typename DataType::FieldType>
-            && !std::is_same_v<typename DataType::FieldType, IPv6>) {
+    if constexpr (std::is_integral_v<typename DataType::FieldType>) {
         return try_read_int_text(x, rb);
     }
 
@@ -1081,22 +1075,18 @@ public:
                         return true;
                     }
 
-                    const ColumnWithTypeAndName& scale_column = block.get_by_position(arguments[1]);
-                    UInt32 scale = extract_to_decimal_scale(scale_column);
-
+                    const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), scale);
+                            context, block, arguments, result, input_rows_count,
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
-                    auto type =
-                            check_and_get_data_type<DataTypeDateTimeV2>(scale_column.type.get());
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), type->get_scale());
+                            context, block, arguments, result, input_rows_count,
+                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            block, arguments, result, input_rows_count);
+                            context, block, arguments, result, input_rows_count);
                 }
                 return true;
             };
@@ -1147,8 +1137,6 @@ using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
 using FunctionToDecimal128I =
         FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
-using FunctionToIPv4 = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
-using FunctionToIPv6 = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
@@ -1219,14 +1207,6 @@ struct FunctionTo<DataTypeDecimal<Decimal128I>> {
     using Type = FunctionToDecimal128I;
 };
 template <>
-struct FunctionTo<DataTypeIPv4> {
-    using Type = FunctionToIPv4;
-};
-template <>
-struct FunctionTo<DataTypeIPv6> {
-    using Type = FunctionToIPv6;
-};
-template <>
 struct FunctionTo<DataTypeDate> {
     using Type = FunctionToDate;
 };
@@ -1290,8 +1270,9 @@ struct ConvertThroughParsing {
     static bool is_all_read(ReadBuffer& in) { return in.eof(); }
 
     template <typename Additions = void*>
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t input_rows_count, bool check_overflow [[maybe_unused]] = false,
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count,
+                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
@@ -1312,6 +1293,7 @@ struct ConvertThroughParsing {
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             UInt32 scale = additions;
+            ToDataType::check_type_scale(scale);
             col_to = ColVecTo::create(size, scale);
         } else {
             col_to = ColVecTo::create(size);
@@ -1333,34 +1315,55 @@ struct ConvertThroughParsing {
             offsets = &col_from_string->get_offsets();
         }
 
+        bool is_load = (context && context->state()->query_type() == TQueryType::type::LOAD);
+        bool is_strict_insert = (context && context->state()->enable_insert_strict());
         size_t current_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
-                                         ? (*offsets)[i]
-                                         : (current_offset + fixed_string_size);
-            size_t string_size = std::is_same_v<FromDataType, DataTypeString>
-                                         ? next_offset - current_offset
-                                         : fixed_string_size;
+        auto status = std::visit(
+                [&](auto is_load_, auto is_strict_insert_) {
+                    for (size_t i = 0; i < size; ++i) {
+                        size_t next_offset = std::is_same_v<FromDataType, DataTypeString>
+                                                     ? (*offsets)[i]
+                                                     : (current_offset + fixed_string_size);
+                        size_t string_size = std::is_same_v<FromDataType, DataTypeString>
+                                                     ? next_offset - current_offset
+                                                     : fixed_string_size;
 
-            ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
+                        ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            bool parsed;
-            if constexpr (IsDataTypeDecimal<ToDataType>) {
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
-                                                    vec_to.get_scale());
-            } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                auto type = check_and_get_data_type<DataTypeDateTimeV2>(
-                        block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone,
-                                                    type->get_scale());
-            } else {
-                parsed = try_parse_impl<ToDataType, void*, FromDataType>(vec_to[i], read_buffer,
-                                                                         local_time_zone);
-            }
-            (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+                        bool parsed;
+                        if constexpr (IsDataTypeDecimal<ToDataType>) {
+                            parsed = try_parse_impl<ToDataType>(
+                                    vec_to[i], read_buffer, local_time_zone, vec_to.get_scale());
+                        } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+                            auto type = check_and_get_data_type<DataTypeDateTimeV2>(
+                                    block.get_by_position(result).type.get());
+                            parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
+                                                                local_time_zone, type->get_scale());
+                        } else {
+                            parsed = try_parse_impl<ToDataType, void*, FromDataType>(
+                                    vec_to[i], read_buffer, local_time_zone);
+                        }
+                        (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
+                        if constexpr (is_load_ && is_strict_insert_) {
+                            if (string_size != 0 && (*vec_null_map_to)[i]) {
+                                return Status::InternalError(
+                                        "Invalid value {} in strict mode for function {}, source "
+                                        "column {}, from "
+                                        "type "
+                                        "{} to type {}",
+                                        std::string((char*)&(*chars)[current_offset], string_size),
+                                        Name::name, col_from->get_name(), FromDataType().get_name(),
+                                        ToDataType().get_name());
+                            }
+                        }
 
-            current_offset = next_offset;
-        }
+                        current_offset = next_offset;
+                    }
+                    return Status::OK();
+                },
+                make_bool_variant(is_load), make_bool_variant(is_strict_insert));
+
+        RETURN_IF_ERROR(status);
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -1412,7 +1415,7 @@ public:
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
             return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                    block, arguments, result, input_rows_count);
+                    context, block, arguments, result, input_rows_count);
         }
 
         return Status::RuntimeError(
@@ -1584,9 +1587,12 @@ private:
                         using LeftDataType = typename Types::LeftType;
                         using RightDataType = typename Types::RightType;
 
-                        ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
-                                block, arguments, result, input_rows_count,
+                        auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
+                                context, block, arguments, result, input_rows_count,
                                 context->check_overflow_for_decimal(), scale);
+                        if (!state) {
+                            throw Exception(state.code(), state.to_string());
+                        }
                         return true;
                     });
 
@@ -1633,6 +1639,25 @@ private:
         const String error_msg = fmt::format("Conversion from {} to {} is not supported",
                                              from_type_name, to_type_name);
         return create_unsupport_wrapper(error_msg);
+    }
+
+    WrapperType create_hll_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
+                                   const DataTypeHLL& to_type) const {
+        /// Conversion from String through parsing.
+        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        }
+
+        //TODO if from is not string, it must be HLL?
+        const auto* from_type = check_and_get_data_type<DataTypeHLL>(from_type_untyped.get());
+
+        if (!from_type) {
+            return create_unsupport_wrapper(
+                    "CAST AS HLL can only be performed between HLL, String "
+                    "types");
+        }
+
+        return nullptr;
     }
 
     WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
@@ -1986,9 +2011,7 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateTime> ||
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime> ||
-                          std::is_same_v<ToDataType, DataTypeIPv4> ||
-                          std::is_same_v<ToDataType, DataTypeIPv6>) {
+                          std::is_same_v<ToDataType, DataTypeTime>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;
@@ -2020,6 +2043,9 @@ private:
                                          static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
             return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
+        case TypeIndex::HLL:
+            return create_hll_wrapper(context, from_type,
+                                      static_cast<const DataTypeHLL&>(*to_type));
         default:
             break;
         }
@@ -2035,7 +2061,7 @@ public:
     static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
-    FunctionBuilderCast() {}
+    FunctionBuilderCast() = default;
 
     String get_name() const override { return name; }
 

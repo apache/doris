@@ -45,4 +45,34 @@ suite("test_last_value_window") {
 
     qt_select_default """ select *,last_value(state) over(partition by myday order by time_col) from ${tableName} order by myday, time_col, state; """
 
+
+    def tableName1 = "test_last_value_window_array"
+
+    sql """ DROP TABLE IF EXISTS ${tableName1} """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName1} (
+            `myday` INT,
+            `time_col` VARCHAR(40) NOT NULL,
+            `state` ARRAY<STRING>
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`myday`,time_col)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`myday`) BUCKETS 2
+            PROPERTIES (
+            "replication_num" = "1",
+            "in_memory" = "false",
+            "storage_format" = "V2"
+            );
+    """
+
+    sql """ INSERT INTO ${tableName1} VALUES
+            (21,"04-21-11",["amory", "clever"]),
+            (22,"04-22-10-21",["is ", "cute", "tea"]),
+            (22,"04-22-10-21",["doris", "aws", "greate"]),
+            (23,"04-23-10", ["p7", "year4"]),
+            (24,"02-24-10-21",[""]); """
+
+    qt_select_default """ select *,last_value(state) over(partition by myday order by time_col range between current row and unbounded following) from ${tableName1} order by myday, time_col; """
+
+
 }

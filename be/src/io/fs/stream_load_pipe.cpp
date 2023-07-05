@@ -43,7 +43,7 @@ StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
           _use_proto(use_proto) {}
 
 StreamLoadPipe::~StreamLoadPipe() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+    SCOPED_TRACK_MEMORY_TO_UNKNOWN();
     while (!_buf_queue.empty()) {
         _buf_queue.pop_front();
     }

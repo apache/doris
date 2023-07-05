@@ -37,7 +37,6 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ISSUE_COMMENT: ${{ github.event.comment.body }}
-
     steps:
       - name: Run pipeline by teamcity restful
         run: |
@@ -46,10 +45,9 @@ jobs:
           else
             echo "Comment was made on an issue, not a pull request."
           fi
-          comment="${{ env.ISSUE_COMMENT }}"
           pull_request_num=${{ env.PULL_REQUEST_NUM }}
-          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")          
-          comment_message="${comment}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "$ISSUE_COMMENT")
+          comment_message="$ISSUE_COMMENT"
           latest_commit_id="${{ env.LATEST_COMMIT }}"
           teamcity_url="${{ env.TEAMCITY_URL }}"
           trigger_pipelines=""

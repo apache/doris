@@ -107,19 +107,6 @@
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
-namespace apache {
-namespace thrift {
-class TException;
-
-namespace transport {
-class TTransportException;
-} // namespace transport
-} // namespace thrift
-} // namespace apache
-
-using apache::thrift::transport::TTransportException;
-using apache::thrift::TException;
-
 namespace doris::pipeline {
 
 PipelineFragmentContext::PipelineFragmentContext(
@@ -138,6 +125,9 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
+    if (_query_ctx->get_task_group()) {
+        _task_group_entity = _query_ctx->get_task_group()->task_entity();
+    }
     _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
@@ -165,6 +155,15 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+
+        LOG(WARNING) << "PipelineFragmentContext Canceled. reason=" << msg;
+
+        // Print detail informations below when you debugging here.
+        //
+        // for (auto& task : _tasks) {
+        //     LOG(WARNING) << task->debug_string();
+        // }
+
         _runtime_state->set_process_status(_exec_status);
         // Get pipe from new load stream manager and send cancel to it or the fragment may hang to wait read from pipe
         // For stream load the fragment's query_id == load id, it is set in FE.
@@ -251,8 +250,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_desc_tbl(desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
-    RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                          request.fragment.plan, *desc_tbl, &_root_plan));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
+                                  request.fragment.plan, *desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -309,7 +309,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_num_per_fragment_instances(request.num_senders);
 
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR(DataSink::create_data_sink(
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 _runtime_state->obj_pool(), request.fragment.output_sink,
                 request.fragment.output_exprs, request, idx, _root_plan->row_desc(),
                 _runtime_state.get(), &_sink, *desc_tbl));
@@ -334,6 +334,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
 Status PipelineFragmentContext::_build_pipeline_tasks(
         const doris::TPipelineFragmentParams& request) {
+    _total_tasks = 0;
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();
@@ -342,8 +343,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
         Operators operators;
         RETURN_IF_ERROR(pipeline->build_operators(operators));
-        auto task = std::make_unique<PipelineTask>(pipeline, 0, _runtime_state.get(), operators,
-                                                   sink, this, pipeline->pipeline_profile());
+        auto task =
+                std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
+                                               operators, sink, this, pipeline->pipeline_profile());
         sink->set_child(task->get_root());
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
@@ -352,7 +354,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
-    _total_tasks = _tasks.size();
 
     // register the profile of child data stream sender
     for (auto& sender : _multi_cast_stream_sink_senders) {
@@ -596,7 +597,7 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
             RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
         } else {
             OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
-                    next_operator_builder_id(), node->child(1)->row_desc());
+                    next_operator_builder_id(), node->child(1)->row_desc(), node->child(1));
             new_pipe->add_operator(builder);
         }
         OperatorBuilderPtr join_sink =
@@ -681,7 +682,7 @@ Status PipelineFragmentContext::submit() {
     int submit_tasks = 0;
     Status st;
     auto* scheduler = _exec_env->pipeline_task_scheduler();
-    if (get_task_group()) {
+    if (_task_group_entity) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {
@@ -767,16 +768,25 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         _multi_cast_stream_sink_senders.resize(sender_size);
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
+
+            auto row_desc =
+                    !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
+                            ? RowDescriptor(
+                                      _runtime_state->desc_tbl(),
+                                      {thrift_sink.multi_cast_stream_sink.sinks[i].output_tuple_id},
+                                      {false})
+                            : sink_->row_desc();
             // 1. create the data stream sender sink
             _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
-                    _runtime_state.get(), _runtime_state->obj_pool(), sender_id, sink_->row_desc(),
+                    _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], 16 * 1024, false));
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
-                            next_operator_builder_id(), i, multi_cast_data_streamer);
+                            next_operator_builder_id(), i, multi_cast_data_streamer,
+                            thrift_sink.multi_cast_stream_sink.sinks[i]);
             new_pipeline->add_operator(source_op);
 
             // 3. create and set sink operator of data stream sender for new pipeline

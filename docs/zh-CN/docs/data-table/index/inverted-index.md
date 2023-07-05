@@ -52,7 +52,7 @@ Doris倒排索引的功能简要介绍如下：
 - 增加了字符串类型的全文检索
   - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY、匹配短语词组MATCH_PHRASE
   - 支持字符串数组类型的全文检索
-  - 支持英文、中文分词
+  - 支持英文、中文以及Unicode多语言分词
 - 加速普通等值、范围查询，覆盖bitmap索引的功能，未来会代替bitmap索引
   - 支持字符串、数值、日期时间类型的 =, !=, >, >=, <, <= 快速过滤
   - 支持字符串、数字、日期时间数组类型的 =, !=, >, >=, <, <=
@@ -72,35 +72,67 @@ Doris倒排索引的功能简要介绍如下：
     - parser指定分词器
       - 默认不指定代表不分词
       - english是英文分词，适合被索引列是英文的情况，用空格和标点符号分词，性能高
-      - chinese是中文分词，适合被索引列有中文或者中英文混合的情况，采用jieba分词库，性能比english分词低
-    - parser_mode用于指定中文分词的模式
-      - fine_grained模式，系统将对可以进行分词的部分都进行详尽的分词处理
-      - coarse_grained模式，系统则依据最大化原则，执行精确且全面的分词操作
-      - 默认find_grained模式
-    - support_phrase用于指定索引是否需要支持短语模式
-      - true为需要
-      - false为不需要
-      - 默认false不需要
+      - chinese是中文分词，适合被索引列主要是中文的情况，性能比english分词低
+      - unicode是多语言混合类型分词，适用于中英文混合、多语言混合的情况。它能够对邮箱前缀和后缀、IP地址以及字符数字混合进行分词，并且可以对中文按字符分词。
+    - parser_mode用于指定分词的模式，目前parser = chinese时支持如下几种模式：
+      - fine_grained：细粒度模式，倾向于分出比较短的词，比如 '武汉长江大桥' 会分成 '武汉', '武汉市', '市长', '长江', '长江大桥', '大桥' 6个词
+      - coarse_grained：粗粒度模式，倾向于分出比较长的词，，比如 '武汉长江大桥' 会分成 '武汉市' '长江大桥' 2个词
+      - 默认coarse_grained
+    - support_phrase用于指定索引是否支持MATCH_PHRASE短语查询加速
+      - true为支持，但是索引需要更多的存储空间
+      - false为不支持，更省存储空间，可以用MATCH_ALL查询多个关键字
+      - 默认false
   - COMMENT 是可选的，用于指定注释
 
 ```sql
 CREATE TABLE table_name
 (
   columns_difinition,
-  INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
-  INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment']
+  INDEX idx_name1(column_name1) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment']
+  INDEX idx_name2(column_name2) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment']
   INDEX idx_name3(column_name3) USING INVERTED [PROPERTIES("parser" = "chinese", "parser_mode" = "fine_grained|coarse_grained")] [COMMENT 'your comment']
-  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
+  INDEX idx_name4(column_name4) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese", "support_phrase" = "true|false")] [COMMENT 'your comment']
 )
 table_properties;
 ```
 
+:::tip
+
+倒排索引在不同数据模型中有不同的使用限制：
+- Aggregate 模型：只能为 Key 列建立倒排索引。
+- Unique 模型：需要开启 merge on write 特性，开启后，可以为任意列建立倒排索引。
+- Duplicate 模型：可以为任意列建立倒排索引。
+
+:::
+
 - 已有表增加倒排索引
+
+**2.0-beta版本之前：**
 ```sql
 -- 语法1
-CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
+CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment'];
 -- 语法2
-ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
+ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|unicode|chinese")] [COMMENT 'your comment'];
+```
+
+**2.0-beta版本（含2.0-beta）之后：**
+
+上述`create/add index`操作只对增量数据生成倒排索引，增加了build index的语法用于对存量数据加倒排索引：
+```sql
+-- 语法1，默认给全表的存量数据加上倒排索引
+BUILD INDEX index_name ON table_name;
+-- 语法2，可指定partition，可指定一个或多个
+BUILD INDEX index_name ON table_name PARTITIONS(partition_name1, partition_name2);
+```
+(**在执行build index之前需要已经执行了以上`create/add index`的操作**)
+
+查看`build index`进展，可通过以下语句进行查看：
+```sql
+show build index [FROM db_name];
+-- 示例1，查看所有的build index任务进展
+show build index;
+-- 示例2，查看指定table的build index任务进展
+show build index where TableName = "table1";
 ```
 
 - 删除倒排索引
@@ -149,7 +181,7 @@ USE test_inverted_index;
 
 -- 创建表的同时创建了comment的倒排索引idx_comment
 --   USING INVERTED 指定索引类型是倒排索引
---   PROPERTIES("parser" = "english") 指定采用english分词，还支持"chinese"中文分词，如果不指定"parser"参数表示不分词
+--   PROPERTIES("parser" = "english") 指定采用english分词，还支持"chinese"中文分词和"unicode"中英文多语言混合分词，如果不指定"parser"参数表示不分词
 CREATE TABLE hackernews_1m
 (
     `id` BIGINT,
@@ -324,6 +356,11 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 mysql> CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED;
 Query OK, 0 rows affected (0.03 sec)
 ```
+  **2.0-beta(含2.0-beta)后，需要再执行`build index`才能给存量数据加上倒排索引：**
+```sql
+mysql> BUILD INDEX idx_timestamp ON hackernews_1m;
+Query OK, 0 rows affected (0.01 sec)
+```
 
 - 查看索引创建进度，通过FinishTime和CreateTime的差值，可以看到100万条数据对timestamp列建倒排索引只用了1s
 ```sql
@@ -334,6 +371,18 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10030 | hackernews_1m | 2023-02-10 19:44:12.929 | 2023-02-10 19:44:13.938 | hackernews_1m | 10031   | 10008         | 1:1994690496  | 3             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 1 row in set (0.00 sec)
+```
+
+**2.0-beta(含2.0-beta)后，可通过`show builde index`来查看存量数据创建索引进展：**
+```sql
+-- 若table没有分区，PartitionName默认就是TableName
+mysql> show build index;
++-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| JobId | TableName     | PartitionName | AlterInvertedIndexes                                     | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
++-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| 10191 | hackernews_1m | hackernews_1m | [ADD INDEX idx_timestamp (`timestamp`) USING INVERTED],  | 2023-06-26 15:32:33.894 | 2023-06-26 15:32:34.847 | 3             | FINISHED |      | NULL     |
++-------+---------------+---------------+----------------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+1 row in set (0.04 sec)
 ```
 
 - 索引创建后，范围查询用同样的查询方式，Doris会自动识别索引进行优化，但是这里由于数据量小性能差别不大
@@ -362,6 +411,10 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
+-- 2.0-beta(含2.0-beta)后，需要再执行build index才能给存量数据加上倒排索引：
+mysql> BUILD INDEX idx_parent ON hackernews_1m;
+Query OK, 0 rows affected (0.01 sec)
+
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 | JobId | TableName     | CreateTime              | FinishTime              | IndexName     | IndexId | OriginIndexId | SchemaVersion | TransactionId | State    | Msg  | Progress | Timeout |
@@ -369,6 +422,14 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10030 | hackernews_1m | 2023-02-10 19:44:12.929 | 2023-02-10 19:44:13.938 | hackernews_1m | 10031   | 10008         | 1:1994690496  | 3             | FINISHED |      | NULL     | 2592000 |
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
+
+mysql> show build index;
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| 11005 | hackernews_1m | hackernews_1m | [ADD INDEX idx_parent (`parent`) USING INVERTED],  | 2023-06-26 16:25:10.167 | 2023-06-26 16:25:10.838 | 1002          | FINISHED |      | NULL     |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+1 row in set (0.01 sec)
 
 mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 +---------+
@@ -393,6 +454,10 @@ mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
+-- 2.0-beta(含2.0-beta)后，需要再执行build index才能给存量数据加上倒排索引：
+mysql> BUILD INDEX idx_author ON hackernews_1m;
+Query OK, 0 rows affected (0.01 sec)
+
 -- 100万条author数据增量建索引仅消耗1.5s
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
@@ -402,6 +467,14 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10053 | hackernews_1m | 2023-02-10 19:49:32.893 | 2023-02-10 19:49:33.982 | hackernews_1m | 10054   | 10008         | 1:378856428   | 4             | FINISHED |      | NULL     | 2592000 |
 | 10076 | hackernews_1m | 2023-02-10 19:54:20.046 | 2023-02-10 19:54:21.521 | hackernews_1m | 10077   | 10008         | 1:1335127701  | 5             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
+
+mysql> show build index order by CreateTime desc limit 1;
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| JobId | TableName     | PartitionName | AlterInvertedIndexes                               | CreateTime              | FinishTime              | TransactionId | State    | Msg  | Progress |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+| 13006 | hackernews_1m | hackernews_1m | [ADD INDEX idx_author (`author`) USING INVERTED],  | 2023-06-26 17:23:02.610 | 2023-06-26 17:23:03.755 | 3004          | FINISHED |      | NULL     |
++-------+---------------+---------------+----------------------------------------------------+-------------------------+-------------------------+---------------+----------+------+----------+
+1 row in set (0.01 sec)
 
 -- 创建索引后，字符串等值匹配也有明显加速
 mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';

@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS ship_mode (
     sm_carrier char(20),
     sm_contract char(20)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(sm_ship_mode_sk) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

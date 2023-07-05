@@ -254,8 +254,8 @@ struct LRUHandle {
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
-    char key_data[1]; // Beginning of key
     LRUCacheType type;
+    char key_data[1]; // Beginning of key
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -443,6 +443,11 @@ private:
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
+    // bvars
+    std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _hit_count_per_second;
+    std::unique_ptr<bvar::Adder<uint64_t>> _lookup_count_bvar;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _lookup_count_per_second;
 };
 
 } // namespace doris

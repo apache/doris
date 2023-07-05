@@ -120,7 +120,8 @@ public class TableFunctionNode extends PlanNode {
         }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
-        List<Expr> baseTblResultExprs = selectStmt.getResultExprs();
+        List<Expr> baseTblResultExprs = Expr.substituteList(selectStmt.getResultExprs(),
+                outputSmap, analyzer, false);
         for (Expr resultExpr : baseTblResultExprs) {
             // find all slotRef bound by tupleIds in resultExpr
             resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);

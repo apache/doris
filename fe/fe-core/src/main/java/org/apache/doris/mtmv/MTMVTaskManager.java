@@ -20,14 +20,9 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskState;
-import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
-import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -35,7 +30,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Deque;
 import java.util.HashSet;
@@ -51,7 +45,7 @@ import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class MTMVTaskManager {
@@ -66,37 +60,23 @@ public class MTMVTaskManager {
 
     private final MTMVTaskExecutorPool taskExecutorPool = new MTMVTaskExecutorPool();
 
-    private final ReentrantLock reentrantLock = new ReentrantLock(true);
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     // keep track of all the completed tasks
     private final Deque<MTMVTask> historyTasks = Queues.newLinkedBlockingDeque();
 
     private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
 
-    private final MTMVJobManager mtmvJobManager;
-
     private final AtomicInteger failedTaskCount = new AtomicInteger(0);
-
-    public MTMVTaskManager(MTMVJobManager mtmvJobManager) {
-        this.mtmvJobManager = mtmvJobManager;
-    }
 
     public void startTaskScheduler() {
         if (taskScheduler.isShutdown()) {
             taskScheduler = Executors.newScheduledThreadPool(1);
         }
         taskScheduler.scheduleAtFixedRate(() -> {
-            if (!tryLock()) {
-                return;
-            }
-            try {
-                checkRunningTask();
-                scheduledPendingTask();
-            } catch (Exception ex) {
-                LOG.warn("failed to schedule task.", ex);
-            } finally {
-                unlock();
-            }
+            checkRunningTask();
+            scheduledPendingTask();
+
         }, 0, 1, TimeUnit.SECONDS);
     }
 
@@ -104,7 +84,69 @@ public class MTMVTaskManager {
         taskScheduler.shutdown();
     }
 
-    public MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {
+    private void checkRunningTask() {
+        writeLock();
+        try {
+            Iterator<Long> runningIterator = runningTaskMap.keySet().iterator();
+            while (runningIterator.hasNext()) {
+                Long jobId = runningIterator.next();
+                MTMVTaskExecutor taskExecutor = runningTaskMap.get(jobId);
+                Future<?> future = taskExecutor.getFuture();
+                if (future.isDone()) {
+                    runningIterator.remove();
+                    addHistory(taskExecutor.getTask());
+                    MTMVUtils.TaskState finalState = taskExecutor.getTask().getState();
+                    if (finalState == TaskState.FAILURE) {
+                        failedTaskCount.incrementAndGet();
+                    }
+                    //task save final state only
+                    Env.getCurrentEnv().getEditLog().logCreateMTMVTask(taskExecutor.getTask());
+                    taskExecutor.getJob().taskFinished();
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void scheduledPendingTask() {
+        writeLock();
+        try {
+            int currentRunning = runningTaskMap.size();
+
+            Iterator<Long> pendingIterator = pendingTaskMap.keySet().iterator();
+            while (pendingIterator.hasNext()) {
+                Long jobId = pendingIterator.next();
+                MTMVTaskExecutor runningTaskExecutor = runningTaskMap.get(jobId);
+                if (runningTaskExecutor == null) {
+                    Queue<MTMVTaskExecutor> taskQueue = pendingTaskMap.get(jobId);
+                    if (taskQueue.size() == 0) {
+                        pendingIterator.remove();
+                    } else {
+                        if (currentRunning >= Config.max_running_mtmv_scheduler_task_num) {
+                            break;
+                        }
+                        MTMVTaskExecutor pendingTaskExecutor = taskQueue.poll();
+                        taskExecutorPool.executeTask(pendingTaskExecutor);
+                        runningTaskMap.put(jobId, pendingTaskExecutor);
+                        currentRunning++;
+                    }
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public MTMVUtils.TaskSubmitStatus submitJobTask(MTMVJob job) {
+        return submitJobTask(job, new MTMVTaskExecuteParams());
+    }
+
+    private MTMVUtils.TaskSubmitStatus submitJobTask(MTMVJob job, MTMVTaskExecuteParams param) {
+        return submitTask(MTMVUtils.buildTask(job), param);
+    }
+
+    private MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {
         // duplicate submit
         if (taskExecutor.getTask() != null) {
             return MTMVUtils.TaskSubmitStatus.FAILED;
@@ -127,144 +169,43 @@ public class MTMVTaskManager {
         MTMVTask task = taskExecutor.initTask(taskId, MTMVUtils.getNowTimeStamp());
         task.setPriority(params.getPriority());
         LOG.info("Submit a mtmv task with id: {} of the job {}.", taskId, taskExecutor.getJob().getName());
-        Env.getCurrentEnv().getEditLog().logCreateMTMVTask(task);
         arrangeToPendingTask(taskExecutor);
         return MTMVUtils.TaskSubmitStatus.SUBMITTED;
     }
 
-    public boolean killTask(Long jobId, boolean clearPending) {
-        if (clearPending) {
-            if (!tryLock()) {
-                return false;
-            }
-            try {
-                getPendingTaskMap().remove(jobId);
-            } catch (Exception ex) {
-                LOG.warn("failed to kill task.", ex);
-            } finally {
-                unlock();
-            }
-        }
-        MTMVTaskExecutor task = runningTaskMap.get(jobId);
-        if (task == null) {
-            return false;
-        }
-        ConnectContext connectContext = task.getCtx();
-        if (connectContext != null) {
-            connectContext.kill(false);
-            return true;
-        }
-        return false;
-    }
-
-    public void arrangeToPendingTask(MTMVTaskExecutor task) {
-        if (!tryLock()) {
-            return;
-        }
+    private void arrangeToPendingTask(MTMVTaskExecutor task) {
+        writeLock();
         try {
             long jobId = task.getJobId();
             PriorityBlockingQueue<MTMVTaskExecutor> tasks =
                     pendingTaskMap.computeIfAbsent(jobId, u -> Queues.newPriorityBlockingQueue());
             tasks.offer(task);
         } finally {
-            unlock();
+            writeUnlock();
         }
     }
 
-    @Nullable
-    private MTMVTaskExecutor getTask(PriorityBlockingQueue<MTMVTaskExecutor> tasks, MTMVTaskExecutor task) {
-        MTMVTaskExecutor oldTask = null;
-        for (MTMVTaskExecutor t : tasks) {
-            if (t.equals(task)) {
-                oldTask = t;
-                break;
-            }
+    public void dealJobRemoved(MTMVJob job) {
+        removePendingTask(job.getId());
+        removeRunningTask(job.getId());
+        if (!Config.keep_scheduler_mtmv_task_when_job_deleted) {
+            clearHistoryTasksByJobName(job.getName(), false);
         }
-        return oldTask;
     }
 
-    private void checkRunningTask() {
-        Iterator<Long> runningIterator = runningTaskMap.keySet().iterator();
-        while (runningIterator.hasNext()) {
-            Long jobId = runningIterator.next();
-            MTMVTaskExecutor taskExecutor = runningTaskMap.get(jobId);
-            if (taskExecutor == null) {
-                LOG.warn("failed to get running task by jobId:{}", jobId);
-                runningIterator.remove();
-                return;
-            }
-            Future<?> future = taskExecutor.getFuture();
-            if (future.isDone()) {
-                runningIterator.remove();
-                addHistory(taskExecutor.getTask());
-                MTMVUtils.TaskState finalState = taskExecutor.getTask().getState();
-                if (finalState == TaskState.FAILURE) {
-                    failedTaskCount.incrementAndGet();
-                }
-                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING, finalState);
+    private void removePendingTask(Long jobId) {
+        pendingTaskMap.remove(jobId);
+    }
 
-                TriggerMode triggerMode = taskExecutor.getJob().getTriggerMode();
-                if (triggerMode == TriggerMode.ONCE) {
-                    // update the run once job status
-                    ChangeMTMVJob changeJob = new ChangeMTMVJob(taskExecutor.getJobId(), JobState.COMPLETE);
-                    mtmvJobManager.updateJob(changeJob, false);
-                } else if (triggerMode == TriggerMode.PERIODICAL) {
-                    // just update the last modify time.
-                    ChangeMTMVJob changeJob = new ChangeMTMVJob(taskExecutor.getJobId(), JobState.ACTIVE);
-                    mtmvJobManager.updateJob(changeJob, false);
-                }
-            }
+    private void removeRunningTask(Long jobId) {
+        MTMVTaskExecutor task = runningTaskMap.remove(jobId);
+        if (task != null) {
+            task.stop();
         }
     }
 
     public int getFailedTaskCount() {
         return failedTaskCount.get();
-    }
-
-    private void scheduledPendingTask() {
-        int currentRunning = runningTaskMap.size();
-
-        Iterator<Long> pendingIterator = pendingTaskMap.keySet().iterator();
-        while (pendingIterator.hasNext()) {
-            Long jobId = pendingIterator.next();
-            MTMVTaskExecutor runningTaskExecutor = runningTaskMap.get(jobId);
-            if (runningTaskExecutor == null) {
-                Queue<MTMVTaskExecutor> taskQueue = pendingTaskMap.get(jobId);
-                if (taskQueue.size() == 0) {
-                    pendingIterator.remove();
-                } else {
-                    if (currentRunning >= Config.max_running_mtmv_scheduler_task_num) {
-                        break;
-                    }
-                    MTMVTaskExecutor pendingTaskExecutor = taskQueue.poll();
-                    taskExecutorPool.executeTask(pendingTaskExecutor);
-                    runningTaskMap.put(jobId, pendingTaskExecutor);
-                    // change status from PENDING to Running
-                    changeAndLogTaskStatus(jobId, pendingTaskExecutor.getTask(), TaskState.PENDING, TaskState.RUNNING);
-                    currentRunning++;
-                }
-            }
-        }
-    }
-
-    private void changeAndLogTaskStatus(long jobId, MTMVTask task, TaskState fromStatus, TaskState toStatus) {
-        ChangeMTMVTask changeTask = new ChangeMTMVTask(jobId, task, fromStatus, toStatus);
-        Env.getCurrentEnv().getEditLog().logChangeMTMVTask(changeTask);
-    }
-
-    public boolean tryLock() {
-        try {
-            return reentrantLock.tryLock(5, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            LOG.warn("got exception while getting task lock", e);
-            Thread.currentThread().interrupt();
-        }
-        return false;
-    }
-
-
-    public void unlock() {
-        this.reentrantLock.unlock();
     }
 
     public Map<Long, PriorityBlockingQueue<MTMVTaskExecutor>> getPendingTaskMap() {
@@ -283,36 +224,50 @@ public class MTMVTaskManager {
         return historyTasks;
     }
 
-    public List<MTMVTask> showAllTasks() {
-        return showTasks(null);
+    public List<MTMVTask> getHistoryTasksByJobName(String jobName) {
+        return getHistoryTasks().stream().filter(u -> u.getJobName().equals(jobName))
+                .collect(Collectors.toList());
     }
 
-    public List<MTMVTask> showTasks(String dbName) {
-        List<MTMVTask> taskList = Lists.newArrayList();
-        if (Strings.isNullOrEmpty(dbName)) {
-            for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
-                taskList.addAll(pTaskQueue.stream().map(MTMVTaskExecutor::getTask).collect(Collectors.toList()));
-            }
-            taskList.addAll(
-                    getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask).collect(Collectors.toList()));
-            taskList.addAll(getHistoryTasks());
-        } else {
-            for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
-                taskList.addAll(
-                        pTaskQueue.stream().map(MTMVTaskExecutor::getTask).filter(u -> u.getDBName().equals(dbName))
-                                .collect(Collectors.toList()));
-            }
-            taskList.addAll(getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
-                    .filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
-            taskList.addAll(
-                    getHistoryTasks().stream().filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
+    public List<MTMVTask> showAllTasks() {
+        return showTasksWithLock(null);
+    }
 
+    public List<MTMVTask> showTasksWithLock(String dbName) {
+        List<MTMVTask> taskList = Lists.newArrayList();
+        readLock();
+        try {
+            if (Strings.isNullOrEmpty(dbName)) {
+                for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
+                    taskList.addAll(pTaskQueue.stream().map(MTMVTaskExecutor::getTask).collect(Collectors.toList()));
+                }
+                taskList.addAll(
+                        getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
+                                .collect(Collectors.toList()));
+                taskList.addAll(getHistoryTasks());
+            } else {
+                for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
+                    taskList.addAll(
+                            pTaskQueue.stream().map(MTMVTaskExecutor::getTask).filter(u -> u.getDBName().equals(dbName))
+                                    .collect(Collectors.toList()));
+                }
+                taskList.addAll(getRunningTaskMap().values().stream().map(MTMVTaskExecutor::getTask)
+                        .filter(u -> u.getDBName().equals(dbName)).collect(Collectors.toList()));
+                taskList.addAll(
+                        getHistoryTasks().stream().filter(u -> u.getDBName().equals(dbName))
+                                .collect(Collectors.toList()));
+
+            }
+        } finally {
+            readUnlock();
         }
+
         return taskList.stream().sorted().collect(Collectors.toList());
     }
 
     public List<MTMVTask> showTasks(String dbName, String mvName) {
-        return showTasks(dbName).stream().filter(u -> u.getMVName().equals(mvName)).collect(Collectors.toList());
+        return showTasksWithLock(dbName).stream().filter(u -> u.getMVName().equals(mvName))
+                .collect(Collectors.toList());
     }
 
     public MTMVTask getTask(String taskId) throws AnalysisException {
@@ -328,191 +283,66 @@ public class MTMVTaskManager {
     }
 
     public void replayCreateJobTask(MTMVTask task) {
-        if (task.getState() == TaskState.SUCCESS || task.getState() == TaskState.FAILURE) {
-            if (MTMVUtils.getNowTimeStamp() > task.getExpireTime()) {
-                return;
-            }
-        }
-
-        switch (task.getState()) {
-            case PENDING:
-                String jobName = task.getJobName();
-                MTMVJob job = mtmvJobManager.getJob(jobName);
-                if (job == null) {
-                    LOG.warn("fail to obtain task name {} because task is null", jobName);
-                    return;
-                }
-                MTMVTaskExecutor taskExecutor = MTMVUtils.buildTask(job);
-                taskExecutor.setTask(task);
-                arrangeToPendingTask(taskExecutor);
-                break;
-            case RUNNING:
-                task.setState(TaskState.FAILURE);
-                addHistory(task);
-                break;
-            case FAILURE:
-            case SUCCESS:
-                addHistory(task);
-                break;
-            default:
-                break;
-        }
+        addHistory(task);
     }
 
-    public void replayUpdateTask(ChangeMTMVTask changeTask) {
-        TaskState fromStatus = changeTask.getFromStatus();
-        TaskState toStatus = changeTask.getToStatus();
-        Long jobId = changeTask.getJobId();
-        if (fromStatus == TaskState.PENDING) {
-            Queue<MTMVTaskExecutor> taskQueue = getPendingTaskMap().get(jobId);
-            if (taskQueue == null) {
-                return;
-            }
-            if (taskQueue.size() == 0) {
-                getPendingTaskMap().remove(jobId);
-                return;
-            }
-
-            MTMVTaskExecutor pendingTask = taskQueue.poll();
-            MTMVTask status = pendingTask.getTask();
-
-            if (toStatus == TaskState.RUNNING) {
-                if (status.getTaskId().equals(changeTask.getTaskId())) {
-                    status.setState(TaskState.RUNNING);
-                    getRunningTaskMap().put(jobId, pendingTask);
-                }
-            } else if (toStatus == TaskState.FAILURE) {
-                status.setMessage(changeTask.getErrorMessage());
-                status.setErrorCode(changeTask.getErrorCode());
-                status.setState(TaskState.FAILURE);
-                addHistory(status);
-            }
-            if (taskQueue.size() == 0) {
-                getPendingTaskMap().remove(jobId);
-            }
-        } else if (fromStatus == TaskState.RUNNING && (toStatus == TaskState.SUCCESS
-                || toStatus == TaskState.FAILURE)) {
-            MTMVTaskExecutor runningTask = getRunningTaskMap().remove(jobId);
-            if (runningTask == null) {
-                return;
-            }
-            MTMVTask status = runningTask.getTask();
-            if (status.getTaskId().equals(changeTask.getTaskId())) {
-                status.setMessage(changeTask.getErrorMessage());
-                status.setErrorCode(changeTask.getErrorCode());
-                status.setState(toStatus);
-                status.setFinishTime(changeTask.getFinishTime());
-                addHistory(status);
-            }
-        } else {
-            LOG.warn("Illegal  Task taskId:{} status transform from {} to {}", changeTask.getTaskId(), fromStatus,
-                    toStatus);
-        }
-    }
-
-    public void clearTasksByJobName(String jobName, boolean isReplay) {
+    private void clearHistoryTasksByJobName(String jobName, boolean isReplay) {
         List<String> clearTasks = Lists.newArrayList();
 
-        if (!tryLock()) {
-            return;
-        }
-        try {
-            List<MTMVTask> taskHistory = showAllTasks();
-            for (MTMVTask task : taskHistory) {
-                if (task.getJobName().equals(jobName)) {
-                    clearTasks.add(task.getTaskId());
-                }
+        Deque<MTMVTask> taskHistory = getHistoryTasks();
+        for (MTMVTask task : taskHistory) {
+            if (task.getJobName().equals(jobName)) {
+                clearTasks.add(task.getTaskId());
             }
-        } finally {
-            unlock();
         }
-        dropTasks(clearTasks, isReplay);
+
+        dropHistoryTasks(clearTasks, isReplay);
     }
 
     public void removeExpiredTasks() {
         long currentTime = MTMVUtils.getNowTimeStamp();
-
         List<String> historyToDelete = Lists.newArrayList();
-
-        if (!tryLock()) {
-            return;
-        }
-        try {
-            Deque<MTMVTask> taskHistory = getHistoryTasks();
-            for (MTMVTask task : taskHistory) {
-                long expireTime = task.getExpireTime();
-                if (currentTime > expireTime) {
-                    historyToDelete.add(task.getTaskId());
-                }
+        Deque<MTMVTask> taskHistory = getHistoryTasks();
+        for (MTMVTask task : taskHistory) {
+            long expireTime = task.getExpireTime();
+            if (currentTime > expireTime) {
+                historyToDelete.add(task.getTaskId());
             }
-        } finally {
-            unlock();
         }
-        dropTasks(historyToDelete, false);
+        dropHistoryTasks(historyToDelete, false);
     }
 
-    public void dropTasks(List<String> taskIds, boolean isReplay) {
+    public void dropHistoryTasks(List<String> taskIds, boolean isReplay) {
         if (taskIds.isEmpty()) {
             return;
         }
-        if (!tryLock()) {
-            return;
-        }
+        writeLock();
         try {
             Set<String> taskSet = new HashSet<>(taskIds);
-            // Pending tasks will be clear directly. So we don't drop it again here.
-            // Check the running task since the task was killed but was not move to the history queue.
-            for (long key : runningTaskMap.keySet()) {
-                MTMVTaskExecutor executor = runningTaskMap.get(key);
-                // runningTaskMap may be removed in the runningIterator
-                if (executor != null && taskSet.contains(executor.getTask().getTaskId())) {
-                    runningTaskMap.remove(key);
-                }
-            }
             // Try to remove history tasks.
             getHistoryTasks().removeIf(mtmvTask -> taskSet.contains(mtmvTask.getTaskId()));
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logDropMTMVTasks(taskIds);
             }
         } finally {
-            unlock();
+            writeUnlock();
         }
         LOG.info("drop task history:{}", taskIds);
     }
 
-    public void clearUnfinishedTasks() {
-        if (!tryLock()) {
-            return;
-        }
-        try {
-            Iterator<Long> pendingIter = getPendingTaskMap().keySet().iterator();
-            while (pendingIter.hasNext()) {
-                Queue<MTMVTaskExecutor> tasks = getPendingTaskMap().get(pendingIter.next());
-                while (!tasks.isEmpty()) {
-                    MTMVTaskExecutor taskExecutor = tasks.poll();
-                    taskExecutor.getTask().setMessage("Fe abort the task");
-                    taskExecutor.getTask().setErrorCode(-1);
-                    taskExecutor.getTask().setState(TaskState.FAILURE);
-                    addHistory(taskExecutor.getTask());
-                    changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.PENDING,
-                            TaskState.FAILURE);
-                }
-                pendingIter.remove();
-            }
-            Iterator<Long> runningIter = getRunningTaskMap().keySet().iterator();
-            while (runningIter.hasNext()) {
-                MTMVTaskExecutor taskExecutor = getRunningTaskMap().get(runningIter.next());
-                taskExecutor.getTask().setMessage("Fe abort the task");
-                taskExecutor.getTask().setErrorCode(-1);
-                taskExecutor.getTask().setState(TaskState.FAILURE);
-                taskExecutor.getTask().setFinishTime(MTMVUtils.getNowTimeStamp());
-                runningIter.remove();
-                addHistory(taskExecutor.getTask());
-                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,
-                        TaskState.FAILURE);
-            }
-        } finally {
-            unlock();
-        }
+    private void readLock() {
+        this.rwLock.readLock().lock();
+    }
+
+    private void readUnlock() {
+        this.rwLock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        this.rwLock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        this.rwLock.writeLock().unlock();
     }
 }

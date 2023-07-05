@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS warehouse (
     w_country varchar(20),
     w_gmt_offset decimal(5,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(w_warehouse_sk) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

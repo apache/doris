@@ -34,9 +34,9 @@ CREATE TABLE IF NOT EXISTS web_sales (
     ws_net_paid_inc_ship_tax decimal(7,2),
     ws_net_profit decimal(7,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(ws_item_sk, ws_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true",
   "colocate_with" = "web"
 );

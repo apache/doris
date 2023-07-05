@@ -67,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -505,11 +506,29 @@ public class BindExpression implements AnalysisRuleFactory {
                             && (setOperation instanceof LogicalExcept || setOperation instanceof LogicalIntersect)) {
                         throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualified");
                     }
-
+                    // we need to do cast before set operation, because we maybe use these slot to do shuffle
+                    // so, we must cast it before shuffle to get correct hash code.
                     List<List<Expression>> castExpressions = setOperation.collectCastExpressions();
+                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+                    for (int i = 0; i < castExpressions.size(); i++) {
+                        if (castExpressions.stream().allMatch(SlotReference.class::isInstance)) {
+                            newChildren.add(setOperation.child(i));
+                        } else {
+                            List<NamedExpression> projections = castExpressions.get(i).stream()
+                                    .map(e -> {
+                                        if (e instanceof SlotReference) {
+                                            return (SlotReference) e;
+                                        } else {
+                                            return new Alias(e, e.toSql());
+                                        }
+                                    }).collect(ImmutableList.toImmutableList());
+                            LogicalProject<Plan> logicalProject = new LogicalProject<>(projections,
+                                    setOperation.child(i));
+                            newChildren.add(logicalProject);
+                        }
+                    }
                     List<NamedExpression> newOutputs = setOperation.buildNewOutputs(castExpressions.get(0));
-
-                    return setOperation.withNewOutputs(newOutputs);
+                    return setOperation.withNewOutputs(newOutputs).withChildren(newChildren.build());
                 })
             ),
             RuleType.BINDING_GENERATE_SLOT.build(
@@ -537,6 +556,13 @@ public class BindExpression implements AnalysisRuleFactory {
                 unboundTVFRelation().thenApply(ctx -> {
                     UnboundTVFRelation relation = ctx.root;
                     return bindTableValuedFunction(relation, ctx.statementContext);
+                })
+            ),
+            RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
+                logicalSubQueryAlias().thenApply(ctx -> {
+                    LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
+                    checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
+                    return subQueryAlias;
                 })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
@@ -675,6 +701,18 @@ public class BindExpression implements AnalysisRuleFactory {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
         return new LogicalTVFRelation(unboundTVFRelation.getId(), (TableValuedFunction) function);
+    }
+
+    private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
+        Set<String> nameSlots = new HashSet<>();
+        for (Slot s : childOutputs) {
+            if (nameSlots.contains(s.getName())) {
+                throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
+                        + "'" + " in inline view: '" + subQueryAlias + "'");
+            } else {
+                nameSlots.add(s.getName());
+            }
+        }
     }
 
     private BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,

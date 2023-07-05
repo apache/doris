@@ -40,6 +40,7 @@
 #include "runtime/types.h"
 #include "util/proto_util.h"
 #include "util/telemetry/telemetry.h"
+#include "vec/columns/column_const.h"
 #include "vec/common/sip_hash.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -158,7 +159,7 @@ Status Channel::send_block(PBlock* block, bool eos) {
         _closure->ref();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
@@ -629,7 +630,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 std::vector<SipHash> siphashs(rows);
                 // result[j] means column index, i means rows index
                 for (int j = 0; j < result_size; ++j) {
-                    block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
+                    // complex type most not implement get_data_at() method which column_const will call
+                    unpack_if_const(block->get_by_position(result[j]).column)
+                            .first->update_hashes_with_value(siphashs);
                 }
                 for (int i = 0; i < rows; i++) {
                     hashes[i] = siphashs[i].get64() % element_size;
@@ -638,7 +641,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 SCOPED_TIMER(_split_block_hash_compute_timer);
                 // result[j] means column index, i means rows index, here to calculate the xxhash value
                 for (int j = 0; j < result_size; ++j) {
-                    block->get_by_position(result[j]).column->update_hashes_with_value(hashes);
+                    // complex type most not implement get_data_at() method which column_const will call
+                    unpack_if_const(block->get_by_position(result[j]).column)
+                            .first->update_hashes_with_value(hashes);
                 }
 
                 for (int i = 0; i < rows; i++) {
@@ -654,8 +659,10 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             RETURN_IF_ERROR(channel_add_rows(state, _channels, element_size, hashes, rows, block));
         } else {
             for (int j = 0; j < result_size; ++j) {
-                block->get_by_position(result[j]).column->update_crcs_with_value(
-                        hash_vals, _partition_expr_ctxs[j]->root()->type().type);
+                // complex type most not implement get_data_at() method which column_const will call
+                unpack_if_const(block->get_by_position(result[j]).column)
+                        .first->update_crcs_with_value(
+                                hash_vals, _partition_expr_ctxs[j]->root()->type().type);
             }
             element_size = _channel_shared_ptrs.size();
             for (int i = 0; i < rows; i++) {
@@ -696,7 +703,6 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
             final_st = st;
         }
     }
-    VExpr::close(_partition_expr_ctxs, state);
     DataSink::close(state, exec_status);
     return final_st;
 }

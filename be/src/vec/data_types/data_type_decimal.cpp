@@ -164,13 +164,16 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
     if (precision_value < min_decimal_precision() ||
         precision_value > max_decimal_precision<Decimal128>()) {
-        LOG(WARNING) << "Wrong precision " << precision_value;
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Wrong precision {}, min: {}, max: {}", precision_value,
+                               min_decimal_precision(), max_decimal_precision<Decimal128>());
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
-        LOG(WARNING) << "Negative scales and scales larger than precision are not supported";
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Negative scales and scales larger than precision are not "
+                               "supported, scale_value: {}, precision_value: {}",
+                               scale_value, precision_value);
     }
 
     if (use_v2) {

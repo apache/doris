@@ -56,7 +56,6 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
 
@@ -99,23 +98,32 @@ public class DateLiteral extends LiteralExpr {
 
     static {
         try {
-            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
-            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
-            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
-            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter();
+            DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
+            DATETIMEKEY_FORMATTER = formatBuilder("%Y%m%d%H%i%s").toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
                     .appendPattern("uuuu-MM-dd HH:mm:ss")
                     .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
-                    .toFormatter();
+                    .toFormatter()
+                    .withResolverStyle(ResolverStyle.STRICT);
             formatterList = Lists.newArrayList(
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     formatBuilder("%Y%m%d%H%i%s")
-                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false)
+                            .toFormatter().withResolverStyle(ResolverStyle.STRICT),
                     DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
@@ -314,7 +322,7 @@ public class DateLiteral extends LiteralExpr {
         this.month = dateTime.getMonthValue();
         this.day = dateTime.getDayOfMonth();
         this.type = type;
-        if (type.equals(Type.DATETIME) || type.equals(Type.DATETIMEV2)) {
+        if (type.isDatetime() || type.isDatetimeV2()) {
             this.hour = dateTime.getHour();
             this.minute = dateTime.getMinute();
             this.second = dateTime.getSecond();
@@ -435,8 +443,9 @@ public class DateLiteral extends LiteralExpr {
             second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
             microsecond = getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND, 0);
             if (microsecond != 0 && type.isDatetime()) {
-                LOG.warn("Microseconds is not supported by Datetime type and hence is ignored."
-                        + "Please change to Datetimev2 to use it.");
+                int dotIndex = s.lastIndexOf(".");
+                int scale = s.length() - dotIndex - 1;
+                type = ScalarType.createDatetimeV2Type(scale);
             }
             this.type = type;
             if (checkRange() || checkDate()) {
@@ -991,7 +1000,9 @@ public class DateLiteral extends LiteralExpr {
         final int second = getOrDefault(accessor, ChronoField.SECOND_OF_MINUTE, 0);
         final int microSeconds = getOrDefault(accessor, ChronoField.MICRO_OF_SECOND, 0);
 
-        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds);
+        // LocalDateTime of(int year, int month, int dayOfMonth, int hour, int minute,
+        // int second, int nanoOfSecond)
+        return LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, microSeconds * 1000);
     }
 
     public DateLiteral plusYears(int year) throws AnalysisException {
@@ -1074,7 +1085,10 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public int hashCode() {
-        return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
+        // do not invoke the super.hashCode(), just use the return value of getLongValue()
+        // a DateV2 DateLiteral obj may be equal to a Date DateLiteral
+        // if the return value of getLongValue() is the same
+        return Long.hashCode(getLongValue());
     }
 
     // parse the date string value in 'value' by 'format' pattern.

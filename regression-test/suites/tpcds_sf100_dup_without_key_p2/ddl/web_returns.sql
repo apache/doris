@@ -24,9 +24,9 @@ CREATE TABLE IF NOT EXISTS web_returns (
     wr_account_credit decimal(7,2),
     wr_net_loss decimal(7,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(wr_item_sk, wr_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true",
   "colocate_with" = "web"
 );

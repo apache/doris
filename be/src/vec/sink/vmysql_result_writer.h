@@ -77,6 +77,8 @@ private:
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
     // file write timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _result_send_timer = nullptr;
+    // timer of copying buffer to thrift
+    RuntimeProfile::Counter* _copy_buffer_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
     // size of sent data

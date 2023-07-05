@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS inventory (
     inv_warehouse_sk bigint,
     inv_quantity_on_hand integer
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(inv_date_sk, inv_item_sk, inv_warehouse_sk) BUCKETS 32
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

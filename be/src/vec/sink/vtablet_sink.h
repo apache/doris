@@ -82,6 +82,7 @@ class RefCountClosure;
 
 namespace stream_load {
 
+class OlapTableValidator;
 class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
@@ -112,6 +113,8 @@ struct AddBatchCounter {
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
+// "Ping-Pong" between sender and receiver, `try_set_in_flight` when send, `clear_in_flight` after rpc failure or callback,
+// then next send will start, and it will wait for the rpc callback to complete when it is destroyed.
 template <typename T>
 class ReusableClosure final : public google::protobuf::Closure {
 public:
@@ -119,7 +122,7 @@ public:
     ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         cntl.Reset();
     }
 
@@ -147,7 +150,7 @@ public:
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         cntl.Reset();
         cid = cntl.call_id();
     }
@@ -232,6 +235,8 @@ public:
 
     void open_partition_wait();
 
+    bool open_partition_finished() const;
+
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
@@ -245,6 +250,22 @@ public:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     void mark_close();
+
+    bool is_rpc_done() const;
+
+    bool is_closed() const { return _is_closed; }
+    bool is_cancelled() const { return _cancelled; }
+    std::string get_cancel_msg() {
+        std::stringstream ss;
+        ss << "close wait failed coz rpc error";
+        {
+            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+            if (_cancel_msg != "") {
+                ss << ". " << _cancel_msg;
+            }
+        }
+        return ss.str();
+    }
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
@@ -465,6 +486,9 @@ public:
 
     Status open(RuntimeState* state) override;
 
+    void try_close(RuntimeState* state, Status exec_status) override;
+    // if true, all node channels rpc done, can start close().
+    bool is_close_done() override;
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
@@ -490,34 +514,21 @@ private:
     void _generate_row_distribution_payload(ChannelDistributionPayload& payload,
                                             const VOlapTablePartition* partition,
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
-
-    // make input data valid for OLAP table
-    // return number of invalid/filtered rows.
-    // invalid row number is set in Bitmap
-    // set stop_processing if we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
-                          int* filtered_rows, bool* stop_processing);
-
-    template <bool is_min>
-    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
-
-    template <typename DecimalType, bool IsMin>
-    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
-
-    Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-                            vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
-                            bool* stop_processing, fmt::memory_buffer& error_prefix,
-                            vectorized::IColumn::Permutation* rows = nullptr);
-
-    // some output column of output expr may have different nullable property with dest slot desc
-    // so here need to do the convert operation
-    void _convert_to_dest_desc_block(vectorized::Block* block);
+    Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
+                                      ChannelDistributionPayload& channel_to_payload,
+                                      size_t num_rows, int32_t filtered_rows);
 
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
                        bool& stop_processing, bool& is_continue);
 
     void _open_partition(const VOlapTablePartition* partition);
+
+    Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
+                                                         const std::shared_ptr<IndexChannel> ich,
+                                                         const std::shared_ptr<VNodeChannel> nch);
+
+    void _cancel_all_channel(Status status);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -562,16 +573,7 @@ private:
     bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
-    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
-
-    std::map<int, int32_t> _max_decimal32_val;
-    std::map<int, int32_t> _min_decimal32_val;
-    std::map<int, int64_t> _max_decimal64_val;
-    std::map<int, int64_t> _min_decimal64_val;
-    std::map<int, int128_t> _max_decimal128_val;
-    std::map<int, int128_t> _min_decimal128_val;
-
+    std::unique_ptr<OlapTableValidator> _validator;
     // Stats for this
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
@@ -612,8 +614,9 @@ private:
     int64_t _load_channel_timeout_s = 0;
 
     int32_t _send_batch_parallelism = 1;
-    // Save the status of close() method
+    // Save the status of try_close() and close() method
     Status _close_status;
+    bool _try_close = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;

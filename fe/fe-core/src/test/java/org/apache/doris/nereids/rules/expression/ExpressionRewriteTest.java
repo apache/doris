@@ -179,21 +179,15 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         executor = new ExpressionRuleExecutor(ImmutableList.of(InPredicateToEqualToRule.INSTANCE));
 
         assertRewrite("a in (1)", "a = 1");
-        assertRewrite("a in (1, 2)", "((a = 1) OR (a = 2))");
         assertRewrite("a not in (1)", "not a = 1");
-        assertRewrite("a not in (1, 2)", "not ((a = 1) OR (a = 2))");
         assertRewrite("a in (a in (1))", "a = (a = 1)");
-        assertRewrite("a in (a in (1, 2))", "a = ((a = 1) OR (a = 2))");
         assertRewrite("(a in (1)) in (1)", "(a = 1) = 1");
-        assertRewrite("(a in (1, 2)) in (1)", "((a = 1) OR (a = 2)) = 1");
-        assertRewrite("(a in (1)) in (1, 2)", "((a = 1) = 1) OR ((a = 1) = 2)");
+        assertRewrite("(a in (1, 2)) in (1)", "(a in (1, 2)) = 1");
+        assertRewrite("(a in (1)) in (1, 2)", "((a = 1) in (1, 2))");
         assertRewrite("case a when b in (1) then a else c end in (1)",
                 "case a when b = 1 then a else c end = 1");
         assertRewrite("case a when b not in (1) then a else c end not in (1)",
                 "not case a when not b = 1 then a else c end = 1");
-        assertRewrite("case a when b not in (1) then a else c end in (1, 2)",
-                "(CASE  WHEN (a = ( not (b = 1))) THEN a ELSE c END = 1) OR (CASE  WHEN (a = ( not (b = 1))) THEN a ELSE c END = 2)");
-
     }
 
     @Test

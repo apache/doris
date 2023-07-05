@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.backup.Status;
+import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
@@ -30,6 +32,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.RemoteFiles;
@@ -75,9 +78,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,7 +106,10 @@ public class HiveMetaStoreCache {
     // After hive 3, transactional table's will have file '_orc_acid_version' with value >= '2'.
     public static final String HIVE_ORC_ACID_VERSION_FILE = "_orc_acid_version";
 
+    private static final String HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX = "bucket_";
+
     private HMSExternalCatalog catalog;
+    private JobConf jobConf;
 
     private Executor executor;
 
@@ -147,6 +155,8 @@ public class HiveMetaStoreCache {
      * generate a filecache and set to fileCacheRef
      */
     public void setNewFileCache() {
+        // init or refresh job conf
+        setJobConf();
         // if the file.meta.cache.ttl-second is equal or greater than 0, the cache expired will be set to that value
         int fileMetaCacheTtlSecond = NumberUtils.toInt(
                 (catalog.getProperties().get(HMSExternalCatalog.FILE_META_CACHE_TTL_SECOND)),
@@ -219,12 +229,6 @@ public class HiveMetaStoreCache {
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
-            try {
-                partitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
-            } catch (UnsupportedEncodingException e) {
-                // It should not be here
-                throw new RuntimeException(e);
-            }
             long partitionId = idx++;
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types);
             idToPartitionItem.put(partitionId, listPartitionItem);
@@ -259,7 +263,15 @@ public class HiveMetaStoreCache {
         for (String part : parts) {
             String[] kv = part.split("=");
             Preconditions.checkState(kv.length == 2, partitionName);
-            values.add(new PartitionValue(kv[1], HIVE_DEFAULT_PARTITION.equals(kv[1])));
+            String partitionValue;
+            try {
+                // hive partition value maybe contains special characters like '=' and '/'
+                partitionValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
+            } catch (UnsupportedEncodingException e) {
+                // It should not be here
+                throw new RuntimeException(e);
+            }
+            values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
@@ -297,7 +309,14 @@ public class HiveMetaStoreCache {
             // So we need to recursively list data location.
             // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
             RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, true);
-            locatedFiles.files().forEach(result::addFile);
+            for (RemoteFile remoteFile : locatedFiles.files()) {
+                Path srcPath = remoteFile.getPath();
+                Path convertedPath = S3Util.toScanRangeLocation(srcPath.toString());
+                if (!convertedPath.toString().equals(srcPath.toString())) {
+                    remoteFile.setPath(convertedPath);
+                }
+                result.addFile(remoteFile);
+            }
         } catch (Exception e) {
             // User may manually remove partition under HDFS, in this case,
             // Hive doesn't aware that the removed partition is missing.
@@ -317,16 +336,17 @@ public class HiveMetaStoreCache {
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             String finalLocation = S3Util.convertToS3IfNecessary(key.location);
-            JobConf jobConf = getJobConf();
-            // For Tez engine, it may generate subdirectories for "union" query.
-            // So there may be files and directories in the table directory at the same time. eg:
-            //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
-            //      /user/hive/warehouse/region_tmp_union_all2/1
-            //      /user/hive/warehouse/region_tmp_union_all2/2
-            // So we need to set this config to support visit dir recursively.
-            // Otherwise, getSplits() may throw exception: "Not a file xxx"
-            // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
-            jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
+            // disable the fs cache in FileSystem, or it will always from new FileSystem
+            // and save it in cache when calling FileInputFormat.setInputPaths().
+            try {
+                Path path = new Path(finalLocation);
+                URI uri = path.toUri();
+                if (uri.getScheme() != null) {
+                    updateJobConf("fs." + uri.getScheme() + ".impl.disable.cache", "true");
+                }
+            } catch (Exception e) {
+                LOG.warn("unknown scheme in path: " + finalLocation, e);
+            }
             FileInputFormat.setInputPaths(jobConf, finalLocation);
             try {
                 FileCacheValue result;
@@ -349,7 +369,8 @@ public class HiveMetaStoreCache {
                     for (int i = 0; i < splits.length; i++) {
                         org.apache.hadoop.mapred.FileSplit fs = ((org.apache.hadoop.mapred.FileSplit) splits[i]);
                         // todo: get modification time
-                        result.addSplit(new FileSplit(fs.getPath(), fs.getStart(), fs.getLength(), -1, null, null));
+                        Path splitFilePath = S3Util.toScanRangeLocation(fs.getPath().toString());
+                        result.addSplit(new FileSplit(splitFilePath, fs.getStart(), fs.getLength(), -1, null, null));
                     }
                 }
 
@@ -365,12 +386,28 @@ public class HiveMetaStoreCache {
         }
     }
 
-    private JobConf getJobConf() {
+    private synchronized void setJobConf() {
         Configuration configuration = new HdfsConfiguration();
         for (Map.Entry<String, String> entry : catalog.getCatalogProperty().getHadoopProperties().entrySet()) {
             configuration.set(entry.getKey(), entry.getValue());
         }
-        return new JobConf(configuration);
+        jobConf = new JobConf(configuration);
+        // For Tez engine, it may generate subdirectories for "union" query.
+        // So there may be files and directories in the table directory at the same time. eg:
+        //      /us£er/hive/warehouse/region_tmp_union_all2/000000_0
+        //      /user/hive/warehouse/region_tmp_union_all2/1
+        //      /user/hive/warehouse/region_tmp_union_all2/2
+        // So we need to set this config to support visit dir recursively.
+        // Otherwise, getSplits() may throw exception: "Not a file xxx"
+        // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
+        jobConf.set("mapreduce.input.fileinputformat.input.dir.recursive", "true");
+        // disable FileSystem's cache
+        jobConf.set("fs.hdfs.impl.disable.cache", "true");
+        jobConf.set("fs.file.impl.disable.cache", "true");
+    }
+
+    private synchronized void updateJobConf(String key, String value) {
+        jobConf.set(key, value);
     }
 
     public HivePartitionValues getPartitionValues(String dbName, String tblName, List<Type> types) {
@@ -660,9 +697,9 @@ public class HiveMetaStoreCache {
         return fileCacheRef;
     }
 
-    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds) {
+    public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
+            boolean isFullAcid) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        JobConf jobConf = getJobConf();
         String remoteUser = jobConf.get(HdfsResource.HADOOP_USER_NAME);
         try {
             for (HivePartition partition : partitions) {
@@ -680,12 +717,47 @@ public class HiveMetaStoreCache {
                     throw new Exception("Original non-ACID files in transactional tables are not supported");
                 }
 
+                if (isFullAcid) {
+                    int acidVersion = 2;
+                    /**
+                     * From Hive version >= 3.0, delta/base files will always have file '_orc_acid_version'
+                     * with value >= '2'.
+                     */
+                    Path baseOrDeltaPath = directory.getBaseDirectory() != null ? directory.getBaseDirectory() :
+                            !directory.getCurrentDirectories().isEmpty() ? directory.getCurrentDirectories().get(0)
+                                    .getPath() : null;
+                    String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
+                    RemoteFileSystem fs = FileSystemFactory.getByLocation(baseOrDeltaPath.toUri().toString(), jobConf);
+                    Status status = fs.exists(acidVersionPath);
+                    if (status != Status.OK) {
+                        if (status.getErrCode() == ErrCode.NOT_FOUND) {
+                            acidVersion = 0;
+                        } else {
+                            throw new Exception(String.format("Failed to check remote path {} exists.",
+                                    acidVersionPath));
+                        }
+                    }
+                    if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
+                        throw new Exception(
+                                "Hive 2.x versioned full-acid tables need to run major compaction.");
+                    }
+                }
+
                 // delta directories
+                List<DeleteDeltaInfo> deleteDeltas = new ArrayList<>();
                 for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
                     String location = delta.getPath().toString();
                     RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
                     RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-                    locatedFiles.files().stream().filter(f -> !f.getName().equals(HIVE_ORC_ACID_VERSION_FILE))
+                    if (delta.isDeleteDelta()) {
+                        List<String> deleteDeltaFileNames = locatedFiles.files().stream().map(f -> f.getName()).filter(
+                                        name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                        .collect(Collectors.toList());
+                        deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
+                        continue;
+                    }
+                    locatedFiles.files().stream().filter(
+                            f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
                             .forEach(fileCacheValue::addFile);
                 }
 
@@ -694,9 +766,11 @@ public class HiveMetaStoreCache {
                     String location = directory.getBaseDirectory().toString();
                     RemoteFileSystem fs = FileSystemFactory.getByLocation(location, jobConf);
                     RemoteFiles locatedFiles = fs.listLocatedFiles(location, true, false);
-                    locatedFiles.files().stream().filter(f -> !f.getName().equals(HIVE_ORC_ACID_VERSION_FILE))
+                    locatedFiles.files().stream().filter(
+                            f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
                             .forEach(fileCacheValue::addFile);
                 }
+                fileCacheValue.setAcidInfo(new AcidInfo(partition.getPath(), deleteDeltas));
                 fileCacheValues.add(fileCacheValue);
             }
         } catch (Exception e) {
@@ -843,19 +917,18 @@ public class HiveMetaStoreCache {
     @Data
     public static class FileCacheValue {
         // File Cache for self splitter.
-        private List<HiveFileStatus> files;
+        private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
-        private List<Split> splits;
+        private final List<Split> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
         // partitionValues would be ["part1", "part2"]
         protected List<String> partitionValues;
 
+        private AcidInfo acidInfo;
+
         public void addFile(RemoteFile file) {
-            if (files == null) {
-                files = Lists.newArrayList();
-            }
             HiveFileStatus status = new HiveFileStatus();
             status.setBlockLocations(file.getBlockLocations());
             status.setPath(file.getPath());
@@ -866,14 +939,20 @@ public class HiveMetaStoreCache {
         }
 
         public void addSplit(Split split) {
-            if (splits == null) {
-                splits = Lists.newArrayList();
-            }
             splits.add(split);
         }
 
         public int getValuesSize() {
             return partitionValues == null ? 0 : partitionValues.size();
+        }
+
+
+        public AcidInfo getAcidInfo() {
+            return acidInfo;
+        }
+
+        public void setAcidInfo(AcidInfo acidInfo) {
+            this.acidInfo = acidInfo;
         }
     }
 

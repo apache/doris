@@ -90,6 +90,8 @@ suite("test_map_load_and_compaction", "p0") {
         for (int i = 0; i < 5; ++i) {
             streamLoadJson.call(4063, dataFile1)
         }
+        
+        sql """sync"""
 
         // check result
         qt_select "SELECT count(*) FROM ${testTable};"

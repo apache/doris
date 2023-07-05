@@ -63,14 +63,16 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto col = _return_type->create_column();
+        auto col = _agg_function->create_serialize_column();
         std::vector<const IColumn*> agg_columns;
         std::vector<ColumnPtr> save_columns;
 
         for (size_t i = 0; i < arguments.size(); i++) {
             DataTypePtr signature =
                     assert_cast<const DataTypeAggState*>(_return_type.get())->get_sub_types()[i];
-            ColumnPtr column = block.get_by_position(arguments[i]).column;
+            ColumnPtr column =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            save_columns.push_back(column);
 
             if (!signature->is_nullable() && column->is_nullable()) {
                 return Status::InternalError(
@@ -83,11 +85,8 @@ public:
 
             agg_columns.push_back(column);
         }
-
-        VectorBufferWriter writter(assert_cast<ColumnString&>(*col));
-        _agg_function->streaming_agg_serialize(agg_columns.data(), writter, input_rows_count,
-                                               &arena);
-
+        _agg_function->streaming_agg_serialize_to_column(agg_columns.data(), col, input_rows_count,
+                                                         &arena);
         block.replace_by_position(result, std::move(col));
         return Status::OK();
     }

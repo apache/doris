@@ -42,6 +42,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/hdfs_builder.h"
 #include "util/hdfs_util.h"
+#include "util/obj_lru_cache.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -77,10 +78,49 @@ private:
     HdfsFileSystemCache() = default;
 
     uint64 _hdfs_hash_code(const THdfsParams& hdfs_params);
-    Status _create_fs(const THdfsParams& hdfs_params, hdfsFS* fs);
+    Status _create_fs(const THdfsParams& hdfs_params, hdfsFS* fs, bool* is_kerberos);
     void _clean_invalid();
     void _clean_oldest();
 };
+
+class HdfsFileHandleCache {
+public:
+    static HdfsFileHandleCache* instance() {
+        static HdfsFileHandleCache s_instance;
+        return &s_instance;
+    }
+
+    HdfsFileHandleCache(const HdfsFileHandleCache&) = delete;
+    const HdfsFileHandleCache& operator=(const HdfsFileHandleCache&) = delete;
+
+    FileHandleCache& cache() { return _cache; }
+
+    // try get hdfs file from cache, if not exists, will open a new file, insert it into cache
+    // and return the file cache handle.
+    Status get_file(const std::shared_ptr<HdfsFileSystem>& fs, const Path& file, int64_t mtime,
+                    int64_t file_size, FileHandleCache::Accessor* accessor);
+
+private:
+    FileHandleCache _cache;
+    HdfsFileHandleCache() : _cache(config::max_hdfs_file_handle_cache_num, 16, 3600 * 1000L) {}
+};
+
+Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, const Path& file,
+                                     int64_t mtime, int64_t file_size,
+                                     FileHandleCache::Accessor* accessor) {
+    bool cache_hit;
+    std::string fname = file.string();
+    RETURN_IF_ERROR(HdfsFileHandleCache::instance()->cache().get_file_handle(
+            fs->_fs_handle->hdfs_fs, fname, mtime, file_size, false, accessor, &cache_hit));
+    // if (cache_hit) {
+    //     LOG(INFO) << "yy debug get from file handle cache: " << file.native();
+    // } else {
+    //     LOG(INFO) << "yy debug get from file handle new: " << file.native();
+    // }
+    accessor->set_fs(fs);
+
+    return Status::OK();
+}
 
 Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string& path,
                               std::shared_ptr<HdfsFileSystem>* fs) {
@@ -128,32 +168,14 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer)
 Status HdfsFileSystem::open_file_internal(const Path& file, int64_t file_size,
                                           FileReaderSPtr* reader) {
     CHECK_HDFS_HANDLE(_fs_handle);
-    int64_t fsize = file_size;
-    if (fsize < 0) {
-        RETURN_IF_ERROR(file_size_impl(file, &fsize));
-    }
-
     Path real_path = convert_path(file, _namenode);
-    auto hdfs_file =
-            hdfsOpenFile(_fs_handle->hdfs_fs, real_path.string().c_str(), O_RDONLY, 0, 0, 0);
-    if (hdfs_file == nullptr) {
-        if (_fs_handle->from_cache) {
-            // hdfsFS may be disconnected if not used for a long time
-            _fs_handle->set_invalid();
-            _fs_handle->dec_ref();
-            // retry
-            RETURN_IF_ERROR(connect());
-            hdfs_file = hdfsOpenFile(_fs_handle->hdfs_fs, file.string().c_str(), O_RDONLY, 0, 0, 0);
-            if (hdfs_file == nullptr) {
-                return Status::IOError("failed to open {}: {}", file.native(), hdfs_error());
-            }
-        } else {
-            return Status::IOError("failed to open {} from cache: {}", file.native(), hdfs_error());
-        }
-    }
-    *reader = std::make_shared<HdfsFileReader>(
-            file, fsize, _namenode, hdfs_file,
-            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()));
+
+    FileHandleCache::Accessor accessor;
+    RETURN_IF_ERROR(HdfsFileHandleCache::instance()->get_file(
+            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, 0, file_size,
+            &accessor));
+
+    *reader = std::make_shared<HdfsFileReader>(file, _namenode, std::move(accessor));
     return Status::OK();
 }
 
@@ -401,9 +423,11 @@ HdfsFileSystemHandle* HdfsFileSystem::get_handle() {
 // ************* HdfsFileSystemCache ******************
 int HdfsFileSystemCache::MAX_CACHE_HANDLE = 64;
 
-Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, hdfsFS* fs) {
+Status HdfsFileSystemCache::_create_fs(const THdfsParams& hdfs_params, hdfsFS* fs,
+                                       bool* is_kerberos) {
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(createHDFSBuilder(hdfs_params, &builder));
+    *is_kerberos = builder.is_need_kinit();
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
     if (hdfs_fs == nullptr) {
         return Status::IOError("faield to connect to hdfs {}: {}", hdfs_params.fs_name,
@@ -445,30 +469,33 @@ Status HdfsFileSystemCache::get_connection(const THdfsParams& hdfs_params,
         auto it = _cache.find(hash_code);
         if (it != _cache.end()) {
             HdfsFileSystemHandle* handle = it->second.get();
-            if (handle->invalid()) {
-                hdfsFS hdfs_fs = nullptr;
-                RETURN_IF_ERROR(_create_fs(hdfs_params, &hdfs_fs));
-                *fs_handle = new HdfsFileSystemHandle(hdfs_fs, false);
-            } else {
+            if (!handle->invalid()) {
                 handle->inc_ref();
                 *fs_handle = handle;
+                return Status::OK();
             }
+            // fs handle is invalid, erase it.
+            _cache.erase(it);
+            LOG(INFO) << "erase the hdfs handle, fs name: " << hdfs_params.fs_name;
+        }
+
+        // not find in cache, or fs handle is invalid
+        // create a new one and try to put it into cache
+        hdfsFS hdfs_fs = nullptr;
+        bool is_kerberos = false;
+        RETURN_IF_ERROR(_create_fs(hdfs_params, &hdfs_fs, &is_kerberos));
+        if (_cache.size() >= MAX_CACHE_HANDLE) {
+            _clean_invalid();
+            _clean_oldest();
+        }
+        if (_cache.size() < MAX_CACHE_HANDLE) {
+            std::unique_ptr<HdfsFileSystemHandle> handle =
+                    std::make_unique<HdfsFileSystemHandle>(hdfs_fs, true, is_kerberos);
+            handle->inc_ref();
+            *fs_handle = handle.get();
+            _cache[hash_code] = std::move(handle);
         } else {
-            hdfsFS hdfs_fs = nullptr;
-            RETURN_IF_ERROR(_create_fs(hdfs_params, &hdfs_fs));
-            if (_cache.size() >= MAX_CACHE_HANDLE) {
-                _clean_invalid();
-                _clean_oldest();
-            }
-            if (_cache.size() < MAX_CACHE_HANDLE) {
-                std::unique_ptr<HdfsFileSystemHandle> handle =
-                        std::make_unique<HdfsFileSystemHandle>(hdfs_fs, true);
-                handle->inc_ref();
-                *fs_handle = handle.get();
-                _cache[hash_code] = std::move(handle);
-            } else {
-                *fs_handle = new HdfsFileSystemHandle(hdfs_fs, false);
-            }
+            *fs_handle = new HdfsFileSystemHandle(hdfs_fs, false, is_kerberos);
         }
     }
     return Status::OK();

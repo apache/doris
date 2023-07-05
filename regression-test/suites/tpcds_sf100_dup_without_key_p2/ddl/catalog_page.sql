@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS catalog_page (
   cp_description varchar(100),
   cp_type varchar(100)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(cp_catalog_page_sk) BUCKETS 3
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

@@ -231,7 +231,7 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
-    virtual Status try_close() { return Status::OK(); }
+    virtual Status try_close(RuntimeState* state) { return Status::OK(); }
 
     bool is_closed() const { return _is_closed; }
 
@@ -241,6 +241,8 @@ public:
 
     virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
+
+    [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:
     OperatorBuilderBase* _operator_builder;
@@ -282,6 +284,13 @@ public:
         return Status::OK();
     }
 
+    Status try_close(RuntimeState* state) override {
+        _sink->try_close(state, state->query_status());
+        return Status::OK();
+    }
+
+    [[nodiscard]] bool is_pending_finish() const override { return !_sink->is_close_done(); }
+
     Status close(RuntimeState* state) override {
         if (is_closed()) {
             return Status::OK();
@@ -292,6 +301,8 @@ public:
     }
 
     Status finalize(RuntimeState* state) override { return Status::OK(); }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
 
 protected:
     NodeType* _sink;
@@ -356,6 +367,10 @@ public:
 
     bool can_read() override { return _node->can_read(); }
 
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
+        return _node->runtime_profile();
+    }
+
 protected:
     NodeType* _node;
     bool _use_projection;
@@ -419,7 +434,8 @@ public:
                 return Status::OK();
             }
             node->prepare_for_next();
-            node->push(state, _child_block.get(), _child_source_state == SourceState::FINISHED);
+            RETURN_IF_ERROR(node->push(state, _child_block.get(),
+                                       _child_source_state == SourceState::FINISHED));
         }
 
         if (!node->need_more_input_data()) {

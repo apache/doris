@@ -36,7 +36,6 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
-using boost::algorithm::join;
 
 const int RowDescriptor::INVALID_IDX = -1;
 std::string NullIndicatorOffset::debug_string() const {
@@ -112,12 +111,13 @@ vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
     out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
-        << ", colname=" << _col_name << " null=" << _null_indicator_offset.debug_string() << ")";
+        << ", colname=" << _col_name << ", nullable=" << is_nullable() << ")";
     return out.str();
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
-        : _name(tdesc.tableName),
+        : _table_type(tdesc.tableType),
+          _name(tdesc.tableName),
           _database(tdesc.dbName),
           _table_id(tdesc.id),
           _num_cols(tdesc.numCols),
@@ -139,7 +139,7 @@ std::string OlapTableDescriptor::debug_string() const {
 
 SchemaTableDescriptor::SchemaTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc), _schema_table_type(tdesc.schemaTable.tableType) {}
-SchemaTableDescriptor::~SchemaTableDescriptor() {}
+SchemaTableDescriptor::~SchemaTableDescriptor() = default;
 
 std::string SchemaTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -150,7 +150,7 @@ std::string SchemaTableDescriptor::debug_string() const {
 BrokerTableDescriptor::BrokerTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc) {}
 
-BrokerTableDescriptor::~BrokerTableDescriptor() {}
+BrokerTableDescriptor::~BrokerTableDescriptor() = default;
 
 std::string BrokerTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -160,7 +160,7 @@ std::string BrokerTableDescriptor::debug_string() const {
 
 HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
-HiveTableDescriptor::~HiveTableDescriptor() {}
+HiveTableDescriptor::~HiveTableDescriptor() = default;
 
 std::string HiveTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -171,7 +171,7 @@ std::string HiveTableDescriptor::debug_string() const {
 IcebergTableDescriptor::IcebergTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc) {}
 
-IcebergTableDescriptor::~IcebergTableDescriptor() {}
+IcebergTableDescriptor::~IcebergTableDescriptor() = default;
 
 std::string IcebergTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -179,9 +179,26 @@ std::string IcebergTableDescriptor::debug_string() const {
     return out.str();
 }
 
+MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _region(tdesc.mcTable.region),
+          _project(tdesc.mcTable.project),
+          _table(tdesc.mcTable.table),
+          _access_key(tdesc.mcTable.access_key),
+          _secret_key(tdesc.mcTable.secret_key),
+          _public_access(tdesc.mcTable.public_access) {}
+
+MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
+
+std::string MaxComputeTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "MaxComputeTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
 EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
-EsTableDescriptor::~EsTableDescriptor() {}
+EsTableDescriptor::~EsTableDescriptor() = default;
 
 std::string EsTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -254,7 +271,6 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slots)
           _table_desc(nullptr),
           _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
-          _slots(),
           _has_varlen_slots(false),
           _own_slots(own_slots) {
     if (false == tdesc.__isset.numNullSlots) {
@@ -270,7 +286,6 @@ TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc, bool own_slots)
           _table_desc(nullptr),
           _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
-          _slots(),
           _has_varlen_slots(false),
           _own_slots(own_slots) {
     if (!pdesc.has_num_null_slots()) {
@@ -572,6 +587,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::JDBC_TABLE:
             desc = pool->add(new JdbcTableDescriptor(tdesc));
+            break;
+        case TTableType::MAX_COMPUTE_TABLE:
+            desc = pool->add(new MaxComputeTableDescriptor(tdesc));
             break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;

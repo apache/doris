@@ -129,7 +129,6 @@ public class CreateTableStmtTest {
     public void testCreateTableUniqueKeyNormal() throws UserException {
         // setup
         Map<String, String> properties = new HashMap<>();
-        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false");
         ColumnDef col3 = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BIGINT)));
         col3.setIsKey(false);
         cols.add(col3);
@@ -149,9 +148,31 @@ public class CreateTableStmtTest {
     }
 
     @Test
+    public void testCreateTableUniqueKeyNoProperties() throws UserException {
+        // setup
+        ColumnDef col3 = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BIGINT)));
+        col3.setIsKey(false);
+        cols.add(col3);
+        ColumnDef col4 = new ColumnDef("col4", new TypeDef(ScalarType.createType(PrimitiveType.STRING)));
+        col4.setIsKey(false);
+        cols.add(col4);
+        // test normal case
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.UNIQUE_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
+        stmt.analyze(analyzer);
+        Assert.assertEquals(col3.getAggregateType(), AggregateType.REPLACE);
+        Assert.assertEquals(col4.getAggregateType(), AggregateType.REPLACE);
+        // clear
+        cols.remove(col3);
+        cols.remove(col4);
+    }
+
+    @Test
     public void testCreateTableUniqueKeyMoW() throws UserException {
         // setup
         Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         ColumnDef col3 = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BIGINT)));
         col3.setIsKey(false);
         cols.add(col3);

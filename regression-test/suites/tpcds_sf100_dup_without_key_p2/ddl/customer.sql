@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS customer (
     c_email_address char(50),
     c_last_review_date_sk bigint
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(c_customer_id) BUCKETS 12
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

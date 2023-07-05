@@ -154,6 +154,8 @@ public class DataDescription implements InsertStmt.DataDesc {
     private boolean isMysqlLoad = false;
     private int skipLines = 0;
 
+    private boolean isAnalyzed = false;
+
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
                            List<String> filePaths,
@@ -572,6 +574,10 @@ public class DataDescription implements InsertStmt.DataDesc {
         return columnSeparator.getSeparator();
     }
 
+    public Separator getColumnSeparatorObj() {
+        return columnSeparator;
+    }
+
     public boolean isNegative() {
         return isNegative;
     }
@@ -794,13 +800,16 @@ public class DataDescription implements InsertStmt.DataDesc {
             // hadoop load only supports the FunctionCallExpr
             Expr child1 = predicate.getChild(1);
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Hadoop load only supports the designated function. "
-                        + "The error mapping function is:" + child1.toSql());
+                throw new AnalysisException(
+                        "Hadoop load only supports the designated function. " + "The error mapping function is:"
+                                + child1.toSql());
             }
-            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
+            // Must clone the expr, because in routine load, the expr will be analyzed for each task.
+            Expr cloned = child1.clone();
+            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, cloned);
             parsedColumnExprList.add(importColumnDesc);
-            if (child1 instanceof FunctionCallExpr) {
-                analyzeColumnToHadoopFunction(column, child1);
+            if (cloned instanceof FunctionCallExpr) {
+                analyzeColumnToHadoopFunction(column, cloned);
             }
         }
     }
@@ -998,6 +1007,9 @@ public class DataDescription implements InsertStmt.DataDesc {
     }
 
     public void analyze(String fullDbName) throws AnalysisException {
+        if (isAnalyzed) {
+            return;
+        }
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
@@ -1012,6 +1024,7 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is append.");
         }
+        isAnalyzed = true;
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {

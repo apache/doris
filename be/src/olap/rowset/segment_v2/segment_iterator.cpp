@@ -250,6 +250,10 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
         _vec_init_char_column_id();
     }
+
+    if (opts.output_columns != nullptr) {
+        _output_columns = *(opts.output_columns);
+    }
     return Status::OK();
 }
 
@@ -370,6 +374,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                                                           &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
@@ -486,6 +491,26 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                    condition_row_ranges);
     _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+
+    /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
+    /// we are temporarily disabling its use in data compaction.
+    if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+        RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
+        for (auto cid : cids) {
+            RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
+            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            uint32_t unique_cid = _schema->unique_id(cid);
+            RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_dict(
+                    _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
+            RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
+        }
+
+        pre_size = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
+                                       condition_row_ranges);
+        _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
+    }
+
     return Status::OK();
 }
 
@@ -752,13 +777,13 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
     if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-        res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+        res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
         res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
         (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
         // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
         //    usually occurs when creating a new index, queries can be downgraded
         //    without index.
-        // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+        // 2. INVERTED_INDEX_BYPASS means the hit of condition by index
         //    has reached the optimal limit, downgrade without index query can
         //    improve query performance.
         // 3. INVERTED_INDEX_EVALUATE_SKIPPED means the inverted index is not
@@ -917,7 +942,20 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // TODO(xk) impl right logic
+    if (_output_columns.count(-1)) {
+        // if _output_columns contains -1, it means that the light
+        // weight schema change may not be enabled or other reasons
+        // caused the column unique_id not be set, to prevent errors
+        // occurring, return true here that column data needs to be read
+        return true;
+    }
+    int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
+        _output_columns.count(unique_id) < 1) {
+        VLOG_DEBUG << "SegmentIterator no need read data for column: "
+                   << _opts.tablet_schema->column_by_uid(unique_id).name();
+        return false;
+    }
     return true;
 }
 
@@ -966,6 +1004,19 @@ Status SegmentIterator::_init_return_column_iterators() {
                     new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
+        std::set<ColumnId> del_cond_id_set;
+        _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+        std::vector<bool> tmp_is_pred_column;
+        tmp_is_pred_column.resize(_schema->columns().size(), false);
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        for (auto cid : del_cond_id_set) {
+            tmp_is_pred_column[cid] = true;
+        }
+
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
@@ -975,6 +1026,9 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
+            // If the col is predicate column, then should read the last page to check
+            // if the column is full dict encoding
+            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -1262,9 +1316,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->get_filter_id() != -1) {
-                    _filter_info_id.push_back(predicate);
-                }
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1642,8 +1694,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto p : _filter_info_id) {
         _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
     }
-    _opts.stats->short_circuit_cond_input_rows += original_size;
-    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 

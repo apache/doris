@@ -24,7 +24,6 @@
 
 #include <ctime> // time
 #include <filesystem>
-#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -32,12 +31,10 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "olap/data_dir.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -46,10 +43,9 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_schema.h"
-#include "segcompaction.h"
 #include "util/slice.h"
 #include "util/time.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
@@ -139,6 +135,41 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, &ctx));
     }
     return _add_block(block, &_segment_writer);
+}
+
+Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
+    SCOPED_RAW_TIMER(&_delete_bitmap_ns);
+    if (!_context.tablet->enable_unique_key_merge_on_write() ||
+        _context.tablet_schema->is_partial_update()) {
+        return Status::OK();
+    }
+    auto rowset = _build_tmp();
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(rowset.get());
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    RETURN_IF_ERROR(beta_rowset->load_segments(segment_id, segment_id + 1, &segments));
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    {
+        std::shared_lock meta_rlock(_context.tablet->get_header_lock());
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_context.tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_context.tablet->tablet_id())) {
+            return Status::OK();
+        }
+        specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
+    }
+    OlapStopWatch watch;
+    RETURN_IF_ERROR(_context.tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,
+                                                        _context.mow_context->delete_bitmap,
+                                                        _context.mow_context->max_version));
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
+              << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
+              << ", cur max_version: " << _context.mow_context->max_version
+              << ", transaction_id: " << _context.mow_context->txn_id
+              << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+    return Status::OK();
 }
 
 Status BetaRowsetWriter::_load_noncompacted_segments(
@@ -491,8 +522,17 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, i
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     RETURN_IF_ERROR(_create_segment_writer(&writer, ctx));
-    RETURN_IF_ERROR(_add_block(block, &writer));
+    segment_v2::SegmentWriter* raw_writer = writer.get();
+    int32_t segment_id = writer->get_segment_id();
+    RETURN_IF_ERROR(_add_block(block, &writer, ctx));
+    // if segment_id is present in flush context,
+    // the entire memtable should be flushed into a single segment
+    if (ctx != nullptr && ctx->segment_id.has_value()) {
+        DCHECK_EQ(writer->get_segment_id(), segment_id);
+        DCHECK_EQ(writer.get(), raw_writer);
+    }
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
@@ -673,7 +713,7 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     }
 }
 
-RowsetSharedPtr BetaRowsetWriter::build_tmp() {
+RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
     std::shared_ptr<RowsetMeta> rowset_meta_ = std::make_shared<RowsetMeta>();
     *rowset_meta_ = *_rowset_meta;
     _build_rowset_meta(rowset_meta_);
@@ -719,9 +759,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
-    writer_options.is_direct_write = _context.is_direct_write;
+    writer_options.write_type = _context.write_type;
     if (is_segcompaction) {
-        writer_options.is_direct_write = false;
+        writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     }
 
     if (is_segcompaction) {
@@ -798,8 +838,8 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
 
     Statistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size;
-    segstat.index_size = index_size;
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -840,8 +880,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     Statistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size;
-    segstat.index_size = index_size;
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);

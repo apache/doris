@@ -27,14 +27,15 @@ CteAnchor[cteId= ( CTEId#4=] )
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN](customer.c_customer_sk = web_sales.ws_bill_customer_sk)
-------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
---------------------PhysicalProject
-----------------------filter((('w' = 's') OR ('w' = 'w')))
-------------------------PhysicalOlapScan[web_sales]
---------------------PhysicalDistribute
+------------------PhysicalDistribute
+--------------------hashJoin[INNER_JOIN](web_sales.ws_sold_date_sk = date_dim.d_date_sk)
 ----------------------PhysicalProject
-------------------------filter(((date_dim.d_year = 1999) OR (date_dim.d_year = 2000))(('w' = 's') OR ('w' = 'w')))
---------------------------PhysicalOlapScan[date_dim]
+------------------------filter((('w' = 's') OR ('w' = 'w')))
+--------------------------PhysicalOlapScan[web_sales]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(((date_dim.d_year = 1999) OR (date_dim.d_year = 2000))(('w' = 's') OR ('w' = 'w')))
+----------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((('w' = 's') OR ('w' = 'w')))

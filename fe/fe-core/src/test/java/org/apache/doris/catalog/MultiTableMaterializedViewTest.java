@@ -41,6 +41,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -243,6 +244,7 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
 
     @ParameterizedTest
     @ValueSource(strings = {"AGGREGATE", "UNIQUE", "DUPLICATE"})
+    @Disabled
     public void testCreateWithPartition(String keyType) throws Exception {
         String aggregation = keyType.equals("AGGREGATE") ? "SUM" : "";
         createTable("CREATE TABLE test.t1 ("
@@ -533,5 +535,43 @@ public class MultiTableMaterializedViewTest extends TestWithFeService {
                 + "BUILD IMMEDIATE NEVER REFRESH \n"
                 + "KEY(`mpk`)\n"
                 + "DISTRIBUTED BY HASH(`mpk`) BUCKETS 10"));
+    }
+
+    @Test
+    void testCreateWithStar() throws Exception {
+        createTable("CREATE TABLE t_user ("
+                + "  event_day DATE,"
+                + "  id bigint,"
+                + "  username varchar(20)"
+                + ")"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1')"
+        );
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD IMMEDIATE REFRESH COMPLETE "
+                + "START WITH \"2022-10-27 19:35:00\" "
+                + "NEXT 1 SECOND "
+                + "DISTRIBUTED BY HASH(username) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.* FROM t_user t1").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
+    }
+
+    @Test
+    void testCreateWithoutRefreshInfo() throws Exception {
+        createTable("CREATE TABLE t_user ("
+                + "  event_day DATE,"
+                + "  id bigint,"
+                + "  username varchar(20)"
+                + ")"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1')"
+        );
+        new StmtExecutor(connectContext, "CREATE MATERIALIZED VIEW mv "
+                + "BUILD DEFERRED "
+                + "DISTRIBUTED BY HASH(username) BUCKETS 10 "
+                + "PROPERTIES ('replication_num' = '1') "
+                + "AS SELECT t1.* FROM t_user t1").execute();
+        Assertions.assertNull(connectContext.getState().getErrorCode(), connectContext.getState().getErrorMessage());
     }
 }

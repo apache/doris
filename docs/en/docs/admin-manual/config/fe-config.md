@@ -48,7 +48,7 @@ There are two ways to view the configuration items of FE:
 
 2. View by command
 
-    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command:
+    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command,Concrete language law reference [ADMIN-SHOW-CONFIG](../../sql-manual/sql-reference/Database-Administration-Statements/ADMIN-SHOW-CONFIG.md):
 
     `ADMIN SHOW FRONTEND CONFIG;`
 
@@ -498,7 +498,7 @@ Used to set the initial flow window size of the GRPC client channel, and also us
 
 Default：4096
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for Task events. Only `mysql_service_nio_enabled` is true takes effect.
+The number of threads responsible for Task events.
 
 #### `mysql_service_io_threads_num`
 

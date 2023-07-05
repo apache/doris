@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS store (
     s_gmt_offset decimal(5,2),
     s_tax_precentage decimal(5,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(s_store_sk) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

@@ -58,9 +58,14 @@ public class JdbcSapHanaClient extends JdbcClient {
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
-            case "TIMESTAMP":
-                // TIMESTAMP with 100 nanoseconds precision, will lose precision
-                return ScalarType.createDatetimeV2Type(6);
+            case "TIMESTAMP": {
+                // postgres can support microsecond
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
             case "SECONDDATE":
                 // SECONDDATE with second precision
                 return ScalarType.createDatetimeV2Type(0);

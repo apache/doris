@@ -19,7 +19,6 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
@@ -173,9 +172,6 @@ public class HyperGraphBuilder {
                 plan);
         JoinOrderJob joinOrderJob = new JoinOrderJob(cascadesContext.getMemo().getRoot(),
                 cascadesContext.getCurrentJobContext());
-        cascadesContext.pushJob(
-                new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
-                        cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         injectRowcount(cascadesContext.getMemo().getRoot());
         HyperGraph hyperGraph = new HyperGraph();
@@ -190,7 +186,7 @@ public class HyperGraphBuilder {
             int count = rowCounts.get(Integer.parseInt(scanPlan.getTable().getName()));
             for (Slot slot : scanPlan.getOutput()) {
                 slotIdToColumnStats.put(slot,
-                        new ColumnStatistic(count, count, 0, 0, 0, 0, 0,
+                        new ColumnStatistic(count, count, null, 0, 0, 0, 0,
                                 0, 0, null, null, true, null));
             }
             Statistics stats = new Statistics(count, slotIdToColumnStats);

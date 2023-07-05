@@ -33,6 +33,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
@@ -105,12 +106,31 @@ VJoinNodeBase::VJoinNodeBase(ObjectPool* pool, const TPlanNode& tnode, const Des
     }
 }
 
+Status VJoinNodeBase::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::prepare(state));
+    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
+    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
+    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
+    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+
+    _probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
+    _probe_timer = ADD_TIMER(_probe_phase_profile, "ProbeTime");
+    _join_filter_timer = ADD_CHILD_TIMER(_probe_phase_profile, "JoinFilterTimer", "ProbeTime");
+    _build_output_block_timer =
+            ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
+    _probe_rows_counter = ADD_COUNTER(_probe_phase_profile, "ProbeRows", TUnit::UNIT);
+
+    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
+    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
+
+    return Status::OK();
+}
+
 Status VJoinNodeBase::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
 void VJoinNodeBase::release_resource(RuntimeState* state) {
-    VExpr::close(_output_expr_ctxs, state);
     _join_block.clear();
     ExecNode::release_resource(state);
 }
@@ -130,7 +150,9 @@ void VJoinNodeBase::_construct_mutable_join_block() {
     }
 }
 
-Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block) {
+Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_block,
+                                          bool keep_origin) {
+    SCOPED_TIMER(_build_output_block_timer);
     auto is_mem_reuse = output_block->mem_reuse();
     MutableBlock mutable_block =
             is_mem_reuse
@@ -140,13 +162,21 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
     // TODO: After FE plan support same nullable of output expr and origin block and mutable column
     // we should replace `insert_column_datas` by `insert_range_from`
 
-    auto insert_column_datas = [](auto& to, const auto& from, size_t rows) {
-        if (to->is_nullable() && !from.is_nullable()) {
-            auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
-            null_column.get_nested_column().insert_range_from(from, 0, rows);
-            null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+    auto insert_column_datas = [keep_origin](auto& to, ColumnPtr& from, size_t rows) {
+        if (to->is_nullable() && !from->is_nullable()) {
+            if (keep_origin || !from->is_exclusive()) {
+                auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
+                null_column.get_nested_column().insert_range_from(*from, 0, rows);
+                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+            } else {
+                to = make_nullable(from, false)->assume_mutable();
+            }
         } else {
-            to->insert_range_from(from, 0, rows);
+            if (keep_origin || !from->is_exclusive()) {
+                to->insert_range_from(*from, 0, rows);
+            } else {
+                to = from->assume_mutable();
+            }
         }
     };
     if (rows != 0) {
@@ -154,7 +184,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
         if (_output_expr_ctxs.empty()) {
             DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
             for (int i = 0; i < mutable_columns.size(); ++i) {
-                insert_column_datas(mutable_columns[i], *origin_block->get_by_position(i).column,
+                insert_column_datas(mutable_columns[i], origin_block->get_by_position(i).column,
                                     rows);
             }
         } else {
@@ -163,13 +193,23 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             for (int i = 0; i < mutable_columns.size(); ++i) {
                 auto result_column_id = -1;
                 RETURN_IF_ERROR(_output_expr_ctxs[i]->execute(origin_block, &result_column_id));
-                auto column_ptr = origin_block->get_by_position(result_column_id)
-                                          .column->convert_to_full_column_if_const();
-                insert_column_datas(mutable_columns[i], *column_ptr, rows);
+                auto& origin_column = origin_block->get_by_position(result_column_id).column;
+
+                /// `convert_to_full_column_if_const` will create a pointer to the origin column if
+                /// the origin column is not ColumnConst/ColumnArray, this make the column be not
+                /// exclusive.
+                /// TODO: maybe need a method to check if a column need to be converted to full
+                /// column.
+                if (is_column_const(*origin_column) || check_column<ColumnArray>(origin_column)) {
+                    auto column_ptr = origin_column->convert_to_full_column_if_const();
+                    insert_column_datas(mutable_columns[i], column_ptr, rows);
+                } else {
+                    insert_column_datas(mutable_columns[i], origin_column, rows);
+                }
             }
         }
 
-        if (!is_mem_reuse) {
+        if (!is_mem_reuse || !keep_origin) {
             output_block->swap(mutable_block.to_block());
         }
         DCHECK(output_block->rows() == rows);

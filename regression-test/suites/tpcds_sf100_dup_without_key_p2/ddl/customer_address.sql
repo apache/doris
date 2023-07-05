@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS customer_address (
     ca_gmt_offset decimal(5,2),
     ca_location_type char(20)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(ca_address_sk) BUCKETS 12
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

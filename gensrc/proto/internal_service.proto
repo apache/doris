@@ -53,6 +53,7 @@ message PTransmitDataParams {
 
 message PTransmitDataResult {
     optional PStatus status = 1;
+    optional int64 receive_time = 2;
 };
 
 message PTabletWithPartition {

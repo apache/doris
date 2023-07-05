@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS  dbgen_version (
   dv_create_time char(10) NULL,
   dv_cmdline_args varchar(200) NULL
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(dv_version) BUCKETS 1 
 PROPERTIES (
-"replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

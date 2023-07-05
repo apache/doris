@@ -50,6 +50,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
@@ -58,7 +59,6 @@
 #include "util/s3_util.h"
 
 namespace doris {
-class DISABLED_RemoteRowsetGcTest;
 class OlapMeta;
 
 static StorageEngine* k_engine = nullptr;
@@ -67,8 +67,6 @@ static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
-// remove DISABLED_ when need run this test
-#define RemoteRowsetGcTest DISABLED_RemoteRowsetGcTest
 class RemoteRowsetGcTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
@@ -215,9 +213,10 @@ TEST_F(RemoteRowsetGcTest, normal) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         st = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                   write_req.tablet_id, write_req.schema_hash,
-                                                  tablet_rs.first.tablet_uid, version);
+                                                  tablet_rs.first.tablet_uid, version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

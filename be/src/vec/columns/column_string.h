@@ -64,12 +64,13 @@ public:
     using Char = UInt8;
     using Chars = PaddedPODArray<UInt8>;
 
+    static constexpr size_t MAX_STRINGS_OVERFLOW_SIZE = 128;
+
     void static check_chars_length(size_t total_length, size_t element_number) {
         if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
-            throw doris::Exception(
-                    ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
-                    "string column length is too large: total_length={}, element_number={}",
-                    total_length, element_number);
+            throw Exception(ErrorCode::STRING_OVERFLOW_IN_VEC_ENGINE,
+                            "string column length is too large: total_length={}, element_number={}",
+                            total_length, element_number);
         }
     }
 
@@ -137,7 +138,7 @@ public:
     }
 
     void insert(const Field& x) override {
-        const String& s = doris::vectorized::get<const String&>(x);
+        const String& s = vectorized::get<const String&>(x);
         const size_t old_size = chars.size();
         const size_t size_to_append = s.size();
         const size_t new_size = old_size + size_to_append;
@@ -391,6 +392,18 @@ public:
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
+
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
+        size_t string_size = size_at(n);
+        size_t offset = offset_at(n);
+        hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                          string_size, hash);
+    }
+
+    void update_crc_with_value(size_t n, uint64_t& crc) const override {
+        auto data_ref = get_data_at(n);
+        crc = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, crc);
+    }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);

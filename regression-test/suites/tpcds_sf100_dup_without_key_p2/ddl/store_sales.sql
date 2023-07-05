@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS store_sales (
     ss_net_paid_inc_tax decimal(7,2),
     ss_net_profit decimal(7,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(ss_item_sk, ss_ticket_number) BUCKETS 32
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

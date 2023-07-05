@@ -43,6 +43,7 @@ import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -71,6 +72,7 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
@@ -79,6 +81,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TException;
 
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -160,6 +164,7 @@ public class HiveMetaStoreClientHelper {
         try {
             if ("dlf".equalsIgnoreCase(type)) {
                 // For aliyun DLF
+                hiveConf.set(DataLakeConfig.CATALOG_CREATE_DEFAULT_DB, "false");
                 metaStoreClient = new ProxyMetaStoreClient(hiveConf);
             } else {
                 metaStoreClient = new HiveMetaStoreClient(hiveConf);
@@ -219,8 +224,8 @@ public class HiveMetaStoreClientHelper {
     }
 
     private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
-                                           List<RemoteFiles> remoteLocationsList, RemoteFileSystem fs)
-                throws UserException {
+            List<RemoteFiles> remoteLocationsList, RemoteFileSystem fs)
+            throws UserException {
         String hdfsUrl = "";
         Queue<RemoteFiles> queue = Queues.newArrayDeque(remoteLocationsList);
         while (queue.peek() != null) {
@@ -272,7 +277,7 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException when connect hiveMetaStore failed.
      */
     public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
-                       ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
+            ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
         List<Partition> hivePartitions = new ArrayList<>();
         IMetaStoreClient client = getClient(metaStoreUris);
         try {
@@ -467,7 +472,7 @@ public class HiveMetaStoreClientHelper {
                 Object value = extractDorisLiteral(literalExpr);
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  "NULL", "=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, "NULL", "=");
                     } else {
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                     }
@@ -475,17 +480,17 @@ public class HiveMetaStoreClientHelper {
                 switch (opcode) {
                     case EQ:
                     case EQ_FOR_NULL:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "=");
                     case NE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "!=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "!=");
                     case GE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, ">=");
                     case GT:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, ">");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, ">");
                     case LE:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<=");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "<=");
                     case LT:
-                        return genExprDesc(tblName, hivePrimitiveType, colName,  value, "<");
+                        return genExprDesc(tblName, hivePrimitiveType, colName, value, "<");
                     default:
                         return ExprNodeGenericFuncDescContext.BAD_CONTEXT;
                 }
@@ -921,9 +926,39 @@ public class HiveMetaStoreClientHelper {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
 
         Configuration conf = getConfiguration(table);
-
-        HoodieTableMetaClient metaClient =
-                HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
+        UserGroupInformation ugi = null;
+        String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
+        if (AuthType.KERBEROS.getDesc().equals(authentication)) {
+            conf.set("hadoop.security.authorization", "true");
+            UserGroupInformation.setConfiguration(conf);
+            String principal = conf.get(HdfsResource.HADOOP_KERBEROS_PRINCIPAL);
+            String keytab = conf.get(HdfsResource.HADOOP_KERBEROS_KEYTAB);
+            try {
+                ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
+                UserGroupInformation.setLoginUser(ugi);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            String hadoopUserName = conf.get(HdfsResource.HADOOP_USER_NAME);
+            if (hadoopUserName != null) {
+                ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            }
+        }
+        HoodieTableMetaClient metaClient;
+        if (ugi != null) {
+            try {
+                metaClient = ugi.doAs(
+                        (PrivilegedExceptionAction<HoodieTableMetaClient>) () -> HoodieTableMetaClient.builder()
+                                .setConf(conf).setBasePath(hudiBasePath).build());
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } catch (InterruptedException e) {
+                throw new RuntimeException("Cannot get hudi client.", e);
+            }
+        } else {
+            metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build();
+        }
         return metaClient;
     }
 

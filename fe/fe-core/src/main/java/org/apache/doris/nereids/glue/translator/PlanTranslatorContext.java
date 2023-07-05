@@ -137,8 +137,10 @@ public class PlanTranslatorContext {
         slotIdToExprId.put(slotRef.getDesc().getId(), exprId);
     }
 
-    public void removePlanFragment(PlanFragment planFragment) {
-        this.planFragments.remove(planFragment);
+    public void mergePlanFragment(PlanFragment srcFragment, PlanFragment targetFragment) {
+        srcFragment.getTargetRuntimeFilterIds().forEach(targetFragment::setTargetRuntimeFilterIds);
+        srcFragment.getBuilderRuntimeFilterIds().forEach(targetFragment::setBuilderRuntimeFilterIds);
+        this.planFragments.remove(srcFragment);
     }
 
     public SlotRef findSlotRef(ExprId exprId) {

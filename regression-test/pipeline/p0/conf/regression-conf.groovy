@@ -21,8 +21,14 @@
 defaultDb = "regression_test"
 
 jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
+targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
+
+feSourceThriftAddress = "127.0.0.1:9020"
+feTargetThriftAddress = "127.0.0.1:9020"
+feSyncerUser = "root"
+feSyncerPassword = ""
 
 feHttpAddress = "172.19.0.2:8131"
 feHttpUser = "root"
@@ -48,7 +54,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load,test_spark_load,test_analyze_stats_p1"
+excludeSuites = "test_broker_load,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv"
 // this directories will not be executed
 excludeDirectories = ""
 

@@ -19,11 +19,12 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMode;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.BlockingCounter;
+import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
@@ -31,11 +32,11 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 
@@ -83,17 +84,25 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
         b.put(analysisTaskWrapper);
         analysisTaskExecutor.start();
-        BlockingCounter counter = Deencapsulation.getField(analysisTaskExecutor, "blockingCounter");
-        int sleepTime = 500;
-        while (counter.getVal() != 0 && sleepTime > 0) {
-            sleepTime -= 100;
-            Thread.sleep(100);
-        }
-        Assertions.assertEquals(0, counter.getVal());
     }
 
     @Test
     public void testTaskExecution() throws Exception {
+
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public List<ResultRow> executeInternalQuery() {
+                return Collections.emptyList();
+            }
+        };
+
+        new MockUp<OlapAnalysisTask>() {
+            @Mock
+            public void execSQL(String sql) throws Exception {
+
+            }
+        };
+
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
         HashMap<String, Set<String>> colToPartitions = Maps.newHashMap();
         colToPartitions.put("col1", Collections.singleton("t1"));

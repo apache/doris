@@ -5,8 +5,8 @@ CREATE TABLE IF NOT EXISTS household_demographics (
     hd_dep_count integer,
     hd_vehicle_count integer
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(hd_demo_sk) BUCKETS 3
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

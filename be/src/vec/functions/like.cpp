@@ -437,8 +437,9 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
     hs_compile_error_t* compile_err;
-    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, nullptr,
-                          database, &compile_err);
+    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
+                          HS_MODE_BLOCK, nullptr, database, &compile_err);
+
     if (res != HS_SUCCESS) {
         *database = nullptr;
         if (context) {

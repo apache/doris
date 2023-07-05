@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS promotion (
     p_purpose char(15),
     p_discount_active char(1)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(p_promo_sk) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

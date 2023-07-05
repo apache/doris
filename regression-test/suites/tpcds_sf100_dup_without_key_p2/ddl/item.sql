@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS item (
     i_manager_id integer,
     i_product_name char(50)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(i_item_sk) BUCKETS 12
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

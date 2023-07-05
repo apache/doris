@@ -326,6 +326,7 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_bf_filtered = 0;
+    int64_t rows_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -463,9 +464,11 @@ using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
 class DeleteBitmap;
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, const RowsetIdUnorderedSet& ids, std::shared_ptr<DeleteBitmap> db)
-            : max_version(version), rowset_ids(ids), delete_bitmap(db) {}
+    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
+               std::shared_ptr<DeleteBitmap> db)
+            : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
     int64_t max_version;
+    int64_t txn_id;
     const RowsetIdUnorderedSet& rowset_ids;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 };

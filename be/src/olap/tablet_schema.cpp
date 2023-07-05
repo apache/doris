@@ -520,7 +520,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
     std::string origin_name = TabletColumn::get_string_by_aggregation_type(_aggregation);
     auto type = vectorized::DataTypeFactory::instance().create_data_type(*this);
 
-    std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
+    std::string agg_name = origin_name + suffix;
     std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                    [](unsigned char c) { return std::tolower(c); });
 
@@ -528,6 +528,11 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(std::strin
                                                                                type->is_nullable());
     if (function) {
         return function;
+    }
+    if (type->get_type_as_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
+        LOG(WARNING) << "get column aggregate function failed, aggregation_name=" << origin_name
+                     << ", column_type=" << type->get_name();
+        return nullptr;
     }
     return get_aggregate_function_union(type);
 }
@@ -649,6 +654,17 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
 
 void TabletSchema::append_index(TabletIndex index) {
     _indexes.push_back(std::move(index));
+}
+
+void TabletSchema::remove_index(int64_t index_id) {
+    std::vector<TabletIndex> indexes;
+    for (auto index : _indexes) {
+        if (index.index_id() == index_id) {
+            continue;
+        }
+        indexes.emplace_back(std::move(index));
+    }
+    _indexes = std::move(indexes);
 }
 
 void TabletSchema::clear_columns() {

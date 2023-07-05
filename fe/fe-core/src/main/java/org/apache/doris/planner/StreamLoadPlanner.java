@@ -111,8 +111,12 @@ public class StreamLoadPlanner {
         return destTable;
     }
 
-    // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+        return this.plan(loadId, 1);
+    }
+
+    // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
+    public TExecPlanFragmentParams plan(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
@@ -203,9 +207,6 @@ public class StreamLoadPlanner {
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
@@ -271,7 +272,7 @@ public class StreamLoadPlanner {
         TPlanFragmentExecParams execParams = new TPlanFragmentExecParams();
         // user load id (streamLoadTask.id) as query id
         execParams.setQueryId(loadId);
-        execParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + 1));
+        execParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
         execParams.per_exch_num_senders = Maps.newHashMap();
         execParams.destinations = Lists.newArrayList();
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
@@ -402,9 +403,6 @@ public class StreamLoadPlanner {
                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }

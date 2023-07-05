@@ -46,7 +46,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -209,10 +208,7 @@ public class OriginalPlanner extends Planner {
                 && plannerContext.getStatement().getExplainOptions() == null) {
             collectQueryStat(singleNodePlan);
         }
-        // check and set flag for topn detail query opt
-        if (VectorizedUtil.isVectorized()) {
-            checkAndSetTopnOpt(singleNodePlan);
-        }
+        checkAndSetTopnOpt(singleNodePlan);
 
         if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
             // single-node execution; we're almost done
@@ -227,9 +223,7 @@ public class OriginalPlanner extends Planner {
 
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
-        if (VectorizedUtil.isVectorized()) {
-            pushSortToOlapScan();
-        }
+        pushSortToOlapScan();
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
@@ -268,9 +262,7 @@ public class OriginalPlanner extends Planner {
 
         pushDownResultFileSink(analyzer);
 
-        if (VectorizedUtil.isVectorized()) {
-            pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
-        }
+        pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -459,9 +451,6 @@ public class OriginalPlanner extends Planner {
         slotDesc.setColumn(col);
         slotDesc.setIsNullable(false);
         slotDesc.setIsMaterialized(true);
-        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        slotDesc.setNullIndicatorBit(-1);
-        slotDesc.setNullIndicatorByte(0);
         return slotDesc;
     }
 
@@ -572,50 +561,16 @@ public class OriginalPlanner extends Planner {
      * column unique id for `A` and `B` will put into outputColumnUniqueIds.
      *
     */
+    // this opt will only work with nereidsPlanner
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
         Set<Integer> outputColumnUniqueIds = new HashSet<>();
-        ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
-        for (Expr expr : outputExprs) {
-            if (expr instanceof SlotRef) {
-                if (((SlotRef) expr).getColumn() != null) {
-                    outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
-                }
-            }
-        }
+        // add '-1' to avoid the optimization incorrect work with OriginalPlanner,
+        // because in the storage layer will skip this optimization if outputColumnUniqueIds contains '-1',
+        // to ensure the optimization only correct work with nereidsPlanner
+        outputColumnUniqueIds.add(-1);
 
         for (PlanFragment fragment : fragments) {
             PlanNode node = fragment.getPlanRoot();
-            PlanNode parent = null;
-            while (node.getChildren().size() != 0) {
-                for (PlanNode childNode : node.getChildren()) {
-                    List<SlotId> outputSlotIds = childNode.getOutputSlotIds();
-                    if (outputSlotIds != null) {
-                        for (SlotId sid : outputSlotIds) {
-                            SlotDescriptor slotDesc = analyzer.getSlotDesc(sid);
-                            outputColumnUniqueIds.add(slotDesc.getUniqueId());
-                        }
-                    }
-                }
-                // OlapScanNode is the last node.
-                // So, just get the two node and check if they are SortNode and OlapScan.
-                parent = node;
-                node = node.getChildren().get(0);
-            }
-
-            if (parent instanceof SortNode) {
-                SortNode sortNode = (SortNode) parent;
-                List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
-                if (orderingExprs != null) {
-                    for (Expr expr : orderingExprs) {
-                        if (expr instanceof SlotRef) {
-                            if (((SlotRef) expr).getColumn() != null) {
-                                outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
-                            }
-                        }
-                    }
-                }
-            }
-
             if (!(node instanceof OlapScanNode)) {
                 continue;
             }

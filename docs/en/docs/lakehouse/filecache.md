@@ -26,11 +26,7 @@ under the License.
 
 # File Cache
 
-<version since="dev">
-
 File Cache accelerates queries that read the same data by caching the data files of recently accessed from remote storage system (HDFS or Object Storage). In Ad Hoc scenarios where the same data is frequently accessed, File Cache can avoid repeated remote data access costs and improve the query analysis performance and stability of hot data.
-
-</version>
 
 ## How it works
 
@@ -54,14 +50,17 @@ Enable File Cache globally:
 SET GLOBAL enable_file_cache = true;
 ```
 
+> The File Cache is only applicable to external queries for files (such as Hive, Hudi). It has no effect on internal table queries, or non-file external queries (such as JDBC, Elasticsearch), etc.
+
 ### Configurations for BE
 Add settings to the BE node's configuration file `conf/be.conf`, and restart the BE node for the configuration to take effect.
 
 |  Parameter   | Description  |
 |  ---  | ---  |
 | `enable_file_cache`  | Whether to enable File Cache, default false |
-| `file_cache_max_file_segment_size` | Max size of a single cached block, default 4MB, should greater than 4096 |
 | `file_cache_path` | Parameters about cache path, json format, for exmaple: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": "10737418240"}]`. `path` is the path to save cached data; `total_size` is the max size of cached data; `query_limit` is the max size of cached data for a single query. |
+| `file_cache_min_file_segment_size` | Min size of a single cached block, default 1MB, should greater than 4096 |
+| `file_cache_max_file_segment_size` | Max size of a single cached block, default 4MB, should greater than 4096 |
 | `enable_file_cache_query_limit` | Whether to limit the cache size used by a single query, default false |
 | `clear_file_cache` | Whether to delete the previous cache data when the BE restarts, default false |
 

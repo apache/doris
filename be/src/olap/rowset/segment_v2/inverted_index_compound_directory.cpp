@@ -466,12 +466,7 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     bool doClearLockID = false;
 
     if (lock_factory == nullptr) {
-        if (disableLocks) {
-            lock_factory = lucene::store::NoLockFactory::getNoLockFactory();
-        } else {
-            lock_factory = _CLNEW lucene::store::FSLockFactory(directory.c_str(), this->filemode);
-            doClearLockID = true;
-        }
+        lock_factory = _CLNEW lucene::store::NoLockFactory();
     }
 
     setLockFactory(lock_factory);
@@ -480,7 +475,7 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
         lockFactory->setLockPrefix(nullptr);
     }
 
-    // It's meaningless checking directory existence in S3.
+    // It's fail checking directory existence in S3.
     if (fs->type() == io::FileSystemType::S3) {
         return;
     }
@@ -489,12 +484,12 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     if (!status.ok()) {
         auto err = "File system error: " + status.to_string();
         LOG(WARNING) << err;
-        _CLTHROWA_DEL(CL_ERR_IO, err.c_str());
+        _CLTHROWA(CL_ERR_IO, err.c_str());
     }
     if (!exists) {
         auto e = "Doris compound directory init error: " + directory + " is not a directory";
         LOG(WARNING) << e;
-        _CLTHROWA_DEL(CL_ERR_IO, e.c_str());
+        _CLTHROWA(CL_ERR_IO, e.c_str());
     }
 }
 
@@ -587,7 +582,7 @@ DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(
     bool exists = false;
     _fs->exists(file, &exists);
     if (!exists) {
-        mkdir(file, 0777);
+        _fs->create_directory(file);
     }
 
     dir = _CLNEW DorisCompoundDirectory();

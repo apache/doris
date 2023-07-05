@@ -207,6 +207,7 @@ public:
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
     void append_index(TabletIndex index);
+    void remove_index(int64_t index_id);
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
@@ -264,7 +265,7 @@ public:
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
-
+    // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
     vectorized::Block create_block(

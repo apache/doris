@@ -69,12 +69,11 @@ Pipeline 执行引擎 是 Doris 在 2.0 版本加入的实验性功能。目标�
 set enable_pipeline_engine = true;
 ```
 
-#### parallel_fragment_exec_instance_num
+#### parallel_pipeline_task_num
 
-`parallel_fragment_exec_instance_num`代表了 SQL 查询进行查询并发的 Instance 数目。Doris默认的配置为`1`,这个配置会影响非 Pipeline 执行引擎的查询线程数目，而在 Pipeline 执行引擎中不会有线程数目膨胀的问题。这里推荐配置为`16`，用户也可以实际根据自己的查询情况进行调整。
+`parallel_pipeline_task_num`代表了 SQL 查询进行查询并发的 Pipeline Task 数目。Doris默认的配置为`0`,即CPU核数的一半。用户也可以实际根据自己的实际情况进行调整。
 
 ```
-set parallel_fragment_exec_instance_num = 16;
+set parallel_pipeline_task_num = 0;
 ```
 
-特别的，如果设置为0， 则在Pipeline 执行引擎中的并发数会自动的设置为cpu核心数目的一半。并且parallel_fragment_exec_instance_num不能设置超过fe.conf中的max_instance_num(默认128)

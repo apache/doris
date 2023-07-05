@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS web_page (
         wp_image_count integer,
         wp_max_ad_count integer
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(wp_web_page_sk) BUCKETS 1
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

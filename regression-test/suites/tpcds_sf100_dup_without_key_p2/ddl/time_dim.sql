@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS time_dim (
     t_sub_shift char(20),
     t_meal_time char(20)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(t_time_sk) BUCKETS 12
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

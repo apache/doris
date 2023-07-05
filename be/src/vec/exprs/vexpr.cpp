@@ -58,10 +58,6 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::vectorized {
-using doris::Status;
-using doris::RuntimeState;
-using doris::RowDescriptor;
-using doris::TypeDescriptor;
 
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
@@ -121,14 +117,13 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
     return Status::OK();
 }
 
-void VExpr::close(RuntimeState* state, VExprContext* context,
-                  FunctionContext::FunctionStateScope scope) {
+void VExpr::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     for (int i = 0; i < _children.size(); ++i) {
-        _children[i]->close(state, context, scope);
+        _children[i]->close(context, scope);
     }
 }
 
-Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
+Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
     try {
         switch (expr_node.node_type) {
         case TExprNodeType::BOOL_LITERAL:
@@ -157,30 +152,30 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             expr = VStructLiteral::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::SLOT_REF: {
+        case TExprNodeType::SLOT_REF: {
             expr = VSlotRef::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::COLUMN_REF: {
+        case TExprNodeType::COLUMN_REF: {
             expr = VColumnRef::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::COMPOUND_PRED: {
+        case TExprNodeType::COMPOUND_PRED: {
             expr = VCompoundPred::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::LAMBDA_FUNCTION_EXPR: {
+        case TExprNodeType::LAMBDA_FUNCTION_EXPR: {
             expr = VLambdaFunctionExpr::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
+        case TExprNodeType::LAMBDA_FUNCTION_CALL_EXPR: {
             expr = VLambdaFunctionCallExpr::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::ARITHMETIC_EXPR:
-        case doris::TExprNodeType::BINARY_PRED:
-        case doris::TExprNodeType::FUNCTION_CALL:
-        case doris::TExprNodeType::COMPUTE_FUNCTION_CALL: {
+        case TExprNodeType::ARITHMETIC_EXPR:
+        case TExprNodeType::BINARY_PRED:
+        case TExprNodeType::FUNCTION_CALL:
+        case TExprNodeType::COMPUTE_FUNCTION_CALL: {
             expr = VectorizedFnCall::create_shared(expr_node);
             break;
         }
@@ -188,15 +183,15 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             expr = VMatchPredicate::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::CAST_EXPR: {
+        case TExprNodeType::CAST_EXPR: {
             expr = VCastExpr::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::IN_PRED: {
+        case TExprNodeType::IN_PRED: {
             expr = VInPredicate::create_shared(expr_node);
             break;
         }
-        case doris::TExprNodeType::CASE_EXPR: {
+        case TExprNodeType::CASE_EXPR: {
             if (!expr_node.__isset.case_expr) {
                 return Status::InternalError("Case expression not set in thrift node");
             }
@@ -219,7 +214,7 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
     } catch (const Exception& e) {
-        return Status::Error(e.code(), e.to_string());
+        return e.to_status();
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);
@@ -227,7 +222,7 @@ Status VExpr::create_expr(const doris::TExprNode& expr_node, VExprSPtr& expr) {
     return Status::OK();
 }
 
-Status VExpr::create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes, int* node_idx,
+Status VExpr::create_tree_from_thrift(const std::vector<TExprNode>& nodes, int* node_idx,
                                       VExprSPtr& root_expr, VExprContextSPtr& ctx) {
     // propagate error case
     if (*node_idx >= nodes.size()) {
@@ -272,7 +267,7 @@ Status VExpr::create_tree_from_thrift(const std::vector<doris::TExprNode>& nodes
     return Status::OK();
 }
 
-Status VExpr::create_expr_tree(const doris::TExpr& texpr, VExprContextSPtr& ctx) {
+Status VExpr::create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx) {
     if (texpr.nodes.size() == 0) {
         ctx = nullptr;
         return Status::OK();
@@ -293,7 +288,7 @@ Status VExpr::create_expr_tree(const doris::TExpr& texpr, VExprContextSPtr& ctx)
     return status;
 }
 
-Status VExpr::create_expr_trees(const std::vector<doris::TExpr>& texprs, VExprContextSPtrs& ctxs) {
+Status VExpr::create_expr_trees(const std::vector<TExpr>& texprs, VExprContextSPtrs& ctxs) {
     ctxs.clear();
     for (int i = 0; i < texprs.size(); ++i) {
         VExprContextSPtr ctx;
@@ -309,12 +304,6 @@ Status VExpr::prepare(const VExprContextSPtrs& ctxs, RuntimeState* state,
         RETURN_IF_ERROR(ctx->prepare(state, row_desc));
     }
     return Status::OK();
-}
-
-void VExpr::close(const VExprContextSPtrs& ctxs, RuntimeState* state) {
-    for (auto ctx : ctxs) {
-        ctx->close(state);
-    }
 }
 
 Status VExpr::open(const VExprContextSPtrs& ctxs, RuntimeState* state) {

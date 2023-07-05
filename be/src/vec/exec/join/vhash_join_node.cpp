@@ -28,6 +28,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <map>
+#include <memory>
 #include <new>
 #include <ostream>
 #include <type_traits>
@@ -284,9 +285,9 @@ struct ProcessRuntimeFilterBuild {
         if (_join_node->_runtime_filter_descs.empty()) {
             return Status::OK();
         }
-        _join_node->_runtime_filter_slots = _join_node->_pool->add(
-                new VRuntimeFilterSlots(_join_node->_probe_expr_ctxs, _join_node->_build_expr_ctxs,
-                                        _join_node->_runtime_filter_descs));
+        _join_node->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
+                _join_node->_probe_expr_ctxs, _join_node->_build_expr_ctxs,
+                _join_node->_runtime_filter_descs);
 
         RETURN_IF_ERROR(_join_node->_runtime_filter_slots->init(
                 state, hash_table_ctx.hash_table.get_size(), _join_node->_build_bf_cardinality));
@@ -299,7 +300,7 @@ struct ProcessRuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_join_node->_push_down_timer);
-            _join_node->_runtime_filter_slots->publish();
+            RETURN_IF_ERROR(_join_node->_runtime_filter_slots->publish());
         }
 
         return Status::OK();
@@ -391,9 +392,8 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     _runtime_filters.resize(_runtime_filter_descs.size());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_filter(
-                RuntimeFilterRole::PRODUCER, _runtime_filter_descs[i], state->query_options(), -1,
-                _probe_expr_ctxs.size() == 1));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
+                _runtime_filter_descs[i], state->query_options(), _probe_expr_ctxs.size() == 1));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 _runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
@@ -421,48 +421,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-
-    auto* memory_usage = runtime_profile()->create_child("PeakMemoryUsage", true, true);
-    runtime_profile()->add_child(memory_usage, false, nullptr);
-    _build_blocks_memory_usage = ADD_COUNTER(memory_usage, "BuildBlocks", TUnit::BYTES);
-    _hash_table_memory_usage = ADD_COUNTER(memory_usage, "HashTable", TUnit::BYTES);
-    _build_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("BuildKeyArena", TUnit::BYTES);
-    _probe_arena_memory_usage =
-            memory_usage->AddHighWaterMarkCounter("ProbeKeyArena", TUnit::BYTES);
-
-    // Build phase
-    _build_phase_profile = runtime_profile()->create_child("BuildPhase", true, true);
-    runtime_profile()->add_child(_build_phase_profile, false, nullptr);
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_table_timer = ADD_TIMER(_build_phase_profile, "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime");
-    _build_table_insert_timer = ADD_TIMER(_build_phase_profile, "BuildTableInsertTime");
-    _build_expr_call_timer = ADD_TIMER(_build_phase_profile, "BuildExprCallTime");
-    _build_table_expanse_timer = ADD_TIMER(_build_phase_profile, "BuildTableExpanseTime");
-    _build_table_convert_timer =
-            ADD_TIMER(_build_phase_profile, "BuildTableConvertToPartitionedTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
-    _build_side_compute_hash_timer = ADD_TIMER(_build_phase_profile, "BuildSideHashComputingTime");
-    _build_runtime_filter_timer = ADD_TIMER(_build_phase_profile, "BuildRuntimeFilterTime");
-
-    // Probe phase
-    auto probe_phase_profile = runtime_profile()->create_child("ProbePhase", true, true);
-    _probe_timer = ADD_TIMER(probe_phase_profile, "ProbeTime");
-    _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
-    _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
-    _probe_rows_counter = ADD_COUNTER(probe_phase_profile, "ProbeRows", TUnit::UNIT);
-    _search_hashtable_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime");
-    _build_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime");
-    _probe_side_output_timer = ADD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime");
-
-    _join_filter_timer = ADD_TIMER(runtime_profile(), "JoinFilterTimer");
-
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
-    _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
-    _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
-
     _should_build_hash_table = true;
     if (_is_broadcast_join) {
         runtime_profile()->add_info_string("BroadcastJoin", "true");
@@ -477,6 +435,46 @@ Status HashJoinNode::prepare(RuntimeState* state) {
             runtime_profile()->add_info_string("ShareHashTableEnabled", "false");
         }
     }
+
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+
+    _build_blocks_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "BuildBlocks", TUnit::BYTES, "MemoryUsage");
+    _hash_table_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "HashTable", TUnit::BYTES, "MemoryUsage");
+    _build_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "BuildKeyArena", TUnit::BYTES, "MemoryUsage");
+    _probe_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
+            "ProbeKeyArena", TUnit::BYTES, "MemoryUsage");
+
+    // Build phase
+    auto record_profile = _should_build_hash_table ? _build_phase_profile : faker_runtime_profile();
+    _build_table_timer = ADD_CHILD_TIMER(_build_phase_profile, "BuildTableTime", "BuildTime");
+    _build_side_merge_block_timer =
+            ADD_CHILD_TIMER(_build_phase_profile, "BuildSideMergeBlockTime", "BuildTime");
+    _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
+    _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
+    _build_table_expanse_timer = ADD_TIMER(record_profile, "BuildTableExpanseTime");
+    _build_table_convert_timer = ADD_TIMER(record_profile, "BuildTableConvertToPartitionedTime");
+    _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
+    _build_runtime_filter_timer = ADD_TIMER(record_profile, "BuildRuntimeFilterTime");
+
+    // Probe phase
+    auto probe_phase_profile = _probe_phase_profile;
+    _probe_next_timer = ADD_TIMER(probe_phase_profile, "ProbeFindNextTime");
+    _probe_expr_call_timer = ADD_TIMER(probe_phase_profile, "ProbeExprCallTime");
+    _search_hashtable_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenSearchHashTableTime", "ProbeTime");
+    _build_side_output_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenBuildSideOutputTime", "ProbeTime");
+    _probe_side_output_timer =
+            ADD_CHILD_TIMER(probe_phase_profile, "ProbeWhenProbeSideOutputTime", "ProbeTime");
+    _open_timer = ADD_TIMER(runtime_profile(), "OpenTime");
+    _allocate_resource_timer = ADD_TIMER(runtime_profile(), "AllocateResourceTime");
+    _process_other_join_conjunct_timer = ADD_TIMER(runtime_profile(), "OtherJoinConjunctTime");
+
+    _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
+    _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
@@ -510,12 +508,24 @@ Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
+    std::visit(Overload {[&](std::monostate&) {},
+                         [&](auto&& process_hashtable_ctx) {
+                             if (process_hashtable_ctx._arena) {
+                                 process_hashtable_ctx._arena.reset();
+                             }
+
+                             if (process_hashtable_ctx._serialize_key_arena) {
+                                 process_hashtable_ctx._serialize_key_arena.reset();
+                                 process_hashtable_ctx._serialized_key_buffer_size = 0;
+                             }
+                         }},
+               *_process_hashtable_ctx_variants);
     return VJoinNodeBase::close(state);
 }
 
 bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
-           !_short_circuit_for_null_in_probe_side;
+           !_short_circuit_for_probe;
 }
 
 void HashJoinNode::prepare_for_next() {
@@ -525,9 +535,8 @@ void HashJoinNode::prepare_for_next() {
 
 Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -614,7 +623,12 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, &temp_block, temp_block.columns()));
     }
-    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block));
+
+    // Here make _join_block release the columns' ptr
+    _join_block.set_columns(_join_block.clone_empty_columns());
+    mutable_join_block.clear();
+
+    RETURN_IF_ERROR(_build_output_block(&temp_block, output_block, false));
     _reset_tuple_is_null_column();
     reached_limit(output_block, eos);
     return Status::OK();
@@ -658,9 +672,8 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (_short_circuit_for_null_in_probe_side) {
-        // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
-        // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
+    if (_short_circuit_for_probe) {
+        // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
         return Status::OK();
     }
@@ -744,14 +757,15 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
 
 Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_allocate_resource_timer);
     RETURN_IF_ERROR(VJoinNodeBase::alloc_resource(state));
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
@@ -766,19 +780,15 @@ Status HashJoinNode::alloc_resource(doris::RuntimeState* state) {
 }
 
 void HashJoinNode::release_resource(RuntimeState* state) {
-    VExpr::close(_build_expr_ctxs, state);
-    VExpr::close(_probe_expr_ctxs, state);
-
-    for (auto& conjunct : _other_join_conjuncts) {
-        conjunct->close(state);
-    }
     _release_mem();
     VJoinNodeBase::release_resource(state);
 }
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
-    RETURN_IF_ERROR(child(1)->open(state));
-
+    {
+        SCOPED_TIMER(_build_get_next_timer);
+        RETURN_IF_ERROR(child(1)->open(state));
+    }
     if (_should_build_hash_table) {
         bool eos = false;
         Block block;
@@ -787,14 +797,15 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         while (!eos && !_short_circuit_for_null_in_probe_side) {
             block.clear_column_data();
             RETURN_IF_CANCELLED(state);
-
-            RETURN_IF_ERROR(child(1)->get_next_after_projects(
-                    state, &block, &eos,
-                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                      ExecNode::get_next,
-                              _children[1], std::placeholders::_1, std::placeholders::_2,
-                              std::placeholders::_3)));
-
+            {
+                SCOPED_TIMER(_build_get_next_timer);
+                RETURN_IF_ERROR(child(1)->get_next_after_projects(
+                        state, &block, &eos,
+                        std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                          ExecNode::get_next,
+                                  _children[1], std::placeholders::_1, std::placeholders::_2,
+                                  std::placeholders::_3)));
+            }
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
         RETURN_IF_ERROR(child(1)->close(state));
@@ -893,7 +904,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     } else if (!_should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
+        auto wait_timer =
+                ADD_CHILD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime", "BuildTime");
         SCOPED_TIMER(wait_timer);
         RETURN_IF_ERROR(
                 _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
@@ -917,15 +929,15 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
                                   if (_runtime_filter_descs.empty()) {
                                       return Status::OK();
                                   }
-                                  _runtime_filter_slots = _pool->add(new VRuntimeFilterSlots(
+                                  _runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
                                           _probe_expr_ctxs, _build_expr_ctxs,
-                                          _runtime_filter_descs));
+                                          _runtime_filter_descs);
 
                                   RETURN_IF_ERROR(_runtime_filter_slots->init(
                                           state, arg.hash_table.get_size(), 0));
                                   RETURN_IF_ERROR(_runtime_filter_slots->copy_from_shared_context(
                                           _shared_hash_table_context));
-                                  _runtime_filter_slots->publish();
+                                  RETURN_IF_ERROR(_runtime_filter_slots->publish());
                                   return Status::OK();
                               }},
                     *_hash_table_variants);
@@ -942,6 +954,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
     if (!_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
+    _init_short_circuit_for_probe();
+
     return Status::OK();
 }
 
@@ -950,7 +964,7 @@ void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) c
     *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
          << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
          << " _probe_eos=" << _probe_eos
-         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+         << " _short_circuit_for_probe_side=" << _short_circuit_for_probe;
     *out << ")\n children=(";
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
@@ -1258,6 +1272,9 @@ HashJoinNode::~HashJoinNode() {
     if (_shared_hashtable_controller && _should_build_hash_table) {
         // signal at here is abnormal
         _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
+    }
+    if (_runtime_filter_slots != nullptr) {
+        _runtime_filter_slots->finish_publish();
     }
 }
 

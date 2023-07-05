@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS date_dim (
     d_current_quarter char(1),
     d_current_year char(1)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(d_date_sk) BUCKETS 12
 PROPERTIES (
-  "replication_num" = "1"
+  "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true"
 );

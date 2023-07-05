@@ -163,11 +163,9 @@ public abstract class BaseAnalysisTask {
     public abstract void execute() throws Exception;
 
     public void cancel() {
+        killed = true;
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
-        }
-        if (killed) {
-            return;
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
@@ -184,7 +182,10 @@ public abstract class BaseAnalysisTask {
 
     // TODO : time cost is intolerable when column is string type, return 0 directly for now.
     protected String getDataSizeFunction(Column column) {
-        return "0";
+        if (column.getType().isStringType()) {
+            return "SUM(LENGTH(`${colName}`))";
+        }
+        return "COUNT(1) * " + column.getType().getSlotSize();
     }
 
     private boolean isUnsupportedType(PrimitiveType type) {
@@ -201,10 +202,5 @@ public abstract class BaseAnalysisTask {
         } else {
             return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
         }
-    }
-
-    public void markAsKilled() {
-        this.killed = true;
-        cancel();
     }
 }

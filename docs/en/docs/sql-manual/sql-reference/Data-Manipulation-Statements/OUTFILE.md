@@ -75,8 +75,8 @@ illustrate:
     The following properties are supported:
 
     File related properties
-        column_separator: column separator. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
-        line_delimiter: line delimiter. <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
+        column_separator: column separator,is only for CSV format <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
+        line_delimiter: line delimiter,is only for CSV format <version since="1.2.0">Support mulit-bytes, such as: "\\x01", "abc"</version>
         max_file_size: the size limit of a single file, if the result exceeds this value, it will be cut into multiple files.
         delete_existing_files: default `false`. If it is specified as true, you will first delete all files specified in the directory specified by the file_path, and then export the data to the directory.For example: "file_path" = "/user/tmp", then delete all files and directory under "/user/"; "file_path" = "/user/tmp/", then delete all files and directory under "/user/tmp/" 
     

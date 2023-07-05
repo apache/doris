@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <regex>
@@ -54,6 +55,15 @@ struct UserFunctionCacheEntry {
                            LibType type)
             : function_id(fid_), checksum(checksum_), lib_file(lib_file_), type(type) {}
     ~UserFunctionCacheEntry();
+
+    std::string debug_string() {
+        fmt::memory_buffer error_msg;
+        fmt::format_to(error_msg,
+                       " the info of UserFunctionCacheEntry save in BE, function_id:{}, "
+                       "checksum:{}, lib_file:{}, is_downloaded:{}. ",
+                       function_id, checksum, lib_file, is_downloaded);
+        return fmt::to_string(error_msg);
+    }
 
     int64_t function_id = 0;
     // used to check if this library is valid.
@@ -136,12 +146,17 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     } else if (ends_with(file, ".jar")) {
         lib_type = LibType::JAR;
     } else {
-        return Status::InternalError("unknown library file format: " + file);
+        return Status::InternalError(
+                "unknown library file format. the file type is not end with xxx.jar or xxx.so : " +
+                file);
     }
 
     std::vector<std::string> split_parts = strings::Split(file, ".");
-    if (split_parts.size() != 3) {
-        return Status::InternalError("user function's name should be function_id.checksum.so");
+    if (split_parts.size() != 3 && split_parts.size() != 4) {
+        return Status::InternalError(
+                "user function's name should be function_id.checksum[.file_name].file_type, now "
+                "the all split parts are by delimiter(.): " +
+                file);
     }
     int64_t function_id = std::stol(split_parts[0]);
     std::string checksum = split_parts[1];
@@ -149,7 +164,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     if (it != _entry_map.end()) {
         LOG(WARNING) << "meet a same function id user function library, function_id=" << function_id
                      << ", one_checksum=" << checksum
-                     << ", other_checksum=" << it->second->checksum;
+                     << ", other_checksum info: = " << it->second->debug_string();
         return Status::InternalError("duplicate function id");
     }
     // create a cache entry and put it into entry map
@@ -176,7 +191,7 @@ Status UserFunctionCache::_load_cached_lib() {
             auto st = _load_entry_from_lib(sub_dir, file.file_name);
             if (!st.ok()) {
                 LOG(WARNING) << "load a library failed, dir=" << sub_dir
-                             << ", file=" << file.file_name;
+                             << ", file=" << file.file_name << ": " << st.to_string();
             }
             return true;
         };
@@ -212,7 +227,7 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
     }
     auto st = _load_cache_entry(url, entry);
     if (!st.ok()) {
-        LOG(WARNING) << "fail to load cache entry, fid=" << fid;
+        LOG(WARNING) << "fail to load cache entry, fid=" << fid << " " << file_name << " " << url;
         // if we load a cache entry failed, I think we should delete this entry cache
         // even if this cache was valid before.
         _destroy_cache_entry(entry);
@@ -270,10 +285,13 @@ Status UserFunctionCache::_download_lib(const std::string& url,
 
     Md5Digest digest;
     HttpClient client;
+    int64_t file_size = 0;
     RETURN_IF_ERROR(client.init(real_url));
     Status status;
-    auto download_cb = [&status, &tmp_file, &fp, &digest](const void* data, size_t length) {
+    auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,
+                                                                      size_t length) {
         digest.update(data, length);
+        file_size = file_size + length;
         auto res = fwrite(data, length, 1, fp.get());
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << tmp_file
@@ -287,9 +305,15 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     RETURN_IF_ERROR(status);
     digest.digest();
     if (!iequal(digest.hex(), entry->checksum)) {
-        LOG(WARNING) << "UDF's checksum is not equal, one=" << digest.hex()
-                     << ", other=" << entry->checksum;
-        return Status::InternalError("UDF's library checksum is not match");
+        fmt::memory_buffer error_msg;
+        fmt::format_to(
+                error_msg,
+                " The checksum is not equal of {} ({}). The init info of first create entry is:"
+                "{} But download file check_sum is: {}, file_size is: {}.",
+                url, real_url, entry->debug_string(), digest.hex(), file_size);
+        std::string error(fmt::to_string(error_msg));
+        LOG(WARNING) << error;
+        return Status::InternalError(error);
     }
     // close this file
     fp.reset();

@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS catalog_returns (
   cr_store_credit decimal(7,2),
   cr_net_loss decimal(7,2)
 )
-COMMENT 'duplicate_no_keys'
 DISTRIBUTED BY HASH(cr_item_sk, cr_order_number) BUCKETS 32
 PROPERTIES (
   "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true",
   "colocate_with" = "catalog"
 );

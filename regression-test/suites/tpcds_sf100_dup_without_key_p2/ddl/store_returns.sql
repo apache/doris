@@ -20,9 +20,9 @@ CREATE TABLE IF NOT EXISTS store_returns (
     sr_store_credit decimal(7,2),
     sr_net_loss decimal(7,2)
 )
-COMMENT 'duplicate_no_keys'
 distributed by hash (sr_item_sk, sr_ticket_number) buckets 32
 properties (
   "replication_num" = "1",
+  "enable_duplicate_without_keys_by_default" = "true",
   "colocate_with" = "store"
 );

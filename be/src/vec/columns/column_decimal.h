@@ -181,6 +181,9 @@ public:
     void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override;
+    void update_crc_with_value(size_t n, uint64_t& crc) const override;
+
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;

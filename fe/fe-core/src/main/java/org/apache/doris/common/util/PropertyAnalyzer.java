@@ -96,7 +96,7 @@ public class PropertyAnalyzer {
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
-    public static final String PROPERTIES_DYNAMIC_SCHEMA = "dynamic_schema";
+    public static final String PROPERTIES_DYNAMIC_SCHEMA = "deprecated_dynamic_schema";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
@@ -900,10 +900,12 @@ public class PropertyAnalyzer {
 
     public static boolean analyzeUniqueKeyMergeOnWrite(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
-            // enable merge on write by default
-            return true;
+            return false;
         }
-        String value = properties.getOrDefault(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+        if (value == null) {
+            return false;
+        }
         properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
         if (value.equals("true")) {
             return true;
