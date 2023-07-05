@@ -73,9 +73,9 @@ Status PageReader::next_page_header() {
         }
         if (_offset + header_size >= _end_offset || real_header_size > MAX_PAGE_HEADER_SIZE) {
             return Status::IOError(
-                    "Failed to deserialize parquet page header. offset: {}, "
+                    "Failed to deserialize parquet page header for {}. offset: {}, "
                     "header size: {}, end offset: {}, real header size: {}",
-                    _offset, header_size, _end_offset, real_header_size);
+                    st.to_string(), _offset, header_size, _end_offset, real_header_size);
         }
         header_size <<= 2;
     }
@@ -90,6 +90,9 @@ Status PageReader::next_page_header() {
         _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     }
     _state = HEADER_PARSED;
+    LOG(WARNING) << "get page header: _offset=" << _offset
+                 << ", _next_header_offset=" << _next_header_offset
+                 << ", _end_offset=" << _end_offset;
     return Status::OK();
 }
 

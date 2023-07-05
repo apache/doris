@@ -75,6 +75,9 @@ Status ColumnChunkReader::init() {
         // seek to the first data page
         _page_reader->seek_to_page(_metadata.data_page_offset);
     }
+    _chunk_remaining_num_values = _metadata.num_values;
+    LOG(WARNING) << "init chunk reader: _chunk_remaining_num_values=" << _chunk_remaining_num_values
+                 << ", _end_offset=" << _page_reader->get_end_offset();
     _state = INITIALIZED;
     return Status::OK();
 }
@@ -99,12 +102,14 @@ Status ColumnChunkReader::next_page() {
     } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
         _state = HEADER_PARSED;
-        return Status::OK();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
         _state = HEADER_PARSED;
-        return Status::OK();
     }
+    _chunk_remaining_num_values -= _remaining_num_values;
+    LOG(WARNING) << "get next page: _chunk_remaining_num_values=" << _chunk_remaining_num_values
+                 << ", _end_offset=" << _page_reader->get_end_offset();
+    return Status::OK();
 }
 
 void ColumnChunkReader::_get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2,

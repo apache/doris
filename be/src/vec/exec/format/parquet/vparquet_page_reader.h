@@ -61,7 +61,10 @@ public:
         _offset = page_header_offset;
         _next_header_offset = page_header_offset;
         _state = INITIALIZED;
+        LOG(WARNING) << "init page header: _offset=" << _offset << ", _end_offset=" << _end_offset;
     }
+
+    uint64_t get_end_offset() const { return _end_offset; }
 
 private:
     enum PageReaderState { INITIALIZED, HEADER_PARSED };

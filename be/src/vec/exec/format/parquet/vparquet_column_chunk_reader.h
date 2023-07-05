@@ -91,7 +91,12 @@ public:
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() { return _page_reader->has_next_page(); }
+    bool has_next_page() {
+        bool has_more_page = _page_reader->has_next_page();
+        LOG(WARNING) << "has next page = " << has_more_page
+                     << ", _chunk_remaining_num_values=" << _chunk_remaining_num_values;
+        return has_more_page;
+    }
 
     // Seek to the specific page, page_header_offset must be the start offset of the page header.
     void seek_to_page(int64_t page_header_offset) {
@@ -201,6 +206,7 @@ private:
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
+    uint64_t _chunk_remaining_num_values = 0;
     uint32_t _remaining_num_values = 0;
     Slice _page_data;
     std::unique_ptr<uint8_t[]> _decompress_buf;

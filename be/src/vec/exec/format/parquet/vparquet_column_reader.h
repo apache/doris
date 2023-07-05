@@ -132,7 +132,15 @@ public:
                          const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                          io::IOContext* io_ctx, std::unique_ptr<ParquetColumnReader>& reader,
                          size_t max_buf_size);
-    void add_offset_index(tparquet::OffsetIndex* offset_index) { _offset_index = offset_index; }
+    void add_offset_index(tparquet::OffsetIndex* offset_index) {
+        _offset_index = offset_index;
+        std::stringstream ss;
+        for (auto& location : _offset_index->page_locations) {
+            ss << "[" << location.offset << ", " << location.offset + location.compressed_page_size
+               << ") ";
+        }
+        LOG(WARNING) << "Find page location: " << ss.str();
+    }
     void set_nested_column() { _nested_column = true; }
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
