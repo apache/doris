@@ -180,8 +180,9 @@ public class ColumnDef {
                 "sequence column hidden column", false);
     }
 
-    public static ColumnDef newRowStoreColumnDef() {
-        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, null, false, false,
+    public static ColumnDef newRowStoreColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false,
+                aggregateType, false, false,
                 new ColumnDef.DefaultValue(true, ""), "doris row store hidden column", false);
     }
 
