@@ -147,6 +147,8 @@ public enum RuleType {
     PUSHDOWN_FILTER_THROUGH_CTE(RuleTypeClass.REWRITE),
     PUSHDOWN_FILTER_THROUGH_CTE_ANCHOR(RuleTypeClass.REWRITE),
 
+    PUSH_DOWN_DISTINCT_THROUGH_JOIN(RuleTypeClass.REWRITE),
+
     COLUMN_PRUNING(RuleTypeClass.REWRITE),
 
     PUSHDOWN_TOP_N_THROUGH_PROJECTION_WINDOW(RuleTypeClass.REWRITE),
@@ -228,6 +230,7 @@ public enum RuleType {
     PUSH_LIMIT_INTO_SORT(RuleTypeClass.REWRITE),
     // adjust nullable
     ADJUST_NULLABLE(RuleTypeClass.REWRITE),
+    ADJUST_CONJUNCTS_RETURN_TYPE(RuleTypeClass.REWRITE),
     // ensure having project on the top join
     ENSURE_PROJECT_ON_TOP_JOIN(RuleTypeClass.REWRITE),
 

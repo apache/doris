@@ -254,8 +254,8 @@ struct LRUHandle {
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
-    char key_data[1]; // Beginning of key
     LRUCacheType type;
+    char key_data[1]; // Beginning of key
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object

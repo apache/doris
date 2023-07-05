@@ -40,11 +40,9 @@ under the License.
             <artifactId>java-common</artifactId>
             <version>${project.version}</version>
         </dependency>
-
-        <!-- https://mvnrepository.com/artifact/com.oracle.database.jdbc/ojdbc6 -->
         <dependency>
             <groupId>com.oracle.database.jdbc</groupId>
-            <artifactId>ojdbc6</artifactId>
+            <artifactId>ojdbc8</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.alibaba/druid -->
         <dependency>

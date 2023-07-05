@@ -108,8 +108,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     return Status::OK();
 }
 
-Status FileFactory::create_file_reader(RuntimeProfile* profile,
-                                       const FileSystemProperties& system_properties,
+Status FileFactory::create_file_reader(const FileSystemProperties& system_properties,
                                        const FileDescription& file_description,
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader,

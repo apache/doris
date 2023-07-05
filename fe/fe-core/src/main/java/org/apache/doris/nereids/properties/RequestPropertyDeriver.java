@@ -229,7 +229,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         for (int i = 0; i < setOperationOutputs.size(); i++) {
             int offset = distributionRequestFromParent.getExprIdToEquivalenceSet()
                     .getOrDefault(setOperationOutputs.get(i).getExprId(), -1);
-            if (offset > 0) {
+            if (offset >= 0) {
                 outputOffsets[offset] = i;
             }
         }

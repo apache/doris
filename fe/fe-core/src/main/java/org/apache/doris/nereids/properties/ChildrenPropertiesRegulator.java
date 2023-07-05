@@ -27,9 +27,11 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -74,25 +76,45 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     @Override
     public Boolean visit(Plan plan, Void context) {
+        // process must shuffle
+        for (int i = 0; i < children.size(); i++) {
+            DistributionSpec distributionSpec = childrenProperties.get(i).getDistributionSpec();
+            if (distributionSpec instanceof DistributionSpecMustShuffle) {
+                updateChildEnforceAndCost(i, PhysicalProperties.EXECUTION_ANY);
+            }
+        }
         return true;
     }
 
     @Override
     public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
+        // forbid one phase agg on distribute
         if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute) {
             // this means one stage gather agg, usually bad pattern
             return false;
         }
+        // process must shuffle
+        visit(agg, context);
+        // process agg
+        return true;
+    }
+
+    @Override
+    public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Void context) {
+        // do not process must shuffle
         return true;
     }
 
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
             Void context) {
-        Preconditions.checkArgument(children.size() == 2, String.format("children.size() is %d", children.size()));
+        Preconditions.checkArgument(children.size() == 2, "children.size() != 2");
         Preconditions.checkArgument(childrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
+        // process must shuffle
+        visit(hashJoin, context);
+        // process hash join
         DistributionSpec leftDistributionSpec = childrenProperties.get(0).getDistributionSpec();
         DistributionSpec rightDistributionSpec = childrenProperties.get(1).getDistributionSpec();
 
@@ -229,6 +251,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
         Preconditions.checkArgument(children.size() == 2, String.format("children.size() is %d", children.size()));
         Preconditions.checkArgument(childrenProperties.size() == 2);
         Preconditions.checkArgument(requiredProperties.size() == 2);
+        // process must shuffle
+        visit(nestedLoopJoin, context);
+        // process nlj
         DistributionSpec rightDistributionSpec = childrenProperties.get(1).getDistributionSpec();
         if (rightDistributionSpec instanceof DistributionSpecStorageGather) {
             updateChildEnforceAndCost(1, PhysicalProperties.GATHER);
@@ -237,7 +262,16 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     }
 
     @Override
+    public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
+        // do not process must shuffle
+        return true;
+    }
+
+    @Override
     public Boolean visitPhysicalSetOperation(PhysicalSetOperation setOperation, Void context) {
+        // process must shuffle
+        visit(setOperation, context);
+        // process set operation
         if (children.isEmpty()) {
             return true;
         }

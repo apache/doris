@@ -2023,4 +2023,9 @@ public class Config extends ConfigBase {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
             "Whether to disable creating catalog with WITH RESOURCE statement."})
     public static boolean disallow_create_catalog_with_resource = true;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "Hive行数估算分区采样数",
+        "Sample size for hive row count estimation."})
+    public static int hive_stats_partition_sample_size = 3000;
 }

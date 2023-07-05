@@ -192,6 +192,7 @@ public class JdbcScanNode extends ExternalScanNode {
                 || jdbcType == TOdbcTableType.CLICKHOUSE
                 || jdbcType == TOdbcTableType.SAP_HANA
                 || jdbcType == TOdbcTableType.TRINO
+                || jdbcType == TOdbcTableType.PRESTO
                 || jdbcType == TOdbcTableType.OCEANBASE)) {
             sql.append(" LIMIT ").append(limit);
         }
@@ -301,8 +302,8 @@ public class JdbcScanNode extends ExternalScanNode {
                 return filter;
             }
         }
-        if (tableType.equals(TOdbcTableType.TRINO) && expr.contains(DateLiteral.class)
-                && (expr instanceof BinaryPredicate)) {
+        if ((tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO))
+                && expr.contains(DateLiteral.class) && (expr instanceof BinaryPredicate)) {
             ArrayList<Expr> children = expr.getChildren();
             if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
                     .get(1).getType().isDateV2()) {
