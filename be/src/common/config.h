@@ -106,8 +106,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// memory mode
-// performance or compact
+// performance moderate or or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -165,6 +164,10 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
+
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
+DECLARE_mBool(disable_memory_gc);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
