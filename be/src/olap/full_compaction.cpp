@@ -48,7 +48,6 @@ Status FullCompaction::prepare_compact() {
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
 
     return Status::OK();
