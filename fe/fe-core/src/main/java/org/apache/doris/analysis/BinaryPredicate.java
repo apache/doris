@@ -328,6 +328,15 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    private boolean canCompareIP(PrimitiveType t1, PrimitiveType t2) {
+        if (t1.isIPType()) {
+            return t2.isIPType() || t2.isStringType();
+        } else if (t2.isIPType()) {
+            return t1.isStringType();
+        }
+        return false;
+    }
+
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
             return Type.DATEV2;
@@ -402,6 +411,18 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
+        if (canCompareIP(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
+            if ((getChild(0).getType().isIP() && getChild(1) instanceof StringLiteral)
+                    || (getChild(1).getType().isIP() && getChild(0) instanceof StringLiteral)
+                    || (getChild(0).getType().isIP() && getChild(1).getType().isIP())) {
+                if (getChild(0).getType().isIPv4() || getChild(1).getType().isIPv4()) {
+                    return Type.IPV4;
+                }
+                if (getChild(0).getType().isIPv6() || getChild(1).getType().isIPv6()) {
+                    return Type.IPV6;
+                }
+            }
+        }
         // Following logical is compatible with MySQL:
         //    Cast to DOUBLE by default, because DOUBLE has the largest range of values.
         if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {

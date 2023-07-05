@@ -40,6 +40,10 @@ struct UInt128 {
     UInt128() = default;
     explicit UInt128(const UInt64 low_, const UInt64 high_) : low(low_), high(high_) {}
     explicit UInt128(const UInt64 rhs) : low(rhs), high() {}
+    //    explicit UInt128(const uint128_t rhs) {
+    //        high = static_cast<uint64_t>(rhs >> 64);
+    //        low = static_cast<uint64_t>(rhs);
+    //    }
 
     auto tuple() const { return std::tie(high, low); }
 
@@ -59,7 +63,7 @@ struct UInt128 {
     UInt128 operator<<(const UInt128& rhs) const {
         const uint64_t shift = rhs.low;
         if (((bool)rhs.high) || (shift >= 128)) {
-            return UInt128(0);
+            return UInt128((UInt64)0);
         } else if (shift == 64) {
             return UInt128(0, low);
         } else if (shift == 0) {
@@ -69,7 +73,7 @@ struct UInt128 {
         } else if ((128 > shift) && (shift > 64)) {
             return UInt128(0, low << (shift - 64));
         } else {
-            return UInt128(0);
+            return UInt128((UInt64)0);
         }
     }
 
@@ -122,6 +126,12 @@ struct UInt128 {
         low = rhs;
         high = 0;
         return *this;
+    }
+
+    operator uint128_t() const {
+        uint128_t value = static_cast<uint128_t>(high) << 64;
+        value |= low;
+        return value;
     }
 };
 

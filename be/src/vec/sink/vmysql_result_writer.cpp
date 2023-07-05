@@ -68,15 +68,18 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
+
 
 namespace doris {
 namespace vectorized {
 
 template <bool is_binary_format>
-VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sinker,
-                                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                                         RuntimeProfile* parent_profile)
+VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
+        BufferControlBlock* sinker, const std::vector<VExprContext*>& output_vexpr_ctxs,
+        RuntimeProfile* parent_profile)
         : VResultWriter(),
           _sinker(sinker),
           _output_vexpr_ctxs(output_vexpr_ctxs),
@@ -99,10 +102,8 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
     _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
-    _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
-// (TODO Amory: do not need this function)
 template <bool is_binary_format>
 template <PrimitiveType type, bool is_nullable>
 Status VMysqlResultWriter<is_binary_format>::_add_one_column(
@@ -394,6 +395,16 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 auto decimal_str = decimal_val.to_string(scale);
                 buf_ret = rows_buffer[i].push_string(decimal_str.c_str(), decimal_str.length());
             }
+            if constexpr (type == TYPE_IPV4) {
+                IPv4Value ipv4_val(data[col_index]);
+                auto ipv4_str = ipv4_val.to_string();
+                buf_ret = rows_buffer[i].push_string(ipv4_str.c_str(), ipv4_str.length());
+            }
+            if constexpr (type == TYPE_IPV6) {
+                IPv6Value ipv6_val(data[col_index]);
+                auto ipv6_str = ipv6_val.to_string();
+                buf_ret = rows_buffer[i].push_string(ipv6_str.c_str(), ipv6_str.length());
+            }
         }
     }
     if (0 != buf_ret) {
@@ -624,8 +635,290 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
                 << fmt::format("block's rows({}) != column{}'s size({})", num_rows, i,
                                block.get_by_position(i).column->size());
 
-        RETURN_IF_ERROR(type_ptr->get_serde()->write_column_to_mysql(
-                *column_ptr, output_object_data(), rows_buffer, 0, 0, num_rows, col_const));
+        int scale = _output_vexpr_ctxs[i]->root()->type().scale;
+        switch (_output_vexpr_ctxs[i]->root()->result_type()) {
+        case TYPE_BOOLEAN:
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_BOOLEAN, true>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_BOOLEAN, false>(
+                        column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        case TYPE_TINYINT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_TINYINT, true>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_TINYINT, false>(
+                        column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_SMALLINT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_SMALLINT, true>(
+                        column_ptr, result, rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_SMALLINT, false>(
+                        column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_INT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_INT, true>(column_ptr, result,
+                                                                        rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_INT, false>(column_ptr, result,
+                                                                         rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_BIGINT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_BIGINT, true>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_BIGINT, false>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_LARGEINT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_LARGEINT, true>(
+                        column_ptr, result, rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_LARGEINT, false>(
+                        column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_IPV4: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_IPV4, true>(column_ptr, result,
+                                                                        rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_IPV4, false>(column_ptr, result,
+                                                                         rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_IPV6: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_IPV6, true>(column_ptr, result,
+                                                                         rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_IPV6, false>(column_ptr, result,
+                                                                          rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_FLOAT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_FLOAT, true>(column_ptr, result,
+                                                                          rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_FLOAT, false>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_DOUBLE: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_DOUBLE, true>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DOUBLE, false>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_TIME: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_TIME, true>(column_ptr, result,
+                                                                         rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_TIME, false>(column_ptr, result,
+                                                                          rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_TIMEV2: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_TIMEV2, true>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_TIMEV2, false>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_STRING:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_AGG_STATE: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_VARCHAR, true>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_VARCHAR, false>(
+                        column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, {nested_type});
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, {type_ptr});
+            }
+            break;
+        }
+        case TYPE_DECIMAL32: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, {nested_type});
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL32, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, {type_ptr});
+            }
+            break;
+        }
+        case TYPE_DECIMAL64: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, {nested_type});
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL64, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, {type_ptr});
+            }
+            break;
+        }
+        case TYPE_DECIMAL128I: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, {nested_type});
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DECIMAL128I, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, {type_ptr});
+            }
+            break;
+        }
+        case TYPE_JSONB: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, true>(column_ptr, result,
+                                                                          rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_JSONB, false>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_DATETIME, true>(
+                        column_ptr, result, rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DATETIME, false>(
+                        column_ptr, result, rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_DATEV2: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_DATEV2, true>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DATEV2, false>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_DATETIMEV2: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(
+                        column_ptr, result, rows_buffer, col_const, scale);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(
+                        column_ptr, result, rows_buffer, col_const, scale);
+            }
+            break;
+        }
+        case TYPE_HLL:
+        case TYPE_QUANTILE_STATE:
+        case TYPE_OBJECT: {
+            if (type_ptr->is_nullable()) {
+                status = _add_one_column<PrimitiveType::TYPE_OBJECT, true>(column_ptr, result,
+                                                                           rows_buffer, col_const);
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_OBJECT, false>(column_ptr, result,
+                                                                            rows_buffer, col_const);
+            }
+            break;
+        }
+        case TYPE_ARRAY: {
+            // Currently all functions only support single-level nested arrays，
+            // so we use Array's child scale to represent the scale of nested type.
+            scale = _output_vexpr_ctxs[i]->root()->type().children[0].scale;
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, {sub_type});
+            } else {
+                auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, {sub_type});
+            }
+            break;
+        }
+        case TYPE_STRUCT: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                auto& sub_types = assert_cast<const DataTypeStruct&>(*nested_type).get_elements();
+                status = _add_one_column<PrimitiveType::TYPE_STRUCT, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, sub_types);
+            } else {
+                auto& sub_types = assert_cast<const DataTypeStruct&>(*type_ptr).get_elements();
+                status = _add_one_column<PrimitiveType::TYPE_STRUCT, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, sub_types);
+            }
+            break;
+        }
+        case TYPE_MAP: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type(); //for map
+                status = _add_one_column<PrimitiveType::TYPE_MAP, true>(
+                        column_ptr, result, rows_buffer, col_const, scale, {nested_type});
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_MAP, false>(
+                        column_ptr, result, rows_buffer, col_const, scale, {type_ptr});
+            }
+            break;
+        }
+        default: {
+            LOG(WARNING) << "can't convert this type to mysql type. type = "
+                         << _output_vexpr_ctxs[i]->root()->type();
+            return Status::InternalError("vec block pack mysql buffer failed.");
+        }
+        }
 
         if (!status) {
             LOG(WARNING) << "convert row to mysql result failed. block_struct="
@@ -634,12 +927,10 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
     }
 
-    uint64_t bytes_sent = 0;
     // copy MysqlRowBuffer to Thrift
     result->result_batch.rows.resize(num_rows);
     for (int i = 0; i < num_rows; ++i) {
         result->result_batch.rows[i].append(rows_buffer[i].buf(), rows_buffer[i].length());
-        bytes_sent += rows_buffer[i].length();
     }
 
     if (status) {
@@ -654,9 +945,6 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
         if (status.ok()) {
             _written_rows += num_rows;
-            if (!_is_dry_run) {
-                _bytes_sent += bytes_sent;
-            }
         } else {
             LOG(WARNING) << "append result batch to sink failed.";
         }
@@ -673,7 +961,6 @@ bool VMysqlResultWriter<is_binary_format>::can_sink() {
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::close() {
     COUNTER_SET(_sent_rows_counter, _written_rows);
-    COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
     return Status::OK();
 }
 

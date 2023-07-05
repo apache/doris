@@ -20,6 +20,8 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DeleteStmt;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
@@ -721,6 +723,14 @@ public class DeleteHandler implements Writable {
                         value = dateLiteral.getStringValue();
                         binaryPredicate.setChild(1, LiteralExpr.create(value,
                                 ScalarType.createDatetimeV2Type(ScalarType.MAX_DATETIMEV2_SCALE)));
+                    } else if (column.getDataType() == PrimitiveType.IPV4) {
+                        IPv4Literal ipv4Literal = new IPv4Literal(value);
+                        value = ipv4Literal.getStringValue();
+                        binaryPredicate.setChild(1, ipv4Literal);
+                    } else if (column.getDataType() == PrimitiveType.IPV6) {
+                        IPv6Literal ipv6Literal = new IPv6Literal(value);
+                        value = ipv6Literal.getStringValue();
+                        binaryPredicate.setChild(1, ipv6Literal);
                     }
                     LiteralExpr.create(value, column.getType());
                 } catch (AnalysisException e) {

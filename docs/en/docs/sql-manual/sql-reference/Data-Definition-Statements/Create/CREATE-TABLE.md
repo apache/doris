@@ -1,9 +1,7 @@
 ---
 {
     "title": "CREATE-TABLE",
-    "language": "en",
-    "toc_min_heading_level": 2,
-    "toc_max_heading_level": 4
+    "language": "en"
 }
 ---
 
@@ -48,7 +46,7 @@ distribution_desc
 [extra_properties]
 ```
 
-#### column_definition_list
+* `column_definition_list`
 
     Column definition list:
 
@@ -148,7 +146,7 @@ distribution_desc
             v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
             ```
 
-#### index_definition_list
+* `index_definition_list`
 
     Index list definition:
 
@@ -170,13 +168,13 @@ distribution_desc
         ...
         ```
 
-#### engine_type
+* `engine_type`
 
     Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) document. Example:
 
     `ENGINE=olap`
 
-#### keys_type
+* `keys_type`
 
     Data model.
 
@@ -189,7 +187,7 @@ distribution_desc
     * UNIQUE KEY: The subsequent specified column is the primary key column.
 
     <version since="2.0">
-    NOTE: when set table property `"enable_duplicate_without_keys_by_default" = "true"`, will create a duplicate model without sorting columns and prefix indexes by default.
+    NOTE: when `experimental_enable_duplicate_without_keys_by_default = true`, will create a duplicate model without sorting columns and prefix indexes by default.
     </version>
 
     Example:
@@ -200,7 +198,7 @@ distribution_desc
     UNIQUE KEY(k1, k2)
     ```
 
-#### table_comment
+* `table_comment`
 
     Table notes. Example:
 
@@ -208,7 +206,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-#### partition_info
+* `partition_info`
 
     Partition information supports three writing methods:
 
@@ -247,18 +245,8 @@ distribution_desc
         ```
     
 </version>
-
-
-    4. MULTI RANGE：Multi build integer RANGE partitions,Define the left closed and right open interval of the zone, and step size。
-
-        ```
-        PARTITION BY RANGE(int_col)
-        (
-            FROM (1) TO (100) INTERVAL 10
-        )
-        ```
     
-#### distribution_desc
+* `distribution_desc`
 
     Define the data bucketing method.
 
@@ -273,7 +261,7 @@ distribution_desc
        Explain:
        Use random numbers for bucketing.
 
-#### rollup_list
+* `rollup_list`
 
     Multiple materialized views (ROLLUP) can be created at the same time as the table is built.
 
@@ -292,7 +280,7 @@ distribution_desc
         )
         ```
 
-#### properties
+* `properties`
 
     Set table properties. The following attributes are currently supported:
 
@@ -374,36 +362,13 @@ distribution_desc
         If this property is set to 'true', the background automatic compaction process will skip all the tables of this table.
 
         `"disable_auto_compaction" = "false"`
-
-    * `enable_single_replica_compaction`
-
-        Whether to enable single replica compaction for this table.
-
-        If this property is set to 'true', all replicas of the tablet will only have one replica performing compaction, while the others fetch rowsets from that replica.
-
-        `"enable_single_replica_compaction" = "false"`
-
-    * `enable_duplicate_without_keys_by_default`
-
-        When `true`, if Unique, Aggregate, or Duplicate is not specified when creating a table, a Duplicate model table without sorting columns and prefix indexes will be created by default.
-
-        `"enable_duplicate_without_keys_by_default" = "false"`
-
-    * `skip_write_index_on_load`
-
-        Whether to enable skip inverted index on load for this table.
-
-        If this property is set to 'true', skip writting index (only inverted index now) on first time load and delay writting 
-        index to compaction. It can reduce CPU and IO resource usage for high throughput load.
-
-        `"skip_write_index_on_load" = "false"`
     
     * Dynamic partition related
     
         The relevant parameters of dynamic partition are as follows:
     
         * `dynamic_partition.enable`: Used to specify whether the dynamic partition function at the table level is enabled. The default is true.
-        * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), YEAR (year), HOUR (hour).
+        * `dynamic_partition.time_unit:` is used to specify the time unit for dynamically adding partitions, which can be selected as DAY (day), WEEK (week), MONTH (month), HOUR (hour).
         * `dynamic_partition.start`: Used to specify how many partitions to delete forward. The value must be less than 0. The default is Integer.MIN_VALUE.
         * `dynamic_partition.end`: Used to specify the number of partitions created in advance. The value must be greater than 0.
         * `dynamic_partition.prefix`: Used to specify the partition name prefix to be created. For example, if the partition name prefix is ​​p, the partition name will be automatically created as p20200108.
@@ -699,21 +664,10 @@ NOTE: Need to create the s3 resource and storage policy before the table can be 
             "replication_num" = "1"
         );
 ```
-```
-        CREATE TABLE create_table_multi_partion_integer
-        (
-            k1 BIGINT,
-            k2 INT,
-            V1 VARCHAR(20)
-        ) PARTITION BY RANGE (k1) (
-            FROM (1) TO (100) INTERVAL 10
-        ) DISTRIBUTED BY HASH(k2) BUCKETS 1
-        PROPERTIES(
-            "replication_num" = "1"
-        );
-```
 
 NOTE: Multi Partition can be mixed with conventional manual creation of partitions. When using, you need to limit the partition column to only one, The default maximum number of partitions created in multi partition is 4096, This parameter can be adjusted in fe configuration `max_multi_partition_num`.
+
+</version>
 
 </version>
 
@@ -738,10 +692,11 @@ NOTE: Multi Partition can be mixed with conventional manual creation of partitio
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "replication_num" = "1",
-        "enable_duplicate_without_keys_by_default" = "true"
+        "replication_num" = "1"
     );
 ```
+
+NOTE: need add `experimental_enable_duplicate_without_keys_by_default = true` in fe.conf
 
 </version>
 

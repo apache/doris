@@ -46,6 +46,8 @@ set(RUNTIME_FILES
     struct_value.cpp
     collection_value.cpp
     map_value.cpp
+    ipv4_value.cpp
+    ipv6_value.cpp
     fragment_mgr.cpp
     load_path_mgr.cpp
     types.cpp

@@ -126,6 +126,8 @@ set(VEC_FILES
   data_types/data_type_jsonb.cpp
   data_types/data_type_time.cpp
   data_types/data_type_object.cpp
+  data_types/data_type_ipv4.cpp
+  data_types/data_type_ipv6.cpp
   exec/vaggregation_node.cpp
   exec/vsort_node.cpp
   exec/vexchange_node.cpp
