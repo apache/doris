@@ -225,6 +225,14 @@ std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id, int
     return key;
 }
 
+std::string TabletMetaManager::encode_delete_bitmap_key(TTabletId tablet_id) {
+    std::string key;
+    key.reserve(12);
+    key.append(DELETE_BITMAP);
+    put_fixed64_le(&key, BigEndian::FromHost64(tablet_id));
+    return key;
+}
+
 void TabletMetaManager::decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
                                                  int64_t* version) {
     DCHECK_EQ(enc_key.size(), 20);
@@ -271,32 +279,29 @@ Status TabletMetaManager::traverse_delete_bitmap(
                     << ", version: " << version;
         return func(tablet_id, version, value);
     };
-    Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, DELETE_BITMAP, traverse_header_func);
-    return status;
+    return meta->iterate(META_COLUMN_FAMILY_INDEX, DELETE_BITMAP, traverse_header_func);
 }
 
 Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                                            int64_t version) {
     OlapMeta* meta = store->get_meta();
-    rocksdb::WriteBatch batch;
-    rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
-    auto lower_key = encode_delete_bitmap_key(tablet_id, 0);
-    auto upper_key = encode_delete_bitmap_key(tablet_id, version + 1);
-    batch.DeleteRange(cf, lower_key, upper_key);
-    LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
-              << " version: " << version;
-    return meta->put(&batch);
-}
+    std::string begin_key = encode_delete_bitmap_key(tablet_id);
+    std::string end_key = encode_delete_bitmap_key(tablet_id, version);
 
-Status TabletMetaManager::remove_delete_bitmap_by_tablet_id(DataDir* store, TTabletId tablet_id) {
-    OlapMeta* meta = store->get_meta();
-    rocksdb::WriteBatch batch;
-    rocksdb::ColumnFamilyHandle* cf = meta->get_handle(META_COLUMN_FAMILY_INDEX);
-    auto lower_key = encode_delete_bitmap_key(tablet_id, 0);
-    auto upper_key = encode_delete_bitmap_key(tablet_id, INT64_MAX);
-    batch.DeleteRange(cf, lower_key, upper_key);
-    LOG(INFO) << "remove delete bitmap by tablet_id, tablet_id: " << tablet_id;
-    return meta->put(&batch);
+    std::vector<std::string> remove_keys;
+    auto get_remove_keys_func = [&](const std::string& key, const std::string& val) -> bool {
+        // include end_key
+        if (key > end_key) {
+            return false;
+        }
+        remove_keys.push_back(key);
+        return true;
+    };
+    LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
+              << " version: " << version << " removed keys size: " << remove_keys.size();
+    ;
+    RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, get_remove_keys_func));
+    return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
 } // namespace doris

@@ -79,13 +79,12 @@ public:
             OlapMeta* meta, std::function<bool(int64_t, int64_t, const std::string&)> const& func);
 
     static std::string encode_delete_bitmap_key(TTabletId tablet_id, int64_t version);
+    static std::string encode_delete_bitmap_key(TTabletId tablet_id);
 
     static void decode_delete_bitmap_key(const string& enc_key, TTabletId* tablet_id,
                                          int64_t* version);
     static Status remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
                                                    int64_t version);
-
-    static Status remove_delete_bitmap_by_tablet_id(DataDir* store, TTabletId tablet_id);
 };
 
 } // namespace doris

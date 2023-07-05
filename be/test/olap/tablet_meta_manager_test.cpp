@@ -174,7 +174,7 @@ TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
     EXPECT_EQ(num_keys, max_version - 201);
 
     num_keys = 0;
-    TabletMetaManager::remove_delete_bitmap_by_tablet_id(_data_dir, test_tablet_id);
+    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, test_tablet_id, INT64_MAX);
     TabletMetaManager::traverse_delete_bitmap(_data_dir->get_meta(), load_delete_bitmap_func);
     EXPECT_EQ(num_keys, 0);
 }

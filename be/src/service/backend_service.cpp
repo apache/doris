@@ -384,7 +384,7 @@ void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
 
 void BackendService::ingest_binlog(TIngestBinlogResult& result,
                                    const TIngestBinlogRequest& request) {
-    constexpr uint64_t kMaxTimeoutMs = 10000;
+    constexpr uint64_t kMaxTimeoutMs = 1000;
     TStatus tstatus;
     Defer defer {[&result, &tstatus]() { result.__set_status(tstatus); }};
 

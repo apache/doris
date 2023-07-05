@@ -793,7 +793,7 @@ void StorageEngine::_clean_unused_delete_bitmap() {
     for (auto data_dir : data_dirs) {
         TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(), clean_delete_bitmap_func);
         for (auto id : removed_tablets) {
-            TabletMetaManager::remove_delete_bitmap_by_tablet_id(data_dir, id);
+            TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX);
         }
         LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
                   << ", deleted tablets size: " << removed_tablets.size();
