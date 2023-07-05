@@ -24,30 +24,19 @@
 #include <algorithm>
 #include <limits>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "common/config.h"
-#include "common/consts.h"
-#include "common/logging.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/thread_context.h"
-#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_object.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 using namespace ErrorCode;
