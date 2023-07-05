@@ -341,7 +341,7 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
     _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema.get(), _req.slots, _req.tuple_desc,
-                                  _rowset_writer.get(), _tablet->enable_unique_key_merge_on_write(),
+                                  _tablet->enable_unique_key_merge_on_write(),
                                   mem_table_insert_tracker, mem_table_flush_tracker));
 
     COUNTER_UPDATE(_segment_num, 1);

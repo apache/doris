@@ -38,7 +38,6 @@
 
 namespace doris {
 
-class RowsetWriter;
 class Schema;
 class SlotDescriptor;
 class TabletSchema;
@@ -171,8 +170,7 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             RowsetWriter* rowset_writer, bool enable_unique_key_mow,
-             const std::shared_ptr<MemTracker>& insert_mem_tracker,
+             bool enable_unique_key_mow, const std::shared_ptr<MemTracker>& insert_mem_tracker,
              const std::shared_ptr<MemTracker>& flush_mem_tracker);
     ~MemTable();
 
@@ -232,8 +230,6 @@ private:
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
     std::vector<int> _column_offset;
-
-    RowsetWriter* _rowset_writer;
 
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged

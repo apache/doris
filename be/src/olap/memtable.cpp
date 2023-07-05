@@ -54,7 +54,7 @@ using namespace ErrorCode;
 
 MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   RowsetWriter* rowset_writer, bool enable_unique_key_mow,
+                   bool enable_unique_key_mow,
                    const std::shared_ptr<MemTracker>& insert_mem_tracker,
                    const std::shared_ptr<MemTracker>& flush_mem_tracker)
         : _tablet_id(tablet_id),
@@ -63,7 +63,6 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
           _tablet_schema(tablet_schema),
           _insert_mem_tracker(insert_mem_tracker),
           _flush_mem_tracker(flush_mem_tracker),
-          _rowset_writer(rowset_writer),
           _is_first_insertion(true),
           _agg_functions(tablet_schema->num_columns()),
           _offsets_of_aggregate_states(tablet_schema->num_columns()),
