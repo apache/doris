@@ -32,7 +32,7 @@ namespace doris {
 
 class DataDir;
 class MemTable;
-enum RowsetTypePB : int;
+class RowsetWriter;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
@@ -71,10 +71,14 @@ public:
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
 
+    void set_rowset_writer(RowsetWriter* rowset_writer) { _rowset_writer = rowset_writer; }
+
 private:
     friend class MemtableFlushTask;
 
     void _flush_memtable(MemTable* mem_table, int64_t submit_task_time);
+
+    Status _do_flush_memtable(MemTable* memtable);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 
@@ -83,6 +87,8 @@ private:
     std::atomic<int> _flush_status;
 
     FlushStatistic _stats;
+
+    RowsetWriter* _rowset_writer;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.
@@ -106,7 +112,7 @@ public:
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    Status create_flush_token(std::unique_ptr<FlushToken>* flush_token, RowsetTypePB rowset_type,
+    Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
                               bool should_serial, bool is_high_priority);
 
 private:

@@ -197,6 +197,7 @@ public:
     std::unique_ptr<vectorized::Block> to_block();
 
     int64_t flush_size() const { return _flush_size; }
+    void set_flush_size(int64_t flush_size) { _flush_size = flush_size; }
 
     void set_callback(std::function<void(MemTableStat&)> callback) {
         _delta_writer_callback = callback;
@@ -204,6 +205,7 @@ public:
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
     void assign_segment_id();
+    std::optional<int32_t> segment_id() const { return _segment_id; }
 
 private:
     Status _do_flush();

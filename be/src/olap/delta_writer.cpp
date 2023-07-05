@@ -209,7 +209,7 @@ Status DeltaWriter::init() {
     // we can make sure same keys sort in the same order in all replicas.
     bool should_serial = false;
     RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
-            &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
+            _flush_token, _rowset_writer.get(), should_serial, _req.is_high_priority));
 
     _is_init = true;
     return Status::OK();
