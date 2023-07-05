@@ -391,16 +391,13 @@ void MemInfo::init() {
         // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
         // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
         //
-        // available_low_water_mark = p1 - p2
-        // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
-        // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
-        //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
-        int64_t p1 = std::min<int64_t>(
-                std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
-                config::max_sys_mem_available_low_water_mark_bytes);
-        int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
-        _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
-        _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
+        // upper sys_mem_available_low_water_mark, avoid wasting too much memory.
+        _s_sys_mem_available_low_water_mark = std::max<int64_t>(
+                std::min<int64_t>(
+                        std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
+                        config::max_sys_mem_available_low_water_mark_bytes),
+                0);
+        _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
 
     // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,

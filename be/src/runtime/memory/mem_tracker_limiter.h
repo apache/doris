@@ -142,8 +142,6 @@ public:
 
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
 
-    static void disable_oom_avoidance() { _oom_avoidance = false; }
-
 public:
     // If need to consume the tracker frequently, use it
     void cache_consume(int64_t bytes);
@@ -168,9 +166,10 @@ public:
     static std::string type_detail_usage(const std::string& msg, Type type);
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
+    // process memory changes more than 256M, or the GC ends
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
-    static std::string log_process_usage_str(const std::string& msg, bool with_stacktrace = true);
-    static void print_log_process_usage(const std::string& msg, bool with_stacktrace = true);
+    static std::string log_process_usage_str();
+    static void print_log_process_usage();
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
     // vm_rss_str and mem_available_str recorded when gc is triggered, for log printing.
@@ -221,6 +220,7 @@ public:
 
     static std::string process_mem_log_str();
     static std::string process_limit_exceeded_errmsg_str();
+    static std::string process_soft_limit_exceeded_errmsg_str();
     // Log the memory usage when memory limit is exceeded.
     std::string query_tracker_limit_exceeded_str(const std::string& tracker_limit_exceeded,
                                                  const std::string& last_consumer_tracker,
@@ -264,7 +264,6 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
-    static bool _oom_avoidance;
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;
