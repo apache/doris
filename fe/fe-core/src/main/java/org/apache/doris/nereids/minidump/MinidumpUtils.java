@@ -18,14 +18,22 @@
 package org.apache.doris.nereids.minidump;
 
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
-import com.google.common.collect.ImmutableMap;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -36,8 +44,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,7 +68,7 @@ public class MinidumpUtils {
         if (!minidumpFileDir.exists()) {
             minidumpFileDir.mkdirs();
         }
-        String jsonMinidump = minidump.toString();
+        String jsonMinidump = minidump.toString(4);
         try (FileWriter file = new FileWriter(dumpPath + "/" + "dumpFile.json")) {
             file.write(jsonMinidump);
         } catch (IOException e) {
@@ -156,34 +166,247 @@ public class MinidumpUtils {
         dos.close();
     }
 
-    /**
-     * serialize column statistic and replace when loading to dumpfile and environment
-     */
-    public static JSONArray serializeColumnStatistic(Map<String, ColumnStatistic> totalColumnStatisticMap) {
-        JSONArray columnStatistics = new JSONArray();
-        for (Map.Entry<String, ColumnStatistic> entry : ImmutableMap.copyOf(totalColumnStatisticMap).entrySet()) {
-            ColumnStatistic columnStatistic = entry.getValue();
-            String colName = entry.getKey();
-            JSONObject oneColumnStats = new JSONObject();
-            oneColumnStats.put(colName, columnStatistic.toJson());
-            columnStatistics.put(oneColumnStats);
-        }
-        return columnStatistics;
+    private static ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+            table.getDatabase().getCatalog().getId(), table.getDatabase().getId(), table.getId(), colName);
+    }
+
+    private static Histogram getColumnHistogram(TableIf table, String colName) {
+        return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
     }
 
     /**
-     * serialize histogram and replace when loading to dumpfile and environment
+     * serialize column statistic and histograms when loading to dumpfile and environment
      */
-    public static JSONArray serializeHistogram(Map<String, Histogram> totalHistogramMap) {
-        JSONArray histogramsJson = new JSONArray();
-        for (Map.Entry<String, Histogram> entry : totalHistogramMap.entrySet()) {
-            Histogram histogram = entry.getValue();
-            String colName = entry.getKey();
-            JSONObject oneHistogram = new JSONObject();
-            oneHistogram.put(colName, Histogram.serializeToJson(histogram));
-            histogramsJson.put(oneHistogram);
+    private static void serializeStatsUsed(JSONObject jsonObj, List<Table> tables) {
+        JSONArray columnStatistics = new JSONArray();
+        JSONArray histograms = new JSONArray();
+        for (Table table : tables) {
+            if (table instanceof SchemaTable) {
+                continue;
+            }
+            List<Column> columns = table.getColumns();
+            for (Column column : columns) {
+                String colName = column.getName();
+                ColumnStatistic cache =
+                        Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                if (cache.avgSizeByte <= 0) {
+                    cache = new ColumnStatisticBuilder(cache)
+                        .setAvgSizeByte(column.getType().getSlotSize())
+                        .build();
+                }
+
+                Histogram histogram = getColumnHistogram(table, colName);
+                if (histogram != null) {
+                    JSONObject oneHistogram = new JSONObject();
+                    oneHistogram.put(colName, Histogram.serializeToJson(histogram));
+                    histograms.put(oneHistogram);
+                }
+                JSONObject oneColumnStats = new JSONObject();
+                oneColumnStats.put(colName, cache.toJson());
+                columnStatistics.put(oneColumnStats);
+            }
         }
-        return histogramsJson;
+        jsonObj.put("ColumnStatistics", columnStatistics);
+        jsonObj.put("Histogram", histograms);
+    }
+
+    /**
+     * serialize output plan to dump file and persistent into disk
+     * @param resultPlan
+     *
+     */
+    public static void serializeOutputToDumpFile(Plan resultPlan) {
+        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
+                || !ConnectContext.get().getSessionVariable().isEnableMinidump()) {
+            return;
+        }
+        ConnectContext.get().getMinidump().put("ResultPlan", ((AbstractPlan) resultPlan).toJson());
+        if (ConnectContext.get().getSessionVariable().isEnableMinidump()) {
+            saveMinidumpString(ConnectContext.get().getMinidump(),
+                    DebugUtil.printId(ConnectContext.get().queryId()));
+        }
+    }
+
+    /** compare two json object and print detail information about difference */
+    public static List<String> compareJsonObjects(JSONObject json1, JSONObject json2, String path) {
+        List<String> differences = new ArrayList<>();
+
+        Iterator<String> keys = json1.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            String currentPath = "";
+            if (path.isEmpty()) {
+                if (key.equals("PlanType")) {
+                    path = json1.getString(key);
+                } else {
+                    currentPath = key;
+                }
+            } else {
+                if (key.equals("PlanType")) {
+                    currentPath = path + "." + json1.getString(key);
+                } else {
+                    currentPath = path + "." + key;
+                }
+            }
+
+            if (!json2.has(key)) {
+                differences.add("Key '" + currentPath + "' not found in the second JSON object.");
+                continue;
+            }
+
+            Object value1 = json1.get(key);
+            Object value2 = json2.get(key);
+
+            if (!value1.toString().equals(value2.toString())) {
+                differences.add("Value for key '" + currentPath + "' is different: " + value1 + " != " + value2);
+            }
+
+            if (value1 instanceof JSONObject && value2 instanceof JSONObject) {
+                List<String> nestedDifferences =
+                        compareJsonObjects((JSONObject) value1, (JSONObject) value2, currentPath);
+                differences.addAll(nestedDifferences);
+            } else if (value1 instanceof JSONArray && value2 instanceof JSONArray) {
+                List<String> nestedDifferences = compareJsonArrays((JSONArray) value1, (JSONArray) value2, currentPath);
+                differences.addAll(nestedDifferences);
+            }
+        }
+
+        keys = json2.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            String currentPath = (path.isEmpty()) ? key : path + "." + key;
+
+            if (!json1.has(key)) {
+                differences.add("Key '" + currentPath + "' not found in the first JSON object.");
+            }
+        }
+
+        return differences;
+    }
+
+    private static List<String> compareJsonArrays(JSONArray array1, JSONArray array2, String path) {
+        List<String> differences = new ArrayList<>();
+
+        if (array1.length() != array2.length()) {
+            differences.add("Array length for key '" + path + "' is different: "
+                    + array1.length() + " != " + array2.length());
+            return differences;
+        }
+
+        for (int i = 0; i < array1.length(); i++) {
+            Object value1 = array1.get(i);
+            Object value2 = array2.get(i);
+            String currentPath = path + "[" + i + "]";
+
+            if (value1 instanceof JSONObject && value2 instanceof JSONObject) {
+                List<String> nestedDifferences =
+                        compareJsonObjects((JSONObject) value1, (JSONObject) value2, currentPath);
+                differences.addAll(nestedDifferences);
+            } else if (!value1.equals(value2)) {
+                differences.add("Value for key '" + currentPath + "' is different: " + value1 + " != " + value2);
+            }
+        }
+
+        return differences;
+    }
+
+    /**
+     * serialize sessionVariables different than default
+     */
+    private static JSONObject serializeChangedSessionVariable(SessionVariable sessionVariable) throws IOException {
+        JSONObject root = new JSONObject();
+        try {
+            for (Field field : SessionVariable.class.getDeclaredFields()) {
+                VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+                if (attr == null) {
+                    continue;
+                }
+                field.setAccessible(true);
+                if (field.get(sessionVariable).equals(field.get(VariableMgr.getDefaultSessionVariable()))) {
+                    continue;
+                }
+                switch (field.getType().getSimpleName()) {
+                    case "boolean":
+                        root.put(attr.name(), (Boolean) field.get(sessionVariable));
+                        break;
+                    case "int":
+                        root.put(attr.name(), (Integer) field.get(sessionVariable));
+                        break;
+                    case "long":
+                        root.put(attr.name(), (Long) field.get(sessionVariable));
+                        break;
+                    case "float":
+                        root.put(attr.name(), (Float) field.get(sessionVariable));
+                        break;
+                    case "double":
+                        root.put(attr.name(), (Double) field.get(sessionVariable));
+                        break;
+                    case "String":
+                        root.put(attr.name(), (String) field.get(sessionVariable));
+                        break;
+                    default:
+                        // Unsupported type variable.
+                        throw new IOException("invalid type: " + field.getType().getSimpleName());
+                }
+            }
+        } catch (Exception e) {
+            throw new IOException("failed to write session variable: " + e.getMessage());
+        }
+        return root;
+    }
+
+    /**
+     * implementation of interface serializeInputsToDumpFile
+     */
+    private static JSONObject serializeInputs(Plan parsedPlan, List<Table> tables, String dumpName) throws IOException {
+        String dumpPath = MinidumpUtils.DUMP_PATH + "/" + dumpName;
+        File minidumpFileDir = new File(dumpPath);
+        if (!minidumpFileDir.exists()) {
+            minidumpFileDir.mkdirs();
+        }
+        // Create a JSON object
+        JSONObject jsonObj = new JSONObject();
+        jsonObj.put("Sql", ConnectContext.get().getStatementContext().getOriginStatement().originStmt);
+        // add session variable
+        jsonObj.put("SessionVariable", serializeChangedSessionVariable(ConnectContext.get().getSessionVariable()));
+        // add tables
+        String dbAndCatalogName = "/" + ConnectContext.get().getDatabase() + "-"
+                + ConnectContext.get().getCurrentCatalog().getName() + "-";
+        jsonObj.put("CatalogName", ConnectContext.get().getCurrentCatalog().getName());
+        jsonObj.put("DbName", ConnectContext.get().getDatabase());
+        JSONArray tablesJson = MinidumpUtils.serializeTables(dumpPath, dbAndCatalogName, tables);
+        jsonObj.put("Tables", tablesJson);
+        // add colocate table index, used to indicate grouping of table distribution
+        String colocateTableIndexPath = dumpPath + "/ColocateTableIndex";
+        MinidumpUtils.serializeColocateTableIndex(colocateTableIndexPath, Env.getCurrentColocateIndex());
+        jsonObj.put("ColocateTableIndex", "/ColocateTableIndex");
+        // add original sql, parsed plan and optimized plan
+        jsonObj.put("ParsedPlan", ((AbstractPlan) parsedPlan).toJson());
+        // Write the JSON object to a string and put it into file
+        serializeStatsUsed(jsonObj, tables);
+        return jsonObj;
+    }
+
+    /**
+     * This function is used to serialize inputs of one query
+     * @param parsedPlan input plan
+     * @param tables all tables relative to this query
+     * @throws IOException this will write to disk, so io exception should be dealed with
+     */
+    public static void serializeInputsToDumpFile(Plan parsedPlan, List<Table> tables) throws IOException {
+        // when playing minidump file, we do not save input again.
+        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
+                || !ConnectContext.get().getSessionVariable().isEnableMinidump()) {
+            return;
+        }
+
+        if (!ConnectContext.get().getSessionVariable().getMinidumpPath().equals("default")) {
+            MinidumpUtils.DUMP_PATH = ConnectContext.get().getSessionVariable().getMinidumpPath();
+        }
+        MinidumpUtils.init();
+        String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+        ConnectContext.get().setMinidump(serializeInputs(parsedPlan, tables, queryId));
     }
 
     /**

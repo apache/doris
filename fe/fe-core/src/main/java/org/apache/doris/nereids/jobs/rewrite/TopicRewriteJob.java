@@ -51,4 +51,9 @@ public class TopicRewriteJob implements RewriteJob {
     public boolean isOnce() {
         return true;
     }
+
+    @Override
+    public String getRuleType() {
+        return topicName;
+    }
 }

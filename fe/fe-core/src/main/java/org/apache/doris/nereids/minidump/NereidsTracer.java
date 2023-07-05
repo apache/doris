@@ -160,7 +160,7 @@ public class NereidsTracer {
         totalTraces.put("PropertyAndCostPairs", propertyAndCostEvent);
         totalTraces.put("EnforcerEvent", enforcerEvent);
         try (FileWriter file = new FileWriter(TRACE_PATH + "/" + queryId)) {
-            file.write(totalTraces.toString());
+            file.write(totalTraces.toString(4));
         } catch (IOException e) {
             e.printStackTrace();
         }

@@ -185,9 +185,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public JSONObject toJson() {
         JSONObject olapScan = super.toJson();
         JSONObject properties = new JSONObject();
-        properties.put("OlapTable", table.toString());
+        properties.put("OlapTable", ((OlapTable) table).toSimpleJson());
         properties.put("DistributionSpec", distributionSpec.toString());
-        properties.put("SelectedIndexId", selectedIndexId);
+        properties.put("SelectedIndexId", Long.toString(selectedIndexId));
         properties.put("SelectedTabletIds", selectedTabletIds.toString());
         properties.put("SelectedPartitionIds", selectedPartitionIds.toString());
         properties.put("PreAggStatus", preAggStatus.toString());

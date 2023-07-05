@@ -48,6 +48,11 @@ public class CustomRewriteJob implements RewriteJob {
     }
 
     @Override
+    public String getRuleType() {
+        return ruleType.name();
+    }
+
+    @Override
     public void execute(JobContext context) {
         Set<String> disableRules = Job.getDisableRules(context);
         if (disableRules.contains(ruleType.name().toUpperCase(Locale.ROOT))) {

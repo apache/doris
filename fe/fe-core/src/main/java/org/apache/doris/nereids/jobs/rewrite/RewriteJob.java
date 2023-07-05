@@ -25,4 +25,6 @@ public interface RewriteJob {
     void execute(JobContext jobContext);
 
     boolean isOnce();
+
+    String getRuleType();
 }
