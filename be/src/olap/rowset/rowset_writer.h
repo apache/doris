@@ -109,11 +109,6 @@ public:
 
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
-    virtual vectorized::schema_util::LocalSchemaChangeRecorder*
-    mutable_schema_change_recorder() = 0;
-
-    virtual Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx) = 0;
-
     virtual const MemTableStat& memtable_stat() = 0;
 
 private:

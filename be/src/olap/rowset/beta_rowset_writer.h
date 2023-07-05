@@ -118,18 +118,6 @@ public:
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 
-    // Maybe modified by local schema change
-    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
-        return _context.schema_change_recorder.get();
-    }
-
-    // Unfold variant column to Block
-    // Eg. [A | B | C | (D, E, F)]
-    // After unfold block structure changed to -> [A | B | C | D | E | F]
-    // The expanded D, E, F is dynamic part of the block
-    // The flushed Block columns should match exactly from the same type of frontend meta
-    Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx) override;
-
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
     Status flush_segment_writer_for_segcompaction(
@@ -181,6 +169,13 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status _unfold_variant_column(vectorized::Block& block, FlushContext* ctx);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment

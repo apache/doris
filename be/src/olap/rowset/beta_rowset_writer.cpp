@@ -543,7 +543,7 @@ Status BetaRowsetWriter::_do_flush_memtable(MemTable* memtable, int32_t segment_
     ctx.block = block.get();
     if (_context.tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
+        RETURN_IF_ERROR(_unfold_variant_column(*block, &ctx));
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
     SCOPED_RAW_TIMER(&_memtable_stat.segment_writer_ns);
@@ -963,14 +963,14 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
+Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
     if (block.rows() == 0) {
         return Status::OK();
     }
 
     // Sanitize block to match exactly from the same type of frontend meta
     vectorized::schema_util::FullBaseSchemaView schema_view;
-    schema_view.table_id = _rowset_meta->tablet_schema()->table_id();
+    schema_view.table_id = _context.tablet_schema->table_id();
     vectorized::ColumnWithTypeAndName* variant_column =
             block.try_get_by_name(BeConsts::DYNAMIC_COLUMN_NAME);
     if (!variant_column) {
@@ -990,7 +990,7 @@ Status BetaRowsetWriter::unfold_variant_column(vectorized::Block& block, FlushCo
     //  static   dynamic
     // | ----- | ------- |
     // The static ones are original _tablet_schame columns
-    TabletSchemaSPtr flush_schema = _rowset_meta->tablet_schema();
+    TabletSchemaSPtr flush_schema = _context.tablet_schema;
     vectorized::Block flush_block(std::move(block));
     // The dynamic ones are auto generated and extended, append them the the orig_block
     for (auto& entry : object_column.get_subcolumns()) {
@@ -1004,7 +1004,7 @@ Status BetaRowsetWriter::unfold_variant_column(vectorized::Block& block, FlushCo
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
                 column, column.is_nullable());
         // Dynamic generated columns does not appear in original tablet schema
-        if (_rowset_meta->tablet_schema()->field_index(column.name()) < 0) {
+        if (_context.tablet_schema->field_index(column.name()) < 0) {
             flush_schema->append_column(column);
             flush_block.insert({data_type->create_column(), data_type, column.name()});
         }
@@ -1015,13 +1015,13 @@ Status BetaRowsetWriter::unfold_variant_column(vectorized::Block& block, FlushCo
     //  Load2 -> version(10) with schema [a, b, c] and has no extended columns and fetched the schema at version 10
     //  Load2 will persist meta with [a, b, c] but Load1 will persist meta with [a, b, c, d, e]
     // So we should make sure that rowset at the same schema version alawys contain the same size of columns.
-    // so that all columns at schema_version is in either _rowset_meta->tablet_schema() or schema_change_recorder
+    // so that all columns at schema_version is in either _context.tablet_schema or schema_change_recorder
     for (const auto& [name, column] : schema_view.column_name_to_column) {
-        if (_rowset_meta->tablet_schema()->field_index(name) == -1) {
+        if (_context.tablet_schema->field_index(name) == -1) {
             const auto& tcolumn = schema_view.column_name_to_column[name];
             TabletColumn new_column(tcolumn);
-            mutable_schema_change_recorder()->add_extended_columns(column,
-                                                                   schema_view.schema_version);
+            _context.schema_change_recorder->add_extended_columns(column,
+                                                                  schema_view.schema_version);
         }
     }
 
