@@ -78,7 +78,7 @@ public:
     bool invalid() {
         return _invalid ||
                (_is_kerberos &&
-                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000);
+                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000 / 2);
     }
 
     void set_invalid() { _invalid = true; }
