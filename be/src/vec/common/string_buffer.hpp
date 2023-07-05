@@ -60,8 +60,7 @@ using BufferWriter = BufferWritable;
 
 class BufferReadable {
 public:
-    explicit BufferReadable(StringRef& ref) : _data(ref.data) {}
-    explicit BufferReadable(StringRef&& ref) : _data(ref.data) {}
+    explicit BufferReadable(const StringRef& ref) : _data(ref.data()) {}
     ~BufferReadable() = default;
 
     inline StringRef read(int len) {
