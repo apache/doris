@@ -120,6 +120,8 @@ struct ProcessHashTableBuild {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
             COUNTER_SET(_join_node->_hash_table_memory_usage, bucket_bytes);
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
+            COUNTER_SET(_join_node->_build_collisions_counter,
+                        hash_table_ctx.hash_table.get_collisions());
             COUNTER_SET(_join_node->_build_buckets_fill_counter, filled_bucket_size);
 
             auto hash_table_buckets = hash_table_ctx.hash_table.get_buffer_sizes_in_cells();
@@ -475,6 +477,9 @@ Status HashJoinNode::prepare(RuntimeState* state) {
 
     _build_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
+
+    _build_collisions_counter = ADD_COUNTER(runtime_profile(), "BuildCollisions", TUnit::UNIT);
+    _probe_collisions_counter = ADD_COUNTER(runtime_profile(), "ProbeCollisions", TUnit::UNIT);
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));

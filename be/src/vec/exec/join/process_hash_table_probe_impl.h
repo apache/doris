@@ -320,6 +320,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                                        probe_index + PREFETCH_STEP, *_arena);
                 }
 
+                COUNTER_SET(_join_node->_probe_collisions_counter,
+                            hash_table_ctx.hash_table.get_probe_collisions());
+
                 auto current_probe_index = probe_index;
                 if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                               JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -495,6 +498,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         auto& probe_row_match_iter =
                 std::get<ForwardIterator<Mapped>>(_join_node->_probe_row_match_iter);
         if (probe_row_match_iter.ok()) {
+            SCOPED_TIMER(_search_hashtable_timer);
             auto origin_offset = current_offset;
             for (; probe_row_match_iter.ok() && current_offset < _batch_size;
                  ++probe_row_match_iter) {
