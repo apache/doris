@@ -69,6 +69,8 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
+    public static final String PROP_ARRAY_DELIMITER = "collection.delim";
+    public static final String DEFAULT_ARRAY_DELIMITER = "\2";
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
@@ -97,6 +99,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
         if (inputFormat.contains("TextInputFormat")) {
+            /*
             for (SlotDescriptor slot : desc.getSlots()) {
                 if (!slot.getType().isScalarType()) {
                     throw new UserException("For column `" + slot.getColumn().getName()
@@ -104,6 +107,7 @@ public class HiveScanNode extends FileQueryScanNode {
                             + " for text input format of Hive. ");
                 }
             }
+             */
         }
 
         if (hmsTable.isHiveTransactionalTable()) {
@@ -265,6 +269,8 @@ public class HiveScanNode extends FileQueryScanNode {
         textParams.setColumnSeparator(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
                 .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
         textParams.setLineDelimiter(DEFAULT_LINE_DELIMITER);
+        textParams.setArrayDelimiter(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
+                .getOrDefault(PROP_ARRAY_DELIMITER, DEFAULT_ARRAY_DELIMITER));
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");

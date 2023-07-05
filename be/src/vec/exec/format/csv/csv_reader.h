@@ -142,6 +142,8 @@ private:
 
     std::string _value_separator;
     std::string _line_delimiter;
+    std::string _array_delimiter;
+    
     int _value_separator_length;
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
