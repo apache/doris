@@ -23,6 +23,7 @@
 #include <ostream>
 
 #include "common/config.h"
+#include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_define.h"
 #include "runtime/thread_context.h"
 #include "util/thread.h"
@@ -75,9 +76,9 @@ Status FullCompaction::execute_compact_impl() {
     _state = CompactionState::SUCCESS;
 
     // 4. set cumulative point
-    // TODO:
-    _tablet->cumulative_compaction_policy()->update_cumulative_point(
-            _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
+    Version last_version = _input_rowsets.back()->version();
+    _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets,
+                                                                     _output_rowset, last_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 

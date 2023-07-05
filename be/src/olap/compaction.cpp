@@ -752,24 +752,18 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
 }
 
 Status Compaction::check_all_version(const std::vector<RowsetSharedPtr>& rowsets) {
-    // TODO:
     if (rowsets.empty()) {
-        return Status::OK();
+        return Status::Error<FULL_MISS_VERSION>();
     }
-    RowsetSharedPtr prev_rowset = rowsets.front();
-    for (size_t i = 1; i < rowsets.size(); ++i) {
-        RowsetSharedPtr rowset = rowsets[i];
-        if (rowset->start_version() != prev_rowset->end_version() + 1) {
-            LOG(WARNING) << "There are missed versions among rowsets. "
-                         << "prev_rowset version=" << prev_rowset->start_version() << "-"
-                         << prev_rowset->end_version()
-                         << ", rowset version=" << rowset->start_version() << "-"
-                         << rowset->end_version();
-            return Status::Error<CUMULATIVE_MISS_VERSION>();
-        }
-        prev_rowset = rowset;
+    const RowsetSharedPtr& last_rowset = rowsets.back();
+    if (last_rowset->version() != _tablet->max_version()) {
+        LOG(WARNING) << "There are missed versions among rowsets. "
+                     << "full compaction rowsets max version=" << last_rowset->start_version()
+                     << "-" << last_rowset->end_version()
+                     << ", current rowsets max version=" << _tablet->max_version().first << "-"
+                     << _tablet->max_version().second;
+        return Status::Error<FULL_MISS_VERSION>();
     }
-
     return Status::OK();
 }
 
