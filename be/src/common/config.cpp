@@ -126,6 +126,8 @@ DEFINE_mString(process_full_gc_size, "20%");
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
+DEFINE_mBool(disable_memory_gc, "false");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
