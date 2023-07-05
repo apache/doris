@@ -4,8 +4,8 @@ PhysicalTopN
 --PhysicalTopN
 ----PhysicalProject
 ------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalDistribute
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](ws1.ws_ship_date_sk = date_dim.d_date_sk)
 ----------------PhysicalProject

@@ -23,7 +23,12 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -43,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * ensure child add enough distribute. update children properties if we do regular
@@ -88,11 +94,54 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
 
     @Override
     public Boolean visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, Void context) {
-        // forbid one phase agg on distribute
-        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
+        if (!agg.getAggregateParam().canBeBanned) {
+            return true;
+        }
+        // forbid one phase agg on distribute and three or four stage distinct agg inter by distribute
+        if ((agg.getAggMode() == AggMode.INPUT_TO_RESULT || agg.getAggMode() == AggMode.BUFFER_TO_BUFFER)
                 && children.get(0).getPlan() instanceof PhysicalDistribute) {
             // this means one stage gather agg, usually bad pattern
             return false;
+        }
+        // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
+        // TODO: this is forbid good plan after cte reuse by mistake
+        if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
+                && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
+                && children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
+        // forbid multi distinct opt that bad than multi-stage version when multi-stage can be executed in one fragment
+        if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER || agg.getAggMode() == AggMode.INPUT_TO_RESULT) {
+            List<MultiDistinction> multiDistinctions = agg.getOutputExpressions().stream()
+                    .filter(Alias.class::isInstance)
+                    .map(a -> ((Alias) a).child())
+                    .filter(AggregateExpression.class::isInstance)
+                    .map(a -> ((AggregateExpression) a).getFunction())
+                    .filter(MultiDistinction.class::isInstance)
+                    .map(MultiDistinction.class::cast)
+                    .collect(Collectors.toList());
+            if (multiDistinctions.size() == 1) {
+                Expression distinctChild = multiDistinctions.get(0).child(0);
+                DistributionSpec childDistribution = childrenProperties.get(0).getDistributionSpec();
+                if (distinctChild instanceof SlotReference && childDistribution instanceof DistributionSpecHash) {
+                    SlotReference slotReference = (SlotReference) distinctChild;
+                    DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
+                    List<ExprId> groupByColumns = agg.getGroupByExpressions().stream()
+                            .map(SlotReference.class::cast)
+                            .map(SlotReference::getExprId)
+                            .collect(Collectors.toList());
+                    DistributionSpecHash groupByRequire = new DistributionSpecHash(
+                            groupByColumns, ShuffleType.REQUIRE);
+                    List<ExprId> distinctChildColumns = Lists.newArrayList(slotReference.getExprId());
+                    distinctChildColumns.add(slotReference.getExprId());
+                    DistributionSpecHash distinctChildRequire = new DistributionSpecHash(
+                            distinctChildColumns, ShuffleType.REQUIRE);
+                    if ((!groupByColumns.isEmpty() && distributionSpecHash.satisfy(groupByRequire))
+                            || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
+                        return false;
+                    }
+                }
+            }
         }
         // process must shuffle
         visit(agg, context);

@@ -223,6 +223,8 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
      * </pre>
      */
     @Test
+    @Disabled
+    @Developing("reopen it after we could choose agg phase by CBO")
     public void distinctAggregateWithoutGroupByApply2PhaseRule() {
         List<Expression> groupExpressionList = new ArrayList<>();
         List<NamedExpression> outputExpressionList = Lists.newArrayList(new Alias(

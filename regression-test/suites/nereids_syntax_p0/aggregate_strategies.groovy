@@ -82,7 +82,6 @@ suite("aggregate_strategies") {
         explain {
             sql """
             select
-                /*+SET_VAR(disable_nereids_rules='ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT, FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct id)
                 from $tableName
             """
@@ -90,17 +89,17 @@ suite("aggregate_strategies") {
             notContains "STREAMING"
         }
 
+        // test multi_distinct
         test {
             sql """select
-                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
-                count(distinct id)
+                count(distinct name)
                 from $tableName"""
             result([[5L]])
         }
 
+        // test four phase distinct
         test {
             sql """select
-                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct id)
                 from $tableName"""
             result([[5L]])

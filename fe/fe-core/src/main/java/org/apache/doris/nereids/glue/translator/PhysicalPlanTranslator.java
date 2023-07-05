@@ -1742,7 +1742,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> {
                     Expression function = e.child(0).child(0);
                     if (function instanceof AggregateFunction) {
-                        AggregateParam param = AggregateParam.localResult();
+                        AggregateParam param = AggregateParam.LOCAL_RESULT;
                         function = new AggregateExpression((AggregateFunction) function, param);
                     }
                     return ExpressionTranslator.translate(function, context);

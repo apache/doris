@@ -4,8 +4,8 @@ PhysicalQuickSort
 --PhysicalDistribute
 ----PhysicalQuickSort
 ------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalDistribute
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[LEFT_ANTI_JOIN](partsupp.ps_suppkey = supplier.s_suppkey)
 ----------------hashJoin[INNER_JOIN](part.p_partkey = partsupp.ps_partkey)
