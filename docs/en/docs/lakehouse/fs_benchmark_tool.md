@@ -84,27 +84,29 @@ The type of file system on which the operation is required. Currently supported 
 
 Specifies the type of operation
 
--  `create_write`: Each thread creates a file named `test_${current thread number}`  in the `base_dir(set in conf file)` directory and writes to the file with a write size `file_size` of.
+- `create_write`: Each thread creates a file named `test_${current thread number}`  in the `base_dir(set in conf file)` directory and writes to the file with a write size `file_size` of.
 
--  `open_read`: On `create_write` the basis of the created file, each thread reads the file with the name of `test_${current thread number}`  and the read size of `file_size`.
+- `open_read`: On `create_write` the basis of the created file, each thread reads the file with the name of `test_${current thread number}`  and the read size of `file_size`.
 
--  `exists`: Each thread queries whether a file with  `test_${current thread number}` filename exists.
+- `single_read`: Read `file_path(set in conf file)` file, read size is `file_size`.
 
--  `rename`: On `create_write` the basis of the created file, each thread changes the `test_${current thread number}` filename to `test_${current thread number}_new`.
+- `prefetch_read`：Use prefetch reader to read `file_path(set in conf file)` file, read size is `file_size`. Only for s3 file system.
 
--  `single_read`: Read `file_path(set in conf file)` file, read size is `file_size`.
+- `exists`: Each thread queries whether a file with  `test_${current thread number}` filename exists.
 
--  `list`: Get `base_dir(set in conf file)` the list of files in the directory.
+- `rename`: On `create_write` the basis of the created file, each thread changes the `test_${current thread number}` filename to `test_${current thread number}_new`.
+
+- `list`: Get `base_dir(set in conf file)` the list of files in the directory.
 
 `--file_size` 
 
 The file size of the operation, in bytes.
 
--  `create_write`: Default is 10 MB.
+- `create_write`: Default is 10 MB.
 
--  `open_read`: Default is 10 MB.
+- `open_read`: Default is 10 MB.
 
--  `single_read`: The default is 0, that is, the full file is read.
+- `single_read`: The default is 0, that is, the full file is read.
 
 `--threads`
 

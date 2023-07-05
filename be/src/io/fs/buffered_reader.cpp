@@ -765,7 +765,7 @@ Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           io::FileReaderOptions reader_options,
                                           const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(profile, system_properties, file_description,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
                                                     file_system, &reader, reader_options));
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
