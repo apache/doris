@@ -80,11 +80,19 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                bool use_cache) {
     RETURN_IF_ERROR(_rowset->load());
     _context = read_context;
+    // The segment iterator is created with its own statistics,
+    // and the member variable '_stats'  is initialized by '_stats(&owned_stats)'.
+    // The choice of statistics used depends on the workload of the rowset reader.
+    // For instance, if it's for query, the get_segment_iterators function
+    // will receive one valid read_context with corresponding valid statistics,
+    // and we will use those statistics.
+    // However, for compaction or schema change workloads,
+    // the read_context passed to the function will have null statistics,
+    // and in such cases we will try to use the beta rowset reader's own statistics.
     if (_context->stats != nullptr) {
-        // schema change/compaction should use owned_stats
-        // When doing schema change/compaction,
-        // only statistics of this RowsetReader is necessary.
         _stats = _context->stats;
+    } else {
+        _context->stats = _stats;
     }
 
     // convert RowsetReaderContext to StorageReadOptions
