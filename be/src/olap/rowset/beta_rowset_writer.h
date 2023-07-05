@@ -142,8 +142,6 @@ public:
 
     void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
 
-    int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
-
     const MemTableStat& memtable_stat() override { return _memtable_stat; }
 
 private:
@@ -242,8 +240,6 @@ protected:
     fmt::memory_buffer vlog_buffer;
 
     std::shared_ptr<MowContext> _mow_context;
-
-    int64_t _delete_bitmap_ns = 0;
 
     MemTableStat _memtable_stat;
 };

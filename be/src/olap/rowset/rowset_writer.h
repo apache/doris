@@ -114,8 +114,6 @@ public:
 
     virtual Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx) = 0;
 
-    virtual int64_t delete_bitmap_ns() { return 0; }
-
     virtual const MemTableStat& memtable_stat() = 0;
 
 private:
