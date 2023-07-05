@@ -331,13 +331,16 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         _blocked_task_scheduler->add_blocked_task(task);
     } else {
         auto status = task->close();
-        if (!status.ok()) {
-            // TODO: LOG warning
-        }
-        if (task->is_pending_finish()) {
-            task->set_state(PipelineTaskState::PENDING_FINISH);
-            _blocked_task_scheduler->add_blocked_task(task);
-            return;
+        if (!status.ok() && state != PipelineTaskState::CANCELED) {
+            task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                             status.to_string());
+            state = PipelineTaskState::CANCELED;
+        } else {
+            if (task->is_pending_finish()) {
+                task->set_state(PipelineTaskState::PENDING_FINISH);
+                _blocked_task_scheduler->add_blocked_task(task);
+                return;
+            }
         }
         task->set_state(state);
         task->fragment_context()->close_a_pipeline();
