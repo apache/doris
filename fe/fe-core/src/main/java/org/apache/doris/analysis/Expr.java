@@ -466,6 +466,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         isAnalyzed = true;
     }
 
+    /**
+     * Set the expr isConstant parameter, when select list return it can not be constant
+     */
+    public void setIsConstant(boolean isConstant) {
+        this.isConstant = isConstant;
+    }
+
     protected void computeNumDistinctValues() {
         if (isConstant()) {
             numDistinctValues = 1;
