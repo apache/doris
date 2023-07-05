@@ -121,9 +121,6 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
 Status SegmentWriter::init(const FlushContext* flush_ctx) {
     std::vector<uint32_t> column_ids;
     int column_cnt = _tablet_schema->num_columns();
-    if (flush_ctx && flush_ctx->flush_schema) {
-        column_cnt = flush_ctx->flush_schema->num_columns();
-    }
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
@@ -242,11 +239,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         return Status::OK();
     };
 
-    if (flush_ctx && flush_ctx->flush_schema) {
-        RETURN_IF_ERROR(_create_writers(*flush_ctx->flush_schema, col_ids, create_column_writer));
-    } else {
-        RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
-    }
+    RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
