@@ -120,6 +120,13 @@ public:
         return _context.schema_change_recorder.get();
     }
 
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status unfold_variant_column(vectorized::Block& block, FlushContext* ctx) override;
+
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
     Status flush_segment_writer_for_segcompaction(
