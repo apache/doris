@@ -589,5 +589,24 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    Boolean checkSnapshotFinish() {
+        String checkSQL = "SHOW BACKUP FROM " + context.dbName
+        int size = sql(checkSQL).size()
+        logger.info("Now size is ${size}")
+        List<Object> row = sql(checkSQL)[size-1]
+        logger.info("Now row is ${row}")
+
+        return (row[3] as String) == "FINISHED"
+    }
+
+    Boolean checkRestoreFinish() {
+        String checkSQL = "SHOW RESTORE FROM " + context.dbName
+        int size = sql(checkSQL).size()
+        logger.info("Now size is ${size}")
+        List<Object> row = sql(checkSQL)[size-1]
+        logger.info("Now row is ${row}")
+
+        return (row[4] as String) == "FINISHED"
+    }
 }
 
