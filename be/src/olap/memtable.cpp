@@ -449,37 +449,4 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
     return vectorized::Block::create_unique(_output_mutable_block.to_block());
 }
 
-/*
-Status MemTable::flush() {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
-                  << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
-    int64_t duration_ns;
-    SCOPED_RAW_TIMER(&duration_ns);
-    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush()));
-    _delta_writer_callback(_stat);
-    DorisMetrics::instance()->memtable_flush_total->increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    VLOG_CRITICAL << "after flush memtable for tablet: " << tablet_id()
-                  << ", flushsize: " << _flush_size;
-
-    return Status::OK();
-}
-
-Status MemTable::_do_flush() {
-    SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    std::unique_ptr<vectorized::Block> block = to_block();
-
-    FlushContext ctx;
-    ctx.block = block.get();
-    if (_tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(_rowset_writer->unfold_variant_column(*block, &ctx));
-    }
-    //ctx.segment_id = _segment_id;
-    SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
-    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(block.get(), &_flush_size, &ctx));
-    return Status::OK();
-}
-*/
-
 } // namespace doris
