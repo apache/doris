@@ -960,6 +960,8 @@ enum TBinlogType {
   CREATE_TABLE = 2,
   DROP_PARTITION = 3,
   DROP_TABLE = 4,
+  ALTER_JOB = 5, 
+  MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 6,
 }
 
 struct TBinlog {

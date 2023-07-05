@@ -481,6 +481,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         List<Index> newIndexes = olapTable.getCopiedIndexes();
                         long jobId = Env.getCurrentEnv().getNextId();
                         Env.getCurrentEnv().getSchemaChangeHandler().modifyTableLightSchemaChange(
+                                "",
                                 db, olapTable, indexSchemaMap, newIndexes, null, false, jobId, false);
                     } else {
                         throw new MetaNotFoundException("table_id "
