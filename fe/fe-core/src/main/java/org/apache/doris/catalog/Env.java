@@ -4624,7 +4624,7 @@ public class Env {
         this.alter.getClusterHandler().cancel(stmt);
     }
 
-    // Switch catalog of this sesseion.
+    // Switch catalog of this session.
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalogNullable(catalogName);
         if (catalogIf == null) {
