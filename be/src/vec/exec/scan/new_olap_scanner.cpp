@@ -448,6 +448,7 @@ Status NewOlapScanner::_init_return_columns() {
         if (slot->is_nullable() && !_tablet_schema->column(index).is_nullable()) {
             _tablet_columns_convert_to_null_set.emplace(index);
         }
+
     }
 
     if (_return_columns.empty()) {

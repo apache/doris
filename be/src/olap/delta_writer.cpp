@@ -470,6 +470,14 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         TabletSchemaSPtr update_schema = std::make_shared<TabletSchema>();
         vectorized::schema_util::get_least_common_schema(
                 {_tablet->tablet_schema(), rw_ctx.tablet_schema}, update_schema);
+        // CHECK all unique ids are unique
+        std::set<int> sets;
+        std::for_each(update_schema->columns().begin(), update_schema->columns().end(),
+                      [&](const auto& col) {
+                          CHECK(col.unique_id() >= 0);
+                          sets.emplace(col.unique_id());
+                      });
+        CHECK_EQ(sets.size(), update_schema->columns().size());
         _tablet->update_by_least_common_schema(update_schema);
         VLOG_DEBUG << "dump updated tablet schema: " << update_schema->dump_structure();
     }

@@ -325,6 +325,22 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         this.maxColUniqueId = maxColUniqueId;
     }
 
+    public int caculateMaxColUniqueId(List<Column> newIndexSchema) {
+        int maxColUniqueId = getMaxColUniqueId();
+        for (Column column : newIndexSchema) {
+            if (column.getUniqueId() > maxColUniqueId) {
+                maxColUniqueId = column.getUniqueId();
+            }
+            // Check sub columns
+            for (Column subcolumn : column.getChildren()) {
+                if (subcolumn.getUniqueId() > maxColUniqueId) {
+                    maxColUniqueId = subcolumn.getUniqueId();
+                }
+            }
+        }
+        return maxColUniqueId;
+    }
+
     public void initSchemaColumnUniqueId() {
         maxColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE;
         this.schema.forEach(column -> {

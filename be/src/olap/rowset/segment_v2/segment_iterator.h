@@ -325,6 +325,8 @@ private:
         return 0;
     }
 
+    Status _convert_to_expected_type();
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 

@@ -2694,12 +2694,7 @@ public class SchemaChangeHandler extends AlterHandler {
             currentIndexMeta.setSchemaVersion(newSchemaVersion);
 
             //update max column unique id
-            int maxColUniqueId = currentIndexMeta.getMaxColUniqueId();
-            for (Column column : indexSchema) {
-                if (column.getUniqueId() > maxColUniqueId) {
-                    maxColUniqueId = column.getUniqueId();
-                }
-            }
+            int maxColUniqueId = currentIndexMeta.caculateMaxColUniqueId(indexSchema);
             currentIndexMeta.setMaxColUniqueId(maxColUniqueId);
         }
         olapTable.setIndexes(indexes);

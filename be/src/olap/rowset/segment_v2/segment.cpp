@@ -275,9 +275,19 @@ Status Segment::load_index() {
     });
 }
 
+static vectorized::DataTypePtr get_data_type_from_column_meta(
+        const segment_v2::ColumnMetaPB& column) {
+    return vectorized::DataTypeFactory::instance().create_data_type(column);
+}
+
+vectorized::DataTypePtr Segment::get_data_type_of(int32_t column_unique_id) {
+    return _file_column_types[column_unique_id];
+}
 Status Segment::_create_column_readers() {
     for (uint32_t ordinal = 0; ordinal < _footer.columns().size(); ++ordinal) {
         auto& column_pb = _footer.columns(ordinal);
+        _file_column_types.emplace(column_pb.unique_id(),
+                                   get_data_type_from_column_meta(column_pb));
         _column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
     }
 

@@ -35,6 +35,7 @@
 
 #include "common/consts.h"
 #include "data_type_time.h"
+#include "gen_cpp/segment_v2.pb.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
@@ -532,6 +533,40 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
 
     if (nested && pcolumn.is_nullable() > 0) {
         return std::make_shared<vectorized::DataTypeNullable>(nested);
+    }
+    return nested;
+}
+
+DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pcolumn) {
+    DataTypePtr nested = nullptr;
+    if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_ARRAY)) {
+        // Item subcolumn and length subcolumn
+        DCHECK(pcolumn.children_columns().size() == 2) << pcolumn.DebugString();
+        nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children_columns(0)));
+    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_MAP)) {
+        DCHECK(pcolumn.children_columns().size() >= 2) << pcolumn.DebugString();
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(pcolumn.children_columns(0)),
+                create_data_type(pcolumn.children_columns(1)));
+    } else if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_STRUCT)) {
+        DCHECK(pcolumn.children_columns().size() >= 1);
+        size_t col_size = pcolumn.children_columns().size();
+        DataTypes dataTypes;
+        Strings names;
+        dataTypes.reserve(col_size);
+        names.reserve(col_size);
+        for (size_t i = 0; i < col_size; i++) {
+            dataTypes.push_back(create_data_type(pcolumn.children_columns(i)));
+            names.push_back("");
+        }
+        nested = std::make_shared<DataTypeStruct>(dataTypes, names);
+    } else {
+        // TODO add precision and frac
+        nested = _create_primitive_data_type(static_cast<FieldType>(pcolumn.type()), 0, 0);
+    }
+
+    if (pcolumn.is_nullable() && nested) {
+        return std::make_shared<DataTypeNullable>(nested);
     }
     return nested;
 }

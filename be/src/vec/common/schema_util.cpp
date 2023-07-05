@@ -138,7 +138,6 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
             arg, {type->create_column_const_with_default_value(1), type, type->get_name()}};
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     Block tmp_block {arguments};
-    // the 0 position is input argument, the 1 position is to type argument, the 2 position is result argument
     vectorized::ColumnNumbers argnum;
     argnum.emplace_back(0);
     argnum.emplace_back(1);
@@ -187,6 +186,7 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id) {
     // Types of subcolumns by path from all tuples.
     std::unordered_map<PathInData, DataTypes, PathInData::Hash> subcolumns_types;
+    std::unordered_map<PathInData, int, PathInData::Hash> subcolumns_unique_ids;
     for (const TabletSchemaSPtr& schema : schemas) {
         for (const TabletColumn& col : schema->columns()) {
             // Get subcolumns of this variant
@@ -194,6 +194,8 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                 col.parent_unique_d() == variant_col_unique_id) {
                 subcolumns_types[col.path_info()].push_back(
                         DataTypeFactory::instance().create_data_type(col, col.is_nullable()));
+                CHECK(col.unique_id() > 0);
+                subcolumns_unique_ids[col.path_info()] = col.unique_id();
             }
         }
     }
@@ -238,6 +240,8 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
         get_column_by_type(tuple_types[i], column_name, common_column);
         common_column.set_parent_unique_id(variant_col_unique_id);
+        CHECK(subcolumns_unique_ids[tuple_paths[i]] > 0);
+        common_column.set_unique_id(subcolumns_unique_ids[tuple_paths[i]]);
         common_column.set_path_info(tuple_paths[i]);
         common_schema->append_column(common_column);
     }

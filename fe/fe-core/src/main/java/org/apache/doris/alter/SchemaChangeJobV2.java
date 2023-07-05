@@ -637,12 +637,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             long originIdxId = entry.getValue();
             String shadowIdxName = tbl.getIndexNameById(shadowIdxId);
             String originIdxName = tbl.getIndexNameById(originIdxId);
-            int maxColUniqueId = tbl.getIndexMetaByIndexId(originIdxId).getMaxColUniqueId();
-            for (Column column : indexSchemaMap.get(shadowIdxId)) {
-                if (column.getUniqueId() > maxColUniqueId) {
-                    maxColUniqueId = column.getUniqueId();
-                }
-            }
+            int maxColUniqueId = tbl.getIndexMetaByIndexId(originIdxId)
+                                    .caculateMaxColUniqueId(indexSchemaMap.get(shadowIdxId));
             tbl.getIndexMetaByIndexId(shadowIdxId).setMaxColUniqueId(maxColUniqueId);
             LOG.debug("originIdxId:{}, shadowIdxId:{}, maxColUniqueId:{}, indexSchema:{}",
                     originIdxId, shadowIdxId, maxColUniqueId,  indexSchemaMap.get(shadowIdxId));

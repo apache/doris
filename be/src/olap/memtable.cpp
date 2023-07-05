@@ -686,7 +686,11 @@ Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* c
                      ""},
                     expected_type, &flush_block.get_by_position(i).column));
             flush_block.get_by_position(i).type = expected_type;
+            if (flush_schema->columns()[i].is_extracted_column()) {
+                CHECK(flush_schema->columns()[i].unique_id() > 0);
+            }
         }
+        CHECK(flush_schema->columns()[i].unique_id() >= 0);
     }
 
     ctx->flush_schema = flush_schema;

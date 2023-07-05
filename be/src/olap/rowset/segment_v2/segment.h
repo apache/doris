@@ -41,6 +41,9 @@
 #include "util/slice.h"
 
 namespace doris {
+namespace vectorized {
+class IDataType;
+}
 
 class ShortKeyIndexDecoder;
 class Schema;
@@ -131,6 +134,9 @@ public:
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
+    // Get the inner file column's data type
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(int32_t column_unique_id);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
@@ -161,6 +167,10 @@ private:
     // This means that this segment has no data for that column, which may be added
     // after this segment is generated.
     std::map<int32_t, std::unique_ptr<ColumnReader>> _column_readers;
+
+    // Init from ColumnMetaPB in SegmentFooterPB
+    // map column unique id ---> it's inner data type
+    std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;

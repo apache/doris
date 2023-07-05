@@ -70,6 +70,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -1491,8 +1492,16 @@ void SegmentIterator::_init_current_block(
             i >= block->columns()) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
-            // if (!block->get_by_position(i).type->equals())
-            current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+            // File column's data type is different with the Block
+            auto file_column_type = _segment->get_data_type_of(column_desc->unique_id());
+            if (file_column_type && !block->get_by_position(i).type->equals(*file_column_type)) {
+                VLOG_DEBUG << fmt::format("Recreate column with type {}, original {}",
+                                          block->get_by_position(i).type->get_name(),
+                                          file_column_type->get_name());
+                current_columns[cid] = file_column_type->create_column();
+            } else {
+                current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+            }
 
             if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
@@ -1695,6 +1704,28 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     return Status::OK();
 }
 
+Status SegmentIterator::_convert_to_expected_type() {
+    for (size_t i = 0; i < _current_return_columns.size(); ++i) {
+        if (_current_return_columns[i] == nullptr) {
+            continue;
+        }
+        const Field* field_type = _schema->column(i);
+        vectorized::DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
+        vectorized::DataTypePtr file_column_type =
+                _segment->get_data_type_of(field_type->unique_id());
+        if (file_column_type && !expected_type->equals(*file_column_type)) {
+            VLOG_DEBUG << fmt::format("convert file column type {} to exepected type {}",
+                                      file_column_type->get_name(), expected_type->get_name());
+            vectorized::ColumnPtr expected;
+            vectorized::ColumnPtr original = _current_return_columns[i]->get_ptr();
+            RETURN_IF_ERROR(vectorized::schema_util::cast_column({original, file_column_type, ""},
+                                                                 expected_type, &expected));
+            _current_return_columns[i] = expected->assume_mutable();
+        }
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
     DCHECK(is_mem_reuse);
@@ -1711,6 +1742,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             auto cid = _schema->column_id(i);
             auto column_desc = _schema->column(cid);
             if (_is_pred_column[cid]) {
+                // TODO real type
                 _current_return_columns[cid] =
                         Schema::get_predicate_column_ptr(*column_desc, _opts.io_ctx.reader_type);
                 _current_return_columns[cid]->set_rowset_segment_id(
@@ -1724,6 +1756,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // the segment of c do not effective delete condition, but it still need read the column
                 // to match the schema.
                 // TODO: skip read the not effective delete column to speed up segment read.
+                // TODO real type
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
@@ -1766,6 +1799,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         block->clear_column_data();
         return Status::EndOfFile("no more data in segment");
     }
+
+    _convert_to_expected_type();
 
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
         _output_non_pred_columns(block);
