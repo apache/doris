@@ -450,6 +450,7 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
     return vectorized::Block::create_unique(_output_mutable_block.to_block());
 }
 
+/*
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
@@ -480,5 +481,6 @@ Status MemTable::_do_flush() {
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(block.get(), &_flush_size, &ctx));
     return Status::OK();
 }
+*/
 
 } // namespace doris

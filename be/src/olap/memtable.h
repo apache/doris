@@ -191,9 +191,6 @@ public:
 
     bool need_agg() const;
 
-    /// Flush
-    Status flush();
-
     std::unique_ptr<vectorized::Block> to_block();
 
     void set_callback(std::function<void(MemTableStat&)> callback) {
@@ -201,9 +198,6 @@ public:
     }
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
-
-private:
-    Status _do_flush();
 
 private:
     // for vectorized
