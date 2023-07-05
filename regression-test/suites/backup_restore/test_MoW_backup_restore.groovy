@@ -17,7 +17,7 @@
 
 package org.apache.doris.regression.suite
 
-suite("test_MoW_backup_restore", "p2") {
+suite("test_MoW_backup_restore", "p1") {
 
     def syncer = getSyncer()
     def repo = "__keep_on_local__"
@@ -38,7 +38,7 @@ suite("test_MoW_backup_restore", "p2") {
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
-    qt_3 """select * from ${tableName}"""
+    qt_3 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     sql """insert into ${tableName} values(1,10)"""
@@ -46,7 +46,7 @@ suite("test_MoW_backup_restore", "p2") {
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
-    qt_4 """select * from ${tableName}"""
+    qt_4 """select * from ${tableName} order by user_id"""
 
     // version3 (1,100)(2,2)
     sql """update ${tableName} set value = 100 where user_id = 1"""
@@ -54,7 +54,7 @@ suite("test_MoW_backup_restore", "p2") {
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
-    qt_5 """select * from ${tableName}"""
+    qt_5 """select * from ${tableName} order by user_id"""
 
     // version4 (2,2)
     sql """delete from ${tableName} where user_id = 1"""
@@ -62,7 +62,7 @@ suite("test_MoW_backup_restore", "p2") {
     while(checkSnapshotFinish()==false){
         Thread.sleep(3000)
     }
-    qt_6 """select * from ${tableName}"""
+    qt_6 """select * from ${tableName} order by user_id"""
 
     // version1 (1,1)(2,2)
     assertTrue(syncer.getSnapshot("snapshot1", "${tableName}"))
@@ -70,7 +70,7 @@ suite("test_MoW_backup_restore", "p2") {
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_7 """select * from ${tableName}"""
+    qt_7 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
@@ -78,21 +78,21 @@ suite("test_MoW_backup_restore", "p2") {
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_8 """select * from ${tableName}"""
+    qt_8 """select * from ${tableName} order by user_id"""
     // version3 (1,100)(2,2)
     assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_9 """select * from ${tableName}"""
+    qt_9 """select * from ${tableName} order by user_id"""
     // version4 (2,2)
     assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_10 """select * from ${tableName}"""
+    qt_10 """select * from ${tableName} order by user_id"""
 
     sql """drop table if exists ${tableName}"""
     sql """CREATE TABLE IF NOT EXISTS ${tableName} 
@@ -110,7 +110,7 @@ suite("test_MoW_backup_restore", "p2") {
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_11 """select * from ${tableName}"""
+    qt_11 """select * from ${tableName} order by user_id"""
 
     // version2 (1,10)(2,2)
     assertTrue(syncer.getSnapshot("snapshot2", "${tableName}"))
@@ -118,19 +118,19 @@ suite("test_MoW_backup_restore", "p2") {
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_12 """select * from ${tableName}"""
+    qt_12 """select * from ${tableName} order by user_id"""
     // version3 (1,100)(2,2)
     assertTrue(syncer.getSnapshot("snapshot3", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_13 """select * from ${tableName}"""
+    qt_13 """select * from ${tableName} order by user_id"""
     // version4 (2,2)
     assertTrue(syncer.getSnapshot("snapshot4", "${tableName}"))
     assertTrue(syncer.restoreSnapshot())
     while (checkRestoreFinish() == false) {
         Thread.sleep(3000)
     }
-    qt_14 """select * from ${tableName}"""
+    qt_14 """select * from ${tableName} order by user_id"""
 }
