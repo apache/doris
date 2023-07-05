@@ -1140,8 +1140,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("arrays_overlap")
-                || fnName.getFunction().equalsIgnoreCase("array_concat")
-                || fnName.getFunction().equalsIgnoreCase("array_contains_all")) {
+                || fnName.getFunction().equalsIgnoreCase("array_concat")) {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
@@ -1690,8 +1689,7 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_except")
                         || fnName.getFunction().equalsIgnoreCase("array_contains")
                         || fnName.getFunction().equalsIgnoreCase("array_position")
-                        || fnName.getFunction().equalsIgnoreCase("width_bucket")
-                        || fnName.getFunction().equalsIgnoreCase("array_contains_all"))
+                        || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())
                         && (args[ix].isArrayType())
@@ -1844,8 +1842,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("shuffle")
                 || fnName.getFunction().equalsIgnoreCase("array_except")
                 || fnName.getFunction().equalsIgnoreCase("array_concat")
-                || fnName.getFunction().equalsIgnoreCase("array_apply")
-                || fnName.getFunction().equalsIgnoreCase("array_contains_all")) {
+                || fnName.getFunction().equalsIgnoreCase("array_apply")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();
             }

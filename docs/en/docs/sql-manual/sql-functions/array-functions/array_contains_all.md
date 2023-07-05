@@ -40,9 +40,7 @@ array_contains_all
 BOOLEAN array_contains_all(ARRAY<T> array1, ARRAY<T> array2)
 ```
 
-Checks whether `array2` is a subset of `array1`. Note the arrays are regarded as sets and hence the order of the elements and the number of the occurrences of each element are not taken into account.
-
-The elements in the arrays may be of different types as long as they have a common ancenstor type.
+Checks whether `array2` is a subset of `array1`. Note the arrays are regarded as sets and hence the order of the elements and the number of the occurrences of each element are not taken into account. If any input is NULL, returns NULL. The elements in the arrays may be of different types as long as they have a common ancenstor type.
 
 ### notice
 
@@ -51,6 +49,27 @@ The elements in the arrays may be of different types as long as they have a comm
 ### example
 
 ```sql
+mysql> select array_contains_all(NULL, NULL);
++--------------------------------+
+| array_contains_all(NULL, NULL) |
++--------------------------------+
+|                           NULL |
++--------------------------------+
+
+mysql> select array_contains_all([], NULL);
++-----------------------------------+
+| array_contains_all(ARRAY(), NULL) |
++-----------------------------------+
+|                              NULL |
++-----------------------------------+
+
+mysql> select array_contains_all(NULL, []);
++-----------------------------------+
+| array_contains_all(NULL, ARRAY()) |
++-----------------------------------+
+|                              NULL |
++-----------------------------------+
+
 mysql> select array_contains_all([], []);
 +--------------------------------------+
 | array_contains_all(ARRAY(), ARRAY()) |

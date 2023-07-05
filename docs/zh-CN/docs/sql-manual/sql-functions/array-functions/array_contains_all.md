@@ -40,9 +40,8 @@ array_contains_all
 BOOLEAN array_contains_all(ARRAY<T> array1, ARRAY<T> array2)
 ```
 
-检查 `array2` 是否为 `array1` 的一个子集。注意，输入数组会被看作集合，因此数组内元素的顺序、元素的数量对结果没有影响。
+检查 `array2` 是否为 `array1` 的一个子集。注意，输入数组会被看作集合，因此数组内元素的顺序、元素的数量对结果没有影响。 如果任意输入数组为 NULL，则返回 NULL。输入数组内可以包含不同的类型，只要不同类型之间存在公共类型。
 
-输入数组内可以包含不同类型的元素，只要这些元素之间存在一个公共祖先类型。
 
 ### notice
 
@@ -51,6 +50,27 @@ BOOLEAN array_contains_all(ARRAY<T> array1, ARRAY<T> array2)
 ### example
 
 ```sql
+mysql> select array_contains_all(NULL, NULL);
++--------------------------------+
+| array_contains_all(NULL, NULL) |
++--------------------------------+
+|                           NULL |
++--------------------------------+
+
+mysql> select array_contains_all([], NULL);
++-----------------------------------+
+| array_contains_all(ARRAY(), NULL) |
++-----------------------------------+
+|                              NULL |
++-----------------------------------+
+
+mysql> select array_contains_all(NULL, []);
++-----------------------------------+
+| array_contains_all(NULL, ARRAY()) |
++-----------------------------------+
+|                              NULL |
++-----------------------------------+
+
 mysql> select array_contains_all([], []);
 +--------------------------------------+
 | array_contains_all(ARRAY(), ARRAY()) |

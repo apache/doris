@@ -290,4 +290,36 @@ suite("test_array_functions") {
     qt_select_array_datetimev2_2 "SELECT if(1,k2,k3) FROM ${tableName4}"
     qt_select_array_datetimev2_3 "SELECT if(0,k2,k3) FROM ${tableName4}"
     qt_select_array_datetimev2_4 "SELECT if(0,k2,k4) FROM ${tableName4}"
+
+    def tableName5 = "tbl_test_array_contains_all"
+    sql """ DROP TABLE IF EXISTS ${tableName5} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName5} (
+          k int COMMENT "",
+          key_int_left ARRAY<int> COMMENT "",
+          key_int_right ARRAY<int> COMMENT "",
+          key_varchar_left ARRAY<varchar(10)> COMMENT "",
+          key_varchar_right ARRAY<varchar(10)> COMMENT "",
+          key_float_left ARRAY<float> COMMENT "",
+          key_float_right ARRAY<float> COMMENT "",
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "storage_format" = "V2"
+        );
+        """
+
+    sql """ INSERT INTO ${tableName5} VALUES (1, [1, 2, 3], [1, 2], ['a', 'b', 'c'], ['a', 'b'], [1.1, 2.2, 3.3], [1.1, 2.2]); """
+    sql """ INSERT INTO ${tableName5} VALUES (2, [1, 2], [1, 2, 3], ['a', 'b'], ['a', 'b', 'c'], [1.1, 2.2], [1.1, 2.2, 3.3]); """
+    sql """ INSERT INTO ${tableName5} VALUES (3, [1, 2, NULL], [1, NULL, NULL], ['a', 'b', NULL], ['a', NULL, NULL], [1.1, 2.2, NULL], [1.1, NULL, NULL]); """
+    sql """ INSERT INTO ${tableName5} VALUES (4, NULL, [1, 2], NULL, ['a', 'b'], NULL, [1.1, 2.2]); """
+    sql """ INSERT INTO ${tableName5} VALUES (5, [1, 2, 3], NULL, ['a', 'b', 'c'], NULL, [1.1, 2.2, 3.3], NULL); """
+    sql """ INSERT INTO ${tableName5} VALUES (6, NULL, NULL, NULL, NULL, NULL, NULL); """
+    sql """ INSERT INTO ${tableName5} VALUES (7, [], [], [], [], [], []); """
+
+    qt_select """ select array_contains_all(key_int_left, key_int_right) from ${tableName5} order by k; """
+    qt_select """ select array_contains_all(key_varchar_left, key_varchar_right) from ${tableName5} order by k; """
+    qt_select """ select array_contains_all(key_float_left, key_float_right) from ${tableName5} order by k; """
 }

@@ -31,6 +31,9 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_contains(array(cast (111.111 as decimalv3(6,3)),cast (222.222 as decimalv3(6,3))), cast (111.111 as decimalv3(6,3)))"
 
     // array_contains_all function
+    qt_sql "select array_contains_all(NULL, NULL)"
+    qt_sql "select array_contains_all(NULL, [])"
+    qt_sql "select array_contains_all([], NULL)"
     qt_sql "select array_contains_all([], [])"
     qt_sql "select array_contains_all([1], [])"
     qt_sql "select array_contains_all([1, NULL], [NULL])"
