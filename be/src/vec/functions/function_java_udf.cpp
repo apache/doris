@@ -17,6 +17,8 @@
 
 #include "vec/functions/function_java_udf.h"
 
+#include <glog/logging.h>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -156,11 +158,9 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         data_cols[arg_idx] = column.column->convert_to_full_column_if_const();
 
         // check type
-        if (_argument_types[arg_idx]->equals(*column_type) == false) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "$0-th input column's type $1 does not equal to required type $2", arg_idx,
-                    column_type->get_name(), _argument_types[arg_idx]->get_name()));
-        }
+        DCHECK(_argument_types[arg_idx]->equals(*column_type))
+                << " input column's type is " + column_type->get_name()
+                << " does not equal to required type " << _argument_types[arg_idx]->get_name();
 
         // get argument null map and nested column
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*data_cols[arg_idx])) {
@@ -306,7 +306,8 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
                 "Java UDF doesn't support return type $0 now !", return_type->get_name()));
     }
     env->DeleteLocalRef(result_obj);
-
+    env->DeleteLocalRef(obj_class);
+    env->DeleteLocalRef(arraylist_class);
     if (result_nullable) {
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res_col), std::move(null_col)));
