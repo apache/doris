@@ -113,14 +113,16 @@ public class BackendServiceProxy {
             return serviceClientExtIp.client;
         }
         // not exist, create one and return.
+        BackendServiceClient removedClient = null;
         lock.lock();
         try {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
                 LOG.warn("Cached ip changed ,before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
                 serviceMap.remove(address);
+                removedClient = serviceClientExtIp.client;
+                serviceClientExtIp = null;
             }
-            serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp == null) {
                 BackendServiceClient client = new BackendServiceClient(address, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
@@ -128,6 +130,9 @@ public class BackendServiceProxy {
             return serviceMap.get(address).client;
         } finally {
             lock.unlock();
+            if (removedClient != null) {
+                removedClient.shutdown();
+            }
         }
     }
 
