@@ -453,10 +453,6 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
-    // For merge_on_write table, it must get all segments in this flush.
-    // The id of new segment is set by the _num_segment of beta_rowset_writer,
-    // and new segment ids is between [atomic_num_segments_before_flush, atomic_num_segments_after_flush),
-    // and use the ids to load segment data file for calc delete bitmap.
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush()));
