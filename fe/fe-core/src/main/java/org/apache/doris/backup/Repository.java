@@ -703,6 +703,10 @@ public class Repository implements Writable {
                     info.add(snapshotName);
                     info.add(Joiner.on("\n").join(tmp));
                     info.add("OK");
+                } else {
+                    info.add(snapshotName);
+                    info.add(FeConstants.null_string);
+                    info.add("ERROR: No info file found");
                 }
             }
         } else {
