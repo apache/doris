@@ -1515,8 +1515,10 @@ bool Tablet::do_tablet_meta_checkpoint() {
         rs_meta->set_remove_from_rowset_meta();
     }
 
-    TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, tablet_id(),
-                                                        max_version_unlocked().second);
+    if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+        TabletMetaManager::remove_old_version_delete_bitmap(_data_dir, tablet_id(),
+                                                            max_version_unlocked().second);
+    }
 
     _newly_created_rowset_num = 0;
     _last_checkpoint_time = UnixMillis();
