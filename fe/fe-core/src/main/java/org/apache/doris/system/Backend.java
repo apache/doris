@@ -761,18 +761,33 @@ public class Backend implements Writable {
             Info.clear();
         }
 
+        public void showCoresInfo() {
+            List<String> beinfoStrs = new ArrayList<String>();
+            for (Long beid : Info.keySet()) {
+                BeInfoCollector beinfo = Info.get(beid);
+                int numCores = beinfo.getNumCores();
+                beinfoStrs.add(beid + ":" + numCores);
+            }
+            LOG.info("be cores info " + String.join(" , ", beinfoStrs));
+        }
+
         public void addBeInfo(long beId, int numCores) {
             Info.put(beId, new BeInfoCollector(numCores));
+            showCoresInfo();
         }
 
         public void dropBeInfo(long beId) {
             Info.remove(beId);
+            showCoresInfo();
         }
 
         public int getMinNumCores() {
             int minNumCores = Integer.MAX_VALUE;
             for (BeInfoCollector beinfo : Info.values()) {
-                minNumCores = Math.min(minNumCores, beinfo.getNumCores());
+                int numCores = beinfo.getNumCores();
+                if (numCores > 0) {
+                    minNumCores = Math.min(minNumCores, numCores);
+                }
             }
             return Math.max(1, minNumCores);
         }

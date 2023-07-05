@@ -192,12 +192,15 @@ public class ReportHandler extends Daemon {
             return result;
         }
 
-        LOG.info("receive report from be {}. type: {}, current queue size: {}",
-                backend.getId(), reportType, reportQueue.size());
         if (reportType == ReportType.DISK) {
             Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
             int numCores = request.getNumCores();
             beinfoCollector.addBeInfo(beId, numCores);
+            LOG.info("receive report from be {}. type: {}, current queue size: {} ,numcores : {}",
+                    backend.getId(), reportType, reportQueue.size(), numCores);
+        } else {
+            LOG.info("receive report from be {}. type: {}, current queue size: {}",
+                    backend.getId(), reportType, reportQueue.size());
         }
         return result;
     }
