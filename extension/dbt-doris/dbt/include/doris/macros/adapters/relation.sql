@@ -76,12 +76,21 @@
       {% for item in cols %}
         {{ item }}{% if not loop.last %},{% endif %}
       {% endfor %}
-    ) BUCKETS {{ config.get('buckets', validator=validation.any[int]) or 1 }}
+    ) BUCKETS {{ config.get('buckets', validator=validation.any[int]) or 10 }}
   {% endif %}
 {%- endmacro %}
 
 {% macro doris__properties() -%}
   {% set properties = config.get('properties', validator=validation.any[dict]) %}
+  {% set replice_num =  config.get('replication_num') %}
+
+  {% if replice_num is not none %}
+    {% if properties is none %}
+      {% set properties = {} %}
+    {% endif %}
+    {% do properties.update({'replication_num': replice_num}) %}
+  {% endif %}
+
   {% if properties is not none %}
     PROPERTIES (
         {% for key, value in properties.items() %}
