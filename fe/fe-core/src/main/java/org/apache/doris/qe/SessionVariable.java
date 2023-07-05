@@ -617,7 +617,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean extractWideRangeExpr = true;
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_DML)
-    public boolean enableNereidsDML = false;
+    public boolean enableNereidsDML = true;
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE, expType = ExperimentalType.EXPERIMENTAL_ONLINE)
     public boolean enableVectorizedEngine = true;
