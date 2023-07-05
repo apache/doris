@@ -990,7 +990,7 @@ Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, FlushC
     //  static   dynamic
     // | ----- | ------- |
     // The static ones are original _tablet_schame columns
-    TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(_context.tablet_schema);
+    TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_context.tablet_schema);
     vectorized::Block flush_block(std::move(block));
     // The dynamic ones are auto generated and extended, append them the the orig_block
     for (auto& entry : object_column.get_subcolumns()) {
