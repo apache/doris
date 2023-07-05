@@ -23,7 +23,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 import org.apache.doris.service.FrontendOptions;
 
-import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -147,12 +146,12 @@ public class HttpServer extends SpringBootServletInitializer {
         } else {
             properties.put("server.address", "0.0.0.0");
         }
-        properties.put ("server.servlet.context-path", "/");
+        properties.put("server.servlet.context-path", "/");
 
         if (!Config.disable_web_ui) {
-            properties.put ("spring.resources.static-locations", "classpath:/static");
+            properties.put("spring.resources.static-locations", "classpath:/static");
         } else {
-            properties.put ("spring.resources.static-locations", "classpath:/");
+            properties.put("spring.resources.static-locations", "classpath:/");
         }
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
