@@ -196,9 +196,6 @@ public:
 
     std::unique_ptr<vectorized::Block> to_block();
 
-    int64_t flush_size() const { return _flush_size; }
-    void set_flush_size(int64_t flush_size) { _flush_size = flush_size; }
-
     void set_callback(std::function<void(MemTableStat&)> callback) {
         _delta_writer_callback = callback;
     }
@@ -244,8 +241,6 @@ private:
 
     RowsetWriter* _rowset_writer;
 
-    // the data size flushed on disk of this memtable
-    int64_t _flush_size = 0;
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggregate key model.

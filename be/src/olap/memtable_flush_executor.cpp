@@ -89,7 +89,7 @@ Status FlushToken::wait() {
     return s == OK ? Status::OK() : Status::Error(s);
 }
 
-Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id) {
+Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t& flush_size) {
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     //SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
@@ -105,9 +105,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id) {
     */
     ctx.segment_id = std::optional<int32_t> {segment_id};
     //SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
-    int64_t flush_size;
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(block.get(), &flush_size, &ctx));
-    memtable->set_flush_size(flush_size);
     //_delta_writer_callback(_stat);
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
@@ -126,7 +124,8 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
     timer.start();
     size_t memory_usage = memtable->memory_usage();
 
-    Status s = _do_flush_memtable(memtable, segment_id);
+    int64_t flush_size;
+    Status s = _do_flush_memtable(memtable, segment_id, flush_size);
 
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
@@ -141,12 +140,12 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
                   << "(ns), flush memtable cost: " << timer.elapsed_time()
                   << "(ns), running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
-                  << ", mem size: " << memory_usage << ", disk size: " << memtable->flush_size();
+                  << ", mem size: " << memory_usage << ", disk size: " << flush_size;
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_running_count--;
     _stats.flush_size_bytes += memtable->memory_usage();
-    _stats.flush_disk_size_bytes += memtable->flush_size();
+    _stats.flush_disk_size_bytes += flush_size;
 }
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
