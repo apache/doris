@@ -931,6 +931,7 @@ suite("test_stream_load", "p0") {
     def year = time[0].toString()
     SimpleDateFormat sdf= new SimpleDateFormat("yyyy-MM-dd")
     def now = sdf.format(new Date()).toString().split("-")
+
     // parse time is correct
     // Due to the time difference in parsing, should deal with three situations:
     // 2023-6-29 -> 2023-6-30
@@ -938,5 +939,8 @@ suite("test_stream_load", "p0") {
     // 2023-12-31 -> 2024-1-1
     // now only compare year simply, you can retry if this test is error.
     assertEquals(year, now[0])
+    // parse k1 default value
+    assertEquals(res[0][0], 1)
+    assertEquals(res[1][0], 1)
 }
 
