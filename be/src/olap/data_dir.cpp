@@ -21,7 +21,6 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdio.h>
-
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -788,8 +787,10 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     int64_t left_bytes = _available_bytes - incoming_data_size;
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
         left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
-        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct
-                     << ", left bytes: " << left_bytes << ", path: " << _path;
+        LOG(WARNING) << "reach capacity limit. total capicity:" << _disk_capacity_bytes
+                     << ", used pct: " << used_pct
+                     << ", left bytes: " << std::max(static_cast<int64_t>(0), left_bytes)
+                     << ", path: " << _path;
         return true;
     }
     return false;

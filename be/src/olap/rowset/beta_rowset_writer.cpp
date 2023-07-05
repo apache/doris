@@ -823,7 +823,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     Status s = (*writer)->finalize(&segment_size, &index_size);
     if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
-        return Status::Error<WRITER_DATA_WRITE_ERROR>();
+        return Status::Error<WRITER_DATA_WRITE_ERROR>(s.to_string());
     }
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
                << " flushing filename: " << (*writer)->get_data_dir()->path()

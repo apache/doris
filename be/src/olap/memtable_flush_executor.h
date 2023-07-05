@@ -22,6 +22,8 @@
 #include <atomic>
 #include <iosfwd>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <utility>
 #include <vector>
 
@@ -47,6 +49,27 @@ struct FlushStatistic {
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 
+// wrapper of the flush status for thread-safe
+// if failed, fail status will be recorded in details
+struct FlushStatus {
+public:
+    FlushStatus() : _status(Status::OK()) {}
+
+    void store(const Status& s) {
+        std::unique_lock<std::shared_mutex> lock(_mu);
+        _status = s;
+    }
+
+    Status load() const {
+        std::shared_lock<std::shared_mutex> lock(_mu);
+        return _status;
+    }
+
+private:
+    Status _status;
+    mutable std::shared_mutex _mu;
+};
+
 // A thin wrapper of ThreadPoolToken to submit task.
 // For a tablet, there may be multiple memtables, which will be flushed to disk
 // one by one in the order of generation.
@@ -57,7 +80,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 class FlushToken {
 public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-            : _flush_token(std::move(flush_pool_token)), _flush_status(ErrorCode::OK) {}
+            : _flush_token(std::move(flush_pool_token)) {}
 
     Status submit(std::unique_ptr<MemTable> mem_table);
 
@@ -80,7 +103,7 @@ private:
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<int> _flush_status;
+    FlushStatus _flush_status;
 
     FlushStatistic _stats;
 };
@@ -96,7 +119,7 @@ private:
 //      ...
 class MemTableFlushExecutor {
 public:
-    MemTableFlushExecutor() {}
+    MemTableFlushExecutor() = default;
     ~MemTableFlushExecutor() {
         _flush_pool->shutdown();
         _high_prio_flush_pool->shutdown();
