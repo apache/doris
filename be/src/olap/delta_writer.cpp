@@ -266,7 +266,6 @@ Status DeltaWriter::_flush_memtable_async() {
     if (_mem_table->empty()) {
         return Status::OK();
     }
-    _mem_table->assign_segment_id();
     return _flush_token->submit(std::move(_mem_table));
 }
 

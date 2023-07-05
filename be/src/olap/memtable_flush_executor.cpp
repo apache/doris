@@ -37,21 +37,23 @@ using namespace ErrorCode;
 class MemtableFlushTask final : public Runnable {
 public:
     MemtableFlushTask(FlushToken* flush_token, std::unique_ptr<MemTable> memtable,
-                      int64_t submit_task_time)
+                      int32_t segment_id, int64_t submit_task_time)
             : _flush_token(flush_token),
               _memtable(std::move(memtable)),
+              _segment_id(segment_id),
               _submit_task_time(submit_task_time) {}
 
     ~MemtableFlushTask() override = default;
 
     void run() override {
-        _flush_token->_flush_memtable(_memtable.get(), _submit_task_time);
+        _flush_token->_flush_memtable(_memtable.get(), _segment_id, _submit_task_time);
         _memtable.reset();
     }
 
 private:
     FlushToken* _flush_token;
     std::unique_ptr<MemTable> _memtable;
+    int32_t _segment_id;
     int64_t _submit_task_time;
 };
 
@@ -71,7 +73,8 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
         return Status::Error(s);
     }
     int64_t submit_task_time = MonotonicNanos();
-    auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time);
+    auto task = std::make_shared<MemtableFlushTask>(
+            this, std::move(mem_table), _rowset_writer->allocate_segment_id(), submit_task_time);
     _stats.flush_running_count++;
     return _flush_token->submit(std::move(task));
 }
@@ -86,7 +89,7 @@ Status FlushToken::wait() {
     return s == OK ? Status::OK() : Status::Error(s);
 }
 
-Status FlushToken::_do_flush_memtable(MemTable* memtable) {
+Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id) {
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     //SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
@@ -100,7 +103,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable) {
         RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
     }
     */
-    ctx.segment_id = memtable->segment_id();
+    ctx.segment_id = std::optional<int32_t> {segment_id};
     //SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
     int64_t flush_size;
     RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(block.get(), &flush_size, &ctx));
@@ -111,7 +114,7 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable) {
     return Status::OK();
 }
 
-void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
+void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t submit_task_time) {
     uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
     _stats.flush_wait_time_ns += flush_wait_time_ns;
     // If previous flush has failed, return directly
@@ -123,7 +126,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     timer.start();
     size_t memory_usage = memtable->memory_usage();
 
-    Status s = _do_flush_memtable(memtable);
+    Status s = _do_flush_memtable(memtable, segment_id);
 
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
