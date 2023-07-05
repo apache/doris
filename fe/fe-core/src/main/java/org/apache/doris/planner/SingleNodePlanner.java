@@ -310,7 +310,11 @@ public class SingleNodePlanner {
                 if (sqlSelectLimit >= 0 && sqlSelectLimit < Long.MAX_VALUE) {
                     newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
                 }
-                root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                if (newDefaultOrderByLimit == Long.MAX_VALUE) {
+                    root.setLimit(limit);
+                } else {
+                    root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                }
             } else {
                 root.setLimit(limit);
             }
