@@ -614,6 +614,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
     if (read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
+        read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
         read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
         read_params.reader_type == ReaderType::READER_CHECKSUM) {
         _filter_delete = true;

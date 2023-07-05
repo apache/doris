@@ -235,7 +235,14 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         FullCompaction full_compaction(tablet);
         res = full_compaction.compact();
         if (!res) {
-            // todo
+            if (res.is<FULL_NO_SUITABLE_VERSION>()) {
+                // Ignore this error code.
+                VLOG_NOTICE << "failed to init full compaction due to no suitable version,"
+                            << "tablet=" << tablet->full_name();
+            } else {
+                LOG(WARNING) << "failed to do full compaction. res=" << res
+                             << ", table=" << tablet->full_name();
+            }
         }
     }
 

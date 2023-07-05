@@ -751,6 +751,28 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
     return Status::OK();
 }
 
+Status Compaction::check_all_version(const std::vector<RowsetSharedPtr>& rowsets) {
+    // TODO:
+    if (rowsets.empty()) {
+        return Status::OK();
+    }
+    RowsetSharedPtr prev_rowset = rowsets.front();
+    for (size_t i = 1; i < rowsets.size(); ++i) {
+        RowsetSharedPtr rowset = rowsets[i];
+        if (rowset->start_version() != prev_rowset->end_version() + 1) {
+            LOG(WARNING) << "There are missed versions among rowsets. "
+                         << "prev_rowset version=" << prev_rowset->start_version() << "-"
+                         << prev_rowset->end_version()
+                         << ", rowset version=" << rowset->start_version() << "-"
+                         << rowset->end_version();
+            return Status::Error<CUMULATIVE_MISS_VERSION>();
+        }
+        prev_rowset = rowset;
+    }
+
+    return Status::OK();
+}
+
 Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
