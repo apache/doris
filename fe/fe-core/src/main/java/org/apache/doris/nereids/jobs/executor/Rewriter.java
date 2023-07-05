@@ -207,7 +207,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
-                    bottomUp(new EliminateNotNull())
+                    bottomUp(new EliminateNotNull()),
+                    topDown(new ConvertInnerOrCrossJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -237,6 +238,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
+
+            // topic("Distinct",
+            //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
+            // ),
 
             topic("Window optimization",
                     topDown(

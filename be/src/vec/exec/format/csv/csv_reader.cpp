@@ -661,7 +661,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     reader_options.modification_time =
             _range.__isset.modification_time ? _range.modification_time : 0;
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties, _file_description,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
                                                     &_file_system, &_file_reader, reader_options));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {

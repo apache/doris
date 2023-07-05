@@ -82,23 +82,23 @@ for f in "${DORIS_HOME}/lib/java_extensions"/*.jar; do
     if [[ -z "${DORIS_CLASSPATH}" ]]; then
         export DORIS_CLASSPATH="${f}"
     else
-        export DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        export DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     fi
 done
 
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
     for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
 
@@ -107,7 +107,7 @@ fi
 if command -v hadoop >/dev/null 2>&1; then
     HADOOP_SYSTEM_CLASSPATH="$(hadoop classpath --glob)"
 fi
-export CLASSPATH="${HADOOP_SYSTEM_CLASSPATH}:${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
+export CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_SYSTEM_CLASSPATH}:${DORIS_HOME}/conf/"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 
@@ -302,6 +302,8 @@ export LIBHDFS_OPTS="${final_java_opt}"
 
 # see https://github.com/apache/doris/blob/master/docs/zh-CN/community/developer-guide/debug-tool.md#jemalloc-heap-profile
 export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:30000,dirty_decay_ms:30000,oversize_threshold:0,lg_tcache_max:16,prof_prefix:jeprof.out"
+export AWS_EC2_METADATA_DISABLED=true
+export AWS_MAX_ATTEMPTS=2
 
 if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &

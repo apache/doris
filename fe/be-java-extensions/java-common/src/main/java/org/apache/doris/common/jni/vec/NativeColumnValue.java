@@ -15,16 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.common.jni.vec;
 
-import org.apache.doris.qe.ConnectContext;
+/**
+ * Native types of data that can be directly copied.
+ */
+public interface NativeColumnValue {
+    public static class NativeValue {
+        public final Object baseObject;
+        public final long offset;
+        public final int length;
 
-public class VectorizedUtil {
-    public static boolean isPipeline() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
+        public NativeValue(Object baseObject, long offset) {
+            this.baseObject = baseObject;
+            this.offset = offset;
+            this.length = -1;
         }
-        return connectContext.getSessionVariable().enablePipelineEngine();
+
+        public NativeValue(Object baseObject, long offset, int length) {
+            this.baseObject = baseObject;
+            this.offset = offset;
+            this.length = length;
+        }
     }
+
+    boolean isNull();
+
+    /**
+     * Return null if the type can't be copied directly
+     */
+    NativeValue getNativeValue(ColumnType.Type type);
 }

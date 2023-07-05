@@ -378,6 +378,7 @@ public class JdbcTable extends Table {
             case POSTGRESQL:
             case CLICKHOUSE:
             case TRINO:
+            case PRESTO:
             case OCEANBASE_ORACLE:
             case SAP_HANA:
                 return formatName(name, "\"", "\"", false, false);

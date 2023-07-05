@@ -23,7 +23,7 @@ from setuptools import find_namespace_packages, setup
 package_name = "dbt-doris"
 # make sure this always matches dbt/adapters/{adapter}/__version__.py
 package_version = "0.2.1"
-dbt_core_version = "1.3.0"
+dbt_core_version = "1.5.0"
 description = """The doris adapter plugin for dbt """
 
 setup(
@@ -41,5 +41,5 @@ setup(
         "mysql-connector-python>=8.0.0,<8.1",
         "urllib3~=1.0",
     ],
-    python_requires=">=3.7.2",
+    python_requires=">=3.7",
 )

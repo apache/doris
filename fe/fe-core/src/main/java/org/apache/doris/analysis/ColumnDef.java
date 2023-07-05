@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -302,6 +303,11 @@ public class ColumnDef {
                     && !aggregateType.checkCompatibility(type.getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
                         toString(), type.toSql()));
+            }
+            if (aggregateType == AggregateType.GENERIC_AGGREGATION) {
+                if (!SessionVariable.enableAggState()) {
+                    throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
+                }
             }
         }
 
