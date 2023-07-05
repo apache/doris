@@ -544,7 +544,7 @@ Status BetaRowsetWriter::_do_flush_memtable(MemTable* memtable, int32_t segment_
         RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
-    SCOPED_RAW_TIMER(&memtable->stat().segment_writer_ns);
+    SCOPED_RAW_TIMER(&_memtable_stat.segment_writer_ns);
     RETURN_IF_ERROR(flush_single_memtable(block.get(), flush_size, &ctx));
     return Status::OK();
 }

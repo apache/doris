@@ -141,7 +141,7 @@ private:
 
 class MemTableStat {
 public:
-    MemTableStat& operator+=(MemTableStat& stat) {
+    MemTableStat& operator+=(const MemTableStat& stat) {
         raw_rows += stat.raw_rows;
         merged_rows += stat.merged_rows;
         sort_ns += stat.sort_ns;
@@ -195,7 +195,7 @@ public:
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
-    MemTableStat& stat() { return _stat; }
+    const MemTableStat& stat() { return _stat; }
 
     std::shared_ptr<MemTracker> flush_mem_tracker() { return _flush_mem_tracker; }
 
