@@ -259,11 +259,6 @@ public class AnalysisManager extends Daemon implements Writable {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
         }
-        try {
-            updateTableStats(jobInfo);
-        } catch (Throwable e) {
-            LOG.warn("Failed to update Table statistics in job: {}", info.toString());
-        }
 
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
     }
@@ -622,6 +617,13 @@ public class AnalysisManager extends Daemon implements Writable {
                 logCreateAnalysisJob(job);
             } else {
                 job.state = AnalysisState.FINISHED;
+                if (job.jobType.equals(JobType.SYSTEM)) {
+                    try {
+                        updateTableStats(job);
+                    } catch (Throwable e) {
+                        LOG.warn("Failed to update Table statistics in job: {}", info.toString());
+                    }
+                }
                 logCreateAnalysisJob(job);
             }
             analysisJobIdToTaskMap.remove(job.jobId);
