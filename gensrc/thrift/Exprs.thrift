@@ -249,7 +249,7 @@ struct TExprNode {
   32: optional TColumnRef column_ref
   33: optional TMatchPredicate match_predicate
 
-  33: optional TGeometryLiteral geometry_literal
+  34: optional TGeometryLiteral geometry_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first
