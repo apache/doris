@@ -49,7 +49,7 @@ public class TableStatisticsCacheLoader extends StatisticsCacheLoader<Optional<T
             long rowCount = table.getRowCount();
             long lastAnalyzeTimeInMs = System.currentTimeMillis();
             String updateTime = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(lastAnalyzeTimeInMs));
-            Optional.of(new TableStatistic(rowCount, lastAnalyzeTimeInMs, updateTime));
+            return Optional.of(new TableStatistic(rowCount, lastAnalyzeTimeInMs, updateTime));
         } catch (Exception e) {
             LOG.warn(String.format("Fail to get row count for table %d", key.tableId), e);
         }
