@@ -25,6 +25,7 @@
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
 #include "vec/exprs/vexpr.h"
+#include "common/signal_handler.h"
 
 namespace doris::vectorized {
 VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -151,6 +152,10 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
+    // stackinfo print queryid when be core in scanner_thread()
+    doris::signal::query_id_hi = _runtime_state->query_id().hi;
+    doris::signal::query_id_lo = _runtime_state->query_id().lo;
+
     // SCOPED_ATTACH_TASK(_runtime_state); // TODO Recorded on an independent tracker
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter

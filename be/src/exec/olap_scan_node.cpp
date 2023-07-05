@@ -25,6 +25,7 @@
 #include "agent/cgroups_mgr.h"
 #include "common/logging.h"
 #include "common/resource_tls.h"
+#include "common/signal_handler.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
@@ -1540,6 +1541,10 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    // stackinfo print queryid when be core in scanner_thread()
+    doris::signal::query_id_hi = _runtime_state->query_id().hi;
+    doris::signal::query_id_lo = _runtime_state->query_id().lo;
+
     // SCOPED_ATTACH_TASK(_runtime_state);
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;

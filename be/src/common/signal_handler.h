@@ -48,10 +48,10 @@
 
 namespace doris::signal {
 
-namespace {
-
 inline thread_local uint64 query_id_hi;
 inline thread_local uint64 query_id_lo;
+
+namespace {
 
 // We'll install the failure signal handler for these signals.  We could
 // use strsignal() to get signal names, but we don't use it to avoid
