@@ -193,7 +193,6 @@ public:
 
     /// Flush
     Status flush();
-    Status close();
 
     int64_t flush_size() const { return _flush_size; }
 

@@ -484,10 +484,6 @@ void MemTable::assign_segment_id() {
     _segment_id = std::optional<int32_t> {_rowset_writer->allocate_segment_id()};
 }
 
-Status MemTable::close() {
-    return flush();
-}
-
 Status MemTable::unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
     if (block.rows() == 0) {
         return Status::OK();
