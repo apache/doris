@@ -526,7 +526,7 @@ Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id, 
     int64_t duration_ns;
     SCOPED_RAW_TIMER(&duration_ns);
     SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush_memtable(memtable, segment_id, flush_size)));
-    // TODO: _delta_writer_callback(_stat);
+    memtable->callback();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()

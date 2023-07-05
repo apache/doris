@@ -195,6 +195,8 @@ public:
         _delta_writer_callback = callback;
     }
 
+    void callback() { _delta_writer_callback(_stat); }
+
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
     MemTableStat& stat() { return _stat; }
