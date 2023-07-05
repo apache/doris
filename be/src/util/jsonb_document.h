@@ -351,7 +351,9 @@ public:
     //return true if json path valid else return false
     bool seek(const char* string, size_t length);
 
-    void add_leg_to_leg_vector(std::unique_ptr<leg_info> leg) { leg_vector.emplace_back(leg.release()); }
+    void add_leg_to_leg_vector(std::unique_ptr<leg_info> leg) {
+        leg_vector.emplace_back(leg.release());
+    }
 
     size_t get_leg_vector_size() { return leg_vector.size(); }
 
@@ -1314,7 +1316,8 @@ inline bool JsonbPath::parse_array(Stream* stream, JsonbPath* path) {
         stream->add_leg_len();
         stream->skip(1);
         if (stream->peek() == END_ARRAY) {
-            std::unique_ptr<leg_info> leg(new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
+            std::unique_ptr<leg_info> leg(
+                    new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, ARRAY_CODE));
             path->add_leg_to_leg_vector(std::move(leg));
             stream->skip(1);
             return true;
@@ -1388,7 +1391,8 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         stream->set_leg_ptr(const_cast<char*>(stream->position()));
         stream->add_leg_len();
         stream->skip(1);
-        std::unique_ptr<leg_info> leg(new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
+        std::unique_ptr<leg_info> leg(
+                new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
         path->add_leg_to_leg_vector(std::move(leg));
         return true;
     }
@@ -1433,7 +1437,8 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
         stream->remove_escapes();
     }
 
-    std::unique_ptr<leg_info> leg(new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
+    std::unique_ptr<leg_info> leg(
+            new leg_info(stream->get_leg_ptr(), stream->get_leg_len(), 0, MEMBER_CODE));
     path->add_leg_to_leg_vector(std::move(leg));
 
     return true;
