@@ -680,7 +680,9 @@ object BaseSplitReader {
   private def getConfigProperties(spark: SparkSession, options: Map[String, String]) = {
     val sqlConf: SQLConf = spark.sessionState.conf
     val properties = new TypedProperties()
-    properties.putAll(options.filter(p => p._2 != null).asJava)
+    // Ambiguous reference when invoking Properties.putAll() in Java 11
+    // Reference https://github.com/scala/bug/issues/10418
+    options.filter(p => p._2 != null).foreach(p => properties.setProperty(p._1, p._2))
 
     // TODO(HUDI-5361) clean up properties carry-over
 
