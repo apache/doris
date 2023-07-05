@@ -312,7 +312,7 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            if (!stmt.hasLimit()) {
+            if (!stmt.hasLimit() && sqlSelectLimit < Long.MAX_VALUE) {
                 root.setLimitAndOffset(sqlSelectLimit, stmt.getOffset());
             } else {
                 root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
