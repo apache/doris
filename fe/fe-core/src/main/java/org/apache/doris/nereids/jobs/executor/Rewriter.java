@@ -239,6 +239,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new BuildAggForUnion())
             ),
 
+            // topic("Distinct",
+            //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
+            // ),
+
             topic("Window optimization",
                     topDown(
                             new PushdownLimit(),
