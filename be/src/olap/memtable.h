@@ -194,6 +194,8 @@ public:
     /// Flush
     Status flush();
 
+    std::unique_ptr<vectorized::Block> to_block();
+
     int64_t flush_size() const { return _flush_size; }
 
     void set_callback(std::function<void(MemTableStat&)> callback) {

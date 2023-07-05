@@ -435,6 +435,21 @@ bool MemTable::need_agg() const {
     return false;
 }
 
+std::unique_ptr<vectorized::Block> MemTable::to_block() {
+    size_t same_keys_num = _sort();
+    if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
+        if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
+            _output_mutable_block.swap(_input_mutable_block);
+        } else {
+            vectorized::Block in_block = _input_mutable_block.to_block();
+            _put_into_output(in_block);
+        }
+    } else {
+        _aggregate<true>();
+    }
+    return vectorized::Block::create_unique(_output_mutable_block.to_block());
+}
+
 Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << tablet_id()
                   << ", memsize: " << memory_usage() << ", rows: " << _stat.raw_rows;
@@ -456,27 +471,17 @@ Status MemTable::flush() {
 
 Status MemTable::_do_flush() {
     SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    size_t same_keys_num = _sort();
-    if (_keys_type == KeysType::DUP_KEYS || same_keys_num == 0) {
-        if (_keys_type == KeysType::DUP_KEYS && _tablet_schema->num_key_columns() == 0) {
-            _output_mutable_block.swap(_input_mutable_block);
-        } else {
-            vectorized::Block in_block = _input_mutable_block.to_block();
-            _put_into_output(in_block);
-        }
-    } else {
-        _aggregate<true>();
-    }
-    vectorized::Block block = _output_mutable_block.to_block();
+    std::unique_ptr<vectorized::Block> block = to_block();
+
     FlushContext ctx;
-    ctx.block = &block;
+    ctx.block = block.get();
     if (_tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        RETURN_IF_ERROR(unfold_variant_column(block, &ctx));
+        RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
     }
     ctx.segment_id = _segment_id;
     SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
-    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(&block, &_flush_size, &ctx));
+    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(block.get(), &_flush_size, &ctx));
     return Status::OK();
 }
 
