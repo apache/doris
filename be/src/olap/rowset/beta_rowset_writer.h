@@ -36,6 +36,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -143,6 +144,8 @@ public:
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
+    const MemTableStat& memtable_stat() override { return _memtable_stat; }
+
 private:
     Status _do_add_block(const vectorized::Block* block,
                          std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
@@ -241,6 +244,8 @@ protected:
     std::shared_ptr<MowContext> _mow_context;
 
     int64_t _delete_bitmap_ns = 0;
+
+    MemTableStat _memtable_stat;
 };
 
 } // namespace doris

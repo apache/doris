@@ -191,12 +191,6 @@ public:
 
     std::unique_ptr<vectorized::Block> to_block();
 
-    void set_callback(std::function<void(MemTableStat&)> callback) {
-        _delta_writer_callback = callback;
-    }
-
-    void callback() { _delta_writer_callback(_stat); }
-
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
     MemTableStat& stat() { return _stat; }
@@ -258,7 +252,6 @@ private:
     void _aggregate();
     void _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
-    std::function<void(MemTableStat&)> _delta_writer_callback;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
