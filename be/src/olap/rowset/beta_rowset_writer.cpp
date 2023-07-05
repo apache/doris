@@ -35,6 +35,7 @@
 #include "io/fs/file_reader_options.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "olap/memtable.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -514,6 +515,27 @@ Status BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
         RETURN_IF_ERROR(_flush_segment_writer(&_segment_writer));
     }
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+    int64_t duration_ns;
+    SCOPED_RAW_TIMER(&duration_ns);
+    //SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
+    std::unique_ptr<vectorized::Block> block = memtable->to_block();
+
+    FlushContext ctx;
+    ctx.block = block.get();
+    if (_context.tablet_schema->is_dynamic_schema()) {
+        // Unfold variant column
+        RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
+    }
+    ctx.segment_id = std::optional<int32_t> {segment_id};
+    //SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
+    RETURN_IF_ERROR(flush_single_memtable(block.get(), flush_size, &ctx));
+    //_delta_writer_callback(_stat);
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     return Status::OK();
 }
 

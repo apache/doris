@@ -90,6 +90,8 @@ public:
 
     Status flush() override;
 
+    Status flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) override;
+
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,

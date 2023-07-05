@@ -72,6 +72,10 @@ public:
     }
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
+    virtual Status flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    }
+
     virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
                                          const FlushContext* ctx = nullptr) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();

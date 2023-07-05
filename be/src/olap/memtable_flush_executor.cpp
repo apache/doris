@@ -89,29 +89,6 @@ Status FlushToken::wait() {
     return s == OK ? Status::OK() : Status::Error(s);
 }
 
-Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t& flush_size) {
-    int64_t duration_ns;
-    SCOPED_RAW_TIMER(&duration_ns);
-    //SCOPED_CONSUME_MEM_TRACKER(_flush_mem_tracker);
-    std::unique_ptr<vectorized::Block> block = memtable->to_block();
-
-    FlushContext ctx;
-    ctx.block = block.get();
-    /*
-    if (_tablet_schema->is_dynamic_schema()) {
-        // Unfold variant column
-        RETURN_IF_ERROR(unfold_variant_column(*block, &ctx));
-    }
-    */
-    ctx.segment_id = std::optional<int32_t> {segment_id};
-    //SCOPED_RAW_TIMER(&_stat.segment_writer_ns);
-    RETURN_IF_ERROR(_rowset_writer->flush_single_memtable(block.get(), &flush_size, &ctx));
-    //_delta_writer_callback(_stat);
-    DorisMetrics::instance()->memtable_flush_total->increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    return Status::OK();
-}
-
 void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t submit_task_time) {
     uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
     _stats.flush_wait_time_ns += flush_wait_time_ns;
@@ -125,7 +102,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
     size_t memory_usage = memtable->memory_usage();
 
     int64_t flush_size;
-    Status s = _do_flush_memtable(memtable, segment_id, flush_size);
+    Status s = _rowset_writer->flush_memtable(memtable, segment_id, &flush_size);
 
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
