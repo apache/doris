@@ -72,4 +72,10 @@ public class InsertEvent extends MetastoreTableEvent {
                     debugString("Failed to process event"), e);
         }
     }
+
+    @Override
+    protected boolean overrideGroupEvents() {
+        // The processor will refresh the hms table so we can skip all the group events earlier
+        return true;
+    }
 }

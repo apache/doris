@@ -65,4 +65,9 @@ public class DropTableEvent extends MetastoreTableEvent {
                     debugString("Failed to process event"), e);
         }
     }
+
+    @Override
+    protected boolean overrideGroupEvents() {
+        return true;
+    }
 }
