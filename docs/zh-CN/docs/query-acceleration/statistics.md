@@ -80,6 +80,7 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 
 ```SQL
 ANALYZE TABLE | DATABASE table_name | db_name
+    [ PARTITIONS (partition_name [, ...]) ]
     [ (column_name [, ...]) ]
     [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
     [ PROPERTIES ("key" = "value", ...) ];
@@ -88,6 +89,7 @@ ANALYZE TABLE | DATABASE table_name | db_name
 其中：
 
 - table_name: 指定的的目标表。可以是  `db_name.table_name`  形式。
+- partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例:event_date=20230706, nation=CN/city=Beijing
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - incremental：增量收集统计信息。不支持增量收集直方图统计信息。
