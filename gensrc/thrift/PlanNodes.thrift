@@ -294,11 +294,10 @@ struct TPaimonFileDesc {
     2: optional string paimon_column_ids
     3: optional string paimon_column_types
     4: optional string paimon_column_names
-    5: optional string hive_metastore_uris
-    6: optional string warehouse
-    7: optional string db_name
-    8: optional string table_name
-    9: optional string length_byte
+    5: optional string db_name
+    6: optional string table_name
+    7: optional string length_byte
+    8: optional map<string, string> paimon_options
 }
 
 

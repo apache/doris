@@ -49,7 +49,7 @@ public class PaimonExternalTable extends ExternalTable {
     }
 
     public String getPaimonCatalogType() {
-        return ((PaimonExternalCatalog) catalog).getPaimonCatalogType();
+        return ((PaimonExternalCatalog) catalog).getCatalogType();
     }
 
     protected synchronized void makeSureInitialized() {
@@ -120,15 +120,16 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        if (getPaimonCatalogType().equals("hms")) {
+        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType()) || PaimonExternalCatalog.PAIMON_FILESYSTEM
+                .equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
             tTableDescriptor.setHiveTable(tHiveTable);
             return tTableDescriptor;
         } else {
-            throw new IllegalArgumentException("Currently only supports hms catalog,not support :"
-                + getPaimonCatalogType());
+            throw new IllegalArgumentException("Currently only supports hms/filesystem catalog,not support :"
+                    + getPaimonCatalogType());
         }
     }
 }
