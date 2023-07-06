@@ -501,6 +501,12 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
             return project.withProjectsAndChild(newProjects, child);
         }
+
+        @Override
+        public LogicalOlapScan visitLogicalOlapScan(LogicalOlapScan scan, Void ctx) {
+            return (LogicalOlapScan) scan.withGroupExprLogicalPropChildren(scan.getGroupExpression(), Optional.empty(),
+                    ImmutableList.of());
+        }
     }
 
     /**
