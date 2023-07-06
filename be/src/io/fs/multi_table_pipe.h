@@ -32,7 +32,7 @@ class MultiTablePipe : public KafkaConsumerPipe {
 public:
     MultiTablePipe(std::shared_ptr<StreamLoadContext> ctx, size_t max_buffered_bytes = 1024 * 1024,
                    size_t min_chunk_size = 64 * 1024)
-            : KafkaConsumerPipe(max_buffered_bytes, min_chunk_size), _ctx(ctx) {}
+            : KafkaConsumerPipe(max_buffered_bytes, min_chunk_size), _ctx(ctx.get()) {}
 
     ~MultiTablePipe() override = default;
 
@@ -74,7 +74,7 @@ private:
     std::atomic<uint64_t> _unplanned_row_cnt {0}; // trigger plan request when exceed threshold
     std::atomic<uint64_t> _inflight_plan_cnt {0}; // how many plan fragment are executing?
     std::atomic<bool> _consume_finished {false};
-    std::shared_ptr<StreamLoadContext> _ctx;
+    StreamLoadContext* _ctx;
     Status _status; // save the first error status of all executing plan fragment
 #ifndef BE_TEST
     std::mutex _tablet_commit_infos_lock;
