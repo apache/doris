@@ -46,7 +46,7 @@ enum TExprNodeType {
   INFO_FUNC,
   FUNCTION_CALL,
   ARRAY_LITERAL,
-  
+
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL,
   LARGE_INT_LITERAL,
@@ -63,7 +63,7 @@ enum TExprNodeType {
   // for fulltext search
   MATCH_PRED,
 
-  // for map 
+  // for map
   MAP_LITERAL,
 
   // for struct
@@ -149,6 +149,11 @@ struct TLikePredicate {
   1: required string escape_char;
 }
 
+struct TMatchPredicate {
+  1: required string parser_type;
+  2: required string parser_mode;
+}
+
 struct TLiteralPredicate {
   1: required bool value
   2: required bool is_null
@@ -199,7 +204,7 @@ struct TFunctionCallExpr {
 
 struct TSchemaChangeExpr {
   // target schema change table
-  1: optional i64 table_id 
+  1: optional i64 table_id
 }
 
 // This is essentially a union over the subclasses of Expr.
@@ -242,11 +247,12 @@ struct TExprNode {
 
   // For vectorized engine
   31: optional bool is_nullable
-  
+
   32: optional TJsonLiteral json_literal
   33: optional TSchemaChangeExpr schema_change_expr
 
   34: optional TColumnRef column_ref
+  35: optional TMatchPredicate match_predicate
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

@@ -29,7 +29,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_ipv4_serde.h"
 
 namespace doris {
 namespace vectorized {
@@ -51,7 +51,6 @@ public:
     const char* get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
 
-    bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
 
     bool equals(const IDataType& rhs) const override;
@@ -68,7 +67,7 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    //    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeDate64SerDe>(); }
+    DataTypeSerDeSPtr get_serde() const override { return std::make_shared<DataTypeIPv4SerDe>(); }
 };
 
 template <typename DataType>

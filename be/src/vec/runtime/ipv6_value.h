@@ -29,25 +29,23 @@
 
 namespace doris {
 
-namespace vectorized {
-
 class IPv6Value {
 public:
     IPv6Value() = default;
 
-    explicit IPv6Value(UInt128 ipv6) {
+    explicit IPv6Value(vectorized::IPv6 ipv6) {
         _value = ipv6;
     }
 
-    const UInt128& value() const {
+    [[nodiscard]] const vectorized::IPv6& value() const {
         return _value;
     }
 
-    UInt128& value() {
+    vectorized::IPv6& value() {
         return _value;
     }
 
-    void set_value(UInt128 ipv6) {
+    void set_value(vectorized::IPv6 ipv6) {
         _value = ipv6;
     }
 
@@ -55,7 +53,7 @@ public:
         return from_string(_value, ipv6);
     }
 
-    static bool from_string(IPv6& x, std::string ipv6) {
+    static bool from_string(vectorized::IPv6& x, std::string ipv6) {
         remove_ipv6_space(ipv6);
         std::istringstream iss(ipv6);
         std::string field;
@@ -75,7 +73,7 @@ public:
             } else {
                 try {
                     fields[num_field++] = std::stoi(field, nullptr, 16);
-                } catch (const std::exception& e) {
+                } catch (const std::exception& /*e*/) {
                     return false;
                 }
             }
@@ -102,7 +100,7 @@ public:
         return to_string(_value);
     }
 
-    static std::string to_string(const IPv6& x) {
+    static std::string to_string(const vectorized::IPv6& x) {
         uint16_t fields[8] = {
                 static_cast<uint16_t>((x.high >> 48) & 0xFFFF),
                 static_cast<uint16_t>((x.high >> 32) & 0xFFFF),
@@ -173,19 +171,14 @@ public:
         }
     }
 
-    static IPv6Value create_from_olap_ipv6(UInt128 value) {
+    static IPv6Value create_from_olap_ipv6(vectorized::IPv6 value) {
         IPv6Value ipv6;
         ipv6.set_value(value);
         return ipv6;
     }
 
 private:
-    UInt128 _value;
+    vectorized::IPv6 _value;
 };
 
 }
-
-}
-
-
-

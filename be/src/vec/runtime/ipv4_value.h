@@ -26,13 +26,11 @@
 
 namespace doris {
 
-namespace vectorized {
-
 class IPv4Value {
 public:
     IPv4Value() = default;
 
-    explicit IPv4Value(IPv4 ipv4) {
+    explicit IPv4Value(vectorized::IPv4 ipv4) {
         _value = ipv4;
     }
 
@@ -40,15 +38,15 @@ public:
 
     }
 
-    const IPv4& value() const {
+    [[nodiscard]] const vectorized::IPv4& value() const {
         return _value;
     }
 
-    IPv4& value() {
+    vectorized::IPv4& value() {
         return _value;
     }
 
-    void set_value(IPv4 ipv4) {
+    void set_value(vectorized::IPv4 ipv4) {
         _value = ipv4;
     }
 
@@ -56,9 +54,9 @@ public:
         return from_string(_value, ipv4);
     }
 
-    static bool from_string(IPv4& value, std::string ipv4) {
+    static bool from_string(vectorized::IPv4& value, std::string ipv4) {
         remove_ipv4_space(ipv4);
-        IPv4 octets[4] = {0};
+        vectorized::IPv4 octets[4] = {0};
         std::istringstream iss(ipv4);
         std::string octet;
         uint8_t octet_index = 0;
@@ -69,7 +67,7 @@ public:
             }
 
             StringParser::ParseResult result;
-            IPv4 val = StringParser::string_to_unsigned_int<IPv4>(octet.c_str(), octet.length(), &result);
+            vectorized::IPv4 val = StringParser::string_to_unsigned_int<vectorized::IPv4>(octet.c_str(), octet.length(), &result);
             if (result != StringParser::PARSE_SUCCESS || val > 255) {
                 return false;
             }
@@ -104,19 +102,14 @@ public:
         }
     }
 
-    static IPv4Value create_from_olap_ipv4(IPv4 value) {
+    static IPv4Value create_from_olap_ipv4(vectorized::IPv4 value) {
         IPv4Value ipv4;
         ipv4.set_value(value);
         return ipv4;
     }
 
 private:
-    IPv4 _value;
+    vectorized::IPv4 _value;
 };
 
 }
-
-}
-
-
-

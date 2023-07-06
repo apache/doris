@@ -595,12 +595,6 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
     case ::arrow::Type::UINT64:
         nested = std::make_shared<vectorized::DataTypeUInt64>();
         break;
-    case ::arrow::Type::IPV4:
-        nested = std::make_shared<vectorized::DataTypeIPv4>();
-        break;
-    case ::arrow::Type::IPV6:
-        nested = std::make_shared<vectorized::DataTypeIPv6>();
-        break;
     case ::arrow::Type::HALF_FLOAT:
     case ::arrow::Type::FLOAT:
         nested = std::make_shared<vectorized::DataTypeFloat32>();
