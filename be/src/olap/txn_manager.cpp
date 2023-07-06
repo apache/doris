@@ -377,7 +377,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
-        std::unique_ptr<MowContext> mow_context_ptr = std::make_unique<MowContext>(
+        std::shared_ptr<MowContext> mow_context_ptr = std::make_shared<MowContext>(
                 version.second, transaction_id, tablet_txn_info.rowset_ids,
                 tablet_txn_info.delete_bitmap);
         tablet->create_transient_rowset_writer(rowset, mow_context_ptr, &rowset_writer);

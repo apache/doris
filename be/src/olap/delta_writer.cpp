@@ -437,7 +437,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         // transient rowset writer to write the new segments, then merge it back the original
         // rowset.
         std::unique_ptr<RowsetWriter> rowset_writer;
-        std::unique_ptr<MowContext> mow_context_ptr = std::make_unique<MowContext>(
+        std::shared_ptr<MowContext> mow_context_ptr = std::make_shared<MowContext>(
                 _cur_max_version, _req.txn_id, _rowset_ids, _delete_bitmap);
         _tablet->create_transient_rowset_writer(_cur_rowset, mow_context_ptr, &rowset_writer);
         RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(

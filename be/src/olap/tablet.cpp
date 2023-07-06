@@ -1910,7 +1910,7 @@ Status Tablet::create_rowset_writer(RowsetWriterContext& context,
 // create a rowset writer with rowset_id and seg_id
 // after writer, merge this transient rowset with original rowset
 Status Tablet::create_transient_rowset_writer(const RowsetSharedPtr& rowset_ptr,
-                                              const std::unique_ptr<MowContext>& mow_context,
+                                              const std::shared_ptr<MowContext>& mow_context,
                                               std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
     context.rowset_state = PREPARED;
