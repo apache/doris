@@ -37,7 +37,9 @@ void DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const UIn
         const vectorized::DateV2Value<vectorized::DateV2ValueType>* time_val =
                 (const vectorized::DateV2Value<vectorized::DateV2ValueType>*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
-        if (null_map && null_map[i]) {
+        // null_map is true if a column has an empty value
+        // null_map[i] true if it gets data, false if it doesn't
+        if (null_map && !null_map[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {

@@ -41,7 +41,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         for (size_t i = start; i < end; ++i) {
-            if (null_map && null_map[i]) {
+            if (null_map && !null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;
@@ -58,7 +58,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
-            if (null_map && null_map[i]) {
+            if (null_map && !null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;
@@ -75,7 +75,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(8, col.get_scale());
         for (size_t i = start; i < end; ++i) {
-            if (null_map && null_map[i]) {
+            if (null_map && !null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;
@@ -91,7 +91,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(18, col.get_scale());
         for (size_t i = start; i < end; ++i) {
-            if (null_map && null_map[i]) {
+            if (null_map && !null_map[i]) {
                 checkArrowStatus(builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
                 continue;

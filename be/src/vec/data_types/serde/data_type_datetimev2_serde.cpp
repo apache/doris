@@ -37,7 +37,7 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
         const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>* time_val =
                 (const vectorized::DateV2Value<vectorized::DateTimeV2ValueType>*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
-        if (null_map && null_map[i]) {
+        if (null_map && !null_map[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {

@@ -87,7 +87,7 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const UInt8*
     const auto& col = assert_cast<const ColumnHLL&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
-        if (null_map && null_map[string_i]) {
+        if (null_map && !null_map[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {

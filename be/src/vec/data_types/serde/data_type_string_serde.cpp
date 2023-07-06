@@ -74,7 +74,7 @@ void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const UIn
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
-        if (null_map && null_map[string_i]) {
+        if (null_map && !null_map[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
             continue;
