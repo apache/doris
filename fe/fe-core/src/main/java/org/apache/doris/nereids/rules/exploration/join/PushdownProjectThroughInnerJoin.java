@@ -122,7 +122,7 @@ public class PushdownProjectThroughInnerJoin implements ExplorationRuleFactory {
 
         if (!rightContains) {
             Plan newJoin = join.withChildren(newLeft, join.right());
-            return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+            return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
         }
 
         Builder<NamedExpression> newBProject = ImmutableList.<NamedExpression>builder().addAll(bProjects);
@@ -133,7 +133,7 @@ public class PushdownProjectThroughInnerJoin implements ExplorationRuleFactory {
         Plan newRight = CBOUtils.projectOrSelf(newBProject.build(), join.right());
 
         Plan newJoin = join.withChildren(newLeft, newRight);
-        return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+        return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
     }
 
 }
