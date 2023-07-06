@@ -99,6 +99,12 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        throw new RuntimeException("Command do not implement withGroupExprLogicalPropChildren");
+    }
+
+    @Override
     public boolean canBind() {
         throw new RuntimeException("Command do not implement canResolve");
     }

@@ -106,6 +106,12 @@ public class FakePlan implements Plan {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return this;
+    }
+
+    @Override
     public <T> Optional<T> getMutableState(String key) {
         return (Optional<T>) Optional.ofNullable(mutableState.get(key));
     }

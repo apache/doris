@@ -77,6 +77,12 @@ public class LogicalExcept extends LogicalSetOperation {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalExcept(qualifier, outputs, groupExpression, logicalProperties, children);
+    }
+
+    @Override
     public LogicalExcept withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalExcept(qualifier, newOutputs, Optional.empty(), Optional.empty(), children);
     }

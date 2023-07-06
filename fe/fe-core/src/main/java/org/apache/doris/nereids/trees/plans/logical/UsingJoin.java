@@ -123,6 +123,13 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UsingJoin(joinType, children.get(0), children.get(1), otherJoinConjuncts,
+                hashJoinConjuncts, groupExpression, logicalProperties, hint, markJoinSlotReference);
+    }
+
+    @Override
     public Plan withChildren(List<Plan> children) {
         return new UsingJoin(joinType, children.get(0), children.get(1), otherJoinConjuncts,
                 hashJoinConjuncts, groupExpression, Optional.of(getLogicalProperties()), hint, markJoinSlotReference);

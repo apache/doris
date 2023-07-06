@@ -155,6 +155,13 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 logicalProperties, child());
     }
 
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
+                children.get(0));
+    }
+
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
         return new LogicalRepeat<>(groupingSets, outputExpressionList, child());

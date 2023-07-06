@@ -123,6 +123,12 @@ public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalLimit<>(limit, offset, phase, groupExpression, logicalProperties.get(), children.get(0));
+    }
+
+    @Override
     public PhysicalLimit<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalLimit<>(limit, offset, phase, groupExpression, getLogicalProperties(), physicalProperties,
