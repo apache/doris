@@ -239,7 +239,8 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     if (st.ok()) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
-        tablet_info->set_schema_hash(writer->schema_hash());
+        // unused required field.
+        tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
@@ -318,7 +319,6 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
         wrequest.load_id = request.id();
@@ -377,7 +377,6 @@ Status TabletsChannel::_open_all_writers_for_partition(const int64_t& tablet_id,
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet;
         wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = partition_id;
         wrequest.load_id = request.id();
@@ -427,7 +426,6 @@ Status TabletsChannel::open_all_writers_for_partition(const OpenPartitionRequest
         wrequest.index_id = request.index_id();
         wrequest.tablet_id = tablet.tablet_id();
         wrequest.schema_hash = schema_hash;
-        wrequest.write_type = WriteType::LOAD;
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
         wrequest.load_id = request.id();

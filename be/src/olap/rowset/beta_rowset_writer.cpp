@@ -305,7 +305,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
         DCHECK_EQ(_segid_statistics_map.find(seg_id) == _segid_statistics_map.end(), false);
         DCHECK_EQ(_segid_statistics_map.find(_num_segcompacted) == _segid_statistics_map.end(),
                   true);
-        Statistics org = _segid_statistics_map[seg_id];
+        auto org = _segid_statistics_map[seg_id];
         _segid_statistics_map.emplace(_num_segcompacted, org);
         _clear_statistics_for_deleting_segments_unsafe(seg_id, seg_id);
     }
@@ -728,34 +728,57 @@ RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
     return rowset;
 }
 
-Status BetaRowsetWriter::_do_create_segment_writer(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_segcompaction, int64_t begin,
-        int64_t end, const FlushContext* flush_ctx) {
-    std::string path;
-    int32_t segment_id = 0;
-    if (is_segcompaction) {
-        DCHECK(begin >= 0 && end >= 0);
-        path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
-                                                           begin, end);
-    } else {
-        int32_t segid_offset = (flush_ctx != nullptr && flush_ctx->segment_id.has_value())
-                                       ? flush_ctx->segment_id.value()
-                                       : allocate_segment_id();
-        segment_id = segid_offset + _segment_start_id;
-        path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
-    }
+Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr* file_writer) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>();
     }
-    io::FileWriterPtr file_writer;
-    Status st = fs->create_file(path, &file_writer);
+    Status st = fs->create_file(path, file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
     }
 
     DCHECK(file_writer != nullptr);
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterPtr* file_writer) {
+    std::string path;
+    path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
+    return _create_file_writer(path, file_writer);
+}
+
+Status BetaRowsetWriter::_create_file_writer(uint32_t begin, uint32_t end,
+                                             io::FileWriterPtr* file_writer) {
+    std::string path;
+    path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
+                                                       begin, end);
+    return _create_file_writer(path, file_writer);
+}
+
+Status BetaRowsetWriter::_do_create_segment_writer(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_segcompaction, int64_t begin,
+        int64_t end, const FlushContext* flush_ctx) {
+    Status st;
+    std::string path;
+    int32_t segment_id = 0;
+    io::FileWriterPtr file_writer;
+    if (is_segcompaction) {
+        DCHECK(begin >= 0 && end >= 0);
+        st = _create_file_writer(begin, end, &file_writer);
+    } else {
+        int32_t segid_offset = (flush_ctx != nullptr && flush_ctx->segment_id.has_value())
+                                       ? flush_ctx->segment_id.value()
+                                       : allocate_segment_id();
+        segment_id = segid_offset + _segment_start_id;
+        st = create_file_writer(segment_id, &file_writer);
+    }
+
+    if (!st.ok()) {
+        return st;
+    }
+
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
@@ -813,7 +836,6 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
                                                int64_t* flush_size) {
     uint32_t segid = (*writer)->get_segment_id();
     uint32_t row_num = (*writer)->num_rows_written();
-    uint32_t segid_offset = segid - _segment_start_id;
 
     if ((*writer)->num_rows_written() == 0) {
         return Status::OK();
@@ -836,25 +858,34 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     key_bounds.set_min_key(min_key.to_string());
     key_bounds.set_max_key(max_key.to_string());
 
-    Statistics segstat;
+    SegmentStatistics segstat;
     segstat.row_num = row_num;
     segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
     segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
-    {
-        std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
-        CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segid, segstat);
-        _segment_num_rows.resize(_next_segment_id);
-        _segment_num_rows[segid_offset] = row_num;
-    }
-    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
-               << " data_size:" << segment_size << " index_size:" << index_size;
 
     writer->reset();
     if (flush_size) {
         *flush_size = segment_size + index_size;
     }
+
+    add_segment(segid, segstat);
+    return Status::OK();
+}
+
+void BetaRowsetWriter::add_segment(uint32_t segid, SegmentStatistics& segstat) {
+    uint32_t segid_offset = segid - _segment_start_id;
+    {
+        std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
+        CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
+        _segid_statistics_map.emplace(segid, segstat);
+        _segment_num_rows.resize(_next_segment_id);
+        _segment_num_rows[segid_offset] = segstat.row_num;
+    }
+    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid
+               << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
+               << " index_size:" << segstat.index_size;
+
     {
         std::lock_guard<std::mutex> lock(_segment_set_mutex);
         _segment_set.add(segid_offset);
@@ -862,7 +893,6 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
             _num_segment++;
         }
     }
-    return Status::OK();
 }
 
 Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
@@ -878,7 +908,7 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
         return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
 
-    Statistics segstat;
+    SegmentStatistics segstat;
     segstat.row_num = row_num;
     segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
     segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
