@@ -63,7 +63,7 @@ public class PointQueryExec {
     private ArrayList<Expr> outputExprs;
     private DescriptorTable descriptorTable;
     private long tabletID = 0;
-    private long timeoutMs = 1000; // default 1s
+    private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
     private boolean isCancel = false;
     private boolean isBinaryProtocol = false;
@@ -201,6 +201,11 @@ public class PointQueryExec {
                         status.setStatus(Status.CANCELLED);
                         return null;
                     }
+                } catch (TimeoutException e) {
+                    futureResponse.cancel(true);
+                    LOG.warn("fetch result timeout {}", backend.getBrpcAdress());
+                    status.setStatus("query timeout");
+                    return null;
                 }
             }
         } catch (RpcException e) {
@@ -217,10 +222,6 @@ public class PointQueryExec {
                 status.setRpcStatus(e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             }
-            return null;
-        } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout {}", backend.getBrpcAdress());
-            status.setStatus("query timeout");
             return null;
         }
         TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
