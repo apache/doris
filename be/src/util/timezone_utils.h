@@ -21,6 +21,9 @@
 #include <re2/re2.h>
 
 #include <string>
+#include <unordered_map>
+
+#include "util/once.h"
 
 namespace cctz {
 class time_zone;
@@ -36,6 +39,10 @@ public:
     static const std::string default_time_zone;
 
 private:
+    static void _load_timezone_names();
+    static DorisCallOnce<Status> load_timezone_once_;
+    static std::unordered_map<std::string, std::string> timezone_names_map_;
+
     // RE2 obj is thread safe
     static RE2 time_zone_offset_format_reg;
 };
