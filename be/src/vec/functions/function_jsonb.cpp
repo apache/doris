@@ -595,7 +595,7 @@ public:
         return Status::OK();
     }
 
-    static Status vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
+    static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
                                 const ColumnString::Offsets& loffsets,
                                 const ColumnString::Chars& rdata,
                                 const ColumnString::Offsets& roffsets,
