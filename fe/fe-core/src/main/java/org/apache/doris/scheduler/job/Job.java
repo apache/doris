@@ -17,12 +17,17 @@
 
 package org.apache.doris.scheduler.job;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.scheduler.common.IntervalUnit;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.executor.JobExecutor;
 
 import lombok.Data;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.UUID;
 
 /**
@@ -33,7 +38,7 @@ import java.util.UUID;
  * job.
  */
 @Data
-public class Job {
+public class Job implements Writable {
 
     public Job(String jobName, Long intervalMilliSeconds, Long startTimeMs, Long endTimeMs,
                JobExecutor executor) {
@@ -42,12 +47,13 @@ public class Job {
         this.intervalMs = intervalMilliSeconds;
         this.startTimeMs = null == startTimeMs ? 0L : startTimeMs;
         this.endTimeMs = null == endTimeMs ? 0L : endTimeMs;
+        this.jobStatus=JobStatus.RUNNING;
     }
 
     public Job() {
     }
 
-    private Long jobId = UUID.randomUUID().getMostSignificantBits();
+    private Long jobId = Env.getCurrentEnv().getNextId();
 
     private String jobName;
 
@@ -56,7 +62,7 @@ public class Job {
      *
      * @see JobStatus
      */
-    private JobStatus jobStatus = JobStatus.RUNNING;
+    private JobStatus jobStatus;
 
     /**
      * The executor of the job.
@@ -73,9 +79,7 @@ public class Job {
 
     private boolean isCycleJob = false;
 
-    private Long intervalMs;
-
-    private Long updateTime;
+    private Long intervalMs = 0L;
 
     private Long nextExecuteTimestamp;
     private Long startTimeMs = 0L;
@@ -118,7 +122,7 @@ public class Job {
 
     public Long getExecuteTimestampAndGeneratorNext() {
         this.latestStartExecuteTimestamp = nextExecuteTimestamp;
-        // todo The problem of delay should be considered. If it is greater than the ten-minute time window,
+        //  todo The problem of delay should be considered. If it is greater than the ten-minute time window,
         //  should the task be lost or executed on a new time window?
         this.nextExecuteTimestamp = latestStartExecuteTimestamp + intervalMs;
         return nextExecuteTimestamp;
@@ -158,5 +162,22 @@ public class Job {
         }
         return null != executor;
     }
-    
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeLong(jobId);
+        Text.writeString(out, jobName);
+        out.writeInt(jobStatus.ordinal());
+        out.writeBoolean(isCycleJob);
+        out.writeLong(intervalMs);
+        out.writeLong(startTimeMs);
+        out.writeLong(endTimeMs);
+        out.writeLong(firstExecuteTimestamp);
+        out.writeLong(latestStartExecuteTimestamp);
+        out.writeLong(latestCompleteExecuteTimestamp);
+        out.writeLong(nextExecuteTimestamp);
+        Text.writeString(out, errMsg);
+        Text.writeString(out, user);
+        Text.writeString(out, intervalUnit.name());
+    }
 }

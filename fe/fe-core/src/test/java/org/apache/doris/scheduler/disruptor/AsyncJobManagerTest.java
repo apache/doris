@@ -43,6 +43,7 @@ public class AsyncJobManagerTest {
 
     @BeforeEach
     public void init() {
+        job.setCycleJob(true);
         testExecuteCount.set(0);
         asyncJobManager = new AsyncJobManager();
     }
@@ -68,38 +69,56 @@ public class AsyncJobManagerTest {
 
     @Test
     public void testCycleSchedulerWithIncludeStartTimeAndEndTime() {
-        job.setStartTimestamp(System.currentTimeMillis() + 6000L);
+        job.setStartTimeMs(System.currentTimeMillis() + 6000L);
         long endTimestamp = System.currentTimeMillis() + 19000L;
-        job.setEndTimestamp(endTimestamp);
+        job.setEndTimeMs(endTimestamp);
         asyncJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
 
         Awaitility.await().atMost(60, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= endTimestamp + 12000L);
         Assertions.assertEquals(2, testExecuteCount.get());
+        
     }
 
     @Test
     public void testCycleSchedulerWithIncludeEndTime() {
         long endTimestamp = System.currentTimeMillis() + 13000;
-        job.setEndTimestamp(endTimestamp);
+        job.setEndTimeMs(endTimestamp);
         asyncJobManager.registerJob(job);
+
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(36, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= endTimestamp + 12000L);
         Assertions.assertEquals(2, testExecuteCount.get());
+        System.out.println(asyncJobManager.getJob(job.getJobId()).getJobStatus().name());
     }
 
     @Test
     public void testCycleSchedulerWithIncludeStartTime() {
 
         long startTimestamp = System.currentTimeMillis() + 6000L;
-        job.setStartTimestamp(startTimestamp);
+        job.setStartTimeMs(startTimestamp);
         asyncJobManager.registerJob(job);
         //consider the time of the first execution and give some buffer time
         Awaitility.await().atMost(14, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
                 >= startTimestamp + 7000L);
         Assertions.assertEquals(1, testExecuteCount.get());
+    }
+
+    @Test
+    public void testOneTimeJob() {
+
+        long startTimestamp = System.currentTimeMillis() + 3000L;
+        job.setIntervalMs(0L);
+        job.setStartTimeMs(startTimestamp);
+        job.setCycleJob(false);
+        asyncJobManager.registerJob(job);
+        //consider the time of the first execution and give some buffer time
+        Awaitility.await().atMost(14, TimeUnit.SECONDS).until(() -> System.currentTimeMillis()
+                >= startTimestamp + 7000L);
+        Assertions.assertEquals(1, testExecuteCount.get());
+        System.out.println(asyncJobManager.getJob(job.getJobId()).getJobStatus().name());
     }
 
     @AfterEach

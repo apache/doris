@@ -40,6 +40,8 @@ public class CreateJobStmt extends DdlStmt {
     @Getter
     private Job job;
 
+    public CreateJobStmt() {
+    }
 
     public CreateJobStmt(String jobName, boolean isRecurring, String executeAtTimeStamp, IntervalUnit executeAtIntervalUnit, long executeAtInterval, long cycleSchedulerInterval, IntervalUnit cycleSchedulerIntervalUnit, String startsTimeStamp, long startsInterval, IntervalUnit startsIntervalUnit, String endsTimeStamp, long endsInterval, IntervalUnit endsIntervalUnit, String executeSql) {
         this.jobName = jobName;
@@ -94,7 +96,7 @@ public class CreateJobStmt extends DdlStmt {
         }
         job.setIntervalUnit(cycleSchedulerIntervalUnit);
         long intervalTimeMs = cycleSchedulerIntervalUnit.getParameterValue(cycleSchedulerInterval);
-        job.setIntervalMilliSeconds(intervalTimeMs);
+        job.setIntervalMs(intervalTimeMs);
     }
 
 

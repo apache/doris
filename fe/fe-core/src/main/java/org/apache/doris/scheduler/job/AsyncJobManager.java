@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -42,9 +43,6 @@ public class AsyncJobManager implements Closeable {
      * batch scheduler interval time
      */
     private static final long BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS = 10 * 60 * 1000L;
-
-    private static final TimeUnit TIME_UNIT = TimeUnit.MILLISECONDS;
-
 
     private boolean isClosed = false;
 
@@ -83,9 +81,9 @@ public class AsyncJobManager implements Closeable {
             return null;
         }
         if (job.getStartTimeMs() != 0L) {
-            job.setNextExecuteTimestamp(job.getStartTimeMs() + job.getIntervalMilliSeconds());
+            job.setNextExecuteTimestamp(job.getStartTimeMs() + job.getIntervalMs());
         } else {
-            job.setNextExecuteTimestamp(System.currentTimeMillis() + job.getIntervalMilliSeconds());
+            job.setNextExecuteTimestamp(System.currentTimeMillis() + job.getIntervalMs());
         }
 
         if (job.getNextExecuteTimestamp() < BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS + lastBatchSchedulerTimestamp) {
@@ -159,6 +157,13 @@ public class AsyncJobManager implements Closeable {
         if (System.currentTimeMillis() < startTime) {
             return jobExecuteTimes;
         }
+        if(!job.isCycleJob()){
+            if(Objects.equals(job.getStartTimeMs(), nextExecuteTime)){
+                jobExecuteTimes.add(nextExecuteTime);
+                job.setNextExecuteTimestamp(-1L);
+            }
+            return jobExecuteTimes;
+        }
         while (endTime >= nextExecuteTime) {
             if (job.isTaskTimeExceeded()) {
                 break;
@@ -177,7 +182,7 @@ public class AsyncJobManager implements Closeable {
             return;
         }
         jobMap.forEach((k, v) -> {
-            if (v.isRunning() && (v.getNextExecuteTimestamp() + v.getIntervalMilliSeconds()
+            if (v.isRunning() && (v.getNextExecuteTimestamp() + v.getIntervalMs()
                     < lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS)) {
                 List<Long> executeTimes = findTasksBetweenTime(v, lastBatchSchedulerTimestamp,
                         lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS,
