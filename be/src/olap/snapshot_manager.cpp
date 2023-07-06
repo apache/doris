@@ -109,8 +109,8 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 }
 
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
-    // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
-    // 否则认为是非法请求，返回错误结果
+    // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
+    // Otherwise, it is considered an illegal request and returns an error result.
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {

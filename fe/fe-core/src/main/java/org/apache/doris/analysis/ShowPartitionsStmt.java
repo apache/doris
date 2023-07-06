@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -41,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -121,12 +123,21 @@ public class ShowPartitionsStmt extends ShowStmt {
                                                 ConnectContext.get().getRemoteIP(),
                                                 dbName + ": " + tblName);
         }
-        if (!catalog.isInternalCatalog()) {
+
+        DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
+        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP, TableType.MATERIALIZED_VIEW,
+                    TableType.HMS_EXTERNAL_TABLE);
+
+        if (table instanceof HMSExternalTable) {
+            if (((HMSExternalTable) table).isView()) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
+            if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
             return;
         }
 
-        DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP, TableType.MATERIALIZED_VIEW);
         table.readLock();
         try {
             // build proc path

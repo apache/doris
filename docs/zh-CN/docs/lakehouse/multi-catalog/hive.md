@@ -32,7 +32,7 @@ under the License.
 
 ## 使用须知
 
-1. 需将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。
+1. 将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。 
 2. hive 支持 1/2/3 版本。
 3. 支持 Managed Table 和 External Table，支持部分 Hive View。
 4. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。

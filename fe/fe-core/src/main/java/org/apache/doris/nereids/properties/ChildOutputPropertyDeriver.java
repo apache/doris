@@ -114,7 +114,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalCTEConsumer(
             PhysicalCTEConsumer cteConsumer, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 0);
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.MUST_SHUFFLE;
     }
 
     @Override
@@ -345,7 +345,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
                         .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
-                if (offset > 0) {
+                if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {
                     return PhysicalProperties.ANY;

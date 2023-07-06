@@ -20,6 +20,7 @@ package org.apache.doris.common.jni;
 
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.common.jni.vec.NativeColumnValue;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 import org.apache.doris.common.jni.vec.VectorTable;
@@ -45,7 +46,9 @@ public abstract class JniScanner {
     protected abstract int getNext() throws IOException;
 
     // parse table schema
-    protected abstract TableSchema parseTableSchema() throws UnsupportedOperationException;
+    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
+        throw new UnsupportedOperationException();
+    }
 
     protected void initTableInfo(ColumnType[] requiredTypes, String[] requiredFields, ScanPredicate[] predicates,
             int batchSize) {
@@ -53,6 +56,10 @@ public abstract class JniScanner {
         this.fields = requiredFields;
         this.predicates = predicates;
         this.batchSize = batchSize;
+    }
+
+    protected void appendNativeData(int index, NativeColumnValue value) {
+        vectorTable.appendNativeData(index, value);
     }
 
     protected void appendData(int index, ColumnValue value) {

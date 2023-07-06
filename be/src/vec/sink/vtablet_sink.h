@@ -57,7 +57,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
-#include "util/bitmap.h"
 #include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
@@ -82,6 +81,8 @@ class RefCountClosure;
 
 namespace stream_load {
 
+class OlapTableBlockConvertor;
+class OlapTabletFinder;
 class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
@@ -112,6 +113,8 @@ struct AddBatchCounter {
 // It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
+// "Ping-Pong" between sender and receiver, `try_set_in_flight` when send, `clear_in_flight` after rpc failure or callback,
+// then next send will start, and it will wait for the rpc callback to complete when it is destroyed.
 template <typename T>
 class ReusableClosure final : public google::protobuf::Closure {
 public:
@@ -232,6 +235,8 @@ public:
 
     void open_partition_wait();
 
+    bool open_partition_finished() const;
+
     Status add_block(vectorized::Block* block, const Payload* payload, bool is_append = false);
 
     int try_send_and_fetch_status(RuntimeState* state,
@@ -245,6 +250,22 @@ public:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     void mark_close();
+
+    bool is_rpc_done() const;
+
+    bool is_closed() const { return _is_closed; }
+    bool is_cancelled() const { return _cancelled; }
+    std::string get_cancel_msg() {
+        std::stringstream ss;
+        ss << "close wait failed coz rpc error";
+        {
+            std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
+            if (_cancel_msg != "") {
+                ss << ". " << _cancel_msg;
+            }
+        }
+        return ss.str();
+    }
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
@@ -465,6 +486,9 @@ public:
 
     Status open(RuntimeState* state) override;
 
+    void try_close(RuntimeState* state, Status exec_status) override;
+    // if true, all node channels rpc done, can start close().
+    bool is_close_done() override;
     Status close(RuntimeState* state, Status close_status) override;
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override;
 
@@ -492,35 +516,15 @@ private:
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
     Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, int32_t filtered_rows);
-
-    // make input data valid for OLAP table
-    // return number of invalid/filtered rows.
-    // invalid row number is set in Bitmap
-    // set stop_processing if we want to stop the whole process now.
-    Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
-                          int* filtered_rows, bool* stop_processing);
-
-    template <bool is_min>
-    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
-
-    template <typename DecimalType, bool IsMin>
-    DecimalType _get_decimalv3_min_or_max(const TypeDescriptor& type);
-
-    Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
-                            vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
-                            bool* stop_processing, fmt::memory_buffer& error_prefix,
-                            vectorized::IColumn::Permutation* rows = nullptr);
-
-    // some output column of output expr may have different nullable property with dest slot desc
-    // so here need to do the convert operation
-    void _convert_to_dest_desc_block(vectorized::Block* block);
-
-    Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
-                       const VOlapTablePartition** partition, uint32_t& tablet_index,
-                       bool& stop_processing, bool& is_continue);
+                                      size_t num_rows, bool has_filtered_rows);
 
     void _open_partition(const VOlapTablePartition* partition);
+
+    Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
+                                                         const std::shared_ptr<IndexChannel> ich,
+                                                         const std::shared_ptr<VNodeChannel> nch);
+
+    void _cancel_all_channel(Status status);
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -553,11 +557,7 @@ private:
 
     RuntimeProfile* _profile = nullptr;
 
-    std::set<int64_t> _partition_ids;
-    // only used for partition with random distribution
-    std::map<int64_t, int64_t> _partition_to_tablet_map;
-
-    Bitmap _filter_bitmap;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
@@ -565,23 +565,11 @@ private:
     bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
-    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
-
-    std::map<int, int32_t> _max_decimal32_val;
-    std::map<int, int32_t> _min_decimal32_val;
-    std::map<int, int64_t> _max_decimal64_val;
-    std::map<int, int64_t> _min_decimal64_val;
-    std::map<int, int128_t> _max_decimal128_val;
-    std::map<int, int128_t> _min_decimal128_val;
-
+    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
     // Stats for this
-    int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
-    int64_t _number_filtered_rows = 0;
-    int64_t _number_immutable_partition_filtered_rows = 0;
     int64_t _filter_ns = 0;
 
     MonotonicStopWatch _row_distribution_watch;
@@ -615,20 +603,12 @@ private:
     int64_t _load_channel_timeout_s = 0;
 
     int32_t _send_batch_parallelism = 1;
-    // Save the status of close() method
+    // Save the status of try_close() and close() method
     Status _close_status;
+    bool _try_close = false;
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
-
-    // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
-    // should compute tablet index for every row
-    // FIND_TABLET_EVERY_BATCH is only used for random distribution info, which indicates that we should
-    // compute tablet index for every row batch
-    // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
-    // only compute tablet index in the corresponding partition once for the whole time in olap table sink
-    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
-    FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

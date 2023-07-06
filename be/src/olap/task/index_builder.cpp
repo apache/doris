@@ -166,7 +166,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             index_meta, fs));
                 } catch (const std::exception& e) {
                     LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::Error<ErrorCode::IO_ERROR>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
                 }
 
                 if (inverted_index_builder) {
@@ -222,7 +222,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     }
                 } catch (const std::exception& e) {
                     LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::Error<ErrorCode::IO_ERROR>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
                 }
             }
 
@@ -311,7 +311,7 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         } while (offset < num_rows);
     } catch (const std::exception& e) {
         LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<ErrorCode::IO_ERROR>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
     }
 
     return Status::OK();
@@ -332,7 +332,7 @@ Status IndexBuilder::_add_data(const std::string& column_name,
         }
     } catch (const std::exception& e) {
         LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<ErrorCode::IO_ERROR>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
     }
 
     return Status::OK();

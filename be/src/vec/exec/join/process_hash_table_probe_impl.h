@@ -495,6 +495,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         auto& probe_row_match_iter =
                 std::get<ForwardIterator<Mapped>>(_join_node->_probe_row_match_iter);
         if (probe_row_match_iter.ok()) {
+            SCOPED_TIMER(_search_hashtable_timer);
             auto origin_offset = current_offset;
             for (; probe_row_match_iter.ok() && current_offset < _batch_size;
                  ++probe_row_match_iter) {

@@ -182,9 +182,11 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     }
 
     @Override
-    public LogicalProject<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child(),
-                isDistinct);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalProject<>(projects, excepts, canEliminate,
+                groupExpression, logicalProperties, children.get(0), isDistinct);
     }
 
     public LogicalProject<Plan> withEliminate(boolean isEliminate) {

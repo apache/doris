@@ -121,13 +121,10 @@ public interface Plan extends TreeNode<Plan> {
 
     String treeString();
 
-    default Plan withOutput(List<Slot> output) {
-        return withLogicalProperties(Optional.of(getLogicalProperties().withOutput(output)));
-    }
-
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
-    Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+    Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children);
 
     <T> Optional<T> getMutableState(String key);
 

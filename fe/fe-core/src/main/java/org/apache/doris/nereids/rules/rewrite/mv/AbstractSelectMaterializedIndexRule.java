@@ -504,7 +504,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
         @Override
         public LogicalOlapScan visitLogicalOlapScan(LogicalOlapScan scan, Void ctx) {
-            return scan.withLogicalProperties(Optional.empty());
+            return (LogicalOlapScan) scan.withGroupExprLogicalPropChildren(scan.getGroupExpression(), Optional.empty(),
+                    ImmutableList.of());
         }
     }
 
