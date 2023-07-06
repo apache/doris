@@ -29,12 +29,6 @@ std::string DataTypeGeometry::to_string(const IColumn& column, size_t row_num) c
     ColumnPtr ptr = result.first;
     row_num = result.second;
     const StringRef& s = assert_cast<const ColumnString&>(*ptr).get_data_at(row_num);
-    /*std::unique_ptr<GeoShape> shape;
-    std::string string_temp;
-    shape.reset(GeoShape::from_encoded(s.data, s.size));
-    if(shape != nullptr ){
-        string_temp = shape->as_wkt();
-    }*/
     return s.to_string();
 }
 
