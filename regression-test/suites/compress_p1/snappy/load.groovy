@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,25 +16,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite('test_cast') {
-    def tbl = "test_cast"
+suite("test_snappy", "p1") {
+    def tableName = "test_snappy"
 
-    sql """ DROP TABLE IF EXISTS ${tbl}"""
+    // create table
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
-        CREATE TABLE IF NOT EXISTS ${tbl} (
-            `k0` int
-        )
-        DISTRIBUTED BY HASH(`k0`) BUCKETS 5 properties("replication_num" = "1")
-        """
-    sql """ INSERT INTO ${tbl} VALUES (101);"""
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            `k1` varchar(40) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1",
+                    "compression" = "snappy");
+    """
 
-    test {
-        sql "select * from ${tbl} where case when k0 = 101 then 1 else 0 end"
-        result([[101]])
+    // skip 3 lines and file have 4 lines
+    streamLoad {
+        table "${tableName}"
+
+        file 'ipv4.csv'
     }
 
-    test {
-        sql "select * from ${tbl} where case when k0 = 101 then 0 else 1 end"
-        result([])
-    }
+    sql "sync"
+    def count = sql "select count(*) from ${tableName} limit 10"
+    assertEquals(82845, count[0][0])
 }

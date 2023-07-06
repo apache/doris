@@ -118,7 +118,7 @@ BE="be"
 EXT="extensions"
 PACKAGE="apache-doris-${VERSION}-bin-${ARCH}"
 
-if [[ "${_USE_AVX2}" == "0" && "${ARCH}" == "x86_64" ]]; then
+if [[ "${_USE_AVX2}" == "0" ]]; then
     PACKAGE="${PACKAGE}-noavx2"
 fi
 

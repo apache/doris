@@ -302,7 +302,11 @@ public class SingleNodePlanner {
                 if (sqlSelectLimit > -1) {
                     newDefaultOrderByLimit = Math.min(newDefaultOrderByLimit, sqlSelectLimit);
                 }
-                root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                if (newDefaultOrderByLimit == Long.MAX_VALUE) {
+                    root.setLimit(limit);
+                } else {
+                    root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
+                }
             } else {
                 root.setLimit(limit);
             }
@@ -312,7 +316,7 @@ public class SingleNodePlanner {
             // from SelectStmt outside
             root = addUnassignedConjuncts(analyzer, root);
         } else {
-            if (!stmt.hasLimit()) {
+            if (!stmt.hasLimit() && sqlSelectLimit < Long.MAX_VALUE) {
                 root.setLimitAndOffset(sqlSelectLimit, stmt.getOffset());
             } else {
                 root.setLimitAndOffset(stmt.getLimit(), stmt.getOffset());
@@ -2715,6 +2719,12 @@ public class SingleNodePlanner {
                             }
                         }
                     }
+                }
+                GroupByClause groupByClause = stmt.getGroupByClause();
+                List<Expr> exprs = groupByClause.getGroupingExprs();
+                if (!exprs.contains(sourceExpr)) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
                 }
             }
 

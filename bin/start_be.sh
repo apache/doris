@@ -104,7 +104,10 @@ fi
 
 # the CLASSPATH and LIBHDFS_OPTS is used for hadoop libhdfs
 # and conf/ dir so that hadoop libhdfs can read .xml config file in conf/
-export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
+if command -v hadoop >/dev/null 2>&1; then
+    HADOOP_SYSTEM_CLASSPATH="$(hadoop classpath --glob)"
+fi
+export CLASSPATH="${HADOOP_SYSTEM_CLASSPATH}:${DORIS_HOME}/conf/:${DORIS_CLASSPATH}"
 # DORIS_CLASSPATH is for self-managed jni
 export DORIS_CLASSPATH="-Djava.class.path=${DORIS_CLASSPATH}"
 

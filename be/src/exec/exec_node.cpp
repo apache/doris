@@ -152,6 +152,9 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _memory_used_counter(nullptr),
           _get_next_span(),
           _is_closed(false) {
+    if (_limit < -1) {
+        _limit = -1;
+    }
     if (tnode.__isset.output_tuple_id) {
         _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
     }
