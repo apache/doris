@@ -115,6 +115,18 @@ import java.util.stream.Stream;
 public class TypeCoercionUtils {
 
     /**
+     * integer type precedence for type promotion.
+     * bigger numeric has smaller ordinal
+     */
+    public static final List<DataType> INTEGER_PRECEDENCE = ImmutableList.of(
+            LargeIntType.INSTANCE,
+            BigIntType.INSTANCE,
+            IntegerType.INSTANCE,
+            SmallIntType.INSTANCE,
+            TinyIntType.INSTANCE
+    );
+
+    /**
      * numeric type precedence for type promotion.
      * bigger numeric has smaller ordinal
      */
@@ -487,7 +499,7 @@ public class TypeCoercionUtils {
         right = castIfNotSameType(right, t2);
 
         DataType commonType = BigIntType.INSTANCE;
-        for (DataType dataType : TypeCoercionUtils.NUMERIC_PRECEDENCE) {
+        for (DataType dataType : TypeCoercionUtils.INTEGER_PRECEDENCE) {
             if (t1.equals(dataType) || t2.equals(dataType)) {
                 commonType = dataType;
                 break;
