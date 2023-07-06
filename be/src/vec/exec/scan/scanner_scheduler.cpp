@@ -63,6 +63,7 @@ ScannerScheduler::~ScannerScheduler() {
 
     _is_closed = true;
 
+    _task_group_local_scan_queue->close();
     _scheduler_pool->shutdown();
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
@@ -70,6 +71,9 @@ ScannerScheduler::~ScannerScheduler() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
+    _remote_scan_thread_pool->wait();
+    _limited_scan_thread_pool->wait();
+    _group_local_scan_thread_pool->wait();
 
     for (int i = 0; i < QUEUE_NUM; i++) {
         delete _pending_queues[i];
