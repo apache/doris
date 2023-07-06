@@ -71,7 +71,8 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
-    public static final String PROP_ARRAY_DELIMITER = "colelction.delim";
+    public static final String PROP_ARRAY_DELIMITER_HIVE2 = "colelction.delim";
+    public static final String PROP_ARRAY_DELIMITER_HIVE3 = "collection.delim";
     public static final String DEFAULT_ARRAY_DELIMITER = "\2";
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
@@ -269,7 +270,13 @@ public class HiveScanNode extends FileQueryScanNode {
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
         textParams.setColumnSeparator(delimiter.getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
         textParams.setLineDelimiter(delimiter.getOrDefault(PROP_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
-        textParams.setArrayDelimiter(delimiter.getOrDefault(PROP_ARRAY_DELIMITER, DEFAULT_ARRAY_DELIMITER));
+        if (delimiter.get(PROP_ARRAY_DELIMITER_HIVE2) != null) {
+            textParams.setArrayDelimiter(delimiter.get(PROP_ARRAY_DELIMITER_HIVE2));
+        } else if (delimiter.get(PROP_ARRAY_DELIMITER_HIVE3) != null) {
+            textParams.setArrayDelimiter(delimiter.get(PROP_ARRAY_DELIMITER_HIVE3));
+        } else {
+            textParams.setArrayDelimiter(DEFAULT_ARRAY_DELIMITER);
+        }
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
