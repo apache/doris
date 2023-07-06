@@ -167,9 +167,6 @@ public class ColumnStatistic {
             double count = Double.parseDouble(resultRow.getColumnValueWithDefault("count", "0"));
             columnStatisticBuilder.setCount(count);
             double ndv = Double.parseDouble(resultRow.getColumnValueWithDefault("ndv", "0"));
-            if (0.99 * count < ndv && ndv < 1.01 * count) {
-                ndv = count;
-            }
             columnStatisticBuilder.setNdv(ndv);
             String nullCount = resultRow.getColumnValueWithDefault("null_count", "0");
             columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
