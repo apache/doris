@@ -24,6 +24,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <filesystem>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -38,6 +39,7 @@
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
@@ -435,7 +437,9 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         // transient rowset writer to write the new segments, then merge it back the original
         // rowset.
         std::unique_ptr<RowsetWriter> rowset_writer;
-        _tablet->create_transient_rowset_writer(_cur_rowset, &rowset_writer);
+        std::shared_ptr<MowContext> mow_context_ptr(
+                new MowContext(_cur_max_version, _req.txn_id, _rowset_ids, _delete_bitmap));
+        _tablet->create_transient_rowset_writer(_cur_rowset, mow_context_ptr, &rowset_writer);
         RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
                 _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
                 rowset_writer.get()));

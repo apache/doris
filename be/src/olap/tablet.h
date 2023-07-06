@@ -329,7 +329,8 @@ public:
     Status create_rowset_writer(RowsetWriterContext& context,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
-    Status create_transient_rowset_writer(RowsetSharedPtr rowset_ptr,
+    Status create_transient_rowset_writer(const RowsetSharedPtr& rowset_ptr,
+                                          const std::shared_ptr<MowContext>& mow_context,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
     Status create_transient_rowset_writer(RowsetWriterContext& context, const RowsetId& rowset_id,
                                           std::unique_ptr<RowsetWriter>* rowset_writer);
