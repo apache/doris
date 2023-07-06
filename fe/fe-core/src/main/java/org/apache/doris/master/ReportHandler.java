@@ -654,6 +654,12 @@ public class ReportHandler extends Daemon {
                             replica.updateVersionInfo(backendVersion, dataSize, remoteDataSize, rowCount);
 
                             if (replica.getLastFailedVersion() < 0) {
+                                if (replica.setBad(false)) {
+                                    LOG.info("sync replica {} of tablet {} in backend {} in db {}. "
+                                            + "replica change from bad to good.",
+                                            replica, tabletId, backendId, dbId);
+                                }
+
                                 // last failed version < 0 means this replica becomes health after sync,
                                 // so we write an edit log to sync this operation
                                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId,
