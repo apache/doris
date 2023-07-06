@@ -1,3 +1,20 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
 import argparse
 import logging
 import jsonpickle
@@ -8,8 +25,18 @@ import tempfile
 import yaml
 
 DORIS_LOCAL_ROOT = "/tmp/doris"
-DORIS_DOCKER_ROOT = "/doris"
+DORIS_HOME = "/opt/apache-doris"
+
 MASTER_FE_ID = 1
+FE_HTTP_PORT = 8030
+FE_RPC_PORT = 9020
+FE_QUERY_PORT = 9030
+FE_EDITLOG_PORT = 9010
+
+BE_PORT = 9060
+BE_WEBSVR_PORT = 8040
+BE_HEARTBEAT_PORT = 9050
+BE_BRPC_PORT = 8060
 
 
 def get_cluster_path(cluster_name):
@@ -93,10 +120,10 @@ class Node(object):
         path = self.get_path()
         os.makedirs(path, exist_ok=True)
 
-        # copy to local
-        for dir in ["conf", "bin"]:
-            cmd = "docker run -v {}:/opt/mount --rm --entrypoint cp {}  -r /doris/{}/{}/ /opt/mount/".format(
-                path, self.meta.image, self.node_type(), dir)
+        # copy config to local
+        for dir in ["conf"]:
+            cmd = "docker run -v {}:/opt/mount --rm --entrypoint cp {}  -r {}/{}/{}/ /opt/mount/".format(
+                path, self.meta.image, DORIS_HOME, self.node_type(), dir)
             code, output = exec_shell_command(cmd)
             assert code == 0, output
 
@@ -107,7 +134,7 @@ class Node(object):
         raise Exception("No implement")
 
     def expose_sub_dirs(self):
-        return ["conf", "log", "bin"]
+        return ["conf", "log"]
 
     def get_name(self):
         return "{}-{}".format(self.node_type(), self.id)
@@ -126,21 +153,17 @@ class Node(object):
             raise Exception("Unknown node type: {}".format(self.node_type()))
         return "{}.0.{}.{}".format(self.meta.subnet_prefix, num3, self.id)
 
-    def get_master_fe(self):
-        return FE(self.meta, MASTER_FE_ID)
-
-    # {doris_home}/{fe, be}
-    def docker_node_home(self):
-        return os.path.join(DORIS_DOCKER_ROOT, self.node_type())
-
     def docker_service(self):
         return "{}-{}".format(self.meta.cluster_name, self.get_name())
 
-    def docker_command(self):
-        raise Exception("No implement")
-
     def docker_env(self):
-        return []
+        return [
+            "MY_IP=" + self.get_ip(),
+            "FE_QUERY_PORT=" + str(FE_QUERY_PORT),
+            "FE_EDITLOG_PORT=" + str(FE_EDITLOG_PORT),
+            "BE_HEARTBEAT_PORT=" + str(BE_HEARTBEAT_PORT),
+            "MASTER_FE_IP=" + FE(self.meta, MASTER_FE_ID).get_ip(),
+        ]
 
     def docker_ports(self):
         raise Exception("No implement")
@@ -152,15 +175,17 @@ class Node(object):
         if self.node_type() == Node.TYPE_FE and self.id == MASTER_FE_ID:
             return []
         else:
-            return [self.get_master_fe().docker_service()]
+            return [FE(self.meta, MASTER_FE_ID).docker_service()]
 
     def compose(self):
         return {
             "cap_add": ["SYS_PTRACE"],
-            "command":
-            self.docker_command(),
+            "hostname":
+            self.get_name(),
             "container_name":
             self.docker_service(),
+            "command":
+            self.docker_command(),
             "environment":
             self.docker_env(),
             "depends_on":
@@ -179,8 +204,8 @@ class Node(object):
             },
             "security_opt": ["seccomp:unconfined"],
             "volumes": [
-                "{}:{}".format(os.path.join(self.get_path(), sub_dir),
-                               os.path.join(self.docker_node_home(), sub_dir))
+                "{}:{}/{}/{}".format(os.path.join(self.get_path(), sub_dir),
+                                     DORIS_HOME, self.node_type(), sub_dir)
                 for sub_dir in self.expose_sub_dirs()
             ],
         }
@@ -191,45 +216,17 @@ class FE(Node):
     def docker_command(self):
         return [
             "bash",
-            "{}/bin/{}".format(
-                self.docker_node_home(), "start_fe.sh"
-                if self.id == MASTER_FE_ID else "follower_start_fe.sh"),
+            "{}/fe/bin/init_fe.sh".format(DORIS_HOME),
         ]
 
-        if self.id != MASTER_FE_ID:
-            commands.append("--helper")
-            commands.append("{}:9010".format(self.get_master_fe().get_ip()))
-
-        return commands
-
     def docker_ports(self):
-        return [8030, 9010, 9020, 9030]
+        return [FE_HTTP_PORT, FE_EDITLOG_PORT, FE_RPC_PORT, FE_QUERY_PORT]
 
     def node_type(self):
         return Node.TYPE_FE
 
-    def init(self):
-        if self.id != MASTER_FE_ID:
-            os.makedirs(os.path.join(self.get_path(), "bin"), exist_ok=True)
-            be_out = "{}/fe/log/fe.out".format(DORIS_DOCKER_ROOT)
-            old_start_fe = "{}/bin/start_fe.sh".format(self.get_path())
-            follower_start_fe = "{}/bin/follower_start_fe.sh".format(
-                self.get_path())
-            master_fe_ip = self.get_master_fe().get_ip()
-            with open(follower_start_fe, "w") as f:
-                f.write("""
-while true; do
-    output=`mysql -P 9030 -h {} -u root --execute "ALTER SYSTEM ADD FOLLOWER '{}:9010';" 2>&1`
-    res=$?
-    echo "`date`\n$output" >> {}
-    [ $res -eq 0 ] && break
-    (echo $output | grep "frontend already exists") && break
-    sleep 1
-done
-bash {}/fe/bin/start_fe.sh --helper {}:9010
-""".format(master_fe_ip, self.get_ip(), be_out, DORIS_DOCKER_ROOT,
-                master_fe_ip))
-        super().init()
+    def expose_sub_dirs(self):
+        return super().expose_sub_dirs() + ["doris-meta"]
 
 
 class BE(Node):
@@ -237,35 +234,17 @@ class BE(Node):
     def docker_command(self):
         return [
             "bash",
-            os.path.join(self.docker_node_home(), "bin/new_start_be.sh"),
+            "{}/be/bin/init_be.sh".format(DORIS_HOME),
         ]
 
     def docker_ports(self):
-        return [8040, 8060, 9050, 9060]
+        return [BE_WEBSVR_PORT, BE_BRPC_PORT, BE_HEARTBEAT_PORT, BE_PORT]
 
     def node_type(self):
         return Node.TYPE_BE
 
-    def init(self):
-        os.makedirs(os.path.join(self.get_path(), "bin"), exist_ok=True)
-        be_out = "{}/be/log/be.out".format(DORIS_DOCKER_ROOT)
-        old_start_be = "{}/bin/start_be.sh".format(self.get_path())
-        new_start_be = "{}/bin/new_start_be.sh".format(self.get_path())
-        with open(new_start_be, "w") as f:
-            f.write("""
-while true; do
-    output=`mysql -P 9030 -h {} -u root --execute "ALTER SYSTEM ADD BACKEND '{}:9050';" 2>&1`
-    res=$?
-    echo "`date`\n$output" >> {}
-    [ $res -eq 0 ] && break
-    (echo $output | grep "Same backend already exists") && break
-    sleep 1
-done
-bash {}/be/bin/start_be.sh
-""".format(self.get_master_fe().get_ip(), self.get_ip(), be_out,
-            DORIS_DOCKER_ROOT))
-
-        super().init()
+    def expose_sub_dirs(self):
+        return super().expose_sub_dirs() + ["storage"]
 
 
 class Cluster(object):

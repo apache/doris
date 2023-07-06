@@ -1,4 +1,3 @@
-#!/bin/bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,17 +15,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# choose a base image
-FROM openjdk:8u342-jdk
+DORIS_HOME="/opt/apache-doris"
 
-# set environment variables
-ENV JAVA_HOME="/usr/local/openjdk-8/"
+add_backend() {
+    while true; do
+        output=`mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1`
+        res=$?
+        date >> $DORIS_HOME/be/log/be.out
+        echo $output >> $DORIS_HOME/be/log/be.out
+        [ $res -eq 0 ] && break
+        (echo $output | grep "Same backend already exists") && break
+        sleep 1
+    done
+}
 
-COPY output /doris/ 
+main() {
+    add_backend
+    $DORIS_HOME/be/bin/start_be.sh
+}
 
-RUN apt-get update && \
-    apt-get install -y default-mysql-client
-
-WORKDIR /doris
-
-
+main
