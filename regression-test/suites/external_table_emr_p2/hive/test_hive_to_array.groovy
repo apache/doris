@@ -35,11 +35,11 @@ suite("test_hive_to_array", "p2") {
         
         sql """ use multi_catalog """ 
 
-        qt_types """ select * from hive_textfile_array_all_types """
+        qt_types """ select * from hive_textfile_array_all_types"""
 
-        qt_array """ select * from hive_testfile_nestedarray """ 
+        qt_array """ select * from hive_textfile_nestedarray""" 
 
-        qt_delimiter """ select * from hive_testfile_delimiter """ 
+        qt_delimiter """ select * from hive_textfile_array_delimiter""" 
 
     }
 }
