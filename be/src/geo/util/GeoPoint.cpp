@@ -43,7 +43,7 @@ namespace doris {
     }
 
     // Return GEO_PARSE_OK, if and only if this can be converted to a valid S2Point
-     inline GeoParseStatus GeoPoint::to_s2point(double lng, double lat, S2Point* point) {
+    GeoParseStatus GeoPoint::to_s2point(double lng, double lat, S2Point* point) {
         if (!is_valid_lng_lat(lng, lat)) {
             return GEO_PARSE_COORD_INVALID;
         }
@@ -53,7 +53,7 @@ namespace doris {
         return GEO_PARSE_OK;
     }
 
-    inline GeoParseStatus GeoPoint::to_s2point(const GeoCoordinate& coord, S2Point* point) {
+    GeoParseStatus GeoPoint::to_s2point(const GeoCoordinate& coord, S2Point* point) {
         return to_s2point(coord.x, coord.y, point);
     }
 

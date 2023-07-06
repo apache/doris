@@ -40,7 +40,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "geo/geo_types.h"
+#include "geo/util/GeoShape.h"
 #include "gutil/integral_types.h"
 #include "runtime/large_int_value.h"
 #include "util/arrow/row_batch.h"
@@ -166,7 +166,8 @@ public:
             case vectorized::TypeIndex::GEOMETRY: {
                 std::unique_ptr<GeoShape> shape;
                 std::string string_temp;
-                shape.reset(GeoShape::from_encoded(data_ref.data, data_ref.size));
+                size_t data_size = data_ref.size;
+                shape.reset(GeoShape::from_encoded(data_ref.data, data_size));
                 if(shape != nullptr ){
                     string_temp = shape->as_wkt();
                 }

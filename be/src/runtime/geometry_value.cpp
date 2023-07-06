@@ -17,7 +17,7 @@
 
 #include "geometry_value.h"
 
-#include "geo/geo_types.h"
+#include "geo/util/GeoShape.h"
 
 namespace doris {
 
