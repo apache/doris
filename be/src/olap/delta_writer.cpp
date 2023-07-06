@@ -263,9 +263,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    if (_mem_table->empty()) {
-        return Status::OK();
-    }
     return _flush_token->submit(std::move(_mem_table));
 }
 

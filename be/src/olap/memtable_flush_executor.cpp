@@ -72,6 +72,9 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     if (s != OK) {
         return Status::Error(s);
     }
+    if (mem_table->empty()) {
+        return Status::OK();
+    }
     int64_t submit_task_time = MonotonicNanos();
     auto task = std::make_shared<MemtableFlushTask>(
             this, std::move(mem_table), _rowset_writer->allocate_segment_id(), submit_task_time);
