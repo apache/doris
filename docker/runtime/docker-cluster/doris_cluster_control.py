@@ -302,8 +302,7 @@ class Cluster(object):
             return cluster, False
         except:
             if not cluster_name:
-                cluster_name = os.path.basename(
-                    tempfile.mkdtemp("", "", DORIS_LOCAL_ROOT))
+                raise Exception("Please specify cluster name")
             subnet_prefix = Cluster._gen_subnet_prefix()
             meta = Meta(cluster_name, subnet_prefix, "")
             os.makedirs(get_cluster_path(cluster_name), exist_ok=True)
@@ -411,8 +410,8 @@ class Cluster(object):
         return Node.new(self.meta, node_type, id)
 
 
-def run(args):
-    cluster, is_new = Cluster.load_or_new_cluster(args.name)
+def up(args):
+    cluster, is_new = Cluster.load_or_new_cluster(args.NAME)
     if args.image:
         cluster.set_image(args.image)
     elif not cluster.get_image():
@@ -436,7 +435,7 @@ def run(args):
     LOG.info("Run cluster {} succ".format(cluster.get_cluster_name()))
 
 
-def shutdown(args):
+def down(args):
     cmd = "down"
     cluster = Cluster.load_cluster(args.NAME)
     cluster.run_docker_compose(cmd)
@@ -468,24 +467,24 @@ def parse_args():
     ap = argparse.ArgumentParser(description="")
     sub_aps = ap.add_subparsers(dest="command")
 
-    ap_run = sub_aps.add_parser("run", help="new or update a doris cluster")
-    ap_run.add_argument(
+    ap_up = sub_aps.add_parser("up",
+                               help="Run a new or update a doris cluster")
+    ap_up.add_argument("NAME", default="", help="specific cluster name")
+    ap_up.add_argument(
         "--image",
         default="",
         help="specify docker image, must specify if create new cluster")
-    ap_run.add_argument("--fe",
-                        type=int,
-                        default=3,
-                        help="specify fe count, use in create new cluster")
-    ap_run.add_argument("--be",
-                        type=int,
-                        default=3,
-                        help="specify be count, use in create new cluster")
-    ap_run.add_argument("--name", default="", help="specific cluster name")
+    ap_up.add_argument("--fe",
+                       type=int,
+                       default=3,
+                       help="specify fe count, use in create new cluster")
+    ap_up.add_argument("--be",
+                       type=int,
+                       default=3,
+                       help="specify be count, use in create new cluster")
 
-    ap_shutdown_node = sub_aps.add_parser("shutdown",
-                                          help="shutdown a cluster")
-    ap_shutdown_node.add_argument("NAME", help="specify cluster name")
+    ap_down_node = sub_aps.add_parser("down", help="shutdown a cluster")
+    ap_down_node.add_argument("NAME", help="specify cluster name")
 
     ap_start_node = sub_aps.add_parser("start-node",
                                        help="start a fe or be node")
@@ -515,10 +514,10 @@ def parse_args():
 
 def main():
     usage, _, args = parse_args()
-    if args.command == "run":
-        return run(args)
-    elif args.command == "shutdown":
-        return shutdown(args)
+    if args.command == "up":
+        return up(args)
+    elif args.command == "down":
+        return down(args)
     elif args.command == "start-node":
         return start_node(args)
     elif args.command == "stop-node":
