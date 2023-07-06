@@ -89,7 +89,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/sink/vtablet_validator.h"
+#include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris {
 class TExpr;
@@ -983,7 +983,7 @@ void VNodeChannel::mark_close() {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
-        : _pool(pool), _input_row_desc(row_desc), _filter_bitmap(1024) {
+        : _pool(pool), _input_row_desc(row_desc) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -1066,7 +1066,7 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
         return Status::InternalError("unknown destination tuple descriptor");
     }
 
-    _validator = std::make_unique<OlapTableValidator>(_output_tuple_desc);
+    _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
@@ -1296,12 +1296,12 @@ void VOlapTableSink::_generate_row_distribution_payload(
 
 Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                                   ChannelDistributionPayload& channel_to_payload,
-                                                  size_t num_rows, int32_t filtered_rows) {
+                                                  size_t num_rows, bool has_filtered_rows) {
     const VOlapTablePartition* partition = nullptr;
     uint32_t tablet_index = 0;
     bool stop_processing = false;
     for (int32_t i = 0; i < num_rows; ++i) {
-        if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
+        if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
             continue;
         }
         bool is_continue = false;
@@ -1331,7 +1331,7 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
             auto& selector = channel_to_payload[j][channel.get()].first;
             auto& tablet_ids = channel_to_payload[j][channel.get()].second;
             for (int32_t i = 0; i < num_rows; ++i) {
-                if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
+                if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
                     continue;
                 }
                 selector->push_back(i);
@@ -1362,29 +1362,13 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     DorisMetrics::instance()->load_rows->increment(rows);
     DorisMetrics::instance()->load_bytes->increment(bytes);
 
-    vectorized::Block block(input_block->get_columns_with_type_and_name());
-    if (!_output_vexpr_ctxs.empty()) {
-        // Do vectorized expr here to speed up load
-        RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-                _output_vexpr_ctxs, *input_block, &block));
-    }
+    std::shared_ptr<vectorized::Block> block;
+    bool has_filtered_rows = false;
+    RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
+            state, input_block, block, _output_vexpr_ctxs, has_filtered_rows));
 
-    auto num_rows = block.rows();
-    int filtered_rows = 0;
-    {
-        SCOPED_RAW_TIMER(&_validate_data_ns);
-        _filter_bitmap.Reset(block.rows());
-        bool stop_processing = false;
-        RETURN_IF_ERROR(_validator->validate_data(state, &block, &_filter_bitmap, &filtered_rows,
-                                                  &stop_processing));
-        _number_filtered_rows += filtered_rows;
-        if (stop_processing) {
-            // should be returned after updating "_number_filtered_rows", to make sure that load job can be cancelled
-            // because of "data unqualified"
-            return Status::EndOfFile("Encountered unqualified data, stop processing");
-        }
-        _validator->convert_to_dest_desc_block(&block);
-    }
+    // clear and release the references of columns
+    input_block->clear();
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
@@ -1396,20 +1380,21 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         _partition_to_tablet_map.clear();
     }
     _row_distribution_watch.start();
+    auto num_rows = block->rows();
     size_t partition_num = _vpartition->get_partitions().size();
     if (partition_num == 1 && findTabletMode == FindTabletMode::FIND_TABLET_EVERY_SINK) {
-        RETURN_IF_ERROR(_single_partition_generate(state, &block, channel_to_payload, num_rows,
-                                                   filtered_rows));
+        RETURN_IF_ERROR(_single_partition_generate(state, block.get(), channel_to_payload, num_rows,
+                                                   has_filtered_rows));
     } else {
         for (int i = 0; i < num_rows; ++i) {
-            if (UNLIKELY(filtered_rows) > 0 && _filter_bitmap.Get(i)) {
+            if (UNLIKELY(has_filtered_rows) && _block_convertor->filter_bitmap().Get(i)) {
                 continue;
             }
             const VOlapTablePartition* partition = nullptr;
             bool is_continue = false;
             uint32_t tablet_index = 0;
-            RETURN_IF_ERROR(find_tablet(state, &block, i, &partition, tablet_index, stop_processing,
-                                        is_continue));
+            RETURN_IF_ERROR(find_tablet(state, block.get(), i, &partition, tablet_index,
+                                        stop_processing, is_continue));
             if (is_continue) {
                 continue;
             }
@@ -1429,20 +1414,18 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             !_schema->is_dynamic_schema() && _partition_to_tablet_map.size() == 1;
     if (load_block_to_single_tablet) {
         SCOPED_RAW_TIMER(&_filter_ns);
-        // clear and release the references of columns
-        input_block->clear();
         // Filter block
-        if (filtered_rows > 0) {
-            auto filter = vectorized::ColumnUInt8::create(block.rows(), 0);
+        if (has_filtered_rows) {
+            auto filter = vectorized::ColumnUInt8::create(block->rows(), 0);
             vectorized::UInt8* filter_data =
                     static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data().data();
             vectorized::IColumn::Filter& filter_col =
                     static_cast<vectorized::ColumnUInt8*>(filter.get())->get_data();
             for (size_t i = 0; i < filter_col.size(); ++i) {
-                filter_data[i] = !_filter_bitmap.Get(i);
+                filter_data[i] = !_block_convertor->filter_bitmap().Get(i);
             }
-            RETURN_IF_CATCH_EXCEPTION(
-                    vectorized::Block::filter_block_internal(&block, filter_col, block.columns()));
+            RETURN_IF_CATCH_EXCEPTION(vectorized::Block::filter_block_internal(
+                    block.get(), filter_col, block->columns()));
         }
     }
     // Add block to node channel
@@ -1450,7 +1433,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
         for (const auto& entry : channel_to_payload[i]) {
             // if this node channel is already failed, this add_row will be skipped
             auto st = entry.first->add_block(
-                    &block, &entry.second,
+                    block.get(), &entry.second,
                     // if it is load single tablet, then append this whole block
                     load_block_to_single_tablet);
             if (!st.ok()) {
@@ -1623,14 +1606,15 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
             COUNTER_SET(_input_rows_counter, _number_input_rows);
             COUNTER_SET(_output_rows_counter, _number_output_rows);
-            COUNTER_SET(_filtered_rows_counter, _number_filtered_rows);
+            COUNTER_SET(_filtered_rows_counter,
+                        _block_convertor->num_filtered_rows() + _number_filtered_rows);
             COUNTER_SET(_send_data_timer, _send_data_ns);
             COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
             COUNTER_SET(_filter_timer, _filter_ns);
             COUNTER_SET(_append_node_channel_timer, channel_stat.append_node_channel_ns);
             COUNTER_SET(_where_clause_timer, channel_stat.where_clause_ns);
             COUNTER_SET(_wait_mem_limit_timer, channel_stat.mem_exceeded_block_ns);
-            COUNTER_SET(_validate_data_timer, _validate_data_ns);
+            COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
             COUNTER_SET(_serialize_batch_timer, serialize_batch_ns);
             COUNTER_SET(_non_blocking_send_work_timer, actual_consume_ns);
             COUNTER_SET(_total_add_batch_exec_timer, total_add_batch_exec_time_ns);
@@ -1643,7 +1627,8 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
             int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
                                           state->num_rows_load_unselected();
             state->set_num_rows_load_total(num_rows_load_total);
-            state->update_num_rows_load_filtered(_number_filtered_rows);
+            state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
+                                                 _number_filtered_rows);
             state->update_num_rows_load_unselected(_number_immutable_partition_filtered_rows);
 
             // print log of add batch time of all node, for tracing load performance easily
