@@ -201,6 +201,10 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     public ColumnStatistic visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, Statistics context) {
         ColumnStatistic leftColStats = binaryArithmetic.left().accept(this, context);
         ColumnStatistic rightColStats = binaryArithmetic.right().accept(this, context);
+        if (leftColStats == null || rightColStats == null) {
+            return ColumnStatistic.UNKNOWN;
+        }
+
         double leftNdv = leftColStats.ndv;
         double rightNdv = rightColStats.ndv;
         double ndv = Math.max(leftNdv, rightNdv);

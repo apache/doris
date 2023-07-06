@@ -486,8 +486,16 @@ public class TypeCoercionUtils {
         left = castIfNotSameType(left, t1);
         right = castIfNotSameType(right, t2);
 
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, BigIntType.INSTANCE);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, BigIntType.INSTANCE);
+        DataType commonType = BigIntType.INSTANCE;
+        for (DataType dataType : TypeCoercionUtils.NUMERIC_PRECEDENCE) {
+            if (t1.equals(dataType) || t2.equals(dataType)) {
+                commonType = dataType;
+                break;
+            }
+        }
+
+        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
+        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
         return divide.withChildren(newLeft, newRight);
     }
 
