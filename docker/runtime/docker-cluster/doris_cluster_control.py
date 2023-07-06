@@ -296,23 +296,19 @@ class Cluster(object):
         self.meta = meta
 
     @staticmethod
-    def new_cluster(cluster_name, image):
-        if cluster_name:
-            path = get_cluster_path(cluster_name)
-            if os.path.exists(path):
-                raise Exception(
-                    "Cluster path {} has exists, maybe a duplicate cluster has exists. " \
-                    "After shuting it down and deleting its directory, try again.".format(path))
+    def load_or_new_cluster(cluster_name):
+        try:
+            cluster = Cluster.load_cluster(cluster_name)
+            return cluster, False
+        except:
+            if not cluster_name:
+                cluster_name = os.path.basename(
+                    tempfile.mkdtemp("", "", DORIS_LOCAL_ROOT))
+            subnet_prefix = Cluster._gen_subnet_prefix()
+            meta = Meta(cluster_name, subnet_prefix, "")
+            os.makedirs(get_cluster_path(cluster_name), exist_ok=True)
 
-            else:
-                os.makedirs(path)
-        else:
-            cluster_name = os.path.basename(
-                tempfile.mkdtemp("", "", DORIS_LOCAL_ROOT))
-
-        subnet_prefix = Cluster._gen_subnet_prefix()
-        meta = Meta(cluster_name, subnet_prefix, image)
-        return Cluster(meta)
+            return Cluster(meta), True
 
     @staticmethod
     def load_cluster(cluster_name):
@@ -345,19 +341,22 @@ class Cluster(object):
                 return i
         raise Exception("Failed to init subnet")
 
+    def get_image(self):
+        return self.meta.image
+
+    def set_image(self, image):
+        self.meta.image = image
+
     def get_path(self):
         return get_cluster_path(self.meta.cluster_name)
 
     def get_cluster_name(self):
         return self.meta.cluster_name
 
-    def add_fe(self, id=None):
-        self._add_node(Node.TYPE_FE, id)
+    def get_node_num(self, node_type):
+        return len(self.meta.idsets.get(node_type, []))
 
-    def add_be(self, id=None):
-        self._add_node(Node.TYPE_BE, id)
-
-    def _add_node(self, node_type, id):
+    def add_node(self, node_type, id=None):
         id = self.meta.add_node(node_type, id)
         Node.new(self.meta, node_type, id).init_dir()
 
@@ -397,18 +396,11 @@ class Cluster(object):
         self.save_meta()
         self.save_compose()
 
-    def start(self):
-        self._run_docker_compose("up -d")
-
-    def start_node(self, node_type, id):
+    def run_docker_compose_with_node(self, cmd, node_type, id):
         node = self._get_node(node_type, id)
-        self._run_docker_compose("start {}".format(node.service_name()))
+        self.run_docker_compose("{} {}".format(cmd, node.service_name()))
 
-    def stop_node(self, node_type, id):
-        node = self._get_node(node_type, id)
-        self._run_docker_compose("stop {}".format(node.service_name()))
-
-    def _run_docker_compose(self, cmd):
+    def run_docker_compose(self, cmd):
         return exec_shell_command("docker-compose -f {} {}".format(
             self.get_compose_path(), cmd))
 
@@ -419,65 +411,120 @@ class Cluster(object):
         return Node.new(self.meta, node_type, id)
 
 
-def new(args):
-    cluster = Cluster.new_cluster(args.name, args.IMAGE)
-    LOG.info("Add cluster {}".format(cluster.get_cluster_name()))
-    for i in range(args.fe):
-        cluster.add_fe()
-    for i in range(args.be):
-        cluster.add_be()
+def run(args):
+    cluster, is_new = Cluster.load_or_new_cluster(args.name)
+    if args.image:
+        cluster.set_image(args.image)
+    elif not cluster.get_image():
+        raise Exception("Please specify image for new cluster")
+    if is_new:
+        LOG.info("Create new cluster {}".format(cluster.get_cluster_name()))
+    else:
+        LOG.info("Update existing cluster {}".format(
+            cluster.get_cluster_name()))
+
+    if is_new:
+        for i in range(args.fe):
+            cluster.add_node(Node.TYPE_FE)
+        for i in range(args.be):
+            cluster.add_node(Node.TYPE_BE)
+
     cluster.save()
-    cluster.start()
+
+    cmd = "up -d --remove-orphans"
+    cluster.run_docker_compose(cmd)
     LOG.info("Run cluster {} succ".format(cluster.get_cluster_name()))
 
 
-def start(args):
+def shutdown(args):
+    cmd = "down"
     cluster = Cluster.load_cluster(args.NAME)
-    cluster.start_node(args.NODE_TYPE, args.ID)
+    cluster.run_docker_compose(cmd)
+    LOG.info("Shutdown cluster {} succ".format(args.NAME))
+
+
+def start_node(args):
+    cmd = "start"
+    cluster = Cluster.load_cluster(args.NAME)
+    cluster.run_docker_compose_with_node(cmd, args.NODE_TYPE, args.ID)
     LOG.info("Start {} with id {} succ".format(args.NODE_TYPE, args.ID))
 
 
-def stop(args):
+def stop_node(args):
+    cmd = "stop"
     cluster = Cluster.load_cluster(args.NAME)
-    cluster.stop_node(args.NODE_TYPE, args.ID)
+    cluster.run_docker_compose_with_node(cmd, args.NODE_TYPE, args.ID)
     LOG.info("Stop {} with id {} succ".format(args.NODE_TYPE, args.ID))
+
+
+def restart_node(args):
+    cmd = "restart"
+    cluster = Cluster.load_cluster(args.NAME)
+    cluster.run_docker_compose_with_node(cmd, args.NODE_TYPE, args.ID)
+    LOG.info("Restart {} with id {} succ".format(args.NODE_TYPE, args.ID))
 
 
 def parse_args():
     ap = argparse.ArgumentParser(description="")
     sub_aps = ap.add_subparsers(dest="command")
 
-    ap_new = sub_aps.add_parser("new", help="new a doris cluster")
-    ap_new.add_argument("IMAGE", help="specify docker image")
-    ap_new.add_argument("--fe", type=int, default=3, help="specify fe count")
-    ap_new.add_argument("--be", type=int, default=3, help="specify be count")
-    ap_new.add_argument("--name", default="", help="specific cluster name")
+    ap_run = sub_aps.add_parser("run", help="new or update a doris cluster")
+    ap_run.add_argument(
+        "--image",
+        default="",
+        help="specify docker image, must specify if create new cluster")
+    ap_run.add_argument("--fe",
+                        type=int,
+                        default=3,
+                        help="specify fe count, use in create new cluster")
+    ap_run.add_argument("--be",
+                        type=int,
+                        default=3,
+                        help="specify be count, use in create new cluster")
+    ap_run.add_argument("--name", default="", help="specific cluster name")
 
-    ap_start = sub_aps.add_parser("start", help="start a fe or be node")
-    ap_start.add_argument("NAME", help="specify cluster name")
-    ap_start.add_argument("NODE_TYPE",
-                          choices=Node.TYPE_ALL,
-                          help="specify node type")
-    ap_start.add_argument("ID", type=int, help="specify node id")
+    ap_shutdown_node = sub_aps.add_parser("shutdown",
+                                          help="shutdown a cluster")
+    ap_shutdown_node.add_argument("NAME", help="specify cluster name")
 
-    ap_stop = sub_aps.add_parser("stop", help="stop a fe or be node")
-    ap_stop.add_argument("NAME", help="specify cluster name")
-    ap_stop.add_argument("NODE_TYPE",
-                         choices=Node.TYPE_ALL,
-                         help="specify node type")
-    ap_stop.add_argument("ID", type=int, help="specify node id")
+    ap_start_node = sub_aps.add_parser("start-node",
+                                       help="start a fe or be node")
+    ap_start_node.add_argument("NAME", help="specify cluster name")
+    ap_start_node.add_argument("NODE_TYPE",
+                               choices=Node.TYPE_ALL,
+                               help="specify node type")
+    ap_start_node.add_argument("ID", type=int, help="specify node id")
+
+    ap_stop_node = sub_aps.add_parser("stop-node", help="stop a fe or be node")
+    ap_stop_node.add_argument("NAME", help="specify cluster name")
+    ap_stop_node.add_argument("NODE_TYPE",
+                              choices=Node.TYPE_ALL,
+                              help="specify node type")
+    ap_stop_node.add_argument("ID", type=int, help="specify node id")
+
+    ap_restart_node = sub_aps.add_parser("restart",
+                                         help="restart a fe or be node")
+    ap_restart_node.add_argument("NAME", help="specify cluster name")
+    ap_restart_node.add_argument("NODE_TYPE",
+                                 choices=Node.TYPE_ALL,
+                                 help="specify node type")
+    ap_restart_node.add_argument("ID", type=int, help="specify node id")
 
     return ap.format_usage(), ap.format_help(), ap.parse_args()
 
 
 def main():
     usage, _, args = parse_args()
-    if args.command == "new":
-        return new(args)
-    elif args.command == "start":
-        return start(args)
-    elif args.command == "stop":
-        return stop(args)
+    if args.command == "run":
+        return run(args)
+    elif args.command == "shutdown":
+        return shutdown(args)
+    elif args.command == "start-node":
+        return start_node(args)
+    elif args.command == "stop-node":
+        return stop_node(args)
+    elif args.command == "restart-node":
+        return restart_node(args)
     else:
         print(usage)
         return -1
