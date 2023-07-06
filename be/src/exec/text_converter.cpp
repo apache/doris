@@ -280,25 +280,23 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                 .resize_fill(origin_size + rows, value);
         break;
     }
-    // not support binary
     case TYPE_ARRAY :{
 
-        std::function<vectorized::Array(int,int,char ,const TypeDescriptor &)>
-        func = [&](int l ,int r,char split, const TypeDescriptor& type )-> vectorized::Array {
+        std::function<vectorized::Array(int, int, char, const TypeDescriptor &)>
+        func = [&](int left ,int right,char split, const TypeDescriptor& type )-> vectorized::Array {
             vectorized::Array array;
-            int fr = l;
-            for (int i = l; i <= r + 1; i++) {
-
-                if (i <= r && data[i] != split && data[i] != _array_delimiter) {
+            int fr = left;
+            for (int i = left; i <= right + 1; i++) {
+                auto Sub_type = type.children[0];
+                if (i <= right && data[i] != split && data[i] != _array_delimiter) {
                     continue;
                 }
-                if (type.children[0].type == TYPE_ARRAY) {
+                if (Sub_type.type == TYPE_ARRAY) {
                     array.push_back(
-                            func(fr, i - 1, split + 1, type.children[0]));
+                            func(fr, i - 1, split + 1, Sub_type));
                 } else {
                     StringParser::ParseResult local_parse_result = StringParser::PARSE_SUCCESS;
-
-                    switch (type.children[0].type) {
+                    switch (Sub_type.type) {
                     case TYPE_HLL: {
                         DCHECK(false) << "not support type: " << "array<HyperLogLog>\n";
                         break;
@@ -405,7 +403,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                     case TYPE_DECIMAL32: {
                         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                         int32_t value = StringParser::string_to_decimal<int32_t>(
-                                data+fr, i-fr, slot_desc->type().precision, slot_desc->type().scale, &result);
+                                data+fr, i-fr, Sub_type.precision, Sub_type.scale, &result);
                         if (result != StringParser::PARSE_SUCCESS) {
                             local_parse_result = StringParser::PARSE_FAILURE;
                             break;
@@ -416,7 +414,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                     case TYPE_DECIMAL64: {
                         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                         int64_t value = StringParser::string_to_decimal<int64_t>(
-                                data+fr, i-fr, slot_desc->type().precision, slot_desc->type().scale, &result);
+                                data+fr, i-fr, Sub_type.precision, Sub_type.scale, &result);
                         if (result != StringParser::PARSE_SUCCESS) {
                             local_parse_result = StringParser::PARSE_FAILURE;
                             break;
@@ -427,7 +425,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                     case TYPE_DECIMAL128I: {
                         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
                         vectorized::Int128 value = StringParser::string_to_decimal<vectorized::Int128>(
-                                data+fr, i-fr, slot_desc->type().precision, slot_desc->type().scale, &result);
+                                data+fr, i-fr, Sub_type.precision, Sub_type.scale, &result);
                         if (result != StringParser::PARSE_SUCCESS) {
                             local_parse_result = StringParser::PARSE_FAILURE;
                             break;
@@ -436,7 +434,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                         break;
                     }
                     default: {
-                        DCHECK(false) << "bad slot type: array<" << type.children[0] <<">" ;
+                        DCHECK(false) << "bad slot type: array<" << Sub_type <<">" ;
                         break;
                     }
                     }
@@ -463,6 +461,7 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         DCHECK(false) << "bad slot type: " << slot_desc->type();
         break;
     }
+
 
     if (UNLIKELY(parse_result == StringParser::PARSE_FAILURE)) {
         if (true == slot_desc->is_nullable()) {
