@@ -259,6 +259,7 @@ public class StatisticsRepository {
 
     public static void alterColumnStatistics(AlterColumnStatsStmt alterColumnStatsStmt) throws Exception {
         TableName tableName = alterColumnStatsStmt.getTableName();
+        List<Long> partitionIds = alterColumnStatsStmt.getPartitionIds();
         DBObjects objects = StatisticsUtil.convertTableNameToObjects(tableName);
         String rowCount = alterColumnStatsStmt.getValue(StatsType.ROW_COUNT);
         String ndv = alterColumnStatsStmt.getValue(StatsType.NDV);
@@ -300,16 +301,30 @@ public class StatisticsRepository {
         params.put("idxId", "-1");
         params.put("tblId", String.valueOf(objects.table.getId()));
         params.put("colId", String.valueOf(colName));
-        params.put("partId", "NULL");
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
         params.put("min", min == null ? "NULL" : min);
         params.put("max", max == null ? "NULL" : max);
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
-        StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
-        Env.getCurrentEnv().getStatisticsCache()
-                .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+
+        if (partitionIds.isEmpty()) {
+            // update table granularity statistics
+            params.put("partId", "NULL");
+            StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
+            Env.getCurrentEnv().getStatisticsCache()
+                    .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+        } else {
+            // update partition granularity statistics
+            for (Long partitionId : partitionIds) {
+                HashMap<String, String> partParams = Maps.newHashMap(params);
+                partParams.put("partId", String.valueOf(partitionId));
+                StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, partParams);
+                // TODO cache partition granular statistics
+                // Env.getCurrentEnv().getStatisticsCache()
+                //         .updateColStatsCache(partitionId, -1, colName, builder.build());
+            }
+        }
     }
 
     public static List<ResultRow> fetchRecentStatsUpdatedCol() {
