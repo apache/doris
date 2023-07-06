@@ -413,11 +413,7 @@ private:
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
-    struct Memreuse {
-        bool is_mem_reuse = true;
-        Block* output_block = nullptr;
-    };
-    Memreuse _mem_reuse;
+    Block* _output_block = nullptr;
 
 public:
     static MutableBlock build_mutable_block(Block* block) {
@@ -425,26 +421,26 @@ public:
     }
     MutableBlock() = default;
     ~MutableBlock() {
-        if (!_mem_reuse.is_mem_reuse) {
-            _mem_reuse.output_block->swap(this->to_block());
+        if (_output_block) {
+            _output_block->swap(this->to_block());
         }
     };
 
     MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
                  bool igore_trivial_slot = false);
 
-    MutableBlock(Block* block, Memreuse mem_reuse = {false, nullptr})
+    MutableBlock(Block* block, Block* output_block = nullptr)
             : _columns(block->mutate_columns()),
               _data_types(block->get_data_types()),
               _names(block->get_names()),
-              _mem_reuse(mem_reuse) {
+              _output_block(output_block) {
         initialize_index_by_name();
     }
-    MutableBlock(Block&& block, Memreuse mem_reuse = {false, nullptr})
+    MutableBlock(Block&& block, Block* output_block = nullptr)
             : _columns(block.mutate_columns()),
               _data_types(block.get_data_types()),
               _names(block.get_names()),
-              _mem_reuse(mem_reuse) {
+              _output_block(output_block) {
         initialize_index_by_name();
     }
 
