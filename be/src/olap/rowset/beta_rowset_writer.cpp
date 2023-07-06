@@ -527,7 +527,7 @@ Status BetaRowsetWriter::unfold_variant_column_and_flush_block(
     ctx.block = block;
     if (_context.tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, &ctx));
+        RETURN_IF_ERROR(_unfold_variant_column(*block, ctx.flush_schema));
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
     SCOPED_RAW_TIMER(&_segment_writer_ns);
@@ -947,7 +947,7 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, FlushContext* ctx) {
+Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema) {
     if (block.rows() == 0) {
         return Status::OK();
     }
@@ -974,7 +974,7 @@ Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, FlushC
     //  static   dynamic
     // | ----- | ------- |
     // The static ones are original _tablet_schame columns
-    TabletSchemaSPtr flush_schema = std::make_shared<TabletSchema>(*_context.tablet_schema);
+    flush_schema = std::make_shared<TabletSchema>(*_context.tablet_schema);
     vectorized::Block flush_block(std::move(block));
     // The dynamic ones are auto generated and extended, append them the the orig_block
     for (auto& entry : object_column.get_subcolumns()) {
@@ -1015,7 +1015,6 @@ Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, FlushC
     RETURN_IF_ERROR(vectorized::schema_util::unfold_object(
             flush_block.get_position_by_name(BeConsts::DYNAMIC_COLUMN_NAME), flush_block, true));
     flush_block.erase(BeConsts::DYNAMIC_COLUMN_NAME);
-    ctx->flush_schema = flush_schema;
     block.swap(flush_block);
     return Status::OK();
 }
