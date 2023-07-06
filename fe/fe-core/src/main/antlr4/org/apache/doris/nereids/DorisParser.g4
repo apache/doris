@@ -43,13 +43,13 @@ statement
     | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
     | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN
-        ENGINE EQ engine=identifier
-        (AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList
-        COMMENT constant
-        PARTITION BY RANGE partitionKeys=identifierList partitions=partitionsDef
+        (ENGINE EQ engine=identifier)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
+        (COMMENT constant)?
+        (PARTITION BY RANGE partitionKeys=identifierList partitions=partitionsDef)?
         DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) BUCKETS (number | AUTO)?
-        ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN
-        PROPERTIES LEFT_PAREN properties RIGHT_PAREN                   #createTable
+        (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
+        PROPERTIES LEFT_PAREN propertySeq RIGHT_PAREN                   #createTable
     | explain? INSERT INTO tableName=multipartIdentifier
         (PARTITION partition=identifierList)?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
@@ -324,6 +324,66 @@ tableAlias
 
 multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
+    ;
+    
+// ----------------Create Table Fields----------
+    
+columnDefs
+    : cols+=columnDef (COMMA cols+=columnDef)*
+    ;
+    
+columnDef
+    : colName=identifier type=colType
+        KEY? (aggType=identifier)? NOT? NULL?
+        (DEFAULT (defaultValue=constant | defaultExpr=identifier))?
+        (comment=constant)?
+    ;
+    
+colType
+    : type=identifier (LEFT_PAREN constant (COMMA constant)? RIGHT_PAREN)?
+    ;
+    
+indexDefs
+    : indexes+=indexDef (COMMA indexes+=indexDef)*
+    ;
+    
+indexDef
+    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=constant)?
+    ;
+    
+partitionsDef
+    : partitions+=lessThanPartitionDef (COMMA partitions+=lessThanPartitionDef)*    #lessThan
+    | partitions+=fixedPartitionDef (COMMA partitions+=fixedPartitionDef)*          #fixed
+    | partitions+=stepPartitionDef (COMMA partitions+=stepPartitionDef)*            #step
+    ;
+    
+lessThanPartitionDef
+    : PARTITION partitionName=identifier VALUES LESS THAN (MAXVAULE | constantSeq)
+    ;
+    
+fixedPartitionDef
+    : PARTITION partitionName=identifier VALUES LEFT_BRACKET constantSeq RIGHT_PAREN
+    ;
+
+stepPartitionDef
+    : FROM constantSeq TO constantSeq
+        ((INTERVAL unitsAmount=valueExpression unit=datetimeUnit) | unitsAmount=valueExpression)
+    ;
+    
+constantSeq
+    : LEFT_PAREN values+=constant (COMMA values+=constant)* RIGHT_PAREN
+    ;
+    
+rollupDefs
+    : rollups+=rollupDef (COMMA rollups+=rollupDef)*
+    ;
+    
+rollupDef
+    : rollupName=identifier rollupCols=identifierList
+    ;
+    
+propertySeq
+    : properties+=tvfProperty (COMMA properties+=tvfProperty)*
     ;
 
 tabletList
