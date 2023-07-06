@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -34,6 +35,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -494,9 +496,10 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // check a.2 and b.2
                 for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                    if (!addMVClause.isReplay()
-                            && olapTable.getColumn(CreateMaterializedViewStmt.mvColumnBreaker(slotName))
-                                    .isKey() != mvColumnItem.isKey()) {
+                    if (!addMVClause.isReplay() && olapTable
+                            .getColumn(MaterializedIndexMeta
+                                    .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
+                            .isKey() != mvColumnItem.isKey()) {
                         throw new DdlException(
                                 "The mvItem[" + mvColumnItem.getName() + "]'s isKey must same with all slot");
                     }
@@ -505,7 +508,9 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (!addMVClause.isReplay() && !mvColumnItem.isKey() && olapTable.getKeysType() == KeysType.AGG_KEYS) {
                     // check a.1
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
-                        if (olapTable.getColumn(CreateMaterializedViewStmt.mvColumnBreaker(slotName))
+                        if (olapTable
+                                .getColumn(MaterializedIndexMeta
+                                        .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
                                 .getAggregationType() != mvColumnItem.getAggregationType()) {
                             throw new DdlException(
                                     "The mvItem[" + mvColumnItem.getName() + "]'s isKey must same with all slot");
@@ -514,7 +519,9 @@ public class MaterializedViewHandler extends AlterHandler {
 
                     // check a.3
                     if (!mvColumnItem.getAggregationType().isReplaceFamily()
-                            && !(mvColumnItem.getDefineExpr() instanceof SlotRef)) {
+                            && !(mvColumnItem.getDefineExpr() instanceof SlotRef)
+                            && !((mvColumnItem.getDefineExpr() instanceof CastExpr)
+                                    && mvColumnItem.getDefineExpr().getChild(0) instanceof SlotRef)) {
                         throw new DdlException(
                                 "The mvItem[" + mvColumnItem.getName() + "] require slot because it is value column");
                     }
@@ -540,11 +547,11 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
-        if (newMVColumns.size() == olapTable.getBaseSchemaKeyColumns().size() && !addMVClause.isReplay()) {
+        if (newMVColumns.size() == olapTable.getBaseSchema().size() && !addMVClause.isReplay()) {
             boolean allKeysMatch = true;
             for (int i = 0; i < newMVColumns.size(); i++) {
                 if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
-                        .equalsIgnoreCase(olapTable.getBaseSchemaKeyColumns().get(i).getName())) {
+                        .equalsIgnoreCase(olapTable.getBaseSchema().get(i).getName())) {
                     allKeysMatch = false;
                     break;
                 }
