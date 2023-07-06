@@ -2955,7 +2955,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 rowset_schema, read_plan_ori, read_plan_update, rsid_to_rowset, &block));
         sort_block(block, ordered_block);
         int64_t size;
-        RETURN_IF_ERROR(rowset_writer->flush_single_memtable(&ordered_block, &size));
+        RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block, &size));
     }
     LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id() << " rowset: " << rowset_id
               << " seg_id: " << seg->id() << " dummy_version: " << end_version + 1
