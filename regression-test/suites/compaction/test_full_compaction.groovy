@@ -78,7 +78,7 @@ suite("test_full_compaction") {
         sql """ INSERT INTO ${tableName} VALUES
             (3,300)
             """
-        qt_4 """"select * from ${tableName} order by user_id"""
+        qt_4 """select * from ${tableName} order by user_id"""
 
 
         // version5 (1,100)(2,200)(3,100)
@@ -90,10 +90,31 @@ suite("test_full_compaction") {
         sql """delete from ${tableName} where user_id = 3"""
         qt_6 """select * from ${tableName} order by user_id"""
 
+        sql "SET skip_delete_predicate = true"
+        sql "SET skip_delete_sign = true"
+        sql "SET skip_delete_bitmap = true"
+        // show all hidden data
+        // (1,10)(1,100)(2,2)(2,20)(2,200)(3,300)(3,100)
+        qt_skip_delete """select * from ${tableName} order by user_id"""
+
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
-        // trigger compactions for all tablets in ${tableName}
+        // before full compaction, there are 7 rowsets.
+        int rowsetCount = 0
+        for (String[] tablet in tablets) {
+            String tablet_id = tablet[0]
+            def compactionStatusUrlIndex = 18
+            (code, out, err) = curl("GET", tablet[compactionStatusUrlIndex])
+            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def tabletJson = parseJson(out.trim())
+            assert tabletJson.rowsets instanceof List
+            rowsetCount +=((List<String>) tabletJson.rowsets).size()
+        }
+        assert (rowsetCount == 7)
+
+        // trigger full compactions for all tablets in ${tableName}
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             backend_id = tablet[2]
@@ -110,7 +131,7 @@ suite("test_full_compaction") {
             }
         }
 
-        // wait for all compactions done
+        // wait for full compaction done
         for (String[] tablet in tablets) {
             boolean running = true
             do {
@@ -126,7 +147,9 @@ suite("test_full_compaction") {
             } while (running)
         }
 
-        int rowCount = 0
+        // after full compaction, there is only 1 rowset.
+        
+        rowsetCount = 0
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             def compactionStatusUrlIndex = 18
@@ -135,12 +158,13 @@ suite("test_full_compaction") {
             assertEquals(code, 0)
             def tabletJson = parseJson(out.trim())
             assert tabletJson.rowsets instanceof List
-            for (String rowset in (List<String>) tabletJson.rowsets) {
-                rowCount += Integer.parseInt(rowset.split(" ")[1])
-            }
+            rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        assert (rowCount == 1)
-        qt_select_default3 """select * from ${tableName} order by user_id"""
+        assert (rowsetCount == 1)
+
+        // make sure all hidden data has been deleted
+        // (1,100)(2,200)
+        qt_select_final """select * from ${tableName} order by user_id"""
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
