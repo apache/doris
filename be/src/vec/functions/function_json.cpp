@@ -1151,31 +1151,28 @@ public:
         auto result_col = ColumnInt32::create(input_rows_count, 0);
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        // since we've overriden the function `use_default_implementation_for_constants` to return false,
-        // we have to deal with const columns specifically.
-        ColumnPtr input_col = block.get_by_position(arguments[0]).column;
-        const auto& [nullable_input_col, _] = unpack_if_const(input_col);
-        // we won't access the cell until we are sure that the cell is not null.
-        // so it's safe to cast the column to ColumnString in advance to avoid the overhead of calling
-        // `check_and_get_column` inside the loop.
-        const ColumnString* col_str = check_and_get_column<ColumnString>(nullable_input_col);
+        const auto& input_col = block.get_by_position(arguments[0]).column;
 
-        // TODO(niebayes): call `reserve` to avoid potential reallocations.
+        // preprocess the input column:
+        // since the input may be literal, we have to remove constness if necessary.
+        // since the input may be null, we make it nullable if necessary to unify the processing.
+        const auto col = make_nullable(unpack_if_const(input_col).first);
+        const ColumnNullable* col_nullable = check_and_get_column<ColumnNullable>(col);
+
+        // get the nested data.
+        const ColumnString* col_str =
+                check_and_get_column<ColumnString>(col_nullable->get_nested_column());
+
         SimdJSONParser parser;
 
-        // Doris processes the input data in batch, aka. a block.
-        // a block consists of several cells where each cell is indexed by a row and a column numbers.
-        // for instance, the json string passed into this function is stored in a cell.
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (nullable_input_col->is_null_at(i)) {
+            if (col_nullable->is_null_at(i)) {
                 result_null_map->get_data()[i] = 1;
                 continue;
             }
 
             const std::string_view json_doc = col_str->get_data_at(i).to_string_view();
 
-            // the json elements are represented as a tree.
-            // `parse` takes in the json document and returns the root element of the tree if all goes well.
             SimdJSONParser::Element root_element;
             if (!parser.parse(json_doc, root_element)) {
                 // the error message is set properly to emulate the behavior of MySQL.
@@ -1185,13 +1182,12 @@ public:
 
             const size_t depth = _get_element_depth(root_element);
 
-            auto& result_data = result_col->get_data();
-            result_data[i] = static_cast<Int32>(depth);
+            result_col->get_data()[i] = static_cast<Int32>(depth);
         }
 
-        auto nullable_result_col =
+        auto result_col_nullable =
                 ColumnNullable::create(std::move(result_col), std::move(result_null_map));
-        block.replace_by_position(result, std::move(nullable_result_col));
+        block.replace_by_position(result, std::move(result_col_nullable));
 
         return Status::OK();
     }
