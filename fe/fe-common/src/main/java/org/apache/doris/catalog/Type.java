@@ -1613,7 +1613,7 @@ public abstract class Type {
         compatibilityMatrix[GEOMETRY.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
         compatibilityMatrix[GEOMETRY.ordinal()][CHAR.ordinal()] = PrimitiveType.CHAR;
         compatibilityMatrix[GEOMETRY.ordinal()][VARCHAR.ordinal()] = PrimitiveType.VARCHAR;
-        compatibilityMatrix[JSONB.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[GEOMETRY.ordinal()][AGG_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DECIMALV2
         compatibilityMatrix[DECIMALV2.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1716,6 +1716,7 @@ public abstract class Type {
 
         //AGG_STATE
         compatibilityMatrix[AGG_STATE.ordinal()][JSONB.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[AGG_STATE.ordinal()][GEOMETRY.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[AGG_STATE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[AGG_STATE.ordinal()][DATEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[AGG_STATE.ordinal()][DATETIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;

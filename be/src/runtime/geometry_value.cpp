@@ -29,7 +29,8 @@ Status GeometryBinaryValue::from_geometry_string(const char* s, int length) {
                                        std::string_view(s, length));
     }
 
-    std::string res = GeoShape::as_binary(shape.get(), 0);
+    std::string res;
+    shape->encode_to(&res);
     len = res.size();
     ptr = new char[len + 1];
     std::copy(res.begin(), res.end(), const_cast<char*>(ptr));

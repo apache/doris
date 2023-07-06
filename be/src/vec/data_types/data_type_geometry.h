@@ -22,6 +22,7 @@
 #include "runtime/geometry_value.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_geometry_serde.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -72,7 +73,7 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeStringSerDe>();
+        return std::make_shared<DataTypeGeometrySerDe>();
     };
 
 private:

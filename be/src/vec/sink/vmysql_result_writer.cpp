@@ -205,9 +205,13 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 if (geometry_val.data == nullptr || geometry_val.size == 0) {
                     buf_ret = rows_buffer[i].push_null();
                 } else {
-                    std::string hex_str =
-                            GeoShape::geo_tohex(std::string(geometry_val.data, geometry_val.size));
-                    buf_ret = rows_buffer[i].push_string(hex_str.c_str(), hex_str.size());
+                    std::unique_ptr<GeoShape> shape;
+                    std::string string_temp;
+                    shape.reset(GeoShape::from_encoded(geometry_val.data, geometry_val.size));
+                    if(shape != nullptr ){
+                        string_temp = shape->as_wkt();
+                    }
+                    buf_ret = rows_buffer[i].push_string(string_temp.c_str(), string_temp.size());
                 }
             }
         }
