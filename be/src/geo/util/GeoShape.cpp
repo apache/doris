@@ -19,7 +19,7 @@
 
 #include <s2/s2error.h>
 #include <s2/s2polyline.h>
-#include <s2/S2Polygon.h>
+#include <s2/s2polygon.h>
 #include <s2/s2earth.h>
 #include <s2/s2boolean_operation.h>
 #include <s2/s2buffer_operation.h>

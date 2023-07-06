@@ -16,7 +16,7 @@
 // under the License.
 
 #include "data_type_geometry_serde.h"
-#include "geo/geo_types.h"
+#include "geo/util/GeoShape.h"
 namespace doris {
 namespace vectorized {
     template <bool is_binary_format>
@@ -34,7 +34,8 @@ namespace vectorized {
         } else {
             std::unique_ptr<GeoShape> shape;
             std::string string_temp;
-            shape.reset(GeoShape::from_encoded(geo_val.data, geo_val.size));
+            size_t data_size = geo_val.size;
+            shape.reset(GeoShape::from_encoded(geo_val.data, data_size));
             if(shape != nullptr ){
                 string_temp = shape->as_wkt();
             }
