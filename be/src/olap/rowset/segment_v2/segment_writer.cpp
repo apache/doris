@@ -36,9 +36,8 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h" // IWYU pragma: keep
-#include "olap/row_cursor.h" // RowCursor
-#include "olap/rowset/rowset_writer.h"
+#include "olap/row_cursor.h"                      // IWYU pragma: keep
+#include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
@@ -118,31 +117,25 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
 }
 
-Status SegmentWriter::init(const FlushContext* flush_ctx) {
+Status SegmentWriter::init() {
     std::vector<uint32_t> column_ids;
     int column_cnt = _tablet_schema->num_columns();
-    if (flush_ctx && flush_ctx->flush_schema) {
-        column_cnt = flush_ctx->flush_schema->num_columns();
-    }
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
-    return init(column_ids, true, flush_ctx);
+    return init(column_ids, true);
 }
 
-Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
-                           const FlushContext* flush_ctx) {
+Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-    _opts.compression_type =
-            (flush_ctx == nullptr || flush_ctx->block == nullptr ||
-             flush_ctx->block->bytes() > config::segment_compression_threshold_kb * 1024)
-                    ? _tablet_schema->compression_type()
-                    : NO_COMPRESSION;
+    if (_opts.compression_type == UNKNOWN_COMPRESSION) {
+        _opts.compression_type = _tablet_schema->compression_type();
+    }
     auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
@@ -242,11 +235,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         return Status::OK();
     };
 
-    if (flush_ctx && flush_ctx->flush_schema) {
-        RETURN_IF_ERROR(_create_writers(*flush_ctx->flush_schema, col_ids, create_column_writer));
-    } else {
-        RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
-    }
+    RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {

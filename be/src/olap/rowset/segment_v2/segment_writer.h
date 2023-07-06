@@ -58,7 +58,6 @@ class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
 struct RowsetWriterContext;
-struct FlushContext;
 
 namespace io {
 class FileWriter;
@@ -89,11 +88,10 @@ public:
                            std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
-    Status init(const FlushContext* flush_ctx = nullptr);
+    Status init();
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
-                const FlushContext* flush_ctx = nullptr);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
     template <typename RowType>
     Status append_row(const RowType& row);
