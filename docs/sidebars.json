@@ -757,7 +757,6 @@
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-OBSERVER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BACKEND",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-FOLLOWER",
-                                "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-MODIFY-BROKER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BROKER",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-ADD-BACKEND",
                                 "sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DROP-BACKEND"
