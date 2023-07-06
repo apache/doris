@@ -680,11 +680,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         int groupByCount = groupByExpressions.size();
         if (groupByColStats.values().stream().anyMatch(ColumnStatistic::isUnKnown)) {
+            // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
+            // o.w. output row count is 1
+            // example: select sum(A) from T;
             if (groupByCount > 0) {
-                rowCount *= DEFAULT_AGGREGATE_RATIO;
-            }
-            if (rowCount > childStats.getRowCount()) {
-                rowCount = childStats.getRowCount();
+                rowCount = childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO;
+            } else {
+                rowCount = 1;
             }
         } else {
             if (groupByCount > 0) {
