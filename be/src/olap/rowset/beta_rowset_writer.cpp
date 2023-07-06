@@ -518,9 +518,9 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
-                                        const std::shared_ptr<MemTracker>& flush_mem_tracker,
-                                        int64_t* flush_size) {
+Status BetaRowsetWriter::unfold_variant_column_and_flush_block(
+        vectorized::Block* block, int32_t segment_id,
+        const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
     SCOPED_CONSUME_MEM_TRACKER(flush_mem_tracker);
 
     FlushContext ctx;
@@ -531,12 +531,12 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
     SCOPED_RAW_TIMER(&_segment_writer_ns);
-    RETURN_IF_ERROR(flush_single_memtable(block, flush_size, &ctx));
+    RETURN_IF_ERROR(flush_single_block(block, flush_size, &ctx));
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, int64* flush_size,
-                                               const FlushContext* ctx) {
+Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block, int64* flush_size,
+                                            const FlushContext* ctx) {
     if (block->rows() == 0) {
         return Status::OK();
     }

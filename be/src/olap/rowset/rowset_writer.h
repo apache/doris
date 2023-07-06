@@ -72,14 +72,14 @@ public:
     }
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
-    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
-                                  const std::shared_ptr<MemTracker>& flush_mem_tracker,
-                                  int64_t* flush_size) {
+    virtual Status unfold_variant_column_and_flush_block(
+            vectorized::Block* block, int32_t segment_id,
+            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
-    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                         const FlushContext* ctx = nullptr) {
+    virtual Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
+                                      const FlushContext* ctx = nullptr) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
