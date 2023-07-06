@@ -55,12 +55,12 @@ struct FlushStatus {
 public:
     FlushStatus() : _status(Status::OK()) {}
 
-    void store(const Status& s) {
+    inline void store(const Status& s) {
         std::unique_lock<std::shared_mutex> lock(_mu);
         _status = s;
     }
 
-    Status load() const {
+    inline Status load() const {
         std::shared_lock<std::shared_mutex> lock(_mu);
         return _status;
     }
