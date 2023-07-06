@@ -111,7 +111,7 @@ Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, 
     bool cache_hit;
     std::string fname = file.string();
     RETURN_IF_ERROR(HdfsFileHandleCache::instance()->cache().get_file_handle(
-            fs->_fs_handle->hdfs_fs, fname, mtime, file_size, false, accessor, &cache_hit));
+            fs->_fs_handle->hdfs_fs, fname, mtime, file_size, true, accessor, &cache_hit));
     // if (cache_hit) {
     //     LOG(INFO) << "yy debug get from file handle cache: " << file.native();
     // } else {

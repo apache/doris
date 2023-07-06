@@ -140,7 +140,7 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
     int index = HashUtil::hash(fname.data(), fname.size(), 0) % _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
-    auto cache_key = std::make_pair(fname, mtime);
+    auto cache_key = std::make_pair(fname, mtime + random());
 
     // If this requires a new handle, skip to the creation codepath. Otherwise,
     // find an unused entry with the same mtime
