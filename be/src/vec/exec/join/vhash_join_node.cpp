@@ -479,7 +479,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_buckets_fill_counter = ADD_COUNTER(runtime_profile(), "FilledBuckets", TUnit::UNIT);
 
     _build_collisions_counter = ADD_COUNTER(runtime_profile(), "BuildCollisions", TUnit::UNIT);
-    _probe_collisions_counter = ADD_COUNTER(runtime_profile(), "ProbeCollisions", TUnit::UNIT);
 
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, child(1)->row_desc()));
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));

@@ -160,13 +160,6 @@ public:
         }
         return collisions;
     }
-    int64_t get_probe_collisions() const {
-        size_t collisions = level0_sub_table.get_probe_collisions();
-        for (size_t i = 0; i < NUM_LEVEL1_SUB_TABLES; i++) {
-            collisions += level1_sub_tables[i].get_probe_collisions();
-        }
-        return collisions;
-    }
 
     size_t get_buffer_size_in_bytes() const {
         if (_is_partitioned) {

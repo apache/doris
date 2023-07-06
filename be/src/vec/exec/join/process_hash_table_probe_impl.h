@@ -320,9 +320,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                                        probe_index + PREFETCH_STEP, *_arena);
                 }
 
-                COUNTER_SET(_join_node->_probe_collisions_counter,
-                            hash_table_ctx.hash_table.get_probe_collisions());
-
                 auto current_probe_index = probe_index;
                 if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                               JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {

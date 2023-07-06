@@ -463,7 +463,6 @@ protected:
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
     mutable size_t collisions = 0;
-    mutable size_t probe_collisions = 0;
 
     void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
 
@@ -491,7 +490,6 @@ protected:
             is_zero = buf[place_value].is_zero(*this);
             if (is_zero || buf[place_value].key_equals(x, hash_value, *this)) break;
             place_value = grower.next(place_value);
-            probe_collisions++;
         } while (true);
 
         return {is_zero, place_value};
@@ -1087,7 +1085,6 @@ public:
         return grower.overflow(add_size + m_size);
     }
     int64_t get_collisions() const { return collisions; }
-    int64_t get_probe_collisions() const { return probe_collisions; }
 
 private:
     /// Increase the size of the buffer.
