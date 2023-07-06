@@ -102,11 +102,6 @@ public class PhysicalEsScan extends PhysicalRelation {
     }
 
     @Override
-    public PhysicalEsScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalEsScan(id, table, qualifier, distributionSpec, groupExpression, logicalProperties.get());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalEsScan(id, table, qualifier, distributionSpec, groupExpression, logicalProperties.get());

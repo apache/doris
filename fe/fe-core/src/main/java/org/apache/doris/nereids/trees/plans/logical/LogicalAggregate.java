@@ -228,8 +228,9 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved,
-                sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
     }
 
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
