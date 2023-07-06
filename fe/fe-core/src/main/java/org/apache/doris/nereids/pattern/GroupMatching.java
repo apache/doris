@@ -50,7 +50,6 @@ public class GroupMatching implements Iterable<Plan> {
      * Iterator to get all subtrees from a group.
      */
     public static class GroupIterator implements Iterator<Plan> {
-        private final Pattern pattern;
         private final List<Iterator<Plan>> iterator;
         private int iteratorIndex = 0;
 
@@ -61,7 +60,6 @@ public class GroupMatching implements Iterable<Plan> {
          * @param group group to be matched
          */
         public GroupIterator(Pattern<? extends Plan> pattern, Group group) {
-            this.pattern = pattern;
             this.iterator = Lists.newArrayList();
 
             if (pattern.isGroup() || pattern.isMultiGroup()) {

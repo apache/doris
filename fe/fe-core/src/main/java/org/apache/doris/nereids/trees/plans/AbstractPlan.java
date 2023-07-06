@@ -74,8 +74,20 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this(type, Optional.empty(), Optional.empty(), null, children);
     }
 
-    public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
-        this(type, Optional.empty(), optLogicalProperties, null, children);
+    /**
+     * all parameter constructor.
+     */
+    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
+            Plan... children) {
+        super(groupExpression, children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
+        Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
+        this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
+                this::computeLogicalProperties));
+        this.statistics = statistics;
+        PLAN_CONSTRUCT_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
     }
 
     /**
@@ -83,7 +95,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
      */
     public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
-            Plan... children) {
+            List<Plan> children) {
         super(groupExpression, children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
@@ -200,6 +212,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     /**
      * used in treeString()
+     *
      * @return "" if groupExpression is empty, o.w. string format of group id
      */
     public String getGroupIdAsString() {

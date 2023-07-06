@@ -43,17 +43,6 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
         super(type, children);
     }
 
-    public Command(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
-        super(type, optLogicalProperties, children);
-    }
-
-    public Command(PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> optLogicalProperties,
-            @Nullable Statistics statistics,
-            Plan... children) {
-        super(type, groupExpression, optLogicalProperties, statistics, children);
-    }
-
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // all command should impl this interface.
     }
