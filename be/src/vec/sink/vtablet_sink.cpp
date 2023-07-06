@@ -906,8 +906,14 @@ void VNodeChannel::cancel(const std::string& cancel_msg) {
 }
 
 bool VNodeChannel::is_rpc_done() const {
-    return (_add_batches_finished || (_cancelled && !_add_block_closure->is_packet_in_flight())) &&
-           open_partition_finished();
+    if (_add_block_closure != nullptr) {
+        return (_add_batches_finished ||
+                (_cancelled && !_add_block_closure->is_packet_in_flight())) &&
+               open_partition_finished();
+    } else {
+        // such as, canceled before open_wait new closure.
+        return (_add_batches_finished || _cancelled) && open_partition_finished();
+    }
 }
 
 Status VNodeChannel::close_wait(RuntimeState* state) {
