@@ -34,7 +34,6 @@
 namespace doris {
 
 class MemTable;
-class MemTableStat;
 
 // Context for single memtable flush
 struct FlushContext {
@@ -75,7 +74,7 @@ public:
 
     virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
                                   const std::shared_ptr<MemTracker>& flush_mem_tracker,
-                                  const MemTableStat& stat, int64_t* flush_size) {
+                                  int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
@@ -113,7 +112,7 @@ public:
 
     virtual int64_t delete_bitmap_ns() { return 0; }
 
-    virtual const MemTableStat& memtable_stat() = 0;
+    virtual int64_t segment_writer_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

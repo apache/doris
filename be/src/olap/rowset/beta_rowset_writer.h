@@ -36,7 +36,6 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "olap/memtable.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -93,7 +92,7 @@ public:
 
     Status flush_memtable(vectorized::Block* block, int32_t segment_id,
                           const std::shared_ptr<MemTracker>& flush_mem_tracker,
-                          const MemTableStat& stat, int64_t* flush_size) override;
+                          int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
@@ -134,7 +133,7 @@ public:
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
-    const MemTableStat& memtable_stat() override { return _memtable_stat; }
+    int64_t segment_writer_ns() override { return _segment_writer_ns; }
 
 private:
     Status _do_add_block(const vectorized::Block* block,
@@ -240,8 +239,7 @@ protected:
     std::shared_ptr<MowContext> _mow_context;
 
     int64_t _delete_bitmap_ns = 0;
-
-    MemTableStat _memtable_stat;
+    int64_t _segment_writer_ns = 0;
 };
 
 } // namespace doris

@@ -97,8 +97,8 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
     SCOPED_RAW_TIMER(&duration_ns);
     std::unique_ptr<vectorized::Block> block = memtable->to_block();
     SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_rowset_writer->flush_memtable(
-            block.get(), segment_id, memtable->flush_mem_tracker(), memtable->stat(),
-            flush_size)));
+            block.get(), segment_id, memtable->flush_mem_tracker(), flush_size)));
+    _memtable_stat += memtable->stat();
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()

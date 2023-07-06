@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -73,6 +74,8 @@ public:
 
     void set_rowset_writer(RowsetWriter* rowset_writer) { _rowset_writer = rowset_writer; }
 
+    const MemTableStat& memtable_stat() { return _memtable_stat; }
+
 private:
     friend class MemtableFlushTask;
 
@@ -89,6 +92,8 @@ private:
     FlushStatistic _stats;
 
     RowsetWriter* _rowset_writer;
+
+    MemTableStat _memtable_stat;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.
