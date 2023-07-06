@@ -79,12 +79,6 @@ public class PhysicalIntersect extends PhysicalSetOperation {
     }
 
     @Override
-    public PhysicalIntersect withLogicalProperties(
-            Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalIntersect(qualifier, Optional.empty(), logicalProperties.get(), children);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIntersect(qualifier, groupExpression, logicalProperties.get(), children);

@@ -108,12 +108,6 @@ public class PhysicalFileScan extends PhysicalRelation {
     }
 
     @Override
-    public PhysicalFileScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalFileScan(id, table, qualifier, distributionSpec,
-            groupExpression, logicalProperties.get(), conjuncts);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalFileScan(id, table, qualifier, distributionSpec,

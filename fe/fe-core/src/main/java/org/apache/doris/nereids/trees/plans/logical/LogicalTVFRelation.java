@@ -59,11 +59,6 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
     }
 
     @Override
-    public LogicalTVFRelation withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalTVFRelation(id, function, Optional.empty(), logicalProperties);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalTVFRelation(id, function, groupExpression, logicalProperties);

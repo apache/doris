@@ -100,11 +100,6 @@ public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbo
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundTVFRelation(id, functionName, properties, Optional.empty(), logicalProperties);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundTVFRelation(id, functionName, properties, groupExpression, logicalProperties);

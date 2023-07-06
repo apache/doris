@@ -189,14 +189,9 @@ public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public LogicalPartitionTopN<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
-            Optional.empty(), logicalProperties, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
         return new LogicalPartitionTopN<>(function, partitionKeys, orderKeys, hasGlobalLimit, partitionLimit,
                 groupExpression, logicalProperties, children.get(0));
     }
