@@ -129,6 +129,9 @@ public interface Plan extends TreeNode<Plan> {
 
     Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
 
+    Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children);
+
     <T> Optional<T> getMutableState(String key);
 
     /** getOrInitMutableState */

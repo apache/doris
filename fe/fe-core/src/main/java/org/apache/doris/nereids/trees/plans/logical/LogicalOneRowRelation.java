@@ -76,12 +76,18 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOneRowRelation(projects, groupExpression, Optional.of(logicalPropertiesSupplier.get()));
+        return new LogicalOneRowRelation(projects, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalOneRowRelation(projects, Optional.empty(), logicalProperties);
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalOneRowRelation(projects, groupExpression, logicalProperties);
     }
 
     @Override

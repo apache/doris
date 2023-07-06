@@ -76,6 +76,13 @@ public class PhysicalSchemaScan extends PhysicalRelation implements Scan {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalSchemaScan(id, table, qualifier, groupExpression, logicalProperties.get(),
+                physicalProperties, statistics);
+    }
+
+    @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalSchemaScan(id, table, qualifier, groupExpression, getLogicalProperties(), physicalProperties,

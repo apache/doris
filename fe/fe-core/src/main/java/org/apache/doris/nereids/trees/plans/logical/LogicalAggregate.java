@@ -225,6 +225,13 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 Optional.empty(), logicalProperties, children.get(0));
     }
 
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalAggregate<>(groupByExpressions, outputExpressions, normalized, ordinalIsResolved, generated,
+                hasPushed, sourceRepeat, groupExpression, Optional.of(getLogicalProperties()), children.get(0));
+    }
+
     public LogicalAggregate<Plan> withGroupByAndOutput(List<Expression> groupByExprList,
             List<NamedExpression> outputExpressionList) {
         return new LogicalAggregate<>(groupByExprList, outputExpressionList, normalized, ordinalIsResolved,

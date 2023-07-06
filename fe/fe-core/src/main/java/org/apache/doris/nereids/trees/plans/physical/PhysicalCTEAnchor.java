@@ -123,6 +123,13 @@ public class PhysicalCTEAnchor<
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalCTEAnchor<>(cteId, groupExpression, logicalProperties.get(), children.get(0),
+                children.get(1));
+    }
+
+    @Override
     public PhysicalCTEAnchor<Plan, Plan> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                                         Statistics statistics) {
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,

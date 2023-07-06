@@ -174,6 +174,12 @@ public class MultiJoin extends AbstractLogicalPlan {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        throw new RuntimeException("multiJoin can't invoke withGroupExprLogicalPropChildren");
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("MultiJoin",
                 "joinType", joinType,

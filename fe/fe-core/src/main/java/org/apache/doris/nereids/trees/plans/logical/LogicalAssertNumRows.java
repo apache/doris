@@ -110,6 +110,13 @@ public class LogicalAssertNumRows<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalAssertNumRows<>(assertNumRowsElement,
+                groupExpression, logicalProperties, children.get(0));
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return ImmutableList.<Slot>builder()
                 .addAll(child().getOutput())

@@ -131,6 +131,12 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return new LogicalFilter<>(conjuncts, Optional.empty(), logicalProperties, child());
     }
 
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalFilter<>(conjuncts, groupExpression, logicalProperties, children.get(0));
+    }
+
     public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
         return new LogicalFilter<>(conjuncts, child);
     }

@@ -128,6 +128,13 @@ public class LogicalOlapTableSink<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalOlapTableSink<>(database, targetTable, cols, partitionIds, groupExpression,
+                logicalProperties, children.get(0));
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
     }

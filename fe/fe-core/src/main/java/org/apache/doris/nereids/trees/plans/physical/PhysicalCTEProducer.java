@@ -122,6 +122,12 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalCTEProducer<>(cteId, projects, groupExpression, logicalProperties.get(), children.get(0));
+    }
+
+    @Override
     public PhysicalCTEProducer<CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalCTEProducer<>(cteId, projects, groupExpression, getLogicalProperties(), physicalProperties,

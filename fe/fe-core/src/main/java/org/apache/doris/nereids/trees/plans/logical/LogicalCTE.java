@@ -151,6 +151,13 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
                 cteNameToId);
     }
 
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalCTE<>(aliasQueries, groupExpression, logicalProperties, children.get(0),
+                registered, cteNameToId);
+    }
+
     public boolean isRegistered() {
         return registered;
     }
