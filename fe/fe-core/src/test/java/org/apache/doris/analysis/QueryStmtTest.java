@@ -211,7 +211,7 @@ public class QueryStmtTest {
         Assert.assertEquals(5, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        Assert.assertEquals(1, constMap.size());
+        Assert.assertEquals(2, constMap.size());
 
         // expr in subquery associate with column in grandparent level
         sql = "WITH aa AS\n"
@@ -252,9 +252,20 @@ public class QueryStmtTest {
     @Test
     public void testPutBackExprs() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        String sql = "SELECT @@license, @@time_zone\n"
+        String sql = "SELECT username, @@license, @@time_zone\n"
+                + "FROM db1.table1\n"
+                + "WHERE siteid in\n"
+                + "    (SELECT abs(5+abs(0))+1)\n"
                 + "UNION\n"
-                + "SELECT @@language, @@storage_engine;";
+                + "SELECT CASE\n"
+                + "           WHEN\n"
+                + "                  (SELECT count(*)+abs(8)\n"
+                + "                   FROM db1.table1\n"
+                + "                   WHERE username='helen')>1 THEN 888\n"
+                + "           ELSE 999\n"
+                + "       END AS ccc, @@language, @@storage_engine\n"
+                + "FROM\n"
+                + "  (SELECT curdate()) a;";
         StatementBase stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         SessionVariable sessionVariable = new SessionVariable();
         TQueryOptions queryOptions = sessionVariable.getQueryOptionVariables();
