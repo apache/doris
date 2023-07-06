@@ -25,7 +25,9 @@ ENV JAVA_HOME="/usr/local/openjdk-8/"
 ADD output /opt/apache-doris/
 ADD docker/runtime/docker-cluster/resource/init_fe.sh  /opt/apache-doris/fe/bin
 ADD docker/runtime/docker-cluster/resource/init_be.sh  /opt/apache-doris/be/bin
+
 RUN chmod 755 /opt/apache-doris/fe/bin/*.sh /opt/apache-doris/be/bin/*.sh
+RUN mkdir /data
 
 RUN apt-get update && \
     apt-get install -y default-mysql-client python && \

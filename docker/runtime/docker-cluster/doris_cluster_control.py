@@ -165,7 +165,9 @@ class Node(object):
                     path, self.meta.image, DORIS_HOME, self.node_type(), dir)
                 exec_shell_command(cmd)
 
-        for sub_dir in self.expose_sub_dirs():
+        for sub_dir in self.expose_sub_dirs() + [
+                "data",
+        ]:
             os.makedirs(os.path.join(path, sub_dir), exist_ok=True)
 
     def node_type(self):
@@ -246,6 +248,8 @@ class Node(object):
                 "{}:{}/{}/{}".format(os.path.join(self.get_path(), sub_dir),
                                      DORIS_HOME, self.node_type(), sub_dir)
                 for sub_dir in self.expose_sub_dirs()
+            ] + [
+                "{}/data:/data".format(self.get_path()),
             ],
         }
 
@@ -394,7 +398,7 @@ class Cluster(object):
         self.save_compose()
 
     def start(self):
-        self._run_docker_compose("up")
+        self._run_docker_compose("up -d")
 
     def start_node(self, node_type, id):
         node = self._get_node(node_type, id)
@@ -430,13 +434,13 @@ def new(args):
 def start(args):
     cluster = Cluster.load_cluster(args.NAME)
     cluster.start_node(args.NODE_TYPE, args.ID)
-    LOG.info("Start node {} with id {} succ".format(args.NODE_TYPE, args.ID))
+    LOG.info("Start {} with id {} succ".format(args.NODE_TYPE, args.ID))
 
 
 def stop(args):
     cluster = Cluster.load_cluster(args.NAME)
     cluster.stop_node(args.NODE_TYPE, args.ID)
-    LOG.info("Stop node {} with id {} succ".format(args.NODE_TYPE, args.ID))
+    LOG.info("Stop {} with id {} succ".format(args.NODE_TYPE, args.ID))
 
 
 def parse_args():
