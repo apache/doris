@@ -39,7 +39,7 @@ public:
             return MutableBlock(block);
         } else {
             return MutableBlock(VectorizedUtils::create_columns_with_type_and_name(row_desc),
-                                {true, block});
+                                block);
         }
     }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
