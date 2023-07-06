@@ -98,12 +98,6 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEProducer<>(groupExpression, logicalProperties, child(), cteId,
-            projects, rewritten);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalCTEProducer<>(groupExpression, logicalProperties, children.get(0), cteId,

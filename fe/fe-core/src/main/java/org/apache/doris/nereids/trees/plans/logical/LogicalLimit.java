@@ -122,11 +122,6 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalLimit<>(limit, offset, phase, Optional.empty(), logicalProperties, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalLimit<>(limit, offset, phase, groupExpression, logicalProperties, children.get(0));

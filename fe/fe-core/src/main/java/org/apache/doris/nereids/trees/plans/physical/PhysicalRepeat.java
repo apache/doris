@@ -158,12 +158,6 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public PhysicalRepeat<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
-                logicalProperties.get(), physicalProperties, statistics, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalRepeat<>(groupingSets, outputExpressions, groupExpression,

@@ -73,11 +73,6 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEAnchor<>(groupExpression, logicalProperties, left(), right(), cteId);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalCTEAnchor<>(groupExpression, logicalProperties, children.get(0), children.get(1), cteId);

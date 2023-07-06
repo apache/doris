@@ -116,12 +116,6 @@ public class PhysicalAssertNumRows<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public PhysicalAssertNumRows<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalAssertNumRows<>(assertNumRowsElement, Optional.empty(),
-                logicalProperties.get(), physicalProperties, statistics, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalAssertNumRows<>(assertNumRowsElement, groupExpression,

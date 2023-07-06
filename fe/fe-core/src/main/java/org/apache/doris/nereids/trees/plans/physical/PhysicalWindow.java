@@ -138,12 +138,6 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, Optional.empty(),
-                logicalProperties.get(), child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, groupExpression,

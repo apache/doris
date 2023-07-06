@@ -79,7 +79,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitLogicalSelectHint((LogicalSelectHint<Plan>) this, context);
+        return visitor.visitLogicalSelectHint(this, context);
     }
 
     @Override
@@ -90,11 +90,6 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     @Override
     public LogicalSelectHint<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalSelectHint<>(hints, groupExpression, Optional.of(getLogicalProperties()), child());
-    }
-
-    @Override
-    public LogicalSelectHint<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSelectHint<>(hints, Optional.empty(), logicalProperties, child());
     }
 
     @Override

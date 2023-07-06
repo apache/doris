@@ -120,11 +120,6 @@ public class PhysicalTopN<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<
     }
 
     @Override
-    public PhysicalTopN<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalTopN<>(orderKeys, limit, offset, phase, Optional.empty(), logicalProperties.get(), child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalTopN<>(orderKeys, limit, offset, phase, groupExpression, logicalProperties.get(),

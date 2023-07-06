@@ -118,11 +118,6 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     }
 
     @Override
-    public PhysicalProject<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalProject<>(projects, Optional.empty(), logicalProperties.get(), child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalProject<>(projects, groupExpression, logicalProperties.get(), children.get(0));

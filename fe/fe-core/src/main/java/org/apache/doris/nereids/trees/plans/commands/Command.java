@@ -123,9 +123,4 @@ public abstract class Command extends AbstractPlan implements LogicalPlan {
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
     }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        throw new RuntimeException("Command do not implement withLogicalProperties");
-    }
 }

@@ -146,12 +146,6 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     }
 
     @Override
-    public LogicalCTE<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child(), registered,
-                cteNameToId);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalCTE<>(aliasQueries, groupExpression, logicalProperties, children.get(0),

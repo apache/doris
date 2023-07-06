@@ -105,12 +105,6 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     }
 
     @Override
-    public PhysicalDistribute<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-                logicalProperties.get(), child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalDistribute<>(distributionSpec, groupExpression,

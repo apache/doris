@@ -91,12 +91,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     }
 
     @Override
-    public LogicalGenerate<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalGenerate<>(generators, generatorOutput,
-                Optional.empty(), logicalProperties, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalGenerate<>(generators, generatorOutput, groupExpression, logicalProperties, children.get(0));

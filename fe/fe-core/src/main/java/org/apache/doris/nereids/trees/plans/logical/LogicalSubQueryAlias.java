@@ -166,12 +166,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public LogicalSubQueryAlias<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, Optional.empty(),
-                logicalProperties, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,

@@ -61,11 +61,6 @@ public class LogicalSchemaScan extends LogicalRelation implements Scan {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSchemaScan(id, table, qualifier, groupExpression, logicalProperties);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalSchemaScan(id, table, qualifier, groupExpression, logicalProperties);

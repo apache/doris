@@ -62,12 +62,6 @@ public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation
     }
 
     @Override
-    public PhysicalTVFRelation withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalTVFRelation(id, function, Optional.empty(),
-                logicalProperties.get(), physicalProperties, statistics);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalTVFRelation(id, function, groupExpression,

@@ -84,12 +84,6 @@ public class LogicalFileScan extends LogicalRelation {
     }
 
     @Override
-    public LogicalFileScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFileScan(id, (ExternalTable) table, qualifier, groupExpression,
-            logicalProperties, conjuncts);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalFileScan(id, (ExternalTable) table, qualifier, groupExpression, logicalProperties, conjuncts);
