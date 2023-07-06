@@ -267,6 +267,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), logicalProperties, left(), right(), joinReorderContext);
     }
 
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
+                groupExpression, logicalProperties, children.get(0), children.get(1), joinReorderContext);
+    }
+
     public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
                 markJoinSlotReference, left, right);

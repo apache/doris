@@ -126,6 +126,15 @@ public class LogicalCTEConsumer extends LogicalLeaf {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalCTEConsumer(groupExpression, logicalProperties, cteId,
+                consumerToProducerOutputMap,
+                producerToConsumerOutputMap,
+                consumerId, name);
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return ImmutableList.copyOf(producerToConsumerOutputMap.values());
     }

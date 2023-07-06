@@ -98,6 +98,12 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalSelectHint<>(hints, groupExpression, logicalProperties, children.get(0));
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         return child().getOutput();
     }

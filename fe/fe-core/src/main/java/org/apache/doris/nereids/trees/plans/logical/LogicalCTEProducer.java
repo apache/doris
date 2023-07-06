@@ -36,8 +36,7 @@ import java.util.Optional;
 /**
  * LogicalCTEProducer
  */
-public class LogicalCTEProducer<CHILD_TYPE extends Plan>
-        extends LogicalUnary<CHILD_TYPE> {
+public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
 
     private final CTEId cteId;
 
@@ -102,6 +101,13 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan>
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalCTEProducer<>(groupExpression, logicalProperties, child(), cteId,
             projects, rewritten);
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalCTEProducer<>(groupExpression, logicalProperties, children.get(0), cteId,
+                projects, rewritten);
     }
 
     @Override

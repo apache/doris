@@ -149,6 +149,14 @@ public class PhysicalNestedLoopJoin<
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalNestedLoopJoin<>(joinType,
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
+                logicalProperties.get(), children.get(0), children.get(1));
+    }
+
+    @Override
     public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalNestedLoopJoin<>(joinType,

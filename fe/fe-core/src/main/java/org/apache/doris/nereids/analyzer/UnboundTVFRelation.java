@@ -105,6 +105,12 @@ public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbo
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UnboundTVFRelation(id, functionName, properties, groupExpression, logicalProperties);
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("UnboundTVFRelation",
                 "functionName", functionName,

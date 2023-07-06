@@ -84,6 +84,13 @@ public class PhysicalOneRowRelation extends PhysicalLeaf implements OneRowRelati
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalOneRowRelation(projects, groupExpression,
+                logicalProperties.get(), physicalProperties, statistics);
+    }
+
+    @Override
     public String toString() {
         return Utils.toSqlString("PhysicalOneRowRelation[" + id.asInt() + "]" + getGroupIdAsString(),
                 "expressions", projects

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -110,6 +111,13 @@ public class PhysicalFileScan extends PhysicalRelation {
     public PhysicalFileScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new PhysicalFileScan(id, table, qualifier, distributionSpec,
             groupExpression, logicalProperties.get(), conjuncts);
+    }
+
+    @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalFileScan(id, table, qualifier, distributionSpec,
+                groupExpression, logicalProperties.get(), conjuncts);
     }
 
     @Override

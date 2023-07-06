@@ -105,6 +105,13 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     }
 
     @Override
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new UnboundRelation(id, nameParts, groupExpression, logicalProperties, partNames,
+                isTempPart, hints);
+    }
+
+    @Override
     public List<Slot> computeOutput() {
         throw new UnboundException("output");
     }
