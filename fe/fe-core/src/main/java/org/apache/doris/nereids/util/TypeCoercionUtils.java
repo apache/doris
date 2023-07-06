@@ -499,10 +499,12 @@ public class TypeCoercionUtils {
         right = castIfNotSameType(right, t2);
 
         DataType commonType = BigIntType.INSTANCE;
-        for (DataType dataType : TypeCoercionUtils.INTEGER_PRECEDENCE) {
-            if (t1.equals(dataType) || t2.equals(dataType)) {
-                commonType = dataType;
-                break;
+        if (!t1.isStringLikeType() && !t2.isStringLikeType() && !t1.isDecimalLikeType() && !t2.isDecimalLikeType()) {
+            for (DataType dataType : TypeCoercionUtils.INTEGER_PRECEDENCE) {
+                if (t1.equals(dataType) || t2.equals(dataType)) {
+                    commonType = dataType;
+                    break;
+                }
             }
         }
 
