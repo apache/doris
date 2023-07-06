@@ -119,6 +119,7 @@ public class PhysicalCTEAnchor<
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
         return new PhysicalCTEAnchor<>(cteId, groupExpression, logicalProperties.get(), children.get(0),
                 children.get(1));
     }

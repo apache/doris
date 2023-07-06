@@ -48,11 +48,6 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
         this(hints, Optional.empty(), Optional.empty(), child);
     }
 
-    public LogicalSelectHint(Map<String, SelectHint> hints,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(hints, Optional.empty(), logicalProperties, child);
-    }
-
     /**
      * LogicalSelectHint's full parameter constructor.
      * @param hints hint maps, key is hint name, e.g. 'SET_VAR', and value is parameter pairs, e.g. query_time=100
@@ -95,6 +90,7 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
         return new LogicalSelectHint<>(hints, groupExpression, logicalProperties, children.get(0));
     }
 
