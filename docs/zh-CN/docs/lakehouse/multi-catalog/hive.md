@@ -30,19 +30,20 @@ under the License.
 
 除了 Hive 外，很多其他系统也会使用 Hive Metastore 存储元数据。所以通过 Hive Catalog，我们不仅能访问 Hive，也能访问使用 Hive Metastore 作为元数据存储的系统。如 Iceberg、Hudi 等。
 
-## 使用限制
+## 使用须知
 
-1. hive 支持 1/2/3 版本。
-2. 支持 Managed Table 和 External Table。
-3. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
-4. 支持数据存储在 Juicefs 上的 hive 表，用法如下（需要把juicefs-hadoop-x.x.x.jar放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下）。
-5. 支持数据存储在 CHDFS 上的 hive 表。需配置环境：
+1. 将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。 
+2. hive 支持 1/2/3 版本。
+3. 支持 Managed Table 和 External Table。
+4. 可以识别 Hive Metastore 中存储的 hive、iceberg、hudi 元数据。
+5. 支持数据存储在 Juicefs 上的 hive 表，用法如下（需要把juicefs-hadoop-x.x.x.jar放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下）。
+6. 支持数据存储在 CHDFS 上的 hive 表。需配置环境：
    1. 把chdfs_hadoop_plugin_network-x.x.jar 放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下
    2. 将 hive 所在 Hadoop 集群的 core-site.xml 和 hdfs-site.xml 复制到 fe/conf/ 和 apache_hdfs_broker/conf 目录下
 
 <version since="dev">
 
-6. 支持数据存在在 GooseFS(GFS) 上的 hive、iceberg表。需配置环境：
+7. 支持数据存在在 GooseFS(GFS) 上的 hive、iceberg表。需配置环境：
    1. 把 goosefs-x.x.x-client.jar 放在 fe/lib/ 和 apache_hdfs_broker/lib/ 下
    2. 创建 catalog 时增加属性：'fs.AbstractFileSystem.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.GooseFileSystem'， 'fs.gfs.impl' = 'com.qcloud.cos.goosefs.hadoop.FileSystem'
    
