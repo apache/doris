@@ -28,14 +28,21 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+
+import java.math.BigDecimal;
 
 /**
  * simplify comparison
@@ -56,6 +63,12 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         Expression left = rewrite(cp.left(), context);
         Expression right = rewrite(cp.right(), context);
 
+        // decimalv3 type
+        if (left.getDataType() instanceof DecimalV3Type
+                && right.getDataType() instanceof DecimalV3Type) {
+            return processDecimalV3TypeCoercion(cp, left, right);
+        }
+
         // date like type
         if (left.getDataType() instanceof DateLikeType && right.getDataType() instanceof DateLikeType) {
             return processDateLikeTypeCoercion(cp, left, right);
@@ -66,6 +79,32 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         } else {
             return cp;
         }
+    }
+
+    private static Expression processComparisonPredicateDateTimeV2Literal(
+            ComparisonPredicate comparisonPredicate, Expression left, DateTimeV2Literal right) {
+        DateTimeV2Type leftType = (DateTimeV2Type) left.getDataType();
+        DateTimeV2Type rightType = right.getDataType();
+        if (leftType.getScale() < rightType.getScale()) {
+            int toScale = leftType.getScale();
+            if (comparisonPredicate instanceof EqualTo
+                    || comparisonPredicate instanceof NullSafeEqual) {
+                long originValue = right.getMicroSecond();
+                right = right.roundCeiling(toScale);
+                if (right.getMicroSecond() == originValue) {
+                    return comparisonPredicate.withChildren(left, right);
+                } else {
+                    return BooleanLiteral.of(false);
+                }
+            } else if (comparisonPredicate instanceof GreaterThan
+                    || comparisonPredicate instanceof LessThanEqual) {
+                return comparisonPredicate.withChildren(left, right.roundFloor(toScale));
+            } else if (comparisonPredicate instanceof LessThan
+                    || comparisonPredicate instanceof GreaterThanEqual) {
+                return comparisonPredicate.withChildren(left, right.roundCeiling(toScale));
+            }
+        }
+        return comparisonPredicate;
     }
 
     private Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
@@ -83,6 +122,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                 if (right instanceof DateTimeV2Literal) {
                     left = cast.child();
                     right = migrateToDateTime((DateTimeV2Literal) right);
+                }
+            }
+            if (cast.child().getDataType() instanceof DateTimeV2Type) {
+                if (right instanceof DateTimeV2Literal) {
+                    left = cast.child();
+                    return processComparisonPredicateDateTimeV2Literal(cp, left,
+                            (DateTimeV2Literal) right);
                 }
             }
             // datetime to datev2
@@ -127,6 +173,50 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         } else {
             return cp;
         }
+    }
+
+    private Expression processDecimalV3TypeCoercion(ComparisonPredicate comparisonPredicate,
+            Expression left, Expression right) {
+        if (left instanceof DecimalV3Literal) {
+            comparisonPredicate = comparisonPredicate.commute();
+            Expression temp = left;
+            left = right;
+            right = temp;
+        }
+
+        if (left instanceof Cast && right instanceof DecimalV3Literal) {
+            Cast cast = (Cast) left;
+            left = cast.child();
+            DecimalV3Literal literal = (DecimalV3Literal) right;
+            if (((DecimalV3Type) left.getDataType())
+                    .getScale() < ((DecimalV3Type) literal.getDataType()).getScale()) {
+                int toScale = ((DecimalV3Type) left.getDataType()).getScale();
+                try {
+
+                    if (comparisonPredicate instanceof EqualTo
+                            || comparisonPredicate instanceof NullSafeEqual) {
+                        BigDecimal originValue = literal.getValue();
+                        literal = literal.roundCeiling();
+                        if (literal.getValue().equals(originValue.setScale(toScale))) {
+                            return comparisonPredicate.withChildren(left, literal);
+                        } else {
+                            return BooleanLiteral.of(false);
+                        }
+                    } else if (comparisonPredicate instanceof GreaterThan
+                            || comparisonPredicate instanceof LessThanEqual) {
+                        return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
+                    } else if (comparisonPredicate instanceof LessThan
+                            || comparisonPredicate instanceof GreaterThanEqual) {
+                        return comparisonPredicate.withChildren(left,
+                                literal.roundCeiling(toScale));
+                    }
+                } catch (ArithmeticException e) {
+                    return BooleanLiteral.of(false);
+                }
+            }
+        }
+
+        return comparisonPredicate;
     }
 
     private Expression migrateCastToDateTime(Cast cast) {

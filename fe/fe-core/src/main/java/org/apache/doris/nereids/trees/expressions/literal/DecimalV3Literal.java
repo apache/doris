@@ -72,6 +72,26 @@ public class DecimalV3Literal extends Literal {
         return value.doubleValue();
     }
 
+    public DecimalV3Literal roundCeiling() {
+        return roundCeiling(0);
+    }
+
+    public DecimalV3Literal roundCeiling(int newScale) {
+        return new DecimalV3Literal(DecimalV3Type
+                .createDecimalV3Type(((DecimalV3Type) dataType).getPrecision(), newScale),
+                value.setScale(newScale, RoundingMode.CEILING));
+    }
+
+    public DecimalV3Literal roundFloor() {
+        return roundFloor(0);
+    }
+
+    public DecimalV3Literal roundFloor(int newScale) {
+        return new DecimalV3Literal(DecimalV3Type
+                .createDecimalV3Type(((DecimalV3Type) dataType).getPrecision(), newScale),
+                value.setScale(newScale, RoundingMode.FLOOR));
+    }
+
     private void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
         int realPrecision = value.precision();
