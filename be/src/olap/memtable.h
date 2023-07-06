@@ -43,7 +43,6 @@ class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
-struct FlushContext;
 
 // row pos in _input_mutable_block
 struct RowInBlock {
@@ -259,7 +258,6 @@ private:
     // Memory usage without _arena.
     size_t _mem_usage;
 
-    std::shared_ptr<MowContext> _mow_context;
     size_t _num_columns;
 }; // class MemTable
 
