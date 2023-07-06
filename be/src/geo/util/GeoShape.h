@@ -84,7 +84,8 @@ public:
 
     static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
 
-    static std::string as_binary(GeoShape* rhs);
+    static std::string as_binary(GeoShape* rhs, int is_hex);
+    static std::string geo_tohex(std::string binary);
 
     static GeoShape* from_geojson(const char* data, size_t size, GeoParseStatus* status);
 
