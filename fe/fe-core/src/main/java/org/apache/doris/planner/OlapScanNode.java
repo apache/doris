@@ -692,7 +692,8 @@ public class OlapScanNode extends ScanNode {
                 distributionPruner = new HashDistributionPruner(table.getTabletIdsInOrder(),
                         info.getDistributionColumns(),
                         columnFilters,
-                        info.getBucketNum());
+                        info.getBucketNum(),
+                        getSelectedIndexId() == olapTable.getBaseIndexId());
                 return distributionPruner.prune();
             }
             case RANDOM: {
