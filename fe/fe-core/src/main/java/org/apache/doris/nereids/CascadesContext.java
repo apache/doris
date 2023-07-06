@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.Job;
@@ -436,12 +437,17 @@ public class CascadesContext implements ScheduleContext {
      * Find table from catalog.
      */
     public Table getTable(String dbName, String tableName, Env env) {
-        Database db = env.getInternalCatalog().getDb(dbName)
-                .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
+        DatabaseIf db = env.getCurrentCatalog().getDbNullable(dbName);
+        if (db == null) {
+            throw new RuntimeException("Database [" + dbName + "] does not exist.");
+        }
         db.readLock();
         try {
-            return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-                    "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
+            TableIf table = db.getTableNullable(tableName);
+            if (table == null) {
+                throw new RuntimeException("Table [" + tableName + "] does not exist in database [" + dbName + "].");
+            }
+            return (Table) table;
         } finally {
             db.readUnlock();
         }
