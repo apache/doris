@@ -111,6 +111,8 @@ public:
 
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
+    virtual int64_t delete_bitmap_ns() { return 0; }
+
     virtual const MemTableStat& memtable_stat() = 0;
 
 private:

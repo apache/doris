@@ -482,12 +482,12 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         }
     }
     COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time() / 1000);
+    COUNTER_SET(_delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
     const auto& memtable_stat = _rowset_writer->memtable_stat();
     COUNTER_SET(_sort_timer, memtable_stat.sort_ns);
     COUNTER_SET(_agg_timer, memtable_stat.agg_ns);
     COUNTER_SET(_memtable_duration_timer, memtable_stat.duration_ns);
     COUNTER_SET(_segment_writer_timer, memtable_stat.segment_writer_ns);
-    COUNTER_SET(_delete_bitmap_timer, memtable_stat.delete_bitmap_ns);
     COUNTER_SET(_put_into_output_timer, memtable_stat.put_into_output_ns);
     COUNTER_SET(_sort_times, memtable_stat.sort_times);
     COUNTER_SET(_agg_times, memtable_stat.agg_times);

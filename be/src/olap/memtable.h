@@ -147,7 +147,6 @@ public:
         sort_ns += stat.sort_ns;
         agg_ns += stat.agg_ns;
         put_into_output_ns += stat.put_into_output_ns;
-        delete_bitmap_ns += stat.delete_bitmap_ns;
         segment_writer_ns += stat.segment_writer_ns;
         duration_ns += stat.duration_ns;
         sort_times += stat.sort_times;
@@ -161,7 +160,6 @@ public:
     int64_t sort_ns = 0;
     int64_t agg_ns = 0;
     int64_t put_into_output_ns = 0;
-    int64_t delete_bitmap_ns = 0;
     int64_t segment_writer_ns = 0;
     int64_t duration_ns = 0;
     int64_t sort_times = 0;
