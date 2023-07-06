@@ -947,7 +947,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema) {
+Status BetaRowsetWriter::_unfold_variant_column(vectorized::Block& block,
+                                                TabletSchemaSPtr& flush_schema) {
     if (block.rows() == 0) {
         return Status::OK();
     }
