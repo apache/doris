@@ -39,19 +39,6 @@ BE_HEARTBEAT_PORT = 9050
 BE_BRPC_PORT = 8060
 
 
-def get_cluster_path(cluster_name):
-    return os.path.join(DORIS_LOCAL_ROOT, cluster_name)
-
-
-def exec_shell_command(command):
-    p = subprocess.Popen(command,
-                         shell=True,
-                         stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT)
-    out = p.communicate()[0].decode('utf-8')
-    return p.returncode, out
-
-
 def get_logger(level=logging.INFO):
     logger = logging.getLogger()
     if logger.hasHandlers():
@@ -72,24 +59,42 @@ def get_logger(level=logging.INFO):
 LOG = get_logger()
 
 
+def with_doris_prefix(name):
+    return "doris-" + name
+
+
+def get_cluster_path(cluster_name):
+    return os.path.join(DORIS_LOCAL_ROOT, cluster_name)
+
+
+def exec_shell_command(command, check_ok=True):
+    LOG.info("run command: " + command)
+    p = subprocess.Popen(command,
+                         shell=True,
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT)
+    out = p.communicate()[0].decode('utf-8')
+    if check_ok:
+        assert p.returncode == 0, out
+    return p.returncode, out
+
+
 class Meta(object):
 
     def __init__(self, cluster_name, subnet_prefix, image):
         self.cluster_name = cluster_name
         self.subnet_prefix = subnet_prefix
         self.image = image
-        self.next_fe_id = 1
-        self.next_be_id = 1
+        self.idsets = {
+            node_type: IdSet(node_type)
+            for node_type in Node.TYPE_ALL
+        }
 
-    def gen_fe_id(self):
-        id = self.next_fe_id
-        self.next_fe_id += 1
-        return id
-
-    def gen_be_id(self):
-        id = self.next_be_id
-        self.next_be_id += 1
-        return id
+    def add_node(self, node_type, id):
+        ids = self.idsets.get(node_type)
+        if not ids:
+            raise Exception("Unknown node type ".format(node_type))
+        return ids.add(id)
 
     @staticmethod
     def load_cluster_meta(cluster_name):
@@ -108,24 +113,53 @@ class Meta(object):
         return os.path.join(get_cluster_path(cluster_name), "meta")
 
 
+class IdSet(object):
+
+    def __init__(self, node_type):
+        self.node_type = node_type
+        self.ids = []
+        self.next_id = 1
+
+    def add(self, id):
+        if not id:
+            id = self.next_id
+            self.next_id += 1
+        if id > 255:
+            raise Exception("{} id {} exceed 255".format(self.node_type, id))
+        if id not in self.ids:
+            self.ids.append(id)
+            self.ids.sort()
+        return id
+
+
 class Node(object):
     TYPE_FE = "fe"
     TYPE_BE = "be"
+    TYPE_ALL = [TYPE_FE, TYPE_BE]
+
+    @staticmethod
+    def new(node_type, meta, id):
+        if node_type == Node.TYPE_FE:
+            return FE(meta, id)
+        elif node_type == Node.TYPE_BE:
+            return BE(meta, id)
+        else:
+            raise Exception("Unknown node type {}".format(node_type))
 
     def __init__(self, meta, id):
         self.meta = meta
         self.id = id
 
-    def init(self):
+    def init_dir(self):
         path = self.get_path()
         os.makedirs(path, exist_ok=True)
 
         # copy config to local
-        for dir in ["conf"]:
-            cmd = "docker run -v {}:/opt/mount --rm --entrypoint cp {}  -r {}/{}/{}/ /opt/mount/".format(
-                path, self.meta.image, DORIS_HOME, self.node_type(), dir)
-            code, output = exec_shell_command(cmd)
-            assert code == 0, output
+        for dir in ("conf", ):
+            if not os.path.exists(os.path.join(path, dir)):
+                cmd = "docker run -v {}:/opt/mount --rm --entrypoint cp {}  -r {}/{}/{}/ /opt/mount/".format(
+                    path, self.meta.image, DORIS_HOME, self.node_type(), dir)
+                exec_shell_command(cmd)
 
         for sub_dir in self.expose_sub_dirs():
             os.makedirs(os.path.join(path, sub_dir), exist_ok=True)
@@ -153,8 +187,9 @@ class Node(object):
             raise Exception("Unknown node type: {}".format(self.node_type()))
         return "{}.0.{}.{}".format(self.meta.subnet_prefix, num3, self.id)
 
-    def docker_service(self):
-        return "{}-{}".format(self.meta.cluster_name, self.get_name())
+    def service_name(self):
+        return with_doris_prefix("{}-{}".format(self.meta.cluster_name,
+                                                self.get_name()))
 
     def docker_env(self):
         return [
@@ -175,7 +210,7 @@ class Node(object):
         if self.node_type() == Node.TYPE_FE and self.id == MASTER_FE_ID:
             return []
         else:
-            return [FE(self.meta, MASTER_FE_ID).docker_service()]
+            return [FE(self.meta, MASTER_FE_ID).service_name()]
 
     def compose(self):
         return {
@@ -183,7 +218,7 @@ class Node(object):
             "hostname":
             self.get_name(),
             "container_name":
-            self.docker_service(),
+            self.service_name(),
             "command":
             self.docker_command(),
             "environment":
@@ -193,7 +228,7 @@ class Node(object):
             "image":
             self.meta.image,
             "networks": {
-                self.meta.cluster_name: {
+                with_doris_prefix(self.meta.cluster_name): {
                     "ipv4_address": self.get_ip(),
                 }
             },
@@ -249,16 +284,30 @@ class BE(Node):
 
 class Cluster(object):
 
-    def __init__(self, image):
-        cluster_name = os.path.basename(
-            tempfile.mkdtemp("", "doris.", DORIS_LOCAL_ROOT))
-        subnet_prefix = self._gen_subnet_prefix()
+    def __init__(self, meta):
+        self.meta = meta
 
-        self.meta = Meta(cluster_name, subnet_prefix, image)
-        self.frontends = []
-        self.backends = []
+    @staticmethod
+    def new_cluster(cluster_name, image):
+        if cluster_name:
+            path = get_cluster_path(cluster_name)
+            if os.path.exists(path):
+                raise Exception(
+                    "Cluster path {} has exists, maybe a duplicate cluster has exists. " \
+                    "After shuting it down and deleting its directory, try again.".format(path))
 
-    def _gen_subnet_prefix(self):
+            else:
+                os.makedirs(path)
+        else:
+            cluster_name = os.path.basename(
+                tempfile.mkdtemp("", "", DORIS_LOCAL_ROOT))
+
+        subnet_prefix = Cluster._gen_subnet_prefix()
+        meta = Meta(cluster_name, subnet_prefix, image)
+        return Cluster(meta)
+
+    @staticmethod
+    def _gen_subnet_prefix():
         used_subnet_prefix = {}
         for cluster_name in os.listdir(DORIS_LOCAL_ROOT):
             meta = Meta.load_cluster_meta(cluster_name)
@@ -275,30 +324,30 @@ class Cluster(object):
     def get_cluster_name(self):
         return self.meta.cluster_name
 
-    def add_fe(self):
-        id = self.meta.gen_fe_id()
-        if id > 255:
-            raise Exception("fe id exceed 255")
-        fe = FE(self.meta, id)
-        fe.init()
-        self.frontends.append(fe)
+    def add_fe(self, id=None):
+        self._add_node(Node.TYPE_FE, id)
 
-    def add_be(self):
-        id = self.meta.gen_be_id()
-        if id > 255:
-            raise Exception("be id exceed 255")
-        be = BE(self.meta, id)
-        be.init()
-        self.backends.append(be)
+    def add_be(self, id=None):
+        self._add_node(Node.TYPE_BE, id)
+
+    def _add_node(self, node_type, id):
+        id = self.meta.add_node(node_type, id)
+        Node.new(node_type, self.meta, id).init_dir()
 
     def save_meta(self):
         self.meta.save()
 
     def save_compose(self):
+        services = {}
+        for node_type, idset in self.meta.idsets.items():
+            for id in idset.ids:
+                node = Node.new(node_type, self.meta, id)
+                services[node.service_name()] = node.compose()
+
         compose = {
             "version": "3",
             "networks": {
-                self.meta.cluster_name: {
+                with_doris_prefix(self.meta.cluster_name): {
                     "driver": "bridge",
                     "ipam": {
                         "config": [{
@@ -308,11 +357,9 @@ class Cluster(object):
                     }
                 }
             },
-            "services": {
-                node.docker_service(): node.compose()
-                for node in self.frontends + self.backends
-            }
+            "services": services,
         }
+
         with open(self.get_compose_path(), "w") as f:
             f.write(yaml.dump(compose))
 
@@ -325,37 +372,37 @@ class Cluster(object):
 
     def start(self):
         cmd = "docker-compose -f {} up -d".format(self.get_compose_path())
-        code, output = exec_shell_command(cmd)
-        assert code == 0, output
+        exec_shell_command(cmd)
 
 
 def run(args):
-    cluster = Cluster(args.IMAGE)
-    LOG.info("New cluster {}".format(cluster.get_cluster_name()))
+    cluster = Cluster.new_cluster(args.name, args.IMAGE)
+    LOG.info("Add cluster {}".format(cluster.get_cluster_name()))
     for i in range(args.fe):
         cluster.add_fe()
     for i in range(args.be):
         cluster.add_be()
     cluster.save()
     cluster.start()
-    LOG.info("Start cluster {} succ".format(cluster.get_cluster_name()))
+    LOG.info("Run cluster {} succ".format(cluster.get_cluster_name()))
 
 
 def parse_args():
     ap = argparse.ArgumentParser(description="")
     sub_aps = ap.add_subparsers(dest="command")
 
-    ap_run = sub_aps.add_parser("run", help="run a doris cluster")
+    ap_run = sub_aps.add_parser("new", help="new a doris cluster")
     ap_run.add_argument("IMAGE", help="specify docker image")
     ap_run.add_argument("--fe", type=int, default=3, help="specify fe count")
     ap_run.add_argument("--be", type=int, default=3, help="specify be count")
+    ap_run.add_argument("--name", default="", help="specific cluster name")
 
     return ap.format_usage(), ap.format_help(), ap.parse_args()
 
 
 def main():
     usage, _, args = parse_args()
-    if args.command == "run":
+    if args.command == "new":
         return run(args)
     else:
         print(usage)
