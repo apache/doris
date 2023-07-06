@@ -70,31 +70,12 @@ public class PlanOutputTest {
     }
 
     @Test
-    public void testWithOutput() {
-        LogicalOlapScan relationPlan = PlanConstructor.newLogicalOlapScan(0, "a", 0);
-
-        List<Slot> output = relationPlan.getOutput();
-        // column prune
-        Plan newPlan = relationPlan.withOutput(ImmutableList.of(output.get(0)));
-        output = newPlan.getOutput();
-        Assertions.assertEquals(1, output.size());
-        Assertions.assertEquals(output.get(0).getName(), "id");
-        Assertions.assertEquals(output.get(0).getQualifiedName(), "db.a.id");
-        Assertions.assertEquals(output.get(0).getDataType(), IntegerType.INSTANCE);
-    }
-
-    @Test
     public void testPhysicalPlanMustHaveLogicalProperties() {
         Assertions.assertThrows(NullPointerException.class, () ->
                 new PhysicalRelation(RelationUtil.newRelationId(),
                         PlanType.PHYSICAL_OLAP_SCAN, ImmutableList.of("db"), Optional.empty(), null) {
                     @Override
                     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-                        return null;
-                    }
-
-                    @Override
-                    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
                         return null;
                     }
 

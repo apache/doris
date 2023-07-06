@@ -230,14 +230,6 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     }
 
     @Override
-    public LogicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalOlapScan(id, (Table) table, qualifier, Optional.empty(), logicalProperties,
-                selectedPartitionIds, partitionPruned, selectedTabletIds,
-                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
-                hints, cacheSlotWithSlotName);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalOlapScan(id, (Table) table, qualifier, groupExpression, logicalProperties,

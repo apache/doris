@@ -65,11 +65,6 @@ public class GroupPlan extends LogicalLeaf {
     }
 
     @Override
-    public GroupPlan withOutput(List<Slot> output) {
-        throw new IllegalStateException("GroupPlan can not invoke withOutput()");
-    }
-
-    @Override
     public GroupPlan withChildren(List<Plan> children) {
         throw new IllegalStateException("GroupPlan can not invoke withChildren()");
     }
@@ -77,11 +72,6 @@ public class GroupPlan extends LogicalLeaf {
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new IllegalStateException("GroupPlan can not invoke withGroupExpression()");
-    }
-
-    @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        throw new IllegalStateException("GroupPlan can not invoke withLogicalProperties()");
     }
 
     @Override

@@ -99,12 +99,6 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames,
-                isTempPart, hints);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundRelation(id, nameParts, groupExpression, logicalProperties, partNames,
