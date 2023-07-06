@@ -453,6 +453,10 @@ public class SelectStmt extends QueryStmt {
                     // Analyze the resultExpr before generating a label to ensure enforcement
                     // of expr child and depth limits (toColumn() label may call toSql()).
                     item.getExpr().analyze(analyzer);
+                    // select list output must not be constant because it is not scalar expression.
+                    if (!fromClause.isEmpty()) {
+                        item.getExpr().setIsConstant(false);
+                    }
                     if (!(item.getExpr() instanceof CaseExpr)
                             && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                         throw new AnalysisException("Subquery is not supported in the select list.");
