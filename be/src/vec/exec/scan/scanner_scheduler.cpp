@@ -70,7 +70,6 @@ ScannerScheduler::~ScannerScheduler() {
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
     _limited_scan_thread_pool->shutdown();
-    _group_local_scan_thread_pool->shutdown();
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
@@ -81,6 +80,7 @@ ScannerScheduler::~ScannerScheduler() {
     delete[] _pending_queues;
 
     _task_group_local_scan_queue->close();
+    _group_local_scan_thread_pool->shutdown();
     _group_local_scan_thread_pool->wait();
 }
 
