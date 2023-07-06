@@ -72,7 +72,7 @@ public class StatisticsCache {
     private final AsyncLoadingCache<StatisticsCacheKey, Optional<TableStatistic>> tableStatisticsCache =
             Caffeine.newBuilder()
                     .maximumSize(Config.stats_cache_size)
-                    .expireAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_VALID_DURATION_IN_HOURS))
+                    .expireAfterWrite(Duration.ofHours(StatisticConstants.ROW_COUNT_CACHE_VALID_DURATION_IN_HOURS))
                     .executor(threadPool)
                     .buildAsync(tableStatisticsCacheLoader);
 
@@ -143,8 +143,9 @@ public class StatisticsCache {
         StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tableId);
         try {
             CompletableFuture<Optional<TableStatistic>> f = tableStatisticsCache.get(k);
-            // Synchronous return the cache value for table row count.
-            return f.get();
+            if (f.isDone()) {
+                return f.get();
+            }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning Histogram", e);
         }

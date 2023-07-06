@@ -345,10 +345,6 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    if (doris::config::memory_mode == std::string("performance")) {
-        doris::MemTrackerLimiter::disable_oom_avoidance();
-    }
-
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (!olap_res) {

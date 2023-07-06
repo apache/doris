@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -744,6 +745,8 @@ public class ReportHandler extends Daemon {
                         continue;
                     }
 
+                    BinlogConfig binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+
                     ReplicaState state = replica.getState();
                     if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {
                         // if state is PENDING / ROLLUP / CLONE
@@ -782,7 +785,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.disableAutoCompaction(),
                                             olapTable.enableSingleReplicaCompaction(),
                                             olapTable.skipWriteIndexOnLoad(),
-                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema());
+                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
+                                            binlogConfig);
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);
