@@ -34,7 +34,14 @@ public:
         // Block block;
         return create_columns_with_type_and_name(row_desc);
     }
-
+    static MutableBlock build_mutable_block(Block* block, const RowDescriptor& row_desc) {
+        if (block->mem_reuse()) {
+            return MutableBlock(block);
+        } else {
+            return MutableBlock(VectorizedUtils::create_columns_with_type_and_name(row_desc),
+                                {true, block});
+        }
+    }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
             const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
