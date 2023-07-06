@@ -57,7 +57,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
-#include "util/bitmap.h"
 #include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
@@ -82,7 +81,7 @@ class RefCountClosure;
 
 namespace stream_load {
 
-class OlapTableValidator;
+class OlapTableBlockConvertor;
 class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
@@ -516,7 +515,7 @@ private:
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
     Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, int32_t filtered_rows);
+                                      size_t num_rows, bool has_filtered_rows);
 
     Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
                        const VOlapTablePartition** partition, uint32_t& tablet_index,
@@ -565,17 +564,14 @@ private:
     // only used for partition with random distribution
     std::map<int64_t, int64_t> _partition_to_tablet_map;
 
-    Bitmap _filter_bitmap;
-
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
 
     bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::unique_ptr<OlapTableValidator> _validator;
+    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
     // Stats for this
-    int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
