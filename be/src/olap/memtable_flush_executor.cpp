@@ -89,6 +89,23 @@ Status FlushToken::wait() {
     return s == OK ? Status::OK() : Status::Error(s);
 }
 
+Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
+                  << ", memsize: " << memtable->memory_usage()
+                  << ", rows: " << memtable->stat().raw_rows;
+    int64_t duration_ns;
+    SCOPED_RAW_TIMER(&duration_ns);
+    std::unique_ptr<vectorized::Block> block = memtable->to_block();
+    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_rowset_writer->flush_memtable(
+            block.get(), segment_id, memtable->flush_mem_tracker(), memtable->stat(),
+            flush_size)));
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
+                  << ", flushsize: " << *flush_size;
+    return Status::OK();
+}
+
 void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t submit_task_time) {
     uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
     _stats.flush_wait_time_ns += flush_wait_time_ns;
@@ -102,7 +119,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
     size_t memory_usage = memtable->memory_usage();
 
     int64_t flush_size;
-    Status s = _rowset_writer->flush_memtable(memtable, segment_id, &flush_size);
+    Status s = _do_flush_memtable(memtable, segment_id, &flush_size);
 
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;

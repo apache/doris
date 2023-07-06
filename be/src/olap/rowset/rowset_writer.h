@@ -73,7 +73,9 @@ public:
     }
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
-    virtual Status flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                  const std::shared_ptr<MemTracker>& flush_mem_tracker,
+                                  const MemTableStat& stat, int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 

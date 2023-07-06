@@ -518,36 +518,21 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_memtable(MemTable* memtable, int32_t segment_id,
-                                        int64_t* flush_size) {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
-                  << ", memsize: " << memtable->memory_usage()
-                  << ", rows: " << memtable->stat().raw_rows;
-    int64_t duration_ns;
-    SCOPED_RAW_TIMER(&duration_ns);
-    SKIP_MEMORY_CHECK(RETURN_IF_ERROR(_do_flush_memtable(memtable, segment_id, flush_size)));
-    _memtable_stat += memtable->stat();
-    DorisMetrics::instance()->memtable_flush_total->increment(1);
-    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
-                  << ", flushsize: " << *flush_size;
-    return Status::OK();
-}
-
-Status BetaRowsetWriter::_do_flush_memtable(MemTable* memtable, int32_t segment_id,
-                                            int64_t* flush_size) {
-    SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
-    std::unique_ptr<vectorized::Block> block = memtable->to_block();
+Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                        const std::shared_ptr<MemTracker>& flush_mem_tracker,
+                                        const MemTableStat& stat, int64_t* flush_size) {
+    SCOPED_CONSUME_MEM_TRACKER(flush_mem_tracker);
 
     FlushContext ctx;
-    ctx.block = block.get();
+    ctx.block = block;
     if (_context.tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
         RETURN_IF_ERROR(_unfold_variant_column(*block, &ctx));
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
     SCOPED_RAW_TIMER(&_memtable_stat.segment_writer_ns);
-    RETURN_IF_ERROR(flush_single_memtable(block.get(), flush_size, &ctx));
+    RETURN_IF_ERROR(flush_single_memtable(block, flush_size, &ctx));
+    _memtable_stat += stat;
     return Status::OK();
 }
 

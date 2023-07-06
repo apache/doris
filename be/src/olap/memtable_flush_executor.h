@@ -78,7 +78,7 @@ private:
 
     void _flush_memtable(MemTable* mem_table, int32_t segment_id, int64_t submit_task_time);
 
-    Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t& flush_size);
+    Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 

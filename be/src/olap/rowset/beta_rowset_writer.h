@@ -91,7 +91,9 @@ public:
 
     Status flush() override;
 
-    Status flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) override;
+    Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                          const std::shared_ptr<MemTracker>& flush_mem_tracker,
+                          const MemTableStat& stat, int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
@@ -149,7 +151,6 @@ private:
                                   const FlushContext* ctx = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
-    Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
     Status _generate_delete_bitmap(int32_t segment_id);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
