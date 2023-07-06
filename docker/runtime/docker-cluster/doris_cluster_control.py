@@ -501,7 +501,7 @@ def parse_args():
                               help="specify node type")
     ap_stop_node.add_argument("ID", type=int, help="specify node id")
 
-    ap_restart_node = sub_aps.add_parser("restart",
+    ap_restart_node = sub_aps.add_parser("restart-node",
                                          help="restart a fe or be node")
     ap_restart_node.add_argument("NAME", help="specify cluster name")
     ap_restart_node.add_argument("NODE_TYPE",
