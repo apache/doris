@@ -94,7 +94,7 @@ Status FullCompaction::pick_rowsets_to_compact() {
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
         // the tablet is with rowset: [0-1], [2-y]
-        // and [0-1] has no data. in this situation, no need to do base compaction.
+        // and [0-1] has no data. in this situation, no need to do full compaction.
         return Status::Error<FULL_NO_SUITABLE_VERSION>();
     }
 

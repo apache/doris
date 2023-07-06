@@ -21,7 +21,7 @@ suite("test_full_compaction") {
     def tableName = "test_full_compaction"
 
     try {
-String backend_id;
+        String backend_id;
 
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
@@ -57,38 +57,38 @@ String backend_id;
         sql """ INSERT INTO ${tableName} VALUES
             (1,1),(2,2)
             """
-        qt_1 """select * from ${tableName}"""
+        qt_1 """select * from ${tableName} order by user_id"""
 
 
         // version2 (1,10)(2,20)
         sql """ INSERT INTO ${tableName} VALUES
             (1,10),(2,20)
             """
-        qt_2 """select * from ${tableName}"""
+        qt_2 """select * from ${tableName} order by user_id"""
 
 
         // version3 (1,100)(2,200)
         sql """ INSERT INTO ${tableName} VALUES
             (1,100),(2,200)
             """
-        qt_3 """select * from ${tableName}"""
+        qt_3 """select * from ${tableName} order by user_id"""
 
 
         // version4 (1,100)(2,200)(3,300)
         sql """ INSERT INTO ${tableName} VALUES
             (3,300)
             """
-        qt_4 """select * from ${tableName}"""
+        qt_4 """"select * from ${tableName} order by user_id"""
 
 
         // version5 (1,100)(2,200)(3,100)
         sql """update ${tableName} set value = 100 where user_id = 3"""
-        qt_5 """select * from ${tableName}"""
+        qt_5 """select * from ${tableName} order by user_id"""
 
 
         // version6 (1,100)(2,200)
         sql """delete from ${tableName} where user_id = 3"""
-        qt_6 """select * from ${tableName}"""
+        qt_6 """select * from ${tableName} order by user_id"""
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
@@ -140,7 +140,7 @@ String backend_id;
             }
         }
         assert (rowCount == 1)
-        qt_select_default3 """ SELECT * FROM ${tableName};"""
+        qt_select_default3 """select * from ${tableName} order by user_id"""
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
