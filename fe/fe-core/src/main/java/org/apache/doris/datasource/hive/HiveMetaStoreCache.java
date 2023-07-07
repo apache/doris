@@ -389,7 +389,8 @@ public class HiveMetaStoreCache {
                 throw e;
             }
         }
-        result.setPartitionValues(partitionValues);
+        // Must copy the partitionValues to avoid concurrent modification of key and value
+        result.setPartitionValues(Lists.newArrayList(partitionValues));
         return result;
     }
 
@@ -924,7 +925,7 @@ public class HiveMetaStoreCache {
                 return dummyKey.equals(((FileCacheKey) obj).dummyKey);
             }
             return location.equals(((FileCacheKey) obj).location)
-                && partitionValues.equals(((FileCacheKey) obj).partitionValues);
+                && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
         @Override
