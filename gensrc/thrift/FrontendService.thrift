@@ -1046,6 +1046,13 @@ struct TGetMasterTokenResult {
     2: optional string token
 }
 
+typedef TGetBinlogRequest TGetBinlogLagRequest
+
+struct TGetBinlogLagResult {
+    1: optional Status.TStatus status
+    2: optional i64 lag
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1108,4 +1115,6 @@ service FrontendService {
     TGetTabletReplicaInfosResult getTabletReplicaInfos(1: TGetTabletReplicaInfosRequest request)
 
     TGetMasterTokenResult getMasterToken(1: TGetMasterTokenRequest request)
+
+    TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 }

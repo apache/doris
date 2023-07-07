@@ -67,10 +67,19 @@ public class TableBinlog {
         }
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long prevCommitSeq) {
         lock.readLock().lock();
         try {
-            return BinlogUtils.getBinlog(binlogs, commitSeq);
+            return BinlogUtils.getBinlog(binlogs, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Pair<TStatus, Long> getBinlogLag(long prevCommitSeq) {
+        lock.readLock().lock();
+        try {
+            return BinlogUtils.getBinlogLag(binlogs, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }
