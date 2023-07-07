@@ -201,8 +201,8 @@ class Node(object):
             seq += 1 * ID_LIMIT
         else:
             seq += 2 * ID_LIMIT
-        return "{}.0.{}.{}".format(self.meta.subnet, int(seq / num4_size),
-                                   seq % num4_size)
+        return "{}.{}.{}".format(self.meta.subnet, int(seq / num4_size),
+                                 seq % num4_size)
 
     def service_name(self):
         return with_doris_prefix("{}-{}".format(self.meta.cluster_name,
@@ -367,10 +367,19 @@ class Cluster(object):
                     subnet = config.get("Subnet", None)
                     if not subnet:
                         continue
-                    pos = subnet.find(".")
-                    if pos <= 0:
+                    pos1 = subnet.find(".")
+                    if pos1 <= 0:
                         continue
-                    used_subnet[int(subnet[0:pos])] = True
+                    pos2 = subnet.find(".", pos1 + 1)
+                    if pos2 <= 0:
+                        continue
+                    num1 = subnet[0:pos1]
+                    num2 = subnet[pos1 + 1:pos2]
+                    if subnet.endswith("/8"):
+                        for i in range(256):
+                            used_subnet["{}.{}".format(num1, i)] = True
+                    else:
+                        used_subnet["{}.{}".format(num1, num2)] = True
 
         def read_doris_subnets():
             if not os.path.exists(DORIS_LOCAL_ROOT):
@@ -384,9 +393,11 @@ class Cluster(object):
         read_doris_subnets()
 
         LOG.debug("used_subnet: {}".format(used_subnet))
-        for i in range(11, 191):
-            if not used_subnet.get(i, None):
-                return i
+        for i in range(128, 192):
+            for j in range(256):
+                subnet = "{}.{}".format(i, j)
+                if not used_subnet.get(subnet, None):
+                    return subnet
 
         raise Exception("Failed to init subnet")
 
@@ -427,7 +438,7 @@ class Cluster(object):
                     "ipam": {
                         "config": [{
                             "subnet":
-                            "{}.0.0.0/8".format(self.meta.subnet),
+                            "{}.0.0/16".format(self.meta.subnet),
                         }]
                     }
                 }
