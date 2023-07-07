@@ -38,8 +38,7 @@ class IOContext;
 
 class HdfsFileReader : public FileReader {
 public:
-    HdfsFileReader(Path path, const std::string& name_node, FileHandleCache::Accessor accessor,
-                   RuntimeProfile* profile);
+    HdfsFileReader(Path path, const std::string& name_node, FileHandleCache::Accessor accessor);
 
     ~HdfsFileReader() override;
 
@@ -58,24 +57,11 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
-#ifdef USE_HADOOP_HDFS
-    struct HDFSProfile {
-        RuntimeProfile::Counter* total_bytes_read;
-        RuntimeProfile::Counter* total_local_bytes_read;
-        RuntimeProfile::Counter* total_short_circuit_bytes_read;
-        RuntimeProfile::Counter* total_total_zero_copy_bytes_read;
-    };
-#endif
-
     Path _path;
     const std::string& _name_node;
     FileHandleCache::Accessor _accessor;
     CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
-    RuntimeProfile* _profile;
-#ifdef USE_HADOOP_HDFS
-    HDFSProfile _hdfs_profile;
-#endif
 };
 } // namespace io
 } // namespace doris
