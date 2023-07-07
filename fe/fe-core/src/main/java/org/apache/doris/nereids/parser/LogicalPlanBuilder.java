@@ -677,7 +677,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException(e.getMessage(), ctx);
             }
         }
-        return literal;
+        return literal.alias(ctx.getText());
     }
 
     @Override
