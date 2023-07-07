@@ -25,7 +25,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "olap/memtable.h"
 #include "olap/rowset/rowset_writer.h"
 #include "util/doris_metrics.h"
@@ -69,7 +68,10 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 }
 
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
-    RETURN_IF_ERROR(_flush_status.load());
+    auto s = _flush_status.load();
+    if (s != OK) {
+        return Status::Error(s);
+    }
     if (mem_table->empty()) {
         return Status::OK();
     }
@@ -86,7 +88,8 @@ void FlushToken::cancel() {
 
 Status FlushToken::wait() {
     _flush_token->wait();
-    return _flush_status.load();
+    auto s = _flush_status.load();
+    return s == OK ? Status::OK() : Status::Error(s);
 }
 
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
@@ -110,7 +113,7 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
     uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
     _stats.flush_wait_time_ns += flush_wait_time_ns;
     // If previous flush has failed, return directly
-    if (!_flush_status.load()) {
+    if (_flush_status.load() != OK) {
         return;
     }
 
@@ -123,10 +126,10 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
 
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
-        // store the failed status
-        _flush_status.store(s);
+        // If s is not ok, ignore the code, just use other code is ok
+        _flush_status.store(s.code());
     }
-    if (!_flush_status.load()) {
+    if (_flush_status.load() != OK) {
         return;
     }
 
