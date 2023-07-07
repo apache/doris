@@ -161,7 +161,7 @@ class FilterEstimationTest {
         Statistics stats = new Statistics(300, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics result = filterEstimation.estimate(and, stats);
-        Assertions.assertEquals(100, result.getRowCount());
+        Assertions.assertTrue(Precision.equals(100.0, result.getRowCount(), 1e-6));
         ColumnStatistic aStatsEst = result.findColumnStatistics(a);
         Assertions.assertEquals(100, aStatsEst.minValue);
         Assertions.assertEquals(200, aStatsEst.maxValue);
@@ -546,7 +546,7 @@ class FilterEstimationTest {
         Statistics stat = new Statistics(100, slotToColumnStat);
         FilterEstimation filterEstimation = new FilterEstimation();
         Statistics estimated = filterEstimation.estimate(and, stat);
-        Assertions.assertEquals(25, estimated.getRowCount());
+        Assertions.assertTrue(Precision.equals(25.0, estimated.getRowCount(), 1e-6));
         ColumnStatistic statsA = estimated.findColumnStatistics(a);
         Assertions.assertEquals(25, statsA.ndv, 0.1);
         //Assertions.assertEquals(0.25, statsA.selectivity);

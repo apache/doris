@@ -21,6 +21,8 @@ import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
+import org.apache.commons.math3.util.Precision;
+
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
@@ -124,6 +126,7 @@ public class Statistics {
      */
     public void fix(double newRowCount, double originRowCount) {
         double sel = newRowCount / originRowCount;
+        sel = Precision.round(sel, 8);
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
             ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
@@ -136,6 +139,7 @@ public class Statistics {
 
     public Statistics withSel(double sel) {
         sel = StatsMathUtil.minNonNaN(sel, 1);
+        sel = Precision.round(sel, 8);
         return withRowCount(rowCount * sel);
     }
 

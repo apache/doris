@@ -19,8 +19,11 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.nereids.datasets.tpch.TPCHTestBase;
 import org.apache.doris.nereids.datasets.tpch.TPCHUtils;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -41,25 +44,32 @@ public class RankTest extends TPCHTestBase {
         }
     }
 
-    //TODO re-open this case latter. the plan for q3 is different. But we do not have time to fix this bug now.
     @Test
     void testUnrank() throws NoSuchFieldException, IllegalAccessException {
-        //for (int i = 1; i < 22; i++) {
-        //    Field field = TPCHUtils.class.getField("Q" + i);
-        //    System.out.println("Q" + i);
-        //    Memo memo = PlanChecker.from(connectContext)
-        //            .analyze(field.get(null).toString())
-        //            .rewrite()
-        //            .optimize()
-        //            .getCascadesContext()
-        //            .getMemo();
-        //    PhysicalPlan plan1 = memo.unrank(memo.rank(1).first);
-        //    PhysicalPlan plan2 = PlanChecker.from(connectContext)
-        //            .analyze(field.get(null).toString())
-        //            .rewrite()
-        //            .optimize()
-        //            .getBestPlanTree(PhysicalProperties.GATHER);
-        //    Assertions.assertTrue(PlanChecker.isPlanEqualWithoutID(plan1, plan2));
-        //}
+        for (int i = 1; i < 23; i++) {
+            Field field = TPCHUtils.class.getField("Q" + i);
+            System.out.println("Q" + i);
+            Memo memo = PlanChecker.from(connectContext)
+                    .analyze(field.get(null).toString())
+                    .rewrite()
+                    .optimize()
+                    .getCascadesContext()
+                    .getMemo();
+            PhysicalPlan plan1 = memo.unrank(memo.rank(1).first);
+            PhysicalPlan plan2 = PlanChecker.from(connectContext)
+                    .analyze(field.get(null).toString())
+                    .rewrite()
+                    .optimize()
+                    .getBestPlanTree(PhysicalProperties.GATHER);
+            if (!PlanChecker.isPlanEqualWithoutID(plan1, plan2)) {
+                System.out.println(field.get(null).toString());
+                PlanChecker.from(connectContext)
+                        .analyze(field.get(null).toString())
+                        .rewrite()
+                        .optimize()
+                        .getBestPlanTree(PhysicalProperties.GATHER);
+            }
+            Assertions.assertTrue(PlanChecker.isPlanEqualWithoutID(plan1, plan2));
+        }
     }
 }
