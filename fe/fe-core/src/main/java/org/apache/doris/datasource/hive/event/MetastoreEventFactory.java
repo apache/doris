@@ -28,6 +28,7 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -85,11 +86,16 @@ public class MetastoreEventFactory implements EventFactory {
      * */
     List<MetastoreEvent> mergeEvents(String catalogName, List<MetastoreEvent> events) {
         List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);
-        Map<MetastoreEvent.GroupKey, List<Integer>> indexMap = Maps.newLinkedHashMap();
+        Map<String, List<Integer>> indexMap = Maps.newLinkedHashMap();
         for (int i = 0; i < events.size(); i++) {
             MetastoreEvent event = events.get(i);
-            MetastoreEvent.GroupKey groupKey = event.getGroupKey();
+            if (!(event instanceof MetastoreTableEvent) || event instanceof CreateTableEvent
+                        || (event instanceof AlterTableEvent && ((AlterTableEvent) event).isRename())) {
+                continue;
+            }
 
+            String groupKey = String.format("%s.%s.%s",
+                        event.catalogName, event.dbName, event.tblName);
             if (!indexMap.containsKey(groupKey)) {
                 List<Integer> indexList = Lists.newLinkedList();
                 indexList.add(i);
@@ -98,11 +104,20 @@ public class MetastoreEventFactory implements EventFactory {
             }
 
             List<Integer> indexList = indexMap.get(groupKey);
-            if (event.overrideGroupEvents()) {
-                for (int removeIndex : indexList) {
-                    eventsCopy.set(removeIndex, null);
+            if ((event instanceof InsertEvent)
+                        || (event instanceof DropTableEvent)
+                        || (event instanceof AlterTableEvent)) {
+                for (int j = 0; j < indexList.size(); j++) {
+                    int candidateIndex = indexList.get(j);
+                    if (events.get(candidateIndex) instanceof DropTableEvent
+                                && !(event instanceof DropTableEvent)) {
+                        continue;
+                    }
+                    eventsCopy.set(candidateIndex, null);
+                    indexList.set(j, null);
                 }
-                indexList.clear();
+                indexList = indexList.stream().filter(Objects::nonNull)
+                            .collect(Collectors.toList());
             }
             indexList.add(i);
         }

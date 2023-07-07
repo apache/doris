@@ -97,6 +97,10 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     }
 
+    public boolean isRename() {
+        return isRename;
+    }
+
     /**
      * If the ALTER_TABLE event is due a table rename, this method removes the old table
      * and creates a new table with the new name. Else, we just refresh table
@@ -123,11 +127,5 @@ public class AlterTableEvent extends MetastoreTableEvent {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
         }
-    }
-
-    @Override
-    protected boolean overrideGroupEvents() {
-        // The processor will recreate/rename/refresh the hms table, so we can skip all the group events earlier
-        return true;
     }
 }

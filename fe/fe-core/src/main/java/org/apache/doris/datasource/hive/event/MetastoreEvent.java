@@ -18,14 +18,12 @@
 
 package org.apache.doris.datasource.hive.event;
 
-import lombok.Getter;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Abstract base class for all MetastoreEvents. A MetastoreEvent is an object used to
@@ -209,45 +207,6 @@ public abstract class MetastoreEvent {
             name.append(part.get(colName));
         }
         return name.toString();
-    }
-
-    // Ture means that we can skip all events which belongs to the same group
-    protected boolean overrideGroupEvents() {
-        return false;
-    }
-
-    protected final GroupKey getGroupKey() {
-        return new GroupKey(this.catalogName, this.dbName, this.tblName);
-    }
-
-    // Use GroupKey to group by events
-    @Getter
-    public static class GroupKey {
-        private final String catalogName;
-        private final String dbName;
-        private final String tblName;
-
-        private GroupKey(String catalogName, String dbName, String tblName) {
-            this.catalogName = catalogName;
-            this.dbName = dbName;
-            this.tblName = tblName;
-        }
-
-        @Override
-        public boolean equals(Object that) {
-            if (!(that instanceof GroupKey)) {
-                return false;
-            }
-            GroupKey thatKey = (GroupKey) that;
-            return Objects.equals(catalogName, thatKey.catalogName)
-                        && Objects.equals(dbName, thatKey.dbName)
-                        && Objects.equals(tblName, thatKey.tblName);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(catalogName, dbName, tblName);
-        }
     }
 
     @Override
