@@ -27,9 +27,6 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.Statistics;
-
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Optional;

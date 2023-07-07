@@ -19,13 +19,6 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.metrics.CounterType;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
-import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -53,10 +46,6 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
     public static final String FRAGMENT_ID = "fragment";
-    private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(CounterEvent.class,
-            EventChannel.getDefaultChannel()
-                    .addEnhancers(new AddCounterEventEnhancer())
-                    .addConsumers(new LogConsumer(CounterEvent.class, EventChannel.LOG)));
 
     protected final Statistics statistics;
     protected final PlanType type;
@@ -87,7 +76,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
         this.statistics = statistics;
-        PLAN_CONSTRUCT_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
     }
 
     /**
@@ -103,7 +91,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
         this.statistics = statistics;
-        PLAN_CONSTRUCT_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
     }
 
     @Override
