@@ -33,7 +33,6 @@
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 class THdfsParams;
@@ -112,7 +111,7 @@ class HdfsFileHandleCache;
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
     static Status create(const THdfsParams& hdfs_params, const std::string& path,
-                         RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs);
+                         std::shared_ptr<HdfsFileSystem>* fs);
 
     ~HdfsFileSystem() override;
 
@@ -149,14 +148,12 @@ private:
 
 private:
     friend class HdfsFileWriter;
-    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
-                   RuntimeProfile* profile);
+    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path);
     const THdfsParams& _hdfs_params;
     std::string _namenode;
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
     HdfsFileSystemHandle* _fs_handle;
-    RuntimeProfile* _profile;
 };
 } // namespace io
 } // namespace doris
