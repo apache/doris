@@ -49,10 +49,43 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
                     .add("comment")
                     .build();
 
-    protected boolean isSameTable(MetastoreTableEvent that) {
-        return that != null
-                    && Objects.equals(catalogName, that.catalogName)
-                    && Objects.equals(dbName, that.dbName)
-                    && Objects.equals(tblName, that.tblName);
+    protected boolean isSameTable(MetastoreEvent that) {
+        if (!(that instanceof MetastoreTableEvent)) {
+            return false;
+        }
+        TableKey thisKey = getTableKey();
+        TableKey thatKey = ((MetastoreTableEvent) that).getTableKey();
+        return thisKey.hashCode() == thatKey.hashCode() && Objects.equals(thisKey, thatKey);
+    }
+
+    public TableKey getTableKey() {
+        return new TableKey(catalogName, dbName, tblName);
+    }
+
+    static class TableKey {
+        private final String catalogName;
+        private final String dbName;
+        private final String tblName;
+
+        private TableKey(String catalogName, String dbName, String tblName) {
+            this.catalogName = catalogName;
+            this.dbName = dbName;
+            this.tblName = tblName;
+        }
+
+        @Override
+        public boolean equals(Object that) {
+            if (!(that instanceof TableKey)) {
+                return false;
+            }
+            return Objects.equals(catalogName, ((TableKey) that).catalogName)
+                        && Objects.equals(dbName, ((TableKey) that).dbName)
+                        && Objects.equals(tblName, ((TableKey) that).tblName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(catalogName, dbName, tblName);
+        }
     }
 }

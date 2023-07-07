@@ -135,7 +135,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent that) {
-        if (!(that instanceof MetastoreTableEvent) || !isSameTable((MetastoreTableEvent) that)) {
+        if (!(that instanceof MetastoreTableEvent) || !isSameTable(that)) {
             return false;
         }
         if (that instanceof DropTableEvent) {

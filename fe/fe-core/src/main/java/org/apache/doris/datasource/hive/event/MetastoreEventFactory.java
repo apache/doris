@@ -86,7 +86,7 @@ public class MetastoreEventFactory implements EventFactory {
      * */
     List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
         List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);
-        Map<String, List<Integer>> indexMap = Maps.newLinkedHashMap();
+        Map<MetastoreTableEvent.TableKey, List<Integer>> indexMap = Maps.newLinkedHashMap();
         for (int i = 0; i < events.size(); i++) {
             MetastoreEvent event = events.get(i);
             // Only check MetastoreTableEvent
@@ -95,8 +95,7 @@ public class MetastoreEventFactory implements EventFactory {
             }
 
             // Divide events into multi groups to reduce check count
-            String groupKey = String.format("%s.%s.%s",
-                        event.catalogName, event.dbName, event.tblName);
+            MetastoreTableEvent.TableKey groupKey = ((MetastoreTableEvent) event).getTableKey();
             if (!indexMap.containsKey(groupKey)) {
                 List<Integer> indexList = Lists.newLinkedList();
                 indexList.add(i);
