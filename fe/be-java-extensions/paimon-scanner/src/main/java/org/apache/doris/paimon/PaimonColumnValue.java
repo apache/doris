@@ -49,7 +49,7 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public boolean canGetStringAsBytes() {
-        return false;
+        return true;
     }
 
     @Override
@@ -100,6 +100,11 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public String getString() {
         return record.getString(idx).toString();
+    }
+
+    @Override
+    public byte[] getStringAsBytes() {
+        return record.getString(idx).toBytes();
     }
 
     @Override

@@ -70,9 +70,8 @@ public:
 
     /// Create FileReader
     static Status create_file_reader(
-            RuntimeProfile* profile, const FileSystemProperties& system_properties,
-            const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
-            io::FileReaderSPtr* file_reader,
+            const FileSystemProperties& system_properties, const FileDescription& file_description,
+            std::shared_ptr<io::FileSystem>* file_system, io::FileReaderSPtr* file_reader,
             io::FileReaderOptions reader_options = NO_CACHE_READER_OPTIONS);
 
     // Create FileReader for stream load pipe

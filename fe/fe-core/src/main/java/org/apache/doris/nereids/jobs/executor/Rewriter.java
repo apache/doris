@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.AddDefaultLimit;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
@@ -103,6 +104,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     public static final List<RewriteJob> REWRITE_JOBS = jobs(
             bottomUp(new InlineCTE()),
+            custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new),
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
@@ -207,7 +209,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
-                    bottomUp(new EliminateNotNull())
+                    bottomUp(new EliminateNotNull()),
+                    topDown(new ConvertInnerOrCrossJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -237,6 +240,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
+
+            // topic("Distinct",
+            //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
+            // ),
 
             topic("Window optimization",
                     topDown(

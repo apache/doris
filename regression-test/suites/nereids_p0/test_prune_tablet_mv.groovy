@@ -15,16 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+suite("test_prune_tablet_mv") {
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
-import org.apache.doris.qe.ConnectContext;
+    sql "DROP TABLE IF EXISTS test_prune_tablet_t2"
+    sql """
+	    create table test_prune_tablet_t2(id int, c1 boolean) distributed by hash(id) BUCKETS 16 properties('replication_num'='1');
+    """
 
-public class VectorizedUtil {
-    public static boolean isPipeline() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return false;
-        }
-        return connectContext.getSessionVariable().enablePipelineEngine();
+    createMV( """
+	    CREATE
+        MATERIALIZED VIEW mv_t2 AS
+        SELECT c1,
+            id
+        FROM test_prune_tablet_t2
+        ORDER BY c1,
+        id; 
+    """)
+    sql "insert into test_prune_tablet_t2 values(1,0),(2,0),(3,0),(4,0),(5,0),(6,0),(7,0);"
+
+    explain {
+        sql("select * from test_prune_tablet_t2 where id = 3;")
+        contains "mv_t2"
+        contains "tablets=1/16"
     }
+
+    sql "DROP TABLE IF EXISTS test_prune_tablet_t2"
 }

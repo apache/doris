@@ -468,6 +468,7 @@ struct TMasterOpRequest {
     21: optional map<string, string> trace_carrier
     22: optional string clientNodeHost
     23: optional i32 clientNodePort
+    24: optional bool syncJournalOnly // if set to true, this request means to do nothing but just sync max journal id of master
 }
 
 struct TColumnDefinition {
@@ -528,7 +529,7 @@ struct TBeginTxnRequest {
     2: optional string user
     3: optional string passwd
     4: optional string db
-    5: optional list<string> tables
+    5: optional list<i64> table_ids
     6: optional string user_ip
     7: optional string label
     8: optional i64 auth_code
@@ -947,9 +948,10 @@ struct TGetBinlogRequest {
     3: optional string passwd
     4: optional string db
     5: optional string table
-    6: optional string user_ip
-    7: optional string token
-    8: optional i64 prev_commit_seq
+    6: optional i64 table_id
+    7: optional string user_ip
+    8: optional string token
+    9: optional i64 prev_commit_seq
 }
 
 enum TBinlogType {

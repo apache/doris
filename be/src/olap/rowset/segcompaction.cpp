@@ -102,7 +102,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompaction_writer(
-        uint64_t begin, uint64_t end) {
+        uint32_t begin, uint32_t end) {
     Status status;
     std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
@@ -196,8 +196,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         return Status::Error<FETCH_MEMORY_EXCEEDED>();
     }
 
-    uint64_t begin = (*(segments->begin()))->id();
-    uint64_t end = (*(segments->end() - 1))->id();
+    uint32_t begin = (*(segments->begin()))->id();
+    uint32_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
     uint64_t index_size = 0;
     uint64_t total_index_size = 0;

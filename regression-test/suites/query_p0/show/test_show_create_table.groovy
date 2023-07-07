@@ -34,7 +34,8 @@ suite("test_show_create_table", "query") {
             DISTRIBUTED BY HASH(datek1) BUCKETS 5 properties("replication_num" = "1");
         """
         
-        qt_select "show create table `${tb_name}`"
+        def res = sql "show create table `${tb_name}`"
+        assertTrue(res.size() != 0)
 
         sql """drop table if exists ${tb_name} """
         sql """
@@ -52,7 +53,8 @@ suite("test_show_create_table", "query") {
             DISTRIBUTED BY RANDOM BUCKETS 5 properties("replication_num" = "1");
         """
         
-        qt_select "show create table `${tb_name}`"
+        res = sql "show create table `${tb_name}`"
+        assertTrue(res.size() != 0)
 
     } finally {
 

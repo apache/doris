@@ -313,7 +313,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             // in-filter is not friendly to pipeline
             if (type == TRuntimeFilterType.IN_OR_BLOOM
-                    && ctx.getSessionVariable().enablePipelineEngine()
+                    && ctx.getSessionVariable().getEnablePipelineEngine()
                     && hasRemoteTarget(join, scan)) {
                 type = TRuntimeFilterType.BLOOM;
             }
@@ -363,7 +363,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 }
                 PhysicalRelation scan = aliasTransferMap.get(origSlot).first;
                 if (type == TRuntimeFilterType.IN_OR_BLOOM
-                        && ctx.getSessionVariable().enablePipelineEngine()
+                        && ctx.getSessionVariable().getEnablePipelineEngine()
                         && hasRemoteTarget(join, scan)) {
                     type = TRuntimeFilterType.BLOOM;
                 }
@@ -557,26 +557,24 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 continue;
             }
             Map<EqualTo, PhysicalHashJoin> equalCondToJoinMap = entry.getValue();
-            int exprOrder = 0;
             for (Map.Entry<EqualTo, PhysicalHashJoin> innerEntry : equalCondToJoinMap.entrySet()) {
                 EqualTo equalTo = innerEntry.getKey();
                 PhysicalHashJoin join = innerEntry.getValue();
                 Preconditions.checkState(join != null);
                 TRuntimeFilterType type = TRuntimeFilterType.IN_OR_BLOOM;
-                if (ctx.getSessionVariable().enablePipelineEngine()) {
+                if (ctx.getSessionVariable().getEnablePipelineEngine()) {
                     type = TRuntimeFilterType.BLOOM;
                 }
                 EqualTo newEqualTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
                         equalTo, join.child(0).getOutputSet()));
-                doPushDownIntoCTEProducerInternal(join, ctx, newEqualTo, type, exprOrder++, cteProducer);
+                doPushDownIntoCTEProducerInternal(join, ctx, newEqualTo, type, cteProducer);
             }
             ctx.getPushedDownCTE().add(cteProducer.getCteId());
         }
     }
 
     private void doPushDownIntoCTEProducerInternal(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
-            RuntimeFilterContext ctx, EqualTo equalTo, TRuntimeFilterType type, int exprOrder,
-            PhysicalCTEProducer cteProducer) {
+            RuntimeFilterContext ctx, EqualTo equalTo, TRuntimeFilterType type, PhysicalCTEProducer cteProducer) {
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
         Slot unwrappedSlot = checkTargetChild(equalTo.left());
@@ -617,8 +615,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         ctx.setTargetsOnScanNode(scan.getId(), targetSlot);
                     }
                     // build multi-target runtime filter
+                    // since always on different join, set the expr_order as 0
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            equalTo.right(), targetList, type, exprOrder, join, buildSideNdv);
+                            equalTo.right(), targetList, type, 0, join, buildSideNdv);
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
                     }
@@ -662,12 +661,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (equalTo instanceof EqualTo) {
                     SlotReference leftSlot = (SlotReference) ((EqualTo) equalTo).left();
                     SlotReference rightSlot = (SlotReference) ((EqualTo) equalTo).right();
-                    if (leftSlot.getExprId() == exprId) {
+                    if (leftSlot.getExprId() == exprId && aliasTransferMap.get(rightSlot) != null) {
                         PhysicalOlapScan rightTable = (PhysicalOlapScan) aliasTransferMap.get(rightSlot).first;
                         if (rightTable != null) {
                             basicTableInfos.put(rightSlot, rightTable);
                         }
-                    } else if (rightSlot.getExprId() == exprId) {
+                    } else if (rightSlot.getExprId() == exprId && aliasTransferMap.get(leftSlot) != null) {
                         PhysicalOlapScan leftTable = (PhysicalOlapScan) aliasTransferMap.get(leftSlot).first;
                         if (leftTable != null) {
                             basicTableInfos.put(leftSlot, leftTable);

@@ -126,6 +126,8 @@ DEFINE_mString(process_full_gc_size, "20%");
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
+DEFINE_mBool(disable_memory_gc, "false");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -1028,6 +1030,7 @@ DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
+DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
 
 #ifdef BE_TEST
 // test s3

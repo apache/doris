@@ -53,7 +53,7 @@ Status BlockSpillReader::open() {
     FileDescription file_description;
     file_description.path = file_path_;
 
-    RETURN_IF_ERROR(FileFactory::create_file_reader(nullptr, system_properties, file_description,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
                                                     &file_system, &file_reader_));
 
     size_t file_size = file_reader_->size();

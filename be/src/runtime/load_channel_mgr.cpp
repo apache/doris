@@ -311,5 +311,4 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 
     return Status::OK();
 }
-
 } // namespace doris
