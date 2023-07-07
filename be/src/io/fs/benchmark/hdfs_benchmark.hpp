@@ -50,8 +50,10 @@ public:
         io::FileReaderSPtr reader;
         io::FileReaderOptions reader_opts = FileFactory::get_reader_options(nullptr);
         THdfsParams hdfs_params = parse_properties(_conf_map);
-        RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, file_path, &fs, &reader,
-                                                        reader_opts, nullptr));
+        io::FileDescription fd;
+        fd.path = file_path;
+        RETURN_IF_ERROR(FileFactory::create_hdfs_reader(hdfs_params, fd, reader_opts, &fs, &reader,
+                                                        nullptr));
         auto end = std::chrono::high_resolution_clock::now();
         auto elapsed_seconds =
                 std::chrono::duration_cast<std::chrono::duration<double>>(end - start);

@@ -206,9 +206,11 @@ protected:
         return Status::OK();
     }
 
-    Status open_file_internal(const Path& file, int64_t file_size,
+    Status open_file_internal(const io::FileDescription& fd, const Path& abs_path,
                               io::FileReaderSPtr* reader) override {
-        return _local_fs->open_file(get_remote_path(file), io::FileReaderOptions::DEFAULT, reader);
+        io::FileDescription tmp_fd;
+        tmp_fd.path = get_remote_path(abs_path);
+        return _local_fs->open_file(tmp_fd, io::FileReaderOptions::DEFAULT, reader);
     }
 
     Status connect_impl() override { return Status::OK(); }

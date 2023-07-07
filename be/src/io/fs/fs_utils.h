@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
