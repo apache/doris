@@ -440,6 +440,7 @@ public abstract class JoinNodeBase extends PlanNode {
         for (int i = 0; i < slots.size(); i++) {
             slots.get(i).setIsNullable(exprs.get(i).isNullable());
         }
+        vSrcToOutputSMap.reCalculateNullableInfoForSlotInRhs();
     }
 
     protected abstract List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer);
