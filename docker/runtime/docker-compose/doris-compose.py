@@ -85,8 +85,9 @@ def exec_shell_command(command, check_ok=True):
 
 class Meta(object):
 
-    def __init__(self, cluster_name, image):
+    def __init__(self, cluster_name, subnet, image):
         self.cluster_name = cluster_name
+        self.subnet = subnet
         self.image = image
         self.idsets = {
             node_type: IdSet(node_type)
@@ -193,15 +194,17 @@ class Node(object):
                             self.get_name())
 
     def get_ip(self):
+        seq = self.id
         part4_size = 200
-        seq = self.id + part4_size
+        seq += part4_size
         if self.node_type() == Node.TYPE_FE:
             seq += 0 * ID_LIMIT
         elif self.node_type() == Node.TYPE_BE:
             seq += 1 * ID_LIMIT
         else:
             seq += 2 * ID_LIMIT
-        return "172.17.{}.{}".format(int(seq / part4_size), seq % part4_size)
+        return "{}.{}.{}".format(self.meta.subnet, int(seq / part4_size),
+                                 seq % part4_size)
 
     def service_name(self):
         return with_doris_prefix("{}-{}".format(self.meta.cluster_name,
@@ -308,7 +311,8 @@ class Cluster(object):
 
     @staticmethod
     def new(cluster_name, image):
-        meta = Meta(cluster_name, image)
+        subnet = Cluster._gen_subnet()
+        meta = Meta(cluster_name, subnet, image)
         os.makedirs(get_cluster_path(cluster_name), exist_ok=True)
         return Cluster(meta)
 
@@ -330,6 +334,79 @@ class Cluster(object):
                 "load cluster meta failed, please check file {}".format(
                     meta_path))
         return Cluster(meta)
+
+    @staticmethod
+    def _gen_subnet():
+        used_subnet = {}
+
+        def read_docker_subnets():
+            code, output = exec_shell_command(
+                "docker network ls | awk '{print $1}' | sed 1d",
+                check_ok=False)
+            if code != 0:
+                return
+            network_ids = " ".join(net.strip() for net in output.splitlines()
+                                   if net.strip())
+            if not network_ids:
+                return
+            code, output = exec_shell_command("docker network inspect " +
+                                              network_ids,
+                                              check_ok=False)
+            if code != 0:
+                return
+            networks = None
+            try:
+                networks = json.loads(output)
+            except:
+                return
+            for net in networks:
+                ipam = net.get("IPAM", None)
+                if not ipam:
+                    continue
+                configs = ipam.get("Config", None)
+                if not configs:
+                    continue
+                for config in configs:
+                    subnet = config.get("Subnet", None)
+                    if not subnet:
+                        continue
+                    pos1 = subnet.find(".")
+                    if pos1 <= 0:
+                        continue
+                    pos2 = subnet.find(".", pos1 + 1)
+                    if pos2 <= 0:
+                        continue
+                    num1 = subnet[0:pos1]
+                    num2 = subnet[pos1 + 1:pos2]
+                    network_part_len = 16
+                    pos = subnet.find("/")
+                    if pos != -1:
+                        network_part_len = int(subnet[pos + 1:])
+                    if network_part_len < 16:
+                        for i in range(256):
+                            used_subnet["{}.{}".format(num1, i)] = True
+                    else:
+                        used_subnet["{}.{}".format(num1, num2)] = True
+
+        def read_doris_subnets():
+            if not os.path.exists(DORIS_LOCAL_ROOT):
+                return
+            for cluster_name in os.listdir(DORIS_LOCAL_ROOT):
+                meta = Meta.load_cluster_meta(cluster_name)
+                if meta:
+                    used_subnet[meta.subnet] = True
+
+        read_docker_subnets()
+        read_doris_subnets()
+
+        LOG.debug("used_subnet: {}".format(used_subnet))
+        for i in range(128, 192):
+            for j in range(256):
+                subnet = "{}.{}".format(i, j)
+                if not used_subnet.get(subnet, None):
+                    return subnet
+
+        raise Exception("Failed to init subnet")
 
     def get_image(self):
         return self.meta.image
@@ -363,10 +440,10 @@ class Cluster(object):
         return Node.new(self.meta, node_type, id)
 
     def get_all_node(self, node_type):
-        return [
-            Node.new(self.meta, node_type, id)
-            for id in self.meta.idsets.get(node_type, [])
-        ]
+        idset = self.meta.idsets.get(node_type, None)
+        if not idset:
+            raise Exception("Unknown node_type: " + node_type)
+        return [Node.new(self.meta, node_type, id) for id in idset.ids]
 
     def add_node(self, node_type, id=None):
         id = self.meta.add_node(node_type, id)
@@ -394,7 +471,8 @@ class Cluster(object):
                     "driver": "bridge",
                     "ipam": {
                         "config": [{
-                            "subnet": "172.17.0.0/16",
+                            "subnet":
+                            "{}.0.0/16".format(self.meta.subnet),
                         }]
                     }
                 }
@@ -582,6 +660,15 @@ def parse_args():
 
     ap_stop = sub_aps.add_parser("stop", help="stop multiple nodes")
     add_cluster_and_node_list_arg(ap_stop)
+    ap_stop.add_argument("--drop",
+                      default=False,
+                      action=get_parser_bool_action(True),
+                      help="drop node. for fe, it send drop sql. for be, if specific --force, " \
+                            "send drop force, otherwise send decommission sql")
+    ap_stop.add_argument("--force",
+                         default=False,
+                         action=get_parser_bool_action(True),
+                         help="drop force")
 
     ap_restart = sub_aps.add_parser("restart", help="restart multiple nodes")
     add_cluster_and_node_list_arg(ap_restart)
