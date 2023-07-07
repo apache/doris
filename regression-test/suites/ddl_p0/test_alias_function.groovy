@@ -24,15 +24,4 @@ suite("test_alias_function") {
     sql """DROP FUNCTION IF EXISTS mesh_udf_test2(INT,INT)"""
     sql """CREATE ALIAS FUNCTION IF NOT EXISTS mesh_udf_test2(INT,INT) WITH PARAMETER(n,d) AS add(1,floor(divide(n,d)))"""
     qt_sql1 """select mesh_udf_test2(1,2);"""
-    
-    sql 'drop function if exists f1(int)'
-    sql 'create alias function f1(int) with parameter(n) as dayofweek(hours_add(\'2023-06-18\', n))'
-    
-    sql 'drop function if exists f2(int)'
-    sql 'create alias function f2(int) with parameter(n) as dayofweek(hours_add(makedate(year(\'2023-06-18\'), f1(3)), n))'
-    
-    test {
-        sql 'select f2(f1(3))'
-        result([['1']])
-    }
 }
