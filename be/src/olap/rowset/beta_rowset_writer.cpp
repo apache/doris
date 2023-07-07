@@ -134,7 +134,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, allocate_segment_id(), block));
+        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, allocate_segment_id()));
     }
     return _add_block(block, &_segment_writer);
 }
@@ -467,7 +467,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
             RETURN_IF_ERROR(_flush_segment_writer(segment_writer));
-            RETURN_IF_ERROR(_create_segment_writer(segment_writer, allocate_segment_id(), block));
+            RETURN_IF_ERROR(_create_segment_writer(segment_writer, allocate_segment_id()));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
@@ -527,7 +527,8 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         std::unique_ptr<segment_v2::SegmentWriter> writer;
-        RETURN_IF_ERROR(_create_segment_writer(&writer, segment_id, block, flush_schema));
+        bool no_compression = block->bytes() <= config::segment_compression_threshold_kb * 1024;
+        RETURN_IF_ERROR(_create_segment_writer(&writer, segment_id, no_compression, flush_schema));
         RETURN_IF_ERROR(_add_rows(block, writer.get(), 0, block->rows()));
         RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
     }
@@ -542,7 +543,8 @@ Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block) {
     }
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
-    RETURN_IF_ERROR(_create_segment_writer(&writer, allocate_segment_id(), block));
+    bool no_compression = block->bytes() <= config::segment_compression_threshold_kb * 1024;
+    RETURN_IF_ERROR(_create_segment_writer(&writer, allocate_segment_id(), no_compression));
     RETURN_IF_ERROR(_add_block(block, &writer));
     RETURN_IF_ERROR(_flush_segment_writer(&writer));
     return Status::OK();
@@ -786,9 +788,9 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_create_segment_writer(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, int32_t segment_id,
-        const vectorized::Block* block, TabletSchemaSPtr flush_schema) {
+Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                                                int32_t segment_id, bool no_compression,
+                                                TabletSchemaSPtr flush_schema) {
     RETURN_IF_ERROR(_check_segment_number_limit());
     io::FileWriterPtr file_writer;
     segment_id += _segment_start_id;
@@ -798,11 +800,11 @@ Status BetaRowsetWriter::_create_segment_writer(
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
-
-    const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
-    if (block->bytes() <= config::segment_compression_threshold_kb * 1024) {
+    if (no_compression) {
         writer_options.compression_type = NO_COMPRESSION;
     }
+
+    const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
     writer->reset(new segment_v2::SegmentWriter(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
             _context.max_rows_per_segment, writer_options, _context.mow_context));

@@ -144,7 +144,7 @@ private:
     Status _create_file_writer(uint32_t begin, uint32_t end, io::FileWriterPtr* writer);
     Status _check_segment_number_limit();
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                  int32_t segment_id, const vectorized::Block* block,
+                                  int32_t segment_id, bool no_compression = false,
                                   TabletSchemaSPtr flush_schema = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
