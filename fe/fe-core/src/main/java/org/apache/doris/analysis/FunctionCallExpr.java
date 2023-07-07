@@ -1918,7 +1918,7 @@ public class FunctionCallExpr extends Expr {
      * @return
      * @throws AnalysisException
      */
-    public Expr rewriteExpr(Analyzer analyzer) throws AnalysisException {
+    public Expr rewriteExpr() throws AnalysisException {
         if (isRewrote) {
             return this;
         }
