@@ -465,12 +465,6 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
 
-    if (flush_ctx != nullptr && flush_ctx->segment_id.has_value()) {
-        // the entire block (memtable) should be flushed into single segment
-        RETURN_IF_ERROR(_do_add_block(block, segment_writer, 0, block_row_num));
-        return Status::OK();
-    }
-
     do {
         auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
@@ -535,31 +529,27 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         RETURN_IF_ERROR(_unfold_variant_column(*block, ctx.flush_schema));
     }
     ctx.segment_id = std::optional<int32_t> {segment_id};
-    SCOPED_RAW_TIMER(&_segment_writer_ns);
-    RETURN_IF_ERROR(flush_single_block(block, flush_size, &ctx));
+    {
+        SCOPED_RAW_TIMER(&_segment_writer_ns);
+        std::unique_ptr<segment_v2::SegmentWriter> writer;
+        RETURN_IF_ERROR(_create_segment_writer(&writer, &ctx));
+        RETURN_IF_ERROR(_do_add_block(block, &writer, 0, block->rows()));
+        RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    }
     RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block, int64* flush_size,
-                                            const FlushContext* ctx) {
+Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block) {
     if (block->rows() == 0) {
         return Status::OK();
     }
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
-    RETURN_IF_ERROR(_create_segment_writer(&writer, ctx));
-    segment_v2::SegmentWriter* raw_writer = writer.get();
-    int32_t segment_id = writer->get_segment_id();
-    RETURN_IF_ERROR(_add_block(block, &writer, ctx));
-    // if segment_id is present in flush context,
-    // the entire memtable should be flushed into a single segment
-    if (ctx != nullptr && ctx->segment_id.has_value()) {
-        DCHECK_EQ(writer->get_segment_id(), segment_id);
-        DCHECK_EQ(writer.get(), raw_writer);
-    }
-    RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    RETURN_IF_ERROR(_create_segment_writer(&writer));
+    RETURN_IF_ERROR(_add_block(block, &writer));
+    RETURN_IF_ERROR(_flush_segment_writer(&writer));
     return Status::OK();
 }
 

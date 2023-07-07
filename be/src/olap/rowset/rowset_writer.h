@@ -85,8 +85,7 @@ public:
                 "RowsetWriter not support flush_memtable");
     }
 
-    virtual Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
-                                      const FlushContext* ctx = nullptr) {
+    virtual Status flush_single_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_single_block");
     }

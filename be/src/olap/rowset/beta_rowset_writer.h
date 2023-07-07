@@ -96,8 +96,7 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
-                              const FlushContext* ctx = nullptr) override;
+    Status flush_single_block(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
 
