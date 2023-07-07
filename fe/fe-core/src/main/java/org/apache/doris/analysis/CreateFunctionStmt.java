@@ -192,7 +192,7 @@ public class CreateFunctionStmt extends DdlStmt {
                 if (isAggregate) {
                     analyzeUda();
                 } else if (isAlias) {
-                    analyzeAliasFunction();
+                    analyzeAliasFunction(analyzer);
                 } else {
                     analyzeUdf();
                 }
@@ -203,7 +203,7 @@ public class CreateFunctionStmt extends DdlStmt {
             if (isAggregate) {
                 analyzeUda();
             } else if (isAlias) {
-                analyzeAliasFunction();
+                analyzeAliasFunction(analyzer);
             } else {
                 analyzeUdf();
             }
@@ -720,10 +720,10 @@ public class CreateFunctionStmt extends DdlStmt {
         return binaryType;
     }
 
-    private void analyzeAliasFunction() throws AnalysisException {
+    private void analyzeAliasFunction(Analyzer analyzer) throws AnalysisException {
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
                 Type.VARCHAR, argsDef.isVariadic(), parameters, originFunction);
-        ((AliasFunction) function).analyze();
+        ((AliasFunction) function).analyze(analyzer);
     }
 
     @Override

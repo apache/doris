@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -155,7 +156,7 @@ public class AliasFunction extends Function {
         this.parameters = parameters;
     }
 
-    public void analyze() throws AnalysisException {
+    public void analyze(Analyzer analyzer) throws AnalysisException {
         if (parameters.size() != getArgs().length) {
             throw new AnalysisException(
                     "Alias function [" + functionName() + "] args number is not equal to parameters number");
@@ -194,6 +195,7 @@ public class AliasFunction extends Function {
         } else {
             throw new AnalysisException("Not supported expr type: " + originFunction);
         }
+        originFunction.analyze(analyzer);
         Set<String> set = new HashSet<>();
         for (String str : parameters) {
             if (!set.add(str)) {
