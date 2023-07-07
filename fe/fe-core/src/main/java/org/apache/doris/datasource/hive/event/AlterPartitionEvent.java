@@ -30,6 +30,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.AlterPartitionMessage;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -93,5 +94,13 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
         }
+    }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent event) {
+        return event instanceof AlterPartitionEvent
+                    && isSameTable((MetastoreTableEvent) event)
+                    && Objects.equals(partitionBefore, ((AlterPartitionEvent) event).partitionBefore)
+                    && Objects.equals(partitionAfter, ((AlterPartitionEvent) event).partitionAfter);
     }
 }

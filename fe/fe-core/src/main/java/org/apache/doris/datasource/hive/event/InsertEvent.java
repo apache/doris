@@ -72,4 +72,21 @@ public class InsertEvent extends MetastoreTableEvent {
                     debugString("Failed to process event"), e);
         }
     }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!(that instanceof MetastoreTableEvent) || !isSameTable((MetastoreTableEvent) that)) {
+            return false;
+        }
+        if (that instanceof CreateTableEvent) {
+            return false;
+        }
+        if (that instanceof DropTableEvent) {
+            return false;
+        }
+        if (that instanceof AlterTableEvent) {
+            return !((AlterTableEvent) that).isRename() && !((AlterTableEvent) that).isView();
+        }
+        return true;
+    }
 }

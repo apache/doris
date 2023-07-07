@@ -23,6 +23,7 @@ import com.google.common.collect.ImmutableList;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Base class for all the table events
@@ -47,4 +48,11 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
                     .add("numFiles")
                     .add("comment")
                     .build();
+
+    protected boolean isSameTable(MetastoreTableEvent that) {
+        return that != null
+                    && Objects.equals(catalogName, that.catalogName)
+                    && Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tblName, that.tblName);
+    }
 }

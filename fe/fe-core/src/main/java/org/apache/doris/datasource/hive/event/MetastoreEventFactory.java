@@ -28,7 +28,6 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -74,26 +73,28 @@ public class MetastoreEventFactory implements EventFactory {
 
     List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         List<MetastoreEvent> metastoreEvents = Lists.newArrayList();
+        String catalogName = hmsExternalCatalog.getName();
         for (NotificationEvent event : events) {
-            metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, hmsExternalCatalog.getName()));
+            metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, catalogName));
         }
-        return mergeEvents(hmsExternalCatalog.getName(), metastoreEvents);
+        return createBatchEvents(catalogName, metastoreEvents);
     }
 
     /**
-     * Merge events to reduce the cost time on event processing, currently mainly handles table events
-     * because handle table events is simple and effective.
+     * Merge events to reduce the cost time on event processing, currently mainly handles MetastoreTableEvent
+     * because handle MetastoreTableEvent is simple and cost-effective.
      * */
-    List<MetastoreEvent> mergeEvents(String catalogName, List<MetastoreEvent> events) {
+    List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
         List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);
         Map<String, List<Integer>> indexMap = Maps.newLinkedHashMap();
         for (int i = 0; i < events.size(); i++) {
             MetastoreEvent event = events.get(i);
-            if (!(event instanceof MetastoreTableEvent) || event instanceof CreateTableEvent
-                        || (event instanceof AlterTableEvent && ((AlterTableEvent) event).isRename())) {
+            // Only check MetastoreTableEvent
+            if (!(event instanceof MetastoreTableEvent)) {
                 continue;
             }
 
+            // Divide events into multi groups to reduce check count
             String groupKey = String.format("%s.%s.%s",
                         event.catalogName, event.dbName, event.tblName);
             if (!indexMap.containsKey(groupKey)) {
@@ -104,21 +105,15 @@ public class MetastoreEventFactory implements EventFactory {
             }
 
             List<Integer> indexList = indexMap.get(groupKey);
-            if ((event instanceof InsertEvent)
-                        || (event instanceof DropTableEvent)
-                        || (event instanceof AlterTableEvent)) {
-                for (int j = 0; j < indexList.size(); j++) {
-                    int candidateIndex = indexList.get(j);
-                    if (events.get(candidateIndex) instanceof DropTableEvent
-                                && !(event instanceof DropTableEvent)) {
-                        continue;
-                    }
+            for (int j = 0; j < indexList.size(); j++) {
+                int candidateIndex = indexList.get(j);
+                if (event.canBeBatched(events.get(candidateIndex))) {
                     eventsCopy.set(candidateIndex, null);
                     indexList.set(j, null);
                 }
-                indexList = indexList.stream().filter(Objects::nonNull)
-                            .collect(Collectors.toList());
             }
+            indexList = indexList.stream().filter(Objects::nonNull)
+                        .collect(Collectors.toList());
             indexList.add(i);
         }
 

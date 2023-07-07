@@ -65,4 +65,18 @@ public class DropTableEvent extends MetastoreTableEvent {
                     debugString("Failed to process event"), e);
         }
     }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!(that instanceof MetastoreTableEvent) || !isSameTable((MetastoreTableEvent) that)) {
+            return false;
+        }
+        if (that instanceof CreateTableEvent) {
+            return false;
+        }
+        if (that instanceof AlterTableEvent && ((AlterTableEvent) that).isRename()) {
+            return false;
+        }
+        return true;
+    }
 }
