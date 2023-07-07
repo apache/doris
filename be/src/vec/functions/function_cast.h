@@ -77,6 +77,7 @@
 #include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_geometry.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -1898,6 +1899,28 @@ private:
         }
     }
 
+    WrapperType create_geometry_wrapper(const DataTypePtr& from_type,
+                                     const DataTypeGeometry& to_type) const {
+        switch (from_type->get_type_id()) {
+            case TypeIndex::UInt8:
+                return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
+            case TypeIndex::Int8:
+                return &ConvertImplNumberToJsonb<ColumnInt8>::execute;
+            case TypeIndex::Int16:
+                return &ConvertImplNumberToJsonb<ColumnInt16>::execute;
+            case TypeIndex::Int32:
+                return &ConvertImplNumberToJsonb<ColumnInt32>::execute;
+            case TypeIndex::Int64:
+                return &ConvertImplNumberToJsonb<ColumnInt64>::execute;
+            case TypeIndex::Float64:
+                return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
+            case TypeIndex::String:
+                return &ConvertImplGenericFromString<ColumnString>::execute;
+            default:
+                return &ConvertImplGenericToJsonb::execute;
+        }
+    }
+
     //TODO(Amory) . Need support more cast for key , value for map
     WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
         switch (from_type->get_type_id()) {
@@ -2108,6 +2131,10 @@ private:
         }
         if (to_type->get_type_id() == TypeIndex::JSONB) {
             return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type));
+        }
+
+        if (to_type->get_type_id() == TypeIndex::GEOMETRY) {
+            return create_geometry_wrapper(from_type, static_cast<const DataTypeGeometry&>(*to_type));
         }
 
         WrapperType ret;
