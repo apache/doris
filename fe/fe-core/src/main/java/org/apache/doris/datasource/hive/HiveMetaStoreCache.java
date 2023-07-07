@@ -389,6 +389,7 @@ public class HiveMetaStoreCache {
                 throw e;
             }
         }
+        // Must copy the partitionValues to avoid concurrent modification of key and value
         result.setPartitionValues(Lists.newArrayList(partitionValues));
         return result;
     }
