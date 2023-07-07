@@ -27,7 +27,6 @@ import org.apache.doris.datasource.hive.event.InsertEvent;
 import org.apache.doris.datasource.hive.event.MetastoreEvent;
 import org.apache.doris.datasource.hive.event.MetastoreEventFactory;
 
-
 import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
