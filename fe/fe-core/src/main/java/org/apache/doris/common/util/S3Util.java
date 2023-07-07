@@ -89,6 +89,7 @@ public class S3Util {
             }
             if (isHdfsOnOssEndpoint(location)) {
                 // if hdfs service is enabled on oss, use oss location
+                // example: oss://examplebucket.cn-shanghai.oss-dls.aliyuncs.com/dir/file/0000.orc
                 location = "oss" + location.substring(pos);
             } else {
                 location = "s3" + location.substring(pos);
@@ -98,6 +99,8 @@ public class S3Util {
     }
 
     public static boolean isHdfsOnOssEndpoint(String location) {
+        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
+        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
         return location.contains("oss-dls.aliyuncs");
     }
 

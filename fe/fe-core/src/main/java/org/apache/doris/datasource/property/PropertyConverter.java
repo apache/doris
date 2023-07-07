@@ -278,6 +278,7 @@ public class PropertyConverter {
         if (!S3Util.isHdfsOnOssEndpoint(endpoint)) {
             // just for robustness here, avoid wrong endpoint when oss-hdfs is enabled.
             // convert "oss-cn-beijing.aliyuncs.com" to "cn-beijing.oss-dls.aliyuncs.com"
+            // reference link: https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
             String[] endpointSplit = endpoint.split("\\.");
             if (endpointSplit.length > 0) {
                 String region = endpointSplit[0].replace("oss-", "").replace("-internal", "");
@@ -408,6 +409,8 @@ public class PropertyConverter {
             if (hdfsEnabled) {
                 props.putIfAbsent("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
                 props.putIfAbsent(OssProperties.REGION, region);
+                // example: cn-shanghai.oss-dls.aliyuncs.com
+                // from https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
                 props.putIfAbsent(OssProperties.ENDPOINT, region + ".oss-dls.aliyuncs.com");
             } else {
                 props.putIfAbsent(OssProperties.REGION, "oss-" + region);
