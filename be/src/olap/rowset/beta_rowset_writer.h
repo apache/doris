@@ -135,8 +135,8 @@ public:
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
 
 private:
-    Status _do_add_block(const vectorized::Block* block, segment_v2::SegmentWriter* segment_writer,
-                         size_t row_offset, size_t input_row_num);
+    Status _add_rows(const vectorized::Block* block, segment_v2::SegmentWriter* segment_writer,
+                     size_t row_offset, size_t input_row_num);
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer,
                       const FlushContext* flush_ctx = nullptr);

@@ -446,9 +446,9 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
     return status;
 }
 
-Status BetaRowsetWriter::_do_add_block(const vectorized::Block* block,
-                                       segment_v2::SegmentWriter* segment_writer, size_t row_offset,
-                                       size_t input_row_num) {
+Status BetaRowsetWriter::_add_rows(const vectorized::Block* block,
+                                   segment_v2::SegmentWriter* segment_writer, size_t row_offset,
+                                   size_t input_row_num) {
     auto s = segment_writer->append_block(block, row_offset, input_row_num);
     if (UNLIKELY(!s.ok())) {
         return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
@@ -475,7 +475,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        RETURN_IF_ERROR(_do_add_block(block, segment_writer->get(), row_offset, input_row_num));
+        RETURN_IF_ERROR(_add_rows(block, segment_writer->get(), row_offset, input_row_num));
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
@@ -533,7 +533,7 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         std::unique_ptr<segment_v2::SegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(&writer, &ctx));
-        RETURN_IF_ERROR(_do_add_block(block, writer.get(), 0, block->rows()));
+        RETURN_IF_ERROR(_add_rows(block, writer.get(), 0, block->rows()));
         RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
     }
     RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
