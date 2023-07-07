@@ -453,6 +453,7 @@ Status BetaRowsetWriter::_do_add_block(const vectorized::Block* block,
     if (UNLIKELY(!s.ok())) {
         return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
     }
+    _raw_num_rows_written += input_row_num;
     return Status::OK();
 }
 
@@ -467,7 +468,6 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
     if (flush_ctx != nullptr && flush_ctx->segment_id.has_value()) {
         // the entire block (memtable) should be flushed into single segment
         RETURN_IF_ERROR(_do_add_block(block, segment_writer, 0, block_row_num));
-        _raw_num_rows_written += block_row_num;
         return Status::OK();
     }
 
@@ -485,7 +485,6 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
-    _raw_num_rows_written += block_row_num;
     return Status::OK();
 }
 
