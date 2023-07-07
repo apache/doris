@@ -60,6 +60,13 @@ namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
+struct SegmentStatistics {
+    int64_t row_num;
+    int64_t data_size;
+    int64_t index_size;
+    KeyBoundsPB key_bounds;
+};
+
 class BetaRowsetWriter : public RowsetWriter {
     friend class SegcompactionWorker;
 
@@ -77,12 +84,20 @@ public:
 
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr* writer);
+
+    void add_segment(uint32_t segid, SegmentStatistics& segstat);
+
     Status flush() override;
+
+    Status unfold_variant_column_and_flush_block(
+            vectorized::Block* block, int32_t segment_id,
+            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                 const FlushContext* ctx = nullptr) override;
+    Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
+                              const FlushContext* ctx = nullptr) override;
 
     RowsetSharedPtr build() override;
 
@@ -104,11 +119,6 @@ public:
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 
-    // Maybe modified by local schema change
-    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
-        return _context.schema_change_recorder.get();
-    }
-
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
     Status flush_segment_writer_for_segcompaction(
@@ -123,6 +133,8 @@ public:
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
+    int64_t segment_writer_ns() override { return _segment_writer_ns; }
+
 private:
     Status _do_add_block(const vectorized::Block* block,
                          std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
@@ -131,6 +143,8 @@ private:
                       std::unique_ptr<segment_v2::SegmentWriter>* writer,
                       const FlushContext* flush_ctx = nullptr);
 
+    Status _create_file_writer(std::string path, io::FileWriterPtr* file_writer);
+    Status _create_file_writer(uint32_t begin, uint32_t end, io::FileWriterPtr* writer);
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                      bool is_segcompaction, int64_t begin, int64_t end,
                                      const FlushContext* ctx = nullptr);
@@ -157,6 +171,13 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status _unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
@@ -197,13 +218,7 @@ protected:
     // written rows by add_block/add_row (not effected by segcompaction)
     std::atomic<int64_t> _raw_num_rows_written;
 
-    struct Statistics {
-        int64_t row_num;
-        int64_t data_size;
-        int64_t index_size;
-        KeyBoundsPB key_bounds;
-    };
-    std::map<uint32_t, Statistics> _segid_statistics_map;
+    std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
     std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;
@@ -224,6 +239,7 @@ protected:
     std::shared_ptr<MowContext> _mow_context;
 
     int64_t _delete_bitmap_ns = 0;
+    int64_t _segment_writer_ns = 0;
 };
 
 } // namespace doris

@@ -82,6 +82,7 @@ class RefCountClosure;
 namespace stream_load {
 
 class OlapTableBlockConvertor;
+class OlapTabletFinder;
 class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
@@ -517,10 +518,6 @@ private:
                                       ChannelDistributionPayload& channel_to_payload,
                                       size_t num_rows, bool has_filtered_rows);
 
-    Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
-                       const VOlapTablePartition** partition, uint32_t& tablet_index,
-                       bool& stop_processing, bool& is_continue);
-
     void _open_partition(const VOlapTablePartition* partition);
 
     Status _cancel_channel_and_check_intolerable_failure(Status status, const std::string& err_msg,
@@ -560,9 +557,7 @@ private:
 
     RuntimeProfile* _profile = nullptr;
 
-    std::set<int64_t> _partition_ids;
-    // only used for partition with random distribution
-    std::map<int64_t, int64_t> _partition_to_tablet_map;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
@@ -575,8 +570,6 @@ private:
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
-    int64_t _number_filtered_rows = 0;
-    int64_t _number_immutable_partition_filtered_rows = 0;
     int64_t _filter_ns = 0;
 
     MonotonicStopWatch _row_distribution_watch;
@@ -616,15 +609,6 @@ private:
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
-
-    // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
-    // should compute tablet index for every row
-    // FIND_TABLET_EVERY_BATCH is only used for random distribution info, which indicates that we should
-    // compute tablet index for every row batch
-    // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
-    // only compute tablet index in the corresponding partition once for the whole time in olap table sink
-    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
-    FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
