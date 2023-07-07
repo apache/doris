@@ -24,7 +24,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.Alias;
 
 /**
  * rewrite alias function to real function
