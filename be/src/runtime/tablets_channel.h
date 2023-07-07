@@ -120,8 +120,7 @@ public:
     void get_active_memtable_mem_consumption(
             std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions);
 
-    void flush_memtable_async(int64_t tablet_id);
-    void wait_flush(int64_t tablet_id);
+    std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() { return _tablet_writers; }
 
 private:
     template <typename Request>

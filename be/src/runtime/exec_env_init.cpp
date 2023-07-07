@@ -37,6 +37,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "io/fs/file_meta_cache.h"
+#include "olap/memtable_flush_mgr.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/page_cache.h"
@@ -165,6 +166,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(_store_paths);
     _file_meta_cache = new FileMetaCache(config::max_external_file_meta_cache_num);
+    _memtable_flush_mgr = new MemtableFlushMgr();
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
@@ -393,6 +395,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_heartbeat_flags);
     SAFE_DELETE(_scanner_scheduler);
     SAFE_DELETE(_file_meta_cache);
+    SAFE_DELETE(_memtable_flush_mgr);
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
     // access master_info.backend id to access some info. If there is a running query and master

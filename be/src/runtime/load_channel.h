@@ -102,24 +102,12 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
-    void flush_memtable_async(int64_t index_id, int64_t tablet_id) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _tablets_channels.find(index_id);
-        if (it != _tablets_channels.end()) {
-            it->second->flush_memtable_async(tablet_id);
-        }
-    }
-
-    void wait_flush(int64_t index_id, int64_t tablet_id) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _tablets_channels.find(index_id);
-        if (it != _tablets_channels.end()) {
-            it->second->wait_flush(tablet_id);
-        }
-    }
-
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
+
+    std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> get_tablets_channels() {
+        return _tablets_channels;
+    }
 
 protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,

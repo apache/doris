@@ -583,69 +583,6 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     return Status::OK();
 }
 
-void TabletsChannel::flush_memtable_async(int64_t tablet_id) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (_state == kFinished) {
-        // TabletsChannel is closed without LoadChannel's lock,
-        // therefore it's possible for reduce_mem_usage() to be called right after close()
-        LOG(INFO) << "TabletsChannel is closed when reduce mem usage, txn_id: " << _txn_id
-                  << ", index_id: " << _index_id;
-        return;
-    }
-
-    auto iter = _tablet_writers.find(tablet_id);
-    if (iter == _tablet_writers.end()) {
-        return;
-    }
-
-    if (!(_reducing_tablets.insert(tablet_id).second)) {
-        return;
-    }
-
-    Status st = iter->second->flush_memtable_and_wait(false);
-    if (!st.ok()) {
-        auto err_msg = fmt::format(
-                "tablet writer failed to reduce mem consumption by flushing memtable, "
-                "tablet_id={}, txn_id={}, err={}",
-                tablet_id, _txn_id, st.to_string());
-        LOG(WARNING) << err_msg;
-        iter->second->cancel_with_status(st);
-        _add_broken_tablet(tablet_id);
-    }
-}
-
-void TabletsChannel::wait_flush(int64_t tablet_id) {
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        if (_state == kFinished) {
-            // TabletsChannel is closed without LoadChannel's lock,
-            // therefore it's possible for reduce_mem_usage() to be called right after close()
-            LOG(INFO) << "TabletsChannel is closed when reduce mem usage, txn_id: " << _txn_id
-                      << ", index_id: " << _index_id;
-            return;
-        }
-    }
-
-    auto iter = _tablet_writers.find(tablet_id);
-    if (iter == _tablet_writers.end()) {
-        return;
-    }
-    Status st = iter->second->wait_flush();
-    if (!st.ok()) {
-        auto err_msg = fmt::format(
-                "tablet writer failed to reduce mem consumption by flushing memtable, "
-                "tablet_id={}, txn_id={}, err={}",
-                tablet_id, _txn_id, st.to_string());
-        LOG(WARNING) << err_msg;
-        iter->second->cancel_with_status(st);
-        _add_broken_tablet(tablet_id);
-    }
-
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        _reducing_tablets.erase(tablet_id);
-    }
-}
 void TabletsChannel::_add_broken_tablet(int64_t tablet_id) {
     std::unique_lock<std::shared_mutex> wlock(_broken_tablets_lock);
     _broken_tablets.insert(tablet_id);

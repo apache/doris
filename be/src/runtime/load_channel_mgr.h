@@ -30,6 +30,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
+#include "olap/memtable_flush_mgr.h"
 #include "runtime/load_channel.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -66,6 +67,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         _refresh_mem_tracker_without_lock();
     }
+
     MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
 
 private:
@@ -73,9 +75,6 @@ private:
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
 
     void _finish_load_channel(UniqueId load_id);
-    // check if the total load mem consumption exceeds limit.
-    // If yes, it will pick a load channel to try to reduce memory consumption.
-    void _handle_mem_exceed_limit();
 
     Status _start_bg_worker();
 
@@ -89,6 +88,22 @@ private:
                                        _mem_tracker.get());
     }
 
+    void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
+        for (auto& tablet_channel_it : channel->get_tablets_channels()) {
+            for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
+                _memtable_flush_mgr->register_writer(writer_it.second);
+            }
+        }
+    }
+
+    void _deregister_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
+        for (auto& tablet_channel_it : channel->get_tablets_channels()) {
+            for (auto& writer_it : tablet_channel_it.second->get_tablet_writers()) {
+                _memtable_flush_mgr->deregister_writer(writer_it.second);
+            }
+        }
+    }
+
 protected:
     // lock protect the load channel map
     std::mutex _lock;
@@ -96,17 +111,12 @@ protected:
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
 
-    // check the total load channel mem consumption of this Backend
-    int64_t _mem_usage = 0;
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
+    int64_t _mem_usage = 0;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
-    bool _soft_reduce_mem_in_progress = false;
 
-    // If hard limit reached, one thread will trigger load channel flush,
-    // other threads should wait on the condition variable.
-    bool _should_wait_flush = false;
-    std::condition_variable _wait_flush_cond;
+    MemtableFlushMgr* _memtable_flush_mgr = nullptr;
 
     CountDownLatch _stop_background_threads_latch;
     // thread to clean timeout load channels

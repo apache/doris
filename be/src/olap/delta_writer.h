@@ -122,6 +122,8 @@ public:
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
+    int64_t txn_id() { return _req.txn_id; }
+
     int32_t schema_hash() { return _tablet->schema_hash(); }
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);

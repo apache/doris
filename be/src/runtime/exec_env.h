@@ -31,6 +31,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+class MemtableFlushMgr;
 namespace vectorized {
 class VDataStreamMgr;
 class ScannerScheduler;
@@ -176,6 +177,7 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
     doris::vectorized::ScannerScheduler* scanner_scheduler() { return _scanner_scheduler; }
     FileMetaCache* file_meta_cache() { return _file_meta_cache; }
+    MemtableFlushMgr* memtable_flush_mgr() { return _memtable_flush_mgr; }
 
     // only for unit test
     void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
@@ -261,6 +263,7 @@ private:
     BlockSpillManager* _block_spill_mgr = nullptr;
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
+    MemtableFlushMgr* _memtable_flush_mgr = nullptr;
 };
 
 template <>
