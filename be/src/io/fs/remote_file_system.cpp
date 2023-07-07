@@ -75,7 +75,7 @@ Status RemoteFileSystem::connect() {
 Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOptions& reader_options,
                                         FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file_internal(path, reader_options.file_size, &raw_reader));
+    RETURN_IF_ERROR(open_file_internal(path, reader_options.file_size, reader_options.mtime, &raw_reader));
     switch (reader_options.cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;

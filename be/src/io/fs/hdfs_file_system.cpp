@@ -123,7 +123,7 @@ Status HdfsFileHandleCache::get_file(const std::shared_ptr<HdfsFileSystem>& fs, 
 }
 
 Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string& path,
-                              std::shared_ptr<HdfsFileSystem>* fs) {
+                              RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs) {
 #ifdef USE_HADOOP_HDFS
     if (!config::enable_java_support) {
         return Status::InternalError(
@@ -131,14 +131,16 @@ Status HdfsFileSystem::create(const THdfsParams& hdfs_params, const std::string&
                 "true.");
     }
 #endif
-    (*fs).reset(new HdfsFileSystem(hdfs_params, path));
+    (*fs).reset(new HdfsFileSystem(hdfs_params, path, profile));
     return (*fs)->connect();
 }
 
-HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path)
+HdfsFileSystem::HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
+                               RuntimeProfile* profile)
         : RemoteFileSystem(path, "", FileSystemType::HDFS),
           _hdfs_params(hdfs_params),
-          _fs_handle(nullptr) {
+          _fs_handle(nullptr),
+          _profile(profile) {
     _namenode = _hdfs_params.fs_name;
 }
 
@@ -165,17 +167,17 @@ Status HdfsFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer)
     return Status::OK();
 }
 
-Status HdfsFileSystem::open_file_internal(const Path& file, int64_t file_size,
+Status HdfsFileSystem::open_file_internal(const Path& file, int64_t file_size, int64_t mtime,
                                           FileReaderSPtr* reader) {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(file, _namenode);
 
     FileHandleCache::Accessor accessor;
     RETURN_IF_ERROR(HdfsFileHandleCache::instance()->get_file(
-            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, 0, file_size,
+            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, mtime, file_size,
             &accessor));
 
-    *reader = std::make_shared<HdfsFileReader>(file, _namenode, std::move(accessor));
+    *reader = std::make_shared<HdfsFileReader>(file, _namenode, std::move(accessor), _profile);
     return Status::OK();
 }
 
@@ -358,7 +360,7 @@ Status HdfsFileSystem::upload_with_checksum_impl(const Path& local, const Path& 
 Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, -1, &hdfs_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, -1, 0 /* mtime is useless here */, &hdfs_reader));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local_file)) {
@@ -395,7 +397,7 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
 Status HdfsFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
     // 1. open remote file for read
     FileReaderSPtr hdfs_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, -1, &hdfs_reader));
+    RETURN_IF_ERROR(open_file_internal(remote_file, -1, 0 /* mtime is useless here */, &hdfs_reader));
 
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);

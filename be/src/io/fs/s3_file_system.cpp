@@ -134,7 +134,7 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status S3FileSystem::open_file_internal(const Path& file, int64_t file_size,
+Status S3FileSystem::open_file_internal(const Path& file, int64_t file_size, int64_t mtime,
                                         FileReaderSPtr* reader) {
     int64_t fsize = file_size;
     if (fsize < 0) {
