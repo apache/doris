@@ -988,7 +988,7 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     roaring::Roaring roaring;
     DCHECK(start < end);
     std::shared_lock l(lock);
-    for (auto it = delete_bitmap.upper_bound(start); it != delete_bitmap.end(); ++it) {
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
         auto& [k, bm] = *it;
         if (k >= end) {
             break;
