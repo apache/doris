@@ -64,7 +64,9 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
                                offset, _handle->file_size(), _path.native());
     }
 
+    size_t _before_seek_off = hdfsTell(_handle->fs(), _handle->file());
     int res = hdfsSeek(_handle->fs(), _handle->file(), offset);
+    size_t _after_seek_off = hdfsTell(_handle->fs(), _handle->file());
     if (res != 0) {
         return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
                                      BackendOptions::get_localhost(), offset, hdfs_error());
@@ -93,6 +95,20 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         has_read += loop_read;
     }
     *bytes_read = has_read;
+    size_t _after_read_off = hdfsTell(_handle->fs(), _handle->file());
+    size_t _should_read_to = offset + has_read;
+    LOG(WARNING) << "_before_seek_off=" << _before_seek_off << ", _should_seek_to=" << offset
+                 << ", _after_seek_off=" << _after_seek_off << ", _has_read=" << has_read
+                 << ", _after_read_off" << _after_read_off
+                 << ", _should_read_to=" << _should_read_to;
+    if (offset != _after_seek_off) {
+        LOG(WARNING) << "ERROR seek position: _should_seek_to=" << offset
+                     << ", _after_seek_off=" << _after_seek_off;
+    }
+    if (_should_read_to != _after_read_off) {
+        LOG(WARNING) << "ERROR read position: _should_read_to=" << _should_read_to
+                     << ", _after_read_off=" << _after_read_off;
+    }
     return Status::OK();
 }
 } // namespace io
