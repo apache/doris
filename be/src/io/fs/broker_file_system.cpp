@@ -127,7 +127,8 @@ Status BrokerFileSystem::open_file_internal(const FileDescription& fd, const Pat
             (*_client)->openReader(*response, request);
         }
     } catch (apache::thrift::TException& e) {
-        return Status::RpcError("failed to open file {}: {}", abs_path.native(), error_msg(e.what()));
+        return Status::RpcError("failed to open file {}: {}", abs_path.native(),
+                                error_msg(e.what()));
     }
 
     if (response->opStatus.statusCode != TBrokerOperationStatusCode::OK) {

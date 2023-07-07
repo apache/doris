@@ -169,8 +169,8 @@ Status HdfsFileSystem::open_file_internal(const FileDescription& fd, const Path&
 
     FileHandleCache::Accessor accessor;
     RETURN_IF_ERROR(HdfsFileHandleCache::instance()->get_file(
-            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, fd.mtime, fd.file_size,
-            &accessor));
+            std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, fd.mtime,
+            fd.file_size, &accessor));
 
     *reader = std::make_shared<HdfsFileReader>(abs_path, _namenode, std::move(accessor), _profile);
     return Status::OK();

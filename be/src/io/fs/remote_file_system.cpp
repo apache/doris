@@ -72,7 +72,8 @@ Status RemoteFileSystem::connect() {
     FILESYSTEM_M(connect_impl());
 }
 
-Status RemoteFileSystem::open_file_impl(const FileDescription& fd, const Path& abs_path, const FileReaderOptions& reader_options,
+Status RemoteFileSystem::open_file_impl(const FileDescription& fd, const Path& abs_path,
+                                        const FileReaderOptions& reader_options,
                                         FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
     RETURN_IF_ERROR(open_file_internal(fd, abs_path, &raw_reader));

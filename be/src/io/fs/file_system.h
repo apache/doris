@@ -118,7 +118,8 @@ protected:
     virtual Status create_file_impl(const Path& file, FileWriterPtr* writer) = 0;
 
     /// open file and return a FileReader
-    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_file, const FileReaderOptions& reader_options,
+    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_file,
+                                  const FileReaderOptions& reader_options,
                                   FileReaderSPtr* reader) = 0;
 
     /// create directory recursively

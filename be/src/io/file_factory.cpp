@@ -112,13 +112,12 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
                                        const io::FileDescription& file_description,
                                        const io::FileReaderOptions& reader_options,
                                        std::shared_ptr<io::FileSystem>* file_system,
-                                       io::FileReaderSPtr* file_reader,
-                                       RuntimeProfile* profile) {
+                                       io::FileReaderSPtr* file_reader, RuntimeProfile* profile) {
     TFileType::type type = system_properties.system_type;
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description,
-                                                                 reader_options, file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description, reader_options,
+                                                                 file_reader));
         break;
     }
     case TFileType::FILE_S3: {
@@ -169,8 +168,7 @@ Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
                                        const io::FileDescription& fd,
                                        const io::FileReaderOptions& reader_options,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
-                                       io::FileReaderSPtr* reader,
-                                       RuntimeProfile* profile) {
+                                       io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
     RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", profile, &fs));
     RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));

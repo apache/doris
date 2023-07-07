@@ -54,7 +54,8 @@ protected:
     /// connect to remote file system
     virtual Status connect_impl() = 0;
 
-    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_path, const FileReaderOptions& reader_options,
+    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_path,
+                                  const FileReaderOptions& reader_options,
                                   FileReaderSPtr* reader) override;
     /// upload load_file to remote remote_file
     /// local_file should be an absolute path on local filesystem.

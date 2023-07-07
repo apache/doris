@@ -57,24 +57,21 @@ public:
                                      std::unique_ptr<io::FileWriter>& file_writer);
 
     /// Create FileReader
-    static Status create_file_reader(
-            const io::FileSystemProperties& system_properties,
-            const io::FileDescription& file_description,
-            const io::FileReaderOptions& reader_options,
-            std::shared_ptr<io::FileSystem>* file_system,
-            io::FileReaderSPtr* file_reader,
-            RuntimeProfile* profile = nullptr);
+    static Status create_file_reader(const io::FileSystemProperties& system_properties,
+                                     const io::FileDescription& file_description,
+                                     const io::FileReaderOptions& reader_options,
+                                     std::shared_ptr<io::FileSystem>* file_system,
+                                     io::FileReaderSPtr* file_reader,
+                                     RuntimeProfile* profile = nullptr);
 
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader,
                                      const TUniqueId& fragment_instance_id);
 
-    static Status create_hdfs_reader(const THdfsParams& hdfs_params,
-                                     const io::FileDescription& fd,
+    static Status create_hdfs_reader(const THdfsParams& hdfs_params, const io::FileDescription& fd,
                                      const io::FileReaderOptions& reader_options,
                                      std::shared_ptr<io::FileSystem>* hdfs_file_system,
-                                     io::FileReaderSPtr* reader,
-                                     RuntimeProfile* profile);
+                                     io::FileReaderSPtr* reader, RuntimeProfile* profile);
 
     static Status create_s3_reader(const std::map<std::string, std::string>& prop,
                                    const io::FileDescription& fd,

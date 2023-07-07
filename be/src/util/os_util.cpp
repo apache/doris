@@ -104,8 +104,7 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats) {
     }
     std::string buf;
     RETURN_IF_ERROR(io::global_local_filesystem()->read_file_to_string(
-                                            strings::Substitute("/proc/self/task/$0/stat", tid),
-                                            &buf));
+            strings::Substitute("/proc/self/task/$0/stat", tid), &buf));
     return parse_stat(buf, nullptr, stats);
 }
 void disable_core_dumps() {
