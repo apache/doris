@@ -1743,13 +1743,6 @@ public class Config extends ConfigBase {
     public static boolean use_fuzzy_session_variable = false;
 
     /**
-     * Collect external table statistic info by running sql when set to true.
-     * Otherwise, use external catalog metadata.
-     */
-    @ConfField(mutable = true)
-    public static boolean collect_external_table_stats_by_sql = true;
-
-    /**
      * Max num of same name meta informatntion in catalog recycle bin.
      * Default is 3.
      * 0 means do not keep any meta obj with same name.

@@ -197,7 +197,7 @@ public final class HiveUtil {
                 method = clazz.getDeclaredMethod("isSplitable", FileSystem.class, Path.class);
                 break;
             } catch (NoSuchMethodException ignored) {
-                LOG.warn("Class {} doesn't contain isSplitable method.", clazz);
+                LOG.debug("Class {} doesn't contain isSplitable method.", clazz);
             }
         }
 
