@@ -20,11 +20,13 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -54,10 +56,12 @@ import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
+import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
@@ -157,7 +161,12 @@ public class HiveMetaStoreCache {
 
                     @Override
                     public HivePartition load(PartitionCacheKey key) {
-                        return loadPartitions(key);
+                        return loadPartition(key);
+                    }
+
+                    @Override
+                    public Map<PartitionCacheKey, HivePartition> loadAll(Iterable<? extends PartitionCacheKey> keys) {
+                        return loadPartitions(keys);
                     }
 
                 });
@@ -304,7 +313,7 @@ public class HiveMetaStoreCache {
         }
     }
 
-    private HivePartition loadPartitions(PartitionCacheKey key) {
+    private HivePartition loadPartition(PartitionCacheKey key) {
         Partition partition = catalog.getClient().getPartition(key.dbName, key.tblName, key.values);
         StorageDescriptor sd = partition.getSd();
         if (LOG.isDebugEnabled()) {
@@ -313,6 +322,37 @@ public class HiveMetaStoreCache {
         }
         // TODO: more info?
         return new HivePartition(key.dbName, key.tblName, false, sd.getInputFormat(), sd.getLocation(), key.values);
+    }
+
+    private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys) {
+        PartitionCacheKey oneKey = Iterables.get(keys, 0);
+        String dbName = oneKey.getDbName();
+        String tblName = oneKey.getTblName();
+        List<Column> partitionColumns = ((HMSExternalTable)
+                (catalog.getDbNullable(dbName).getTableNullable(tblName))).getPartitionColumns();
+        // A partitionName is like "country=China/city=Beijing" or "date=2023-02-01"
+        List<String> partitionNames = Streams.stream(keys).map(key -> {
+            StringBuilder sb = new StringBuilder();
+            Preconditions.checkState(key.getValues().size() == partitionColumns.size());
+            for (int i = 0; i < partitionColumns.size(); i++) {
+                sb.append(partitionColumns.get(i).getName());
+                sb.append("=");
+                sb.append(key.getValues().get(i));
+                sb.append("/");
+            }
+            sb.delete(sb.length() - 1, sb.length());
+            return sb.toString();
+        }).collect(Collectors.toList());
+        List<Partition> partitions = catalog.getClient().getPartitions(dbName, tblName, partitionNames);
+        // Compose the return result map.
+        Map<PartitionCacheKey, HivePartition> ret = new HashMap<>();
+        for (Partition partition : partitions) {
+            StorageDescriptor sd = partition.getSd();
+            ret.put(new PartitionCacheKey(dbName, tblName, partition.getValues()),
+                    new HivePartition(dbName, tblName, false,
+                        sd.getInputFormat(), sd.getLocation(), partition.getValues()));
+        }
+        return ret;
     }
 
     // Get File Status by using FileSystem API.
