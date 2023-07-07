@@ -73,7 +73,7 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
         return;
     }
 
-    const ColumnString& src_concrete = assert_cast<const ColumnString&>(src);
+    const ColumnString& src_concrete = yglassert_cast<const ColumnString&>(src);
 
     if (start + length > src_concrete.offsets.size()) {
         LOG(FATAL) << "Parameter out of bound in IColumnString::insert_range_from method.";
@@ -83,7 +83,13 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
 
     size_t old_chars_size = chars.size();
-    check_chars_length(old_chars_size + nested_length, offsets.size() + length);
+    if (UNLIKELY(old_chars_size + nested_length > MAX_STRING_SIZE)) {
+        LOG(INFO) << "yyyyyyyy" << nested_offset << "  " << nested_length << "  " << old_chars_size;
+        LOG(INFO) << "yyyyyyyy" << src.is_nullable();
+        LOG(FATAL) << "string column length is too large: total_length="
+                   << (old_chars_size + nested_length)
+                   << " ,element_number=" << (offsets.size() + length);
+    }
     chars.resize(old_chars_size + nested_length);
     memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
 

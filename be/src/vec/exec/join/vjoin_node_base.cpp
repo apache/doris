@@ -118,6 +118,8 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
             null_column.get_nested_column().insert_range_from(from, 0, rows);
             null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+        } else if (!to->is_nullable() && from.is_nullable()) {
+            LOG(FATAL) << "to is not nullable while from is nullable, could not copy";
         } else {
             to->insert_range_from(from, 0, rows);
         }
