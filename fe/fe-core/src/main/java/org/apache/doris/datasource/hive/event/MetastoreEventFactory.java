@@ -82,9 +82,9 @@ public class MetastoreEventFactory implements EventFactory {
 
     /**
      * Merge events to reduce the cost time on event processing, currently mainly handles MetastoreTableEvent
-     * because handle MetastoreTableEvent is simple and cost-effective.
+     * because merge MetastoreTableEvent is simple and cost-effective.
      * */
-    List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
+    public List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
         List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);
         Map<MetastoreTableEvent.TableKey, List<Integer>> indexMap = Maps.newLinkedHashMap();
         for (int i = 0; i < events.size(); i++) {
@@ -106,14 +106,18 @@ public class MetastoreEventFactory implements EventFactory {
             List<Integer> indexList = indexMap.get(groupKey);
             for (int j = 0; j < indexList.size(); j++) {
                 int candidateIndex = indexList.get(j);
+                if (candidateIndex == -1) {
+                    continue;
+                }
                 if (event.canBeBatched(events.get(candidateIndex))) {
                     eventsCopy.set(candidateIndex, null);
-                    indexList.set(j, null);
+                    indexList.set(j, -1);
                 }
             }
-            indexList = indexList.stream().filter(Objects::nonNull)
+            indexList = indexList.stream().filter(index -> index != -1)
                         .collect(Collectors.toList());
             indexList.add(i);
+            indexMap.put(groupKey, indexList);
         }
 
         List<MetastoreEvent> filteredEvents = eventsCopy.stream().filter(Objects::nonNull)

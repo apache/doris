@@ -34,6 +34,13 @@ import java.util.List;
 public class DropTableEvent extends MetastoreTableEvent {
     private final String tableName;
 
+    // for test
+    public DropTableEvent(long eventId, String catalogName, String dbName,
+                           String tblName) {
+        super(eventId, catalogName, dbName, tblName);
+        this.tableName = tblName;
+    }
+
     private DropTableEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
@@ -74,8 +81,8 @@ public class DropTableEvent extends MetastoreTableEvent {
         if (that instanceof CreateTableEvent) {
             return false;
         }
-        if (that instanceof AlterTableEvent && ((AlterTableEvent) that).isRename()) {
-            return false;
+        if (that instanceof AlterTableEvent) {
+            return !((AlterTableEvent) that).isRename();
         }
         return true;
     }

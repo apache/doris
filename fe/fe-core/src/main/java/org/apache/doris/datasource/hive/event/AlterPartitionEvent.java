@@ -45,6 +45,18 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
     // true if this alter event was due to a rename operation
     private final boolean isRename;
 
+    // for test
+    public AlterPartitionEvent(long eventId, String catalogName, String dbName, String tblName,
+                                String partitionNameBefore, String partitionNameAfter) {
+        super(eventId, catalogName, dbName, tblName);
+        this.partitionNameBefore = partitionNameBefore;
+        this.partitionNameAfter = partitionNameAfter;
+        this.hmsTbl = null;
+        this.partitionAfter = null;
+        this.partitionBefore = null;
+        isRename = !partitionNameBefore.equalsIgnoreCase(partitionNameAfter);
+    }
+
     private AlterPartitionEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
@@ -99,7 +111,7 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
     @Override
     protected boolean canBeBatched(MetastoreEvent event) {
         return event instanceof AlterPartitionEvent
-                    && isSameTable((MetastoreTableEvent) event)
+                    && isSameTable(event)
                     && Objects.equals(partitionBefore, ((AlterPartitionEvent) event).partitionBefore)
                     && Objects.equals(partitionAfter, ((AlterPartitionEvent) event).partitionAfter);
     }
