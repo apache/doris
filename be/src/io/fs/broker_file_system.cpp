@@ -406,7 +406,9 @@ Status BrokerFileSystem::upload_with_checksum_impl(const Path& local_file, const
 Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     // 1. open remote file for read
     FileReaderSPtr broker_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_file, -1, &broker_reader));
+    FileDescription fd;
+    fd.path = remote_file.native();
+    RETURN_IF_ERROR(open_file_internal(fd, remote_file, &broker_reader));
 
     // 2. remove the existing local file if exist
     if (std::filesystem::remove(local_file)) {
@@ -440,10 +442,12 @@ Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& loca
     return Status::OK();
 }
 
-Status BrokerFileSystem::direct_download_impl(const Path& remote_impl, std::string* content) {
+Status BrokerFileSystem::direct_download_impl(const Path& remote_file, std::string* content) {
     // 1. open remote file for read
     FileReaderSPtr broker_reader = nullptr;
-    RETURN_IF_ERROR(open_file_internal(remote_impl, -1, &broker_reader));
+    FileDescription fd;
+    fd.path = remote_file.native();
+    RETURN_IF_ERROR(open_file_internal(fd, remote_file, &broker_reader));
 
     constexpr size_t buf_sz = 1024 * 1024;
     std::unique_ptr<char[]> read_buf(new char[buf_sz]);

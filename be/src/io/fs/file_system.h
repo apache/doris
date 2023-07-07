@@ -75,6 +75,11 @@ public:
     // The following are public interface.
     // And derived classes should implement all xxx_impl methods.
     Status create_file(const Path& file, FileWriterPtr* writer);
+    Status open_file(const Path& file, FileReaderSPtr* reader) {
+        FileDescription fd;
+        fd.path = file.native();
+        return open_file(fd, FileReaderOptions::DEFAULT, reader);
+    }
     Status open_file(const FileDescription& fd, FileReaderSPtr* reader) {
         return open_file(fd, FileReaderOptions::DEFAULT, reader);
     }

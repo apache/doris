@@ -72,7 +72,7 @@ Status RemoteFileSystem::connect() {
     FILESYSTEM_M(connect_impl());
 }
 
-Status RemoteFileSystem::open_file_impl(cosnt FileDescription& fd, const Path& abs_path, const FileReaderOptions& reader_options,
+Status RemoteFileSystem::open_file_impl(const FileDescription& fd, const Path& abs_path, const FileReaderOptions& reader_options,
                                         FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
     RETURN_IF_ERROR(open_file_internal(fd, abs_path, &raw_reader));
@@ -83,7 +83,7 @@ Status RemoteFileSystem::open_file_impl(cosnt FileDescription& fd, const Path& a
     }
     case io::FileCachePolicy::SUB_FILE_CACHE:
     case io::FileCachePolicy::WHOLE_FILE_CACHE: {
-        std::string cache_path = reader_options.path_policy.get_cache_path(path.native());
+        std::string cache_path = reader_options.path_policy.get_cache_path(abs_path.native());
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, raw_reader,
                 reader_options.cache_type);
@@ -93,7 +93,7 @@ Status RemoteFileSystem::open_file_impl(cosnt FileDescription& fd, const Path& a
     }
     case io::FileCachePolicy::FILE_BLOCK_CACHE: {
         StringPiece str(raw_reader->path().native());
-        std::string cache_path = reader_options.path_policy.get_cache_path(path.native());
+        std::string cache_path = reader_options.path_policy.get_cache_path(abs_path.native());
         if (reader_options.has_cache_base_path) {
             // from query session variable: file_cache_base_path
             *reader = std::make_shared<CachedRemoteFileReader>(

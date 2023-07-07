@@ -172,7 +172,7 @@ Status HdfsFileSystem::open_file_internal(const FileDescription& fd, const Path&
             std::static_pointer_cast<HdfsFileSystem>(shared_from_this()), real_path, fd.mtime, fd.file_size,
             &accessor));
 
-    *reader = std::make_shared<HdfsFileReader>(file, _namenode, std::move(accessor), _profile);
+    *reader = std::make_shared<HdfsFileReader>(abs_path, _namenode, std::move(accessor), _profile);
     return Status::OK();
 }
 

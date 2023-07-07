@@ -110,7 +110,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
 
 Status FileFactory::create_file_reader(const io::FileSystemProperties& system_properties,
                                        const io::FileDescription& file_description,
-                                       const io::FileReaderOptions& reader_options
+                                       const io::FileReaderOptions& reader_options,
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader,
                                        RuntimeProfile* profile) {
@@ -128,7 +128,7 @@ Status FileFactory::create_file_reader(const io::FileSystemProperties& system_pr
     }
     case TFileType::FILE_HDFS: {
         RETURN_IF_ERROR(create_hdfs_reader(system_properties.hdfs_params, file_description,
-                                           reader_options, profile, file_system, file_reader));
+                                           reader_options, file_system, file_reader, profile));
         break;
     }
     case TFileType::FILE_BROKER: {
@@ -183,7 +183,7 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
                                      const io::FileReaderOptions& reader_options,
                                      std::shared_ptr<io::FileSystem>* s3_file_system,
                                      io::FileReaderSPtr* reader) {
-    S3URI s3_uri(path);
+    S3URI s3_uri(fd.path);
     RETURN_IF_ERROR(s3_uri.parse());
     S3Conf s3_conf;
     RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));

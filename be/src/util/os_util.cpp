@@ -33,7 +33,6 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
-#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
 
 using std::string;
@@ -104,7 +103,7 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats) {
         return Status::NotSupported("ThreadStats not supported");
     }
     std::string buf;
-    RETURN_IF_ERROR(io::read_file_to_string(io::global_local_filesystem(),
+    RETURN_IF_ERROR(io::global_local_filesystem()->read_file_to_string(
                                             strings::Substitute("/proc/self/task/$0/stat", tid),
                                             &buf));
     return parse_stat(buf, nullptr, stats);

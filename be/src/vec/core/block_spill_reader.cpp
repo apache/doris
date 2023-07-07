@@ -47,12 +47,12 @@ void BlockSpillReader::_init_profile() {
 
 Status BlockSpillReader::open() {
     std::shared_ptr<io::FileSystem> file_system;
-    FileSystemProperties system_properties;
+    io::FileSystemProperties system_properties;
     system_properties.system_type = TFileType::FILE_LOCAL;
 
-    FileDescription file_description;
+    io::FileDescription file_description;
     file_description.path = file_path_;
-    FileReaderOptions reader_options = FileReaderOptions::DEFAULT;
+    io::FileReaderOptions reader_options = io::FileReaderOptions::DEFAULT;
     RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
                                                     reader_options,
                                                     &file_system, &file_reader_));

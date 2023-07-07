@@ -69,6 +69,9 @@ public:
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
 
+    // read local file and save content to "content"
+    Status read_file_to_string(const Path& file, std::string* content);
+
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
     Status open_file_impl(const FileDescription& file_desc, const Path& abs_path,
