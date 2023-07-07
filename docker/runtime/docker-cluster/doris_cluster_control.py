@@ -27,7 +27,7 @@ import sys
 import yaml
 
 DORIS_LOCAL_ROOT = "/tmp/doris"
-DORIS_HOME = "/opt/apache-doris"
+DORIS_DOCKER_HOME = "/opt/apache-doris"
 
 MASTER_FE_ID = 1
 FE_HTTP_PORT = 8030
@@ -170,7 +170,8 @@ class Node(object):
         for dir in ("conf", ):
             if not os.path.exists(os.path.join(path, dir)):
                 cmd = "docker run -v {}:/opt/mount --rm --entrypoint cp {}  -r {}/{}/{}/ /opt/mount/".format(
-                    path, self.meta.image, DORIS_HOME, self.node_type(), dir)
+                    path, self.meta.image, DORIS_DOCKER_HOME, self.node_type(),
+                    dir)
                 exec_shell_command(cmd)
 
         for sub_dir in self.expose_sub_dirs() + [
@@ -256,8 +257,9 @@ class Node(object):
             },
             "security_opt": ["seccomp:unconfined"],
             "volumes": [
-                "{}:{}/{}/{}".format(os.path.join(self.get_path(), sub_dir),
-                                     DORIS_HOME, self.node_type(), sub_dir)
+                "{}:{}/{}/{}".format(os.path.join(self.get_path(),
+                                                  sub_dir), DORIS_DOCKER_HOME,
+                                     self.node_type(), sub_dir)
                 for sub_dir in self.expose_sub_dirs()
             ] + [
                 "{}/data:/data".format(self.get_path()),
@@ -270,7 +272,7 @@ class FE(Node):
     def docker_command(self):
         return [
             "bash",
-            "{}/fe/bin/init_fe.sh".format(DORIS_HOME),
+            "{}/fe/bin/init_fe.sh".format(DORIS_DOCKER_HOME),
         ]
 
     def docker_ports(self):
@@ -288,7 +290,7 @@ class BE(Node):
     def docker_command(self):
         return [
             "bash",
-            "{}/be/bin/init_be.sh".format(DORIS_HOME),
+            "{}/be/bin/init_be.sh".format(DORIS_DOCKER_HOME),
         ]
 
     def docker_ports(self):
