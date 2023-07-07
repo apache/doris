@@ -78,11 +78,11 @@ public:
                 "RowsetWriter not support final_flush");
     }
 
-    virtual Status unfold_variant_column_and_flush_block(
-            vectorized::Block* block, int32_t segment_id,
-            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
+    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                  const std::shared_ptr<MemTracker>& flush_mem_tracker,
+                                  int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "RowsetWriter not support unfold_variant_column_and_flush_block");
+                "RowsetWriter not support flush_memtable");
     }
 
     virtual Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
