@@ -142,9 +142,7 @@ private:
 
     Status _create_file_writer(std::string path, io::FileWriterPtr* file_writer);
     Status _create_file_writer(uint32_t begin, uint32_t end, io::FileWriterPtr* writer);
-    Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     int32_t segment_id, const vectorized::Block* block,
-                                     TabletSchemaSPtr flush_schema = nullptr);
+    Status _check_segment_number_limit();
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                   int32_t segment_id, const vectorized::Block* block,
                                   TabletSchemaSPtr flush_schema = nullptr);

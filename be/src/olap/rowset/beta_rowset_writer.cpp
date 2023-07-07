@@ -786,9 +786,10 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_do_create_segment_writer(
+Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, int32_t segment_id,
         const vectorized::Block* block, TabletSchemaSPtr flush_schema) {
+    RETURN_IF_ERROR(_check_segment_number_limit());
     io::FileWriterPtr file_writer;
     segment_id += _segment_start_id;
     RETURN_IF_ERROR(create_file_writer(segment_id, &file_writer));
@@ -818,9 +819,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                                int32_t segment_id, const vectorized::Block* block,
-                                                TabletSchemaSPtr flush_schema) {
+Status BetaRowsetWriter::_check_segment_number_limit() {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
@@ -829,9 +828,8 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
                 _num_segcompacted);
-    } else {
-        return _do_create_segment_writer(writer, segment_id, block, flush_schema);
     }
+    return Status::OK();
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
