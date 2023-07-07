@@ -474,7 +474,7 @@ class Cluster(object):
         return Node.new(self.meta, node_type, id)
 
 
-def new(args):
+def create(args):
     if not args.NAME:
         raise Exception("need specify cluster name")
     if not args.IMAGE:
@@ -561,21 +561,21 @@ def parse_args():
     ap = argparse.ArgumentParser(description="")
     sub_aps = ap.add_subparsers(dest="command")
 
-    ap_new = sub_aps.add_parser("new", help="create a new doris cluster")
-    ap_new.add_argument("NAME", help="specific cluster name")
-    ap_new.add_argument("IMAGE", help="specify docker image")
-    ap_new.add_argument("--fe",
-                        type=int,
-                        default=3,
-                        help="specify fe count, default is 3")
-    ap_new.add_argument("--be",
-                        type=int,
-                        default=3,
-                        help="specify be count, default is 3")
-    ap_new.add_argument("--no-up",
-                        default=False,
-                        action=get_parser_bool_action(True),
-                        help="do not run cluster, only create")
+    ap_create = sub_aps.add_parser("create", help="create a new doris cluster")
+    ap_create.add_argument("NAME", help="specific cluster name")
+    ap_create.add_argument("IMAGE", help="specify docker image")
+    ap_create.add_argument("--fe",
+                           type=int,
+                           default=3,
+                           help="specify fe count, default is 3")
+    ap_create.add_argument("--be",
+                           type=int,
+                           default=3,
+                           help="specify be count, default is 3")
+    ap_create.add_argument("--no-up",
+                           default=False,
+                           action=get_parser_bool_action(True),
+                           help="do not run cluster, only create")
 
     ap_up = sub_aps.add_parser(
         "up", help="re run a doris cluster, no clean data and log")
@@ -622,8 +622,8 @@ def parse_args():
 
 def main():
     usage, _, args = parse_args()
-    if args.command == "new":
-        return new(args)
+    if args.command == "create":
+        return create(args)
     elif args.command == "up":
         return up(args)
     elif args.command == "down":
