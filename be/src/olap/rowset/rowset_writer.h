@@ -35,14 +35,6 @@ namespace doris {
 
 class MemTable;
 
-// Context for single memtable flush
-struct FlushContext {
-    ENABLE_FACTORY_CREATOR(FlushContext);
-    TabletSchemaSPtr flush_schema = nullptr;
-    const vectorized::Block* block = nullptr;
-    std::optional<int32_t> segment_id = std::nullopt;
-};
-
 class RowsetWriter {
 public:
     RowsetWriter() = default;

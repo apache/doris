@@ -138,15 +138,16 @@ private:
     Status _add_rows(const vectorized::Block* block, segment_v2::SegmentWriter* segment_writer,
                      size_t row_offset, size_t input_row_num);
     Status _add_block(const vectorized::Block* block,
-                      std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                      const FlushContext* flush_ctx = nullptr);
+                      std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _create_file_writer(std::string path, io::FileWriterPtr* file_writer);
     Status _create_file_writer(uint32_t begin, uint32_t end, io::FileWriterPtr* writer);
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     const FlushContext* ctx = nullptr);
+                                     int32_t segment_id, const vectorized::Block* block,
+                                     TabletSchemaSPtr flush_schema = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                  const FlushContext* ctx = nullptr);
+                                  int32_t segment_id, const vectorized::Block* block,
+                                  TabletSchemaSPtr flush_schema = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
     Status _generate_delete_bitmap(int32_t segment_id);

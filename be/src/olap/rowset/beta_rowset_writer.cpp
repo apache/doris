@@ -134,9 +134,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-        FlushContext ctx;
-        ctx.block = block;
-        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, &ctx));
+        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, allocate_segment_id(), block));
     }
     return _add_block(block, &_segment_writer);
 }
@@ -458,8 +456,7 @@ Status BetaRowsetWriter::_add_rows(const vectorized::Block* block,
 }
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
-                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
-                                    const FlushContext* flush_ctx) {
+                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
@@ -470,7 +467,7 @@ Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
             RETURN_IF_ERROR(_flush_segment_writer(segment_writer));
-            RETURN_IF_ERROR(_create_segment_writer(segment_writer, flush_ctx));
+            RETURN_IF_ERROR(_create_segment_writer(segment_writer, allocate_segment_id(), block));
             max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
@@ -522,17 +519,15 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
         return Status::OK();
     }
 
-    FlushContext ctx;
-    ctx.block = block;
+    TabletSchemaSPtr flush_schema;
     if (_context.tablet_schema->is_dynamic_schema()) {
         // Unfold variant column
-        RETURN_IF_ERROR(_unfold_variant_column(*block, ctx.flush_schema));
+        RETURN_IF_ERROR(_unfold_variant_column(*block, flush_schema));
     }
-    ctx.segment_id = std::optional<int32_t> {segment_id};
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
         std::unique_ptr<segment_v2::SegmentWriter> writer;
-        RETURN_IF_ERROR(_create_segment_writer(&writer, &ctx));
+        RETURN_IF_ERROR(_create_segment_writer(&writer, segment_id, block, flush_schema));
         RETURN_IF_ERROR(_add_rows(block, writer.get(), 0, block->rows()));
         RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
     }
@@ -547,7 +542,7 @@ Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block) {
     }
 
     std::unique_ptr<segment_v2::SegmentWriter> writer;
-    RETURN_IF_ERROR(_create_segment_writer(&writer));
+    RETURN_IF_ERROR(_create_segment_writer(&writer, allocate_segment_id(), block));
     RETURN_IF_ERROR(_add_block(block, &writer));
     RETURN_IF_ERROR(_flush_segment_writer(&writer));
     return Status::OK();
@@ -792,13 +787,10 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
 }
 
 Status BetaRowsetWriter::_do_create_segment_writer(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, const FlushContext* flush_ctx) {
-    int32_t segment_id = 0;
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, int32_t segment_id,
+        const vectorized::Block* block, TabletSchemaSPtr flush_schema) {
     io::FileWriterPtr file_writer;
-    int32_t segid_offset = (flush_ctx != nullptr && flush_ctx->segment_id.has_value())
-                                   ? flush_ctx->segment_id.value()
-                                   : allocate_segment_id();
-    segment_id = segid_offset + _segment_start_id;
+    segment_id += _segment_start_id;
     RETURN_IF_ERROR(create_file_writer(segment_id, &file_writer));
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -806,10 +798,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
 
-    const auto& tablet_schema =
-            flush_ctx && flush_ctx->flush_schema ? flush_ctx->flush_schema : _context.tablet_schema;
-    if (flush_ctx && flush_ctx->block &&
-        flush_ctx->block->bytes() <= config::segment_compression_threshold_kb * 1024) {
+    const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
+    if (block->bytes() <= config::segment_compression_threshold_kb * 1024) {
         writer_options.compression_type = NO_COMPRESSION;
     }
     writer->reset(new segment_v2::SegmentWriter(
@@ -829,7 +819,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
 }
 
 Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                                const FlushContext* flush_ctx) {
+                                                int32_t segment_id, const vectorized::Block* block,
+                                                TabletSchemaSPtr flush_schema) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
@@ -839,7 +830,7 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
                 _num_segcompacted);
     } else {
-        return _do_create_segment_writer(writer, flush_ctx);
+        return _do_create_segment_writer(writer, segment_id, block, flush_schema);
     }
 }
 
