@@ -776,74 +776,66 @@ Status BetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterP
     return _create_file_writer(path, file_writer);
 }
 
-Status BetaRowsetWriter::_create_file_writer(uint32_t begin, uint32_t end,
-                                             io::FileWriterPtr* file_writer) {
-    std::string path;
-    path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir, _context.rowset_id,
-                                                       begin, end);
-    return _create_file_writer(path, file_writer);
-}
-
-Status BetaRowsetWriter::_do_create_segment_writer(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_segcompaction, int64_t begin,
-        int64_t end, const FlushContext* flush_ctx) {
-    Status st;
-    std::string path;
-    int32_t segment_id = 0;
+Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end) {
+    DCHECK(begin >= 0 && end >= 0);
+    std::string path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir,
+                                                                   _context.rowset_id, begin, end);
     io::FileWriterPtr file_writer;
-    if (is_segcompaction) {
-        DCHECK(begin >= 0 && end >= 0);
-        st = _create_file_writer(begin, end, &file_writer);
-    } else {
-        int32_t segid_offset = (flush_ctx != nullptr && flush_ctx->segment_id.has_value())
-                                       ? flush_ctx->segment_id.value()
-                                       : allocate_segment_id();
-        segment_id = segid_offset + _segment_start_id;
-        st = create_file_writer(segment_id, &file_writer);
-    }
-    if (!st.ok()) {
-        return st;
-    }
+    RETURN_IF_ERROR(_create_file_writer(path, &file_writer));
 
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
     writer_options.write_type = _context.write_type;
-    if (is_segcompaction) {
-        writer_options.write_type = DataWriteType::TYPE_COMPACTION;
-    }
+    writer_options.write_type = DataWriteType::TYPE_COMPACTION;
 
-    if (is_segcompaction) {
-        writer->reset(new segment_v2::SegmentWriter(
-                file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-                _context.data_dir, _context.max_rows_per_segment, writer_options,
-                _context.mow_context));
-        if (_segcompaction_worker.get_file_writer() != nullptr) {
-            _segcompaction_worker.get_file_writer()->close();
-        }
-        _segcompaction_worker.get_file_writer().reset(file_writer.release());
-    } else {
-        const auto& tablet_schema = flush_ctx && flush_ctx->flush_schema ? flush_ctx->flush_schema
-                                                                         : _context.tablet_schema;
-        if (flush_ctx && flush_ctx->block &&
-            flush_ctx->block->bytes() <= config::segment_compression_threshold_kb * 1024) {
-            writer_options.compression_type = NO_COMPRESSION;
-        }
-        writer->reset(new segment_v2::SegmentWriter(
-                file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
-                _context.max_rows_per_segment, writer_options, _context.mow_context));
-        {
-            std::lock_guard<SpinLock> l(_lock);
-            _file_writers.push_back(std::move(file_writer));
-        }
-        auto s = (*writer)->init();
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to init segment writer: " << s.to_string();
-            writer->reset(nullptr);
-            return s;
-        }
+    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segcompacted,
+                                                _context.tablet_schema, _context.tablet,
+                                                _context.data_dir, _context.max_rows_per_segment,
+                                                writer_options, _context.mow_context));
+    if (_segcompaction_worker.get_file_writer() != nullptr) {
+        _segcompaction_worker.get_file_writer()->close();
     }
+    _segcompaction_worker.get_file_writer().reset(file_writer.release());
 
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_do_create_segment_writer(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, const FlushContext* flush_ctx) {
+    int32_t segment_id = 0;
+    io::FileWriterPtr file_writer;
+    int32_t segid_offset = (flush_ctx != nullptr && flush_ctx->segment_id.has_value())
+                                   ? flush_ctx->segment_id.value()
+                                   : allocate_segment_id();
+    segment_id = segid_offset + _segment_start_id;
+    RETURN_IF_ERROR(create_file_writer(segment_id, &file_writer));
+
+    segment_v2::SegmentWriterOptions writer_options;
+    writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
+    writer_options.write_type = _context.write_type;
+
+    const auto& tablet_schema =
+            flush_ctx && flush_ctx->flush_schema ? flush_ctx->flush_schema : _context.tablet_schema;
+    if (flush_ctx && flush_ctx->block &&
+        flush_ctx->block->bytes() <= config::segment_compression_threshold_kb * 1024) {
+        writer_options.compression_type = NO_COMPRESSION;
+    }
+    writer->reset(new segment_v2::SegmentWriter(
+            file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
+            _context.max_rows_per_segment, writer_options, _context.mow_context));
+    {
+        std::lock_guard<SpinLock> l(_lock);
+        _file_writers.push_back(std::move(file_writer));
+    }
+    auto s = (*writer)->init();
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to init segment writer: " << s.to_string();
+        writer->reset(nullptr);
+        return s;
+    }
     return Status::OK();
 }
 
@@ -858,7 +850,7 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
                 _num_segcompacted);
     } else {
-        return _do_create_segment_writer(writer, false, -1, -1, flush_ctx);
+        return _do_create_segment_writer(writer, flush_ctx);
     }
 }
 

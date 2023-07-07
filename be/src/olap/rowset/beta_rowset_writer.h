@@ -146,7 +146,6 @@ private:
     Status _create_file_writer(std::string path, io::FileWriterPtr* file_writer);
     Status _create_file_writer(uint32_t begin, uint32_t end, io::FileWriterPtr* writer);
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     bool is_segcompaction, int64_t begin, int64_t end,
                                      const FlushContext* ctx = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                   const FlushContext* ctx = nullptr);
@@ -154,6 +153,10 @@ private:
                                  int64_t* flush_size = nullptr);
     Status _generate_delete_bitmap(int32_t segment_id);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
+
+    // segment compaction
+    Status _create_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
