@@ -74,10 +74,10 @@ static TDescriptorTable create_descriptor_tablet() {
 
 class MemtableFlushMgrTest : public testing::Test {
 public:
-    ~MemtableFlushMgrTest() { delete _mgr; }
+    ~MemtableFlushMgrTest() override { delete _mgr; }
 
 protected:
-    virtual void SetUp() {
+    void SetUp() override {
         // set path
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -94,7 +94,7 @@ protected:
         _engine->start_bg_threads();
     }
 
-    virtual void TearDown() {
+    void TearDown() override {
         if (_engine != nullptr) {
             _engine->stop();
             delete _engine;
@@ -129,8 +129,9 @@ TEST_F(MemtableFlushMgrTest, handle_memtable_flush_test) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10000,   270068372,  WriteType::LOAD,        20002, 30002,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req = {
+            10000, 270068372, 20002, 30002, load_id, tuple_desc, &(tuple_desc->slots()),
+            false, &param};
     DeltaWriter* delta_writer = nullptr;
     std::unique_ptr<RuntimeProfile> profile;
     profile = std::make_unique<RuntimeProfile>("MemtableFlushMgrTest");
