@@ -77,6 +77,18 @@ public:
     // "capacity" is the capacity of lru cache.
     static void create_global_instance(size_t capacity, uint32_t num_shards = 16);
 
+    void reset() {
+        _cache.reset();
+        _mem_tracker.reset();
+        // Reset or clear the state of the object.
+    }
+
+    static void reset_global_instance() {
+        if (_s_instance != nullptr) {
+            _s_instance->reset();
+        }
+    }
+
     // Return global instance.
     // Client should call create_global_cache before.
     static InvertedIndexSearcherCache* instance() { return _s_instance; }
