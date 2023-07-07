@@ -89,7 +89,7 @@ GeoParseStatus WkbParse::parse_wkb(std::istream& is, GeoShape** shape) {
     if (ctx.parse_status == GEO_PARSE_OK) {
         *shape = ctx.shape;
     } else {
-        ctx.parse_status = GEO_PARSE_WKT_SYNTAX_ERROR;
+        ctx.parse_status = GEO_PARSE_WKB_SYNTAX_ERROR;
     }
     return ctx.parse_status;
 }
@@ -191,14 +191,8 @@ std::unique_ptr<GeoPoint> WkbParse::readPoint(WkbParseContext* ctx) {
 
     std::unique_ptr<GeoPoint> point = GeoPoint::create_unique();
 
-    //POINT EMPTY
-    if(ctx->dis.readUnsigned() == 0){
-        point->set_empty();
-        return point;
-    }
-
     GeoCoordinates coords = WkbParse::readCoordinateList(1, ctx);
-    //In order to be compatible with postgis POINT EMPTY WKB representation
+    //POINT EMPTY WKB representation
     if(std::isnan(coords.coords[0].x) && std::isnan(coords.coords[0].y)){
         point->set_empty();
         return point;

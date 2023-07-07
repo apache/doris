@@ -59,8 +59,8 @@ namespace doris {
 
             int dim = get_geometries_n(0)->get_dimension();
             for (int i = 1; i < get_num_geometries(); i++) {
-                if (dim != get_geometries_n(i)->get_dimension()) {
-                    return -1;
+                if (dim < get_geometries_n(i)->get_dimension()) {
+                    dim = get_geometries_n(i)->get_dimension();
                 }
             }
 

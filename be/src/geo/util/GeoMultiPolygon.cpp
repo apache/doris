@@ -39,6 +39,7 @@ namespace doris {
         std::unique_ptr<GeoCoordinateListCollections> coords_collections(new GeoCoordinateListCollections());
         for (std::size_t i = 0; i < get_num_polygon(); ++i) {
             const GeoPolygon* polygon = (const GeoPolygon*) GeoCollection::get_geometries_n(i);
+            if(polygon->is_empty()) continue;
             std::unique_ptr<GeoCoordinateLists> coord = polygon->to_coords();
             coords_collections->add(coord.release());
         }

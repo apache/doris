@@ -366,7 +366,7 @@ struct StAreaSquareMeters {
             }
 
             double area = 0;
-            if (!GeoShape::ComputeArea(shape.get(), &area, "square_meters")) {
+            if (!shape->ComputeArea(&area, "square_meters")) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -401,7 +401,7 @@ struct StAreaSquareKm {
             }
 
             double area = 0;
-            if (!GeoShape::ComputeArea(shape.get(), &area, "square_km")) {
+            if (!shape->ComputeArea(&area, "square_km")) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -665,6 +665,11 @@ struct StGeoFromWkb {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
+            if(value.size==0) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
             std::unique_ptr<GeoShape> shape(GeoShape::from_wkb(value.data, value.size, &status));
 
             if (status != GEO_PARSE_OK) {
@@ -807,6 +812,10 @@ struct StGeoFromGeoJson {
         std::string buf;
         for (int row = 0; row < size; ++row) {
             auto value = geo->get_data_at(row);
+            if(value.size==0) {
+                res->insert_data(nullptr, 0);
+                continue;
+            }
             std::unique_ptr<GeoShape> shape(GeoShape::from_geojson(value.data, value.size, &status));
 
             if (status != GEO_PARSE_OK) {
@@ -859,6 +868,7 @@ struct StPointN {
             }
 
             GeoPoint point;
+            std::string buf;
 
 
             int index = index_arg->get_int(row);
@@ -875,9 +885,9 @@ struct StPointN {
                 continue;
             }
 
-            auto wkt = point.as_wkt();
-
-            res->insert_data(wkt.data(), wkt.size());
+            buf.clear();
+            point.encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -898,6 +908,7 @@ struct StStartPoint {
         const auto size = line_arg->size();
 
         GeoLineString line;
+        std::string buf;
 
         for (int row = 0; row < size; ++row) {
             auto shape_value1 = line_arg->get_data_at(row);
@@ -914,9 +925,9 @@ struct StStartPoint {
                 continue;
             }
 
-            auto wkt = point.as_wkt();
-
-            res->insert_data(wkt.data(), wkt.size());
+            buf.clear();
+            point.encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -937,6 +948,7 @@ struct StEndPoint {
         const auto size = line_arg->size();
 
         GeoLineString line;
+        std::string buf;
 
         for (int row = 0; row < size; ++row) {
             auto shape_value1 = line_arg->get_data_at(row);
@@ -953,9 +965,9 @@ struct StEndPoint {
                 continue;
             }
 
-            auto wkt = point.as_wkt();
-
-            res->insert_data(wkt.data(), wkt.size());
+            buf.clear();
+            point.encode_to(&buf);
+            res->insert_data(buf.data(), buf.size());
         }
         block.replace_by_position(result, std::move(res));
         return Status::OK();
@@ -1434,6 +1446,11 @@ struct StClosestPoint {
 
             std::unique_ptr<GeoShape> res_point = shape1->find_closest_point(shape2.get());
 
+            if(res_point == nullptr){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
+
             buf.clear();
             res_point->encode_to(&buf);
             res->insert_data(buf.data(), buf.size());
@@ -1559,6 +1576,11 @@ struct StBuffer {
                 continue;
             }
             GeoShape* res_shape = shape->buffer(buffer_radius->operator[](row).get<Float64>()).release();
+
+            if(res_shape == nullptr){
+                res->insert_data(nullptr, 0);
+                continue;
+            }
 
             buf.clear();
             res_shape->encode_to(&buf);

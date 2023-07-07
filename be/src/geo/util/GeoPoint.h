@@ -54,7 +54,7 @@ namespace doris {
 
         bool is_valid() const override;
 
-        bool is_closed() const override { return true;}
+        bool is_closed() const override { return !is_empty();}
 
         [[nodiscard]] int get_dimension() const override { return 0; }
 
@@ -75,7 +75,6 @@ namespace doris {
         std::string as_wkt() const override;
 
         [[nodiscard]] std::size_t get_num_point() const override {
-            if(is_empty()) return 0;
             return 1;
         }
 

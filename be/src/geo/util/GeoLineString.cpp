@@ -46,7 +46,7 @@ namespace doris {
     }
 
     bool GeoLineString::is_closed() const {
-        return polyline()->vertex(0) == polyline()->vertex(get_num_point()-1);
+        return !is_empty() && polyline()->vertex(0) == polyline()->vertex(get_num_point() - 1);
     }
 
      GeoParseStatus GeoLineString::to_s2polyline(const GeoCoordinates& coords,
@@ -161,7 +161,7 @@ namespace doris {
 
     std::unique_ptr<GeoShape> GeoLineString::boundary() const {
         std::unique_ptr<GeoMultiPoint> multipoint = GeoMultiPoint::create_unique();
-        if(is_empty()){
+        if(is_empty() || is_ring()){
             multipoint->set_empty();
             return multipoint;
         }
