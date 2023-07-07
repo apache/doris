@@ -523,6 +523,10 @@ Status BetaRowsetWriter::unfold_variant_column_and_flush_block(
         const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
     SCOPED_CONSUME_MEM_TRACKER(flush_mem_tracker);
 
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+
     FlushContext ctx;
     ctx.block = block;
     if (_context.tablet_schema->is_dynamic_schema()) {
@@ -532,6 +536,8 @@ Status BetaRowsetWriter::unfold_variant_column_and_flush_block(
     ctx.segment_id = std::optional<int32_t> {segment_id};
     SCOPED_RAW_TIMER(&_segment_writer_ns);
     RETURN_IF_ERROR(flush_single_block(block, flush_size, &ctx));
+    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
+    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -553,8 +559,6 @@ Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block, int6
         DCHECK_EQ(writer.get(), raw_writer);
     }
     RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
-    RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
-    RETURN_IF_ERROR(_segcompaction_if_necessary());
     return Status::OK();
 }
 
