@@ -217,7 +217,7 @@ namespace doris {
         return _polygon->num_loops();
     }
 
-    std::double_t GeoPolygon::get_area() const {
+    double GeoPolygon::get_area() const {
         return _polygon->GetArea();
     }
 

@@ -143,8 +143,10 @@ namespace doris {
 
         for(const auto& g : geometries) {
             std::unique_ptr<GeoShape> shape =  g->boundary();
-            collection->add_one_geometry(shape.release());
+            if(!shape->is_empty())
+                collection->add_one_geometry(shape.release());
         }
+        if(collection->get_num_geometries()==0) collection->set_empty();
         return collection;
 
         //to_homogenize 还有问题
@@ -245,11 +247,13 @@ namespace doris {
     }
 
     bool GeoCollection::add_to_s2shape_index(MutableS2ShapeIndex& S2shape_index) const {
-        if(is_empty() || !is_valid()) return false;
+        if(is_empty()) return false;
         for(const auto& g : geometries) {
+            if(g->is_empty() || !g->is_valid()) continue;
             switch (g->type()) {
                 case GEO_SHAPE_POINT: {
                     GeoPoint* point = dynamic_cast<GeoPoint*>(g.get());
+                    if(point->is_empty()) continue;
                     if(!point->add_to_s2shape_index(S2shape_index)){
                         return false;
                     }
@@ -257,6 +261,7 @@ namespace doris {
                 }
                 case GEO_SHAPE_LINE_STRING: {
                     GeoLineString* linestring = dynamic_cast<GeoLineString*>(g.get());
+                    if(linestring->is_empty()) continue;
                     if(!linestring->add_to_s2shape_index(S2shape_index)){
                         return false;
                     }
@@ -264,6 +269,7 @@ namespace doris {
                 }
                 case GEO_SHAPE_POLYGON: {
                     GeoPolygon* polygon = dynamic_cast<GeoPolygon*>(g.get());
+                    if(polygon->is_empty()) continue;
                     if(!polygon->add_to_s2shape_index(S2shape_index)){
                         return false;
                     }
@@ -273,6 +279,7 @@ namespace doris {
                     const GeoMultiPoint* multi_point_tmp = dynamic_cast<const GeoMultiPoint*>(g.get());
                     for (int i = 0; i < multi_point_tmp->get_num_point(); ++i) {
                         GeoPoint* point = dynamic_cast<GeoPoint*>(multi_point_tmp->get_geometries_n(i));
+                        if(point->is_empty()) continue;
                         if(!point->add_to_s2shape_index(S2shape_index)){
                             return false;
                         }
@@ -283,6 +290,7 @@ namespace doris {
                     const GeoMultiLineString* multi_linestring_tmp =  dynamic_cast<const GeoMultiLineString*>(g.get());
                     for (int i = 0; i < multi_linestring_tmp->get_num_line(); ++i) {
                         GeoLineString* line_string = dynamic_cast<GeoLineString*>(multi_linestring_tmp->get_geometries_n(i));
+                        if(line_string->is_empty()) continue;
                         if(!line_string->add_to_s2shape_index(S2shape_index)){
                             return false;
                         }
@@ -293,6 +301,7 @@ namespace doris {
                     const GeoMultiPolygon* multi_polygon_tmp =  dynamic_cast<const GeoMultiPolygon*>(g.get());
                     for (int i = 0; i < multi_polygon_tmp->get_num_polygon(); ++i) {
                         GeoPolygon* polygon = dynamic_cast<GeoPolygon*>(multi_polygon_tmp->get_geometries_n(i));
+                        if(polygon->is_empty()) continue;
                         if(!polygon->add_to_s2shape_index(S2shape_index)){
                             return false;
                         }

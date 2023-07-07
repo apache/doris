@@ -39,6 +39,7 @@ namespace doris {
         std::unique_ptr<GeoCoordinateLists> coords_list(new GeoCoordinateLists());
         for (std::size_t i = 0; i < get_num_line(); ++i) {
             const GeoLineString* line = (const GeoLineString*) GeoCollection::get_geometries_n(i);
+            if(line->is_empty()) continue;
             std::unique_ptr<GeoCoordinates> coords = line->to_coords_ptr();
             coords_list->add(coords.release());
         }
@@ -101,6 +102,9 @@ namespace doris {
 
         for (std::size_t i = 0; i < get_num_line(); ++i) {
             const GeoLineString* line = (const GeoLineString*) GeoCollection::get_geometries_n(i);
+            if(line->is_empty() || line->is_ring()){
+                continue;
+            }
             std::unique_ptr<GeoPoint> point1 = GeoPoint::create_unique();
             std::unique_ptr<GeoPoint> point2 = GeoPoint::create_unique();
             point1->from_s2point(line->get_point(0));
@@ -108,6 +112,8 @@ namespace doris {
             multipoint->add_one_geometry(point1.release());
             multipoint->add_one_geometry(point2.release());
         }
+
+        if(multipoint->get_num_point() == 0) multipoint->set_empty();
 
         return multipoint;
     }

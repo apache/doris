@@ -82,7 +82,8 @@ bool toBinary::writeGeoPoint(GeoPoint* point, ToBinaryContext* ctx) {
     writeByteOrder(ctx);
     writeGeometryType(wkbType::wkbPoint, ctx);
     if(point->is_empty()){
-        writeInt(0,ctx);
+        GeoCoordinate c(DoubleNotANumber,DoubleNotANumber);
+        writeCoordinate(c,ctx);
     } else {
         GeoCoordinates p = point->to_coords();
         writeCoordinateList(p, false, ctx);

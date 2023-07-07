@@ -21,6 +21,8 @@ namespace doris {
 
 enum byteOrder { wkbXDR = 0, wkbNDR = 1 };
 
+constexpr double DoubleNotANumber = std::numeric_limits<double>::quiet_NaN();
+
 enum wkbType {
     wkbPoint = 1,
     wkbLine = 2,

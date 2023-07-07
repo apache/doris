@@ -40,6 +40,7 @@ namespace doris {
         std::unique_ptr<GeoCoordinates> coords(new GeoCoordinates());
         for (std::size_t i = 0; i < get_num_point(); ++i) {
             const GeoPoint* point = (const GeoPoint*) GeoCollection::get_geometries_n(i);
+            if(point->is_empty()) continue;
             std::unique_ptr<GeoCoordinate> coord = point->to_coord();
             coords->add(*coord);
         }

@@ -95,7 +95,7 @@ public:
 
     bool intersects(GeoShape* shape);
 
-    static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
+    bool ComputeArea(double* angle, std::string square_unit);
 
     [[nodiscard]] double get_length() const;
 
@@ -115,7 +115,7 @@ public:
 
     bool dwithin(const GeoShape* shape,double distance);
 
-    std::unique_ptr<GeoShape> buffer(double buffer_radius, double num_seg_quarter_circle = 8, std::string end_cap = "ROUND", std::string side = "BOTH");
+    std::unique_ptr<GeoShape> buffer(double buffer_radius, double num_seg_quarter_circle = 2, std::string end_cap = "ROUND", std::string side = "BOTH");
 
     std::unique_ptr<GeoShape> simplify();
 

@@ -208,17 +208,23 @@ namespace doris {
     }
 
 
-    bool GeoShape::ComputeArea(GeoShape *rhs, double *area, std::string square_unit) {
+    bool GeoShape::ComputeArea(double *area, std::string square_unit) {
+
+        if(is_empty()) {
+            *area = 0;
+            return true;
+        }
+
         std::vector<double> steradians;
-        switch (rhs->type()) {
+        switch (type()) {
             case GEO_SHAPE_CIRCLE: {
-                const GeoCircle *circle = (const GeoCircle *) rhs;
-                steradians[0] = circle->get_area();
+                const GeoCircle *circle = (const GeoCircle *) this;
+                steradians.emplace_back(circle->get_area());
                 break;
             }
             case GEO_SHAPE_POLYGON: {
-                const GeoPolygon *polygon = (const GeoPolygon *) rhs;
-                steradians[0] = polygon->get_area();
+                const GeoPolygon *polygon = (const GeoPolygon *) this;
+                steradians.emplace_back(polygon->get_area());
                 break;
             }
             case GEO_SHAPE_POINT:
@@ -230,18 +236,19 @@ namespace doris {
             }
             case GEO_SHAPE_MULTI_POLYGON:
             case GEO_SHAPE_GEOMETRY_COLLECTION:{
-                const GeoCollection *collection = (const GeoCollection *) rhs;
+                const GeoCollection *collection = (const GeoCollection *) this;
                 for (int i = 0; i < collection->get_num_geometries(); ++i) {
                     switch(collection->get_geometries_n(i)->type()){
                         case GEO_SHAPE_POLYGON: {
                             const GeoPolygon *polygon = (const GeoPolygon *) collection->get_geometries_n(i);
-                            steradians[i] = polygon->get_area();
+                            steradians.emplace_back(polygon->get_area());
                             break;
                         }
                         default:
-                            steradians[i] = 0;
+                            steradians.emplace_back(0);
                     }
                 }
+                break;
             }
             default:
                 return false;
@@ -273,7 +280,9 @@ namespace doris {
             case GEO_SHAPE_GEOMETRY_COLLECTION: {
                 if(get_dimension() != 1) return length;
                 for (int i = 0; i < get_num_geometries(); ++i) {
-                    length += S2Earth::RadiansToMeters(((const GeoLineString *)get_geometries_n(i))->length());
+                    if((get_geometries_n(i)->type()==GEO_SHAPE_LINE_STRING || get_geometries_n(i)->type() ==GEO_SHAPE_MULTI_LINE_STRING || get_geometries_n(i)->type() ==GEO_SHAPE_GEOMETRY_COLLECTION) && !get_geometries_n(i)->is_empty()){
+                        length += get_geometries_n(i)->get_length();
+                    }
                 }
                 return length;
             }
@@ -505,7 +514,7 @@ namespace doris {
     std::unique_ptr<GeoShape> GeoShape::buffer(double buffer_radius, double num_seg_quarter_circle, std::string end_cap, std::string side){
         S2BufferOperation::Options options;
         options.set_buffer_radius(S2Earth::MetersToAngle(buffer_radius));
-        options.set_circle_segments(num_seg_quarter_circle);
+        options.set_circle_segments(num_seg_quarter_circle*4);
 
         if(end_cap == "ROUND") {
             options.set_end_cap_style(S2BufferOperation::EndCapStyle::ROUND);
@@ -538,6 +547,7 @@ namespace doris {
             std::unique_ptr<GeoMultiPolygon> res_multi_polygon = GeoMultiPolygon::create_unique();
             for (int i = 0; i < this->get_num_geometries(); ++i) {
                 MutableS2ShapeIndex shape_index;
+                if(this->get_geometries_n(i)->is_empty()) continue;
                 if(!this->get_geometries_n(i)->add_to_s2shape_index(shape_index) ){
                     //这里应该返回报错
                     return nullptr;
