@@ -251,7 +251,7 @@ public:
     // 2. just cancel()
     void mark_close();
 
-    bool is_rpc_done() const;
+    bool is_send_data_rpc_done() const;
 
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
@@ -606,6 +606,9 @@ private:
     // Save the status of try_close() and close() method
     Status _close_status;
     bool _try_close = false;
+    bool _prepare = false;
+
+    std::atomic<bool> _open_partition_done {false};
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
