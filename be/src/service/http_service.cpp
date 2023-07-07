@@ -31,6 +31,7 @@
 #include "http/action/download_binlog_action.h"
 #include "http/action/file_cache_action.h"
 #include "http/action/health_action.h"
+#include "http/action/http_load.h"
 #include "http/action/jeprofile_actions.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -78,6 +79,8 @@ Status HttpService::start() {
                                       streamload_2pc_action);
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_2pc",
                                       streamload_2pc_action);
+    HttpLoadAction* httpload_action = _pool.add(new HttpLoadAction(_env));
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/v2/_load", httpload_action);
 
     // register download action
     std::vector<std::string> allow_paths;

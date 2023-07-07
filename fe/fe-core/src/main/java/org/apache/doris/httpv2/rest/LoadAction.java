@@ -56,6 +56,15 @@ public class LoadAction extends RestBaseController {
 
     private ExecuteEnv execEnv = ExecuteEnv.getInstance();
 
+    @RequestMapping(path = "/api/v2/_load", method = RequestMethod.PUT)
+    public Object httpLoad(HttpServletRequest request, HttpServletResponse response) {
+        if (needRedirect(request.getScheme())) {
+            return redirectToHttps(request);
+        }
+        executeCheckPassword(request, response);
+        return executeHttpLoad(request);
+    }
+
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
@@ -169,6 +178,22 @@ public class LoadAction extends RestBaseController {
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
                     redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+
+            RedirectView redirectView = redirectTo(request, redirectAddr);
+            return redirectView;
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
+        }
+    }
+
+    private Object executeHttpLoad(HttpServletRequest request) {
+        try {
+            if (request.getHeader(HttpHeaderNames.EXPECT.toString()) == null) {
+                return new RestBaseResult("There is no 100-continue header");
+            }
+            final String clusterName = ConnectContext.get().getClusterName();
+            TNetworkAddress redirectAddr = selectRedirectBackend(clusterName);
+            LOG.info("redirect http load action to destination={}", redirectAddr.toString());
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
