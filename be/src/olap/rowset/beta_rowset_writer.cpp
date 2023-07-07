@@ -89,10 +89,10 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         if (!fs) {
             return;
         }
-        auto max_segment_id = std::max(_num_segment.load(), _next_segment_id.load());
-        for (int i = 0; i < max_segment_id; ++i) {
-            std::string seg_path = BetaRowset::segment_file_path(
-                    _context.rowset_dir, _context.rowset_id, _segment_start_id + i);
+        DCHECK_LE(_segment_start_id + _num_segment, _next_segment_id);
+        for (int i = _segment_start_id; i < _next_segment_id; ++i) {
+            std::string seg_path =
+                    BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
@@ -586,7 +586,7 @@ RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_r
 
 RowsetSharedPtr BetaRowsetWriter::build() {
     // make sure all segments are flushed
-    DCHECK_EQ(_num_segment, _next_segment_id);
+    DCHECK_EQ(_segment_start_id + _num_segment, _next_segment_id);
     // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
     for (auto& file_writer : _file_writers) {
         Status status = file_writer->close();
@@ -793,7 +793,6 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                                                 TabletSchemaSPtr flush_schema) {
     RETURN_IF_ERROR(_check_segment_number_limit());
     io::FileWriterPtr file_writer;
-    segment_id += _segment_start_id;
     RETURN_IF_ERROR(create_file_writer(segment_id, &file_writer));
 
     segment_v2::SegmentWriterOptions writer_options;

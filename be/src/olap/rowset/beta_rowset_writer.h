@@ -128,7 +128,10 @@ public:
 
     Status wait_flying_segcompaction() override;
 
-    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+    void set_segment_start_id(int32_t start_id) override {
+        _segment_start_id = start_id;
+        _next_segment_id = start_id;
+    }
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
