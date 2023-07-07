@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
@@ -897,12 +898,40 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         }
 
         @Override
+        public PreAggStatus visitNdv(Ndv ndv, CheckContext context) {
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(ndv.child(0));
+            if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(
+                    normalizeName(slotOpt.get().toSql()))) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off(String.format(
+                        "ndv is only valid for key columns, but meet %s", ndv.toSql()));
+            }
+        }
+
+        @Override
+        public PreAggStatus visitBitmapUnionInt(BitmapUnionInt bitmapUnionInt, CheckContext context) {
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(bitmapUnionInt.child(0));
+            if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(
+                    normalizeName(slotOpt.get().toSql()))) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off(String.format(
+                        "bitmap_union_int is only valid for key columns, but meet %s", bitmapUnionInt.toSql()));
+            }
+        }
+
+        @Override
         public PreAggStatus visitCount(Count count, CheckContext context) {
-            if (count.isDistinct() && count.arity() == 1) {
-                Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
-                if (slotOpt.isPresent() && context.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
-                    return PreAggStatus.on();
-                }
+            // count(distinct k1), count(distinct k2) / count(distinct k1,k2) can turn on pre aggregation
+            if (count.isDistinct() && count.children().stream().allMatch(
+                    (child) -> {
+                        Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(child);
+                        return slotOpt.isPresent() && context.keyNameToColumn.containsKey(
+                                normalizeName(slotOpt.get().toSql()));
+                    })
+            ) {
+                return PreAggStatus.on();
             }
             return PreAggStatus.off(String.format(
                     "Count distinct is only valid for key columns, but meet %s.", count.toSql()));
