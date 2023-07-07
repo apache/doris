@@ -419,6 +419,7 @@ class Cluster(object):
     def add_node(self, node_type, id=None):
         id = self.meta.add_node(node_type, id)
         Node.new(self.meta, node_type, id).init_dir()
+        return id
 
     def save_meta(self):
         self.meta.save()
@@ -510,6 +511,20 @@ def down(args):
     LOG.info("Shutdown cluster {} succ".format(args.NAME))
 
 
+def add(args):
+    cluster = Cluster.load(args.NAME)
+    id = cluster.add_node(args.NODE_TYPE)
+    cluster.save()
+    service_name = Node.new(cluster.meta, args.NODE_TYPE, id).service_name()
+    if args.no_up:
+        cluster.run_docker_compose("up --no-start {} ".format(service_name))
+        LOG.info("Not up new add {} with id {} cause specific --no-up".format(
+            args.NODE_TYPE, id))
+    else:
+        cluster.run_docker_compose("up -d {}".format(service_name))
+        LOG.info("Up new add {} with id {} succ".format(args.NODE_TYPE, id))
+
+
 def start(args):
     cluster = Cluster.load(args.NAME)
     cluster.run_docker_compose_with_node("start", args.NODE_TYPE, args.ID)
@@ -533,6 +548,10 @@ def get_parser_bool_action(is_store_true):
         return argparse.BooleanOptionalAction
     else:
         return "store_true" if is_store_true else "store_false"
+
+
+def cmd_for_node_help(action):
+    return "{} a {} node".format(action, " ".join(Node.TYPE_ALL))
 
 
 def parse_args():
@@ -560,24 +579,35 @@ def parse_args():
     ap_up.add_argument("NAME", default="", help="specific cluster name")
     ap_up.add_argument("--image", default="", help="specify docker image")
 
-    ap_down_node = sub_aps.add_parser("down", help="shutdown a cluster")
-    ap_down_node.add_argument("NAME", help="specify cluster name")
+    ap_down = sub_aps.add_parser("down", help="shutdown a cluster")
+    ap_down.add_argument("NAME", help="specify cluster name")
 
-    ap_start = sub_aps.add_parser("start", help="start a fe or be node")
+    ap_add = sub_aps.add_parser("add", help=cmd_for_node_help("add"))
+    ap_add.add_argument("NAME", help="specify cluster name")
+    ap_add.add_argument("NODE_TYPE",
+                        choices=Node.TYPE_ALL,
+                        help="specify node type")
+    ap_add.add_argument("--no-up",
+                        default=False,
+                        action=get_parser_bool_action(True),
+                        help="do not up this node, only create")
+
+    ap_start = sub_aps.add_parser("start", help=cmd_for_node_help("start"))
     ap_start.add_argument("NAME", help="specify cluster name")
     ap_start.add_argument("NODE_TYPE",
                           choices=Node.TYPE_ALL,
                           help="specify node type")
     ap_start.add_argument("ID", type=int, help="specify node id")
 
-    ap_stop = sub_aps.add_parser("stop", help="stop a fe or be node")
+    ap_stop = sub_aps.add_parser("stop", help=cmd_for_node_help("stop"))
     ap_stop.add_argument("NAME", help="specify cluster name")
     ap_stop.add_argument("NODE_TYPE",
                          choices=Node.TYPE_ALL,
                          help="specify node type")
     ap_stop.add_argument("ID", type=int, help="specify node id")
 
-    ap_restart = sub_aps.add_parser("restart", help="restart a fe or be node")
+    ap_restart = sub_aps.add_parser("restart",
+                                    help=cmd_for_node_help("restart"))
     ap_restart.add_argument("NAME", help="specify cluster name")
     ap_restart.add_argument("NODE_TYPE",
                             choices=Node.TYPE_ALL,
@@ -595,6 +625,8 @@ def main():
         return up(args)
     elif args.command == "down":
         return down(args)
+    elif args.command == "add":
+        return add(args)
     elif args.command == "start":
         return start(args)
     elif args.command == "stop":
