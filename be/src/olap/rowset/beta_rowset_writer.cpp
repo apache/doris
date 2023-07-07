@@ -864,7 +864,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     uint64_t segment_size;
     uint64_t index_size;
     Status s = (*writer)->finalize(&segment_size, &index_size);
-    if (!s.ok()) {ß
+    if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
         return Status::Error(s.code());
     }
