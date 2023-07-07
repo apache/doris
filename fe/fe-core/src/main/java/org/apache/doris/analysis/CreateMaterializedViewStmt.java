@@ -208,7 +208,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
-                        + "Error column: " + selectListItemExpr.toSql());
+                        + "Error column: " + (selectListItemExpr == null ? "" : selectListItemExpr.toSql()));
             }
             List<SlotRef> slots = new ArrayList<>();
             selectListItemExpr.collect(SlotRef.class, slots);
