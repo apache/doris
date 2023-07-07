@@ -56,7 +56,7 @@ class DorisCredentials(Credentials):
 
     def __post_init__(self):
         if self.database is not None and self.database != self.schema:
-            raise exceptions.RuntimeException(
+            raise exceptions.DbtRuntimeError(
                 f"    schema: {self.schema} \n"
                 f"    database: {self.database} \n"
                 f"On Doris, database must be omitted or have the same value as"
@@ -102,7 +102,7 @@ class DorisConnectionManager(SQLConnectionManager):
                 connection.handle = None
                 connection.state = 'fail'
 
-                raise dbt.exceptions.FailedToConnectException(str(e))
+                raise exceptions.FailedToConnectError(str(e))
         return connection
 
     @classmethod
@@ -126,18 +126,18 @@ class DorisConnectionManager(SQLConnectionManager):
             rows_affected=num_rows,
         )
 
-    @contextmanager  
-    def exception_handler(self, sql: str) -> ContextManager: 
+    @contextmanager
+    def exception_handler(self, sql: str) -> ContextManager:
         try:
             yield
         except mysql.connector.DatabaseError as e:
             logger.debug(f"Doris database error: {e}, sql: {sql}")
-            raise exceptions.DatabaseException(str(e)) from e
+            raise exceptions.DbtDatabaseError(str(e)) from e
         except Exception as e:
             logger.debug(f"Error running SQL: {sql}")
-            if isinstance(e, exceptions.RuntimeException):
+            if isinstance(e, exceptions.DbtRuntimeError):
                 raise e
-            raise exceptions.RuntimeException(str(e)) from e
+            raise exceptions.DbtRuntimeError(str(e)) from e
 
     @classmethod
     def begin(self):
