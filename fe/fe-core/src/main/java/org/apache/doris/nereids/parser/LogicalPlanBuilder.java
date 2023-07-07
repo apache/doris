@@ -37,6 +37,9 @@ import org.apache.doris.nereids.DorisParser.BooleanExpressionContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
+import org.apache.doris.nereids.DorisParser.ColTypeContext;
+import org.apache.doris.nereids.DorisParser.ColumnDefContext;
+import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
@@ -46,7 +49,9 @@ import org.apache.doris.nereids.DorisParser.ComplexColTypeContext;
 import org.apache.doris.nereids.DorisParser.ComplexColTypeListContext;
 import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
+import org.apache.doris.nereids.DorisParser.ConstantSeqContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
+import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.DateCeilContext;
 import org.apache.doris.nereids.DorisParser.DateFloorContext;
@@ -58,6 +63,7 @@ import org.apache.doris.nereids.DorisParser.DereferenceContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExistContext;
 import org.apache.doris.nereids.DorisParser.ExplainContext;
+import org.apache.doris.nereids.DorisParser.FixedPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.ExportContext;
 import org.apache.doris.nereids.DorisParser.FromClauseContext;
 import org.apache.doris.nereids.DorisParser.GroupingElementContext;
@@ -68,6 +74,8 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
+import org.apache.doris.nereids.DorisParser.IndexDefContext;
+import org.apache.doris.nereids.DorisParser.IndexDefsContext;
 import org.apache.doris.nereids.DorisParser.InsertIntoQueryContext;
 import org.apache.doris.nereids.DorisParser.IntegerLiteralContext;
 import org.apache.doris.nereids.DorisParser.IntervalContext;
@@ -76,6 +84,7 @@ import org.apache.doris.nereids.DorisParser.IsnullContext;
 import org.apache.doris.nereids.DorisParser.JoinCriteriaContext;
 import org.apache.doris.nereids.DorisParser.JoinRelationContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
+import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
@@ -96,12 +105,15 @@ import org.apache.doris.nereids.DorisParser.PropertyItemContext;
 import org.apache.doris.nereids.DorisParser.PropertyItemListContext;
 import org.apache.doris.nereids.DorisParser.PropertyKeyContext;
 import org.apache.doris.nereids.DorisParser.PropertyValueContext;
+import org.apache.doris.nereids.DorisParser.PropertySeqContext;
 import org.apache.doris.nereids.DorisParser.QualifiedNameContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.QueryTermContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
+import org.apache.doris.nereids.DorisParser.RollupDefContext;
+import org.apache.doris.nereids.DorisParser.RollupDefsContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
@@ -111,6 +123,7 @@ import org.apache.doris.nereids.DorisParser.SortClauseContext;
 import org.apache.doris.nereids.DorisParser.SortItemContext;
 import org.apache.doris.nereids.DorisParser.StarContext;
 import org.apache.doris.nereids.DorisParser.StatementDefaultContext;
+import org.apache.doris.nereids.DorisParser.StepPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
@@ -269,6 +282,9 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDef;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDef;
+import org.apache.doris.nereids.trees.plans.commands.info.RollupDef;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -1715,6 +1731,96 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private LogicalPlan plan(ParserRuleContext tree) {
         return (LogicalPlan) tree.accept(this);
+    }
+
+    /* ********************************************************************************************
+     * create table parsing
+     * ******************************************************************************************** */
+
+    @Override
+    public Object visitCreateTable(CreateTableContext ctx) {
+        return super.visitCreateTable(ctx);
+    }
+
+    @Override
+    public List<ColumnDef> visitColumnDefs(ColumnDefsContext ctx) {
+        return ctx.cols.stream().map(this::visitColumnDef).collect(Collectors.toList());
+    }
+
+    @Override
+    public ColumnDef visitColumnDef(ColumnDefContext ctx) {
+        /*String colName = ctx.colName.getText();
+        DataType colType = visitColType(ctx.colType());
+        boolean isKey = ctx.KEY() != null;
+        boolean isNotNull = ctx.NOT() != null;
+        String aggType = ctx.aggType.getText();
+        Optional<Expression> defaultValue = Optional.empty();
+        if (ctx.DEFAULT() != null) {
+            if (ctx.defaultValue != null) {
+                defaultValue = Optional.of(((Literal) visit(ctx.defaultValue)));
+            }
+        }*/
+        return new ColumnDef();
+    }
+
+    @Override
+    public DataType visitColType(ColTypeContext ctx) {
+        List<String> typeDefs = Lists.newArrayList();
+        typeDefs.add(ctx.identifier().getText());
+        typeDefs.addAll(ctx.constant().stream().map(constant -> ((Literal) visit(constant)).getStringValue())
+                .collect(Collectors.toList()));
+        return DataType.convertPrimitiveFromStrings(typeDefs, true);
+    }
+
+    @Override
+    public List<IndexDef> visitIndexDefs(IndexDefsContext ctx) {
+        return ctx.indexes.stream().map(this::visitIndexDef).collect(Collectors.toList());
+    }
+
+    @Override
+    public IndexDef visitIndexDef(IndexDefContext ctx) {
+        return new IndexDef();
+    }
+
+    @Override
+    public Object visitLessThanPartitionDef(LessThanPartitionDefContext ctx) {
+        return super.visitLessThanPartitionDef(ctx);
+    }
+
+    @Override
+    public Object visitFixedPartitionDef(FixedPartitionDefContext ctx) {
+        return super.visitFixedPartitionDef(ctx);
+    }
+
+    @Override
+    public Object visitStepPartitionDef(StepPartitionDefContext ctx) {
+        return super.visitStepPartitionDef(ctx);
+    }
+
+    @Override
+    public Object visitConstantSeq(ConstantSeqContext ctx) {
+        return super.visitConstantSeq(ctx);
+    }
+
+    @Override
+    public Object visitRollupDefs(RollupDefsContext ctx) {
+        return ctx.rollups.stream().map(this::visitRollupDef).collect(Collectors.toList());
+    }
+
+    @Override
+    public RollupDef visitRollupDef(RollupDefContext ctx) {
+        return new RollupDef();
+    }
+
+    @Override
+    public Map<String, String> visitPropertySeq(PropertySeqContext ctx) {
+        Builder<String, String> map = ImmutableMap.builder();
+        for (TvfPropertyContext argument : ctx.properties) {
+            String key = parseTVFPropertyItem(argument.key);
+            String value = parseTVFPropertyItem(argument.value);
+            map.put(key, value);
+        }
+        return map.build();
     }
 
     /* ********************************************************************************************

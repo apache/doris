@@ -334,8 +334,8 @@ columnDefs
     
 columnDef
     : colName=identifier type=colType
-        KEY? (aggType=identifier)? NOT? NULL?
-        (DEFAULT (defaultValue=constant | defaultExpr=identifier))?
+        KEY? (aggType=identifier)? ((NOT NULL) | NULL)?
+        (DEFAULT (defaultValue=constant | CURRENT_TIMESTAMP))?
         (comment=constant)?
     ;
     
@@ -358,7 +358,7 @@ partitionsDef
     ;
     
 lessThanPartitionDef
-    : PARTITION partitionName=identifier VALUES LESS THAN (MAXVAULE | constantSeq)
+    : PARTITION partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
     ;
     
 fixedPartitionDef
