@@ -72,10 +72,10 @@ Status RemoteFileSystem::connect() {
     FILESYSTEM_M(connect_impl());
 }
 
-Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOptions& reader_options,
+Status RemoteFileSystem::open_file_impl(cosnt FileDescription& fd, const Path& abs_path, const FileReaderOptions& reader_options,
                                         FileReaderSPtr* reader) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file_internal(path, reader_options.file_size, reader_options.mtime, &raw_reader));
+    RETURN_IF_ERROR(open_file_internal(fd, abs_path, &raw_reader));
     switch (reader_options.cache_type) {
     case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;
@@ -101,7 +101,7 @@ Status RemoteFileSystem::open_file_impl(const Path& path, const FileReaderOption
                     reader_options.modification_time);
         } else {
             *reader = std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path,
-                                                               reader_options.modification_time);
+                                                               fd.mtime);
         }
         break;
     }

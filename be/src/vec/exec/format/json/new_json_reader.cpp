@@ -382,11 +382,10 @@ Status NewJsonReader::_open_file_reader() {
                                                         _state->fragment_instance_id()));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
-        reader_options.modification_time =
-                _range.__isset.modification_time ? _range.modification_time : 0;
+        _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
-                io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
+                _profile, _system_properties, _file_description, reader_options, &_file_system, &_file_reader,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
     }
     return Status::OK();

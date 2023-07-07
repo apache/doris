@@ -118,8 +118,8 @@ public:
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(nullptr);
         IOContext io_ctx;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                nullptr, fs_props, fd, &fs, &reader, io::DelegateReader::AccessMode::SEQUENTIAL,
-                reader_options, &io_ctx));
+                fs_props, fd, reader_options, &fs, &reader, io::DelegateReader::AccessMode::SEQUENTIAL,
+                &io_ctx));
         return read(state, reader);
     }
 };

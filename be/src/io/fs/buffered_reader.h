@@ -249,10 +249,12 @@ public:
     static constexpr size_t IN_MEMORY_FILE_SIZE = 8 * 1024 * 1024;
 
     static Status create_file_reader(
-            RuntimeProfile* profile, const FileSystemProperties& system_properties,
-            const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
+            RuntimeProfile* profile,
+            const FileSystemProperties& system_properties,
+            const FileDescription& file_description,
+            const io::FileReaderOptions& reader_options,
+            std::shared_ptr<io::FileSystem>* file_system,
             io::FileReaderSPtr* file_reader, AccessMode access_mode = SEQUENTIAL,
-            io::FileReaderOptions reader_options = FileFactory::NO_CACHE_READER_OPTIONS,
             const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
 };

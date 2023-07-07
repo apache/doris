@@ -30,6 +30,25 @@
 namespace doris {
 namespace io {
 
+struct FileSystemProperties {
+    TFileType::type system_type;
+    std::map<std::string, std::string> properties;
+    THdfsParams hdfs_params;
+    std::vector<TNetworkAddress> broker_addresses;
+};
+
+struct FileDescription {
+    std::string path;
+    int64_t start_offset;
+    // length of the file in bytes.
+    // -1 means unset.
+    // If the file length is not set, the file length will be fetched from the file system.
+    int64_t file_size = -1;
+    // modification time of this file.
+    // 0 means unset.
+    int64_t mtime = 0;
+};
+
 struct FilePathDesc {
     FilePathDesc(const std::string& path) { filepath = path; }
     FilePathDesc() = default;

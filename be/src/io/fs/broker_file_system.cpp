@@ -101,17 +101,17 @@ Status BrokerFileSystem::create_file_impl(const Path& path, FileWriterPtr* write
     return Status::OK();
 }
 
-Status BrokerFileSystem::open_file_internal(const Path& file, int64_t file_size,
+Status BrokerFileSystem::open_file_internal(const FileDescription& fd, const Path& abs_path,
                                             FileReaderSPtr* reader) {
-    int64_t fsize = file_size;
-    if (fsize < 0) {
-        RETURN_IF_ERROR(file_size_impl(file, &fsize));
+    int64_t fsize = fd.file_size;
+    if (fsize <= 0) {
+        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
     }
 
     CHECK_BROKER_CLIENT(_client);
     TBrokerOpenReaderRequest request;
     request.__set_version(TBrokerVersion::VERSION_ONE);
-    request.__set_path(file);
+    request.__set_path(abs_path);
     request.__set_startOffset(0);
     request.__set_clientId(client_id(_broker_addr));
     request.__set_properties(_broker_prop);
@@ -127,15 +127,15 @@ Status BrokerFileSystem::open_file_internal(const Path& file, int64_t file_size,
             (*_client)->openReader(*response, request);
         }
     } catch (apache::thrift::TException& e) {
-        return Status::RpcError("failed to open file {}: {}", file.native(), error_msg(e.what()));
+        return Status::RpcError("failed to open file {}: {}", abs_path.native(), error_msg(e.what()));
     }
 
     if (response->opStatus.statusCode != TBrokerOperationStatusCode::OK) {
-        return Status::IOError("failed to open file {}: {}", file.native(),
+        return Status::IOError("failed to open file {}: {}", abs_path.native(),
                                error_msg(response->opStatus.message));
     }
     *reader = std::make_shared<BrokerFileReader>(
-            _broker_addr, file, fsize, response->fd,
+            _broker_addr, abs_path, fsize, response->fd,
             std::static_pointer_cast<BrokerFileSystem>(shared_from_this()));
     return Status::OK();
 }
