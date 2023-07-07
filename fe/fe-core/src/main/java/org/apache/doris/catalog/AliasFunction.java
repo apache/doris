@@ -310,9 +310,9 @@ public class AliasFunction extends Function {
                 .collect(Collectors.joining(", "));
     }
 
-    private boolean checkOriginalFunction(Expr expr) throws AnalysisException {
+    public static void checkOriginalFunction(Expr expr) throws AnalysisException {
         if (expr instanceof FunctionCallExpr) {
-            Function fn = expr.getBuiltinFunction(functionName(),
+            Function fn = expr.getBuiltinFunction(((FunctionCallExpr) expr).getFnName().getFunction(),
                     expr.getChildren().stream().map(Expr::getType).toArray(Type[]::new),
                     CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             if (fn == null) {
@@ -322,6 +322,5 @@ public class AliasFunction extends Function {
         for (Expr child : expr.getChildren()) {
             checkOriginalFunction(child);
         }
-        return true;
     }
 }
