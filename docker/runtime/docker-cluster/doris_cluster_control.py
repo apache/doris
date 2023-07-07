@@ -518,10 +518,11 @@ def add(args):
     id = cluster.add_node(args.NODE_TYPE)
     cluster.save()
     service_name = Node.new(cluster.meta, args.NODE_TYPE, id).service_name()
-    if args.no_up:
+    if args.no_start:
         cluster.run_docker_compose("up --no-start {} ".format(service_name))
-        LOG.info("Not up new add {} with id {} cause specific --no-up".format(
-            args.NODE_TYPE, id))
+        LOG.info(
+            "Not up new add {} with id {} cause specific --no-start".format(
+                args.NODE_TYPE, id))
     else:
         cluster.run_docker_compose("up -d {}".format(service_name))
         LOG.info("Up new add {} with id {} succ".format(args.NODE_TYPE, id))
@@ -589,10 +590,10 @@ def parse_args():
     ap_add.add_argument("NODE_TYPE",
                         choices=Node.TYPE_ALL,
                         help="specify node type")
-    ap_add.add_argument("--no-up",
+    ap_add.add_argument("--no-start",
                         default=False,
                         action=get_parser_bool_action(True),
-                        help="do not up this node, only create")
+                        help="do not start this new node, only create")
 
     ap_start = sub_aps.add_parser("start", help=cmd_for_node_help("start"))
     ap_start.add_argument("NAME", help="specify cluster name")
