@@ -25,6 +25,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
@@ -111,10 +112,11 @@ public class TVFScanNode extends FileQueryScanNode {
     public List<Split> getSplits() throws UserException {
         List<Split> splits = Lists.newArrayList();
         List<TBrokerFileStatus> fileStatuses = tableValuedFunction.getFileStatuses();
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         for (TBrokerFileStatus fileStatus : fileStatuses) {
             Path path = new Path(fileStatus.getPath());
             try {
-                splits.addAll(splitFile(path, fileStatus.getBlockSize(), null, fileStatus.getSize(),
+                splits.addAll(splitFile(path, fileStatus.getBlockSize(), splitSize, null, fileStatus.getSize(),
                         fileStatus.getModificationTime(), fileStatus.isSplitable, null));
             } catch (IOException e) {
                 LOG.warn("get file split failed for TVF: {}", path, e);

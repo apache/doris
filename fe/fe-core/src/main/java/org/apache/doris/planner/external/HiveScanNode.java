@@ -204,8 +204,10 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         Preconditions.checkNotNull(executor);
+        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         List<Future<List<Split>>> futures = fileCaches.stream()
-                    .map(fileCacheValue -> executor.submit(() -> getFileSplitByFileCache(fileCacheValue)))
+                    .map(fileCacheValue -> executor.submit(() ->
+                                getFileSplitByFileCache(fileCacheValue, splitSize)))
                     .collect(Collectors.toList());
 
         List<Split> fileSplits = Lists.newLinkedList();
@@ -220,7 +222,8 @@ public class HiveScanNode extends FileQueryScanNode {
         return fileSplits;
     }
 
-    private List<Split> getFileSplitByFileCache(HiveMetaStoreCache.FileCacheValue fileCacheValue) throws IOException {
+    private List<Split> getFileSplitByFileCache(HiveMetaStoreCache.FileCacheValue fileCacheValue, long splitSize)
+                throws IOException {
         // This if branch is to support old splitter, will remove later.
         List<Split> splits = Lists.newLinkedList();
         if (fileCacheValue.getSplits() != null) {
@@ -230,7 +233,7 @@ public class HiveScanNode extends FileQueryScanNode {
             boolean isSplittable = fileCacheValue.isSplittable();
             for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
                 splits.addAll(
-                        splitFile(status.getPath(), status.getBlockSize(),
+                        splitFile(status.getPath(), status.getBlockSize(), splitSize,
                                   status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                                   isSplittable, fileCacheValue.getPartitionValues(),
                                   new HiveSplitCreator(fileCacheValue.getAcidInfo()))
