@@ -183,6 +183,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     _init_mem_env();
 
+    RETURN_IF_ERROR(_memtable_flush_mgr->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     _heartbeat_flags = new HeartbeatFlags();
     _register_metrics();
