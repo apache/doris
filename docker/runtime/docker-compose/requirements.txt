@@ -19,3 +19,4 @@ docker
 docker-compose
 jsonpickle
 prettytable
+pymysql

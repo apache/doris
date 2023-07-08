@@ -21,6 +21,8 @@ import os
 import subprocess
 import yaml
 
+DORIS_PREFIX = "doris-"
+
 
 def get_logger(name=None):
     logger = logging.getLogger(name)
@@ -38,6 +40,70 @@ def get_logger(name=None):
 
 
 LOG = get_logger()
+
+
+def with_doris_prefix(name):
+    return DORIS_PREFIX + name
+
+
+def parse_service_name(service_name):
+    import cluster
+    if not service_name or not service_name.startswith(DORIS_PREFIX):
+        return None, None, None
+    pos2 = service_name.rfind("-")
+    if pos2 < 0:
+        return None, None, None
+    id = None
+    try:
+        id = int(service_name[pos2 + 1:])
+    except:
+        return None, None, None
+    pos1 = service_name.rfind("-", len(DORIS_PREFIX), pos2 - 1)
+    if pos1 < 0:
+        return None, None, None
+    node_type = service_name[pos1 + 1:pos2]
+    if node_type not in cluster.Node.TYPE_ALL:
+        return None, None, None
+    return service_name[len(DORIS_PREFIX):pos1], node_type, id
+
+
+def get_map_ports(container):
+    return {
+        int(innner.replace("/tcp", "")): int(outer[0]["HostPort"])
+        for innner, outer in container.attrs.get("NetworkSettings", {}).get(
+            "Ports", {}).items()
+    }
+
+
+def is_container_running(container):
+    return container.status == "running"
+
+
+# return all doris containers when cluster_names is empty
+def get_doris_containers(cluster_names):
+    if cluster_names:
+        if type(cluster_names) == type(""):
+            filter_names = "{}{}-*".format(DORIS_PREFIX, cluster_names)
+        else:
+            filter_names = "|".join([
+                "{}{}-*".format(DORIS_PREFIX, name) for name in cluster_names
+            ])
+    else:
+        filter_names = "{}*".format(DORIS_PREFIX)
+
+    clusters = {}
+    client = docker.client.from_env()
+    containers = client.containers.list(filters={"name": filter_names})
+    for container in containers:
+        cluster_name, _, _ = parse_service_name(container.name)
+        if not cluster_name:
+            continue
+        if cluster_names and cluster_name not in cluster_names:
+            continue
+        if cluster_name not in clusters:
+            clusters[cluster_name] = []
+        clusters[cluster_name].append(container)
+    return clusters
 
 
 def is_dir_empty(dir):
@@ -103,11 +169,6 @@ def get_docker_subnets_prefix16():
     LOG.debug("Get docker subnet prefixes: {}".format(subnet_prefixes))
 
     return subnet_prefixes
-
-
-def get_containers(**kwargs):
-    client = docker.from_env()
-    return client.containers.list(**kwargs)
 
 
 def copy_image_directory(image, image_dir, local_dir):

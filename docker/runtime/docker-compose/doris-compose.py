@@ -15,8 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import cluster as CLUSTER
 import argparse
+import cluster as CLUSTER
+import database
 import utils
 from multiprocessing.pool import ThreadPool
 import os
@@ -205,7 +206,7 @@ def ls(args):
     COMPOSE_BAD = "(bad)"
     COMPOSE_GOOD = ""
 
-    SERVICE_DESTROY = "destroy"
+    SERVICE_DEAD = "dead"
 
     def parse_cluster_compose_file(cluster_name):
         compose_file = CLUSTER.get_compose_file(cluster_name)
@@ -233,49 +234,64 @@ def ls(args):
         status, services = parse_cluster_compose_file(cluster_name)
         clusters[cluster_name] = {"status": status, "services": services}
 
-    containers = utils.get_containers(all=args.all or args.NAME)
-    for container in containers:
-        cluster_name = CLUSTER.get_cluster_name_from_service_name(
-            container.name)
-        if not cluster_name:
-            continue
-        if args.NAME and cluster_name not in args.NAME:
-            continue
+    docker_clusters = utils.get_doris_containers(args.NAME)
+    for cluster_name, containers in docker_clusters.items():
         cluster_info = clusters.get(cluster_name, None)
         if not cluster_info:
             cluster_info = {"status": COMPOSE_MISSING, "services": {}}
             clusters[cluster_name] = cluster_info
-        if container.status == "running" and cluster_info[
-                "status"] == COMPOSE_GOOD and (
-                    container.name not in cluster_info["services"]):
-            container.status = "orphans"
-        cluster_info["services"][container.name] = container
+        for container in containers:
+            if container.status == "running" and cluster_info[
+                    "status"] == COMPOSE_GOOD and (
+                        container.name not in cluster_info["services"]):
+                container.status = "orphans"
+            cluster_info["services"][container.name] = container
 
     if args.NAME:
-        #("is_alive", "is_master", "query_port", "last_heartbeat")
         headers = ("CLUSTER", "NAME", "STATUS", "CONTAINER ID", "IMAGE",
-                   "CREATED", "PORTS")
+                   "CREATED", "alive", "is_master", "query_port",
+                   "last_heartbeat", "err_msg")
         table = prettytable.PrettyTable(headers)
         for name in sorted(clusters.keys()):
             services = clusters[name]["services"]
+            database.get_db_states(name)
+            fe_states, be_states = database.get_db_states(name)
             for service_name, container in services.items():
                 if container is None:
-                    table.add_row(
-                        (name, service_name, SERVICE_DESTROY, "", "", "", ""))
+                    table.add_row((name, service_name, SERVICE_DEAD, "", "",
+                                   "", "", "", "", "", ""))
                 else:
                     create = container.attrs.get("Created",
                                                  "")[:19].replace("T", " ")
-                    ports = container.attrs.get("NetworkSettings",
-                                                {}).get("Ports", {})
-                    show_ports = ", ".join([
-                        "{}=>{}".format(in_port.replace("/tcp", ""),
-                                        out_port[0]["HostPort"])
-                        for in_port, out_port in ports.items()
-                    ])
+                    #show_ports = ", ".join([
+                    #    "{}=>{}".format(inner, outer) for inner, outer in
+                    #    utils.get_map_ports(container).items()
+                    #])
                     show_image = ",".join(container.image.tags)
+                    alive = ""
+                    is_master = ""
+                    query_port = ""
+                    last_heartbeat = ""
+                    err_msg = ""
+                    _, node_type, id = utils.parse_service_name(container.name)
+                    if node_type == CLUSTER.Node.TYPE_FE:
+                        state = fe_states.get(id, None)
+                        if state:
+                            alive = state.alive
+                            is_master = state.is_master
+                            query_port = state.query_port
+                            last_heartbeat = state.last_heartbeat
+                            err_msg = state.err_msg
+                    elif node_type == CLUSTER.Node.TYPE_BE:
+                        state = be_states.get(id, None)
+                        if state:
+                            alive = state.alive
+                            last_heartbeat = state.last_heartbeat
+                            err_msg = state.err_msg
                     table.add_row(
                         (name, service_name, container.status,
-                         container.short_id, show_image, create, show_ports))
+                         container.short_id, show_image, create, alive,
+                         is_master, query_port, last_heartbeat, err_msg))
     else:
         headers = ("CLUSTER", "STATUS", "CONFIG FILES")
         table = prettytable.PrettyTable(headers)
@@ -283,7 +299,7 @@ def ls(args):
             cluster_info = clusters[name]
             service_statuses = {}
             for _, container in cluster_info["services"].items():
-                status = container.status if container else SERVICE_DESTROY
+                status = container.status if container else SERVICE_DEAD
                 service_statuses[status] = service_statuses.get(status, 0) + 1
             show_status = ",".join([
                 "{}({})".format(status, count)

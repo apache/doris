@@ -30,7 +30,6 @@ LOCAL_RESOURCE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "resource")
 DOCKER_RESOURCE_PATH = os.path.join(DOCKER_DORIS_PATH, "resource")
 
-MASTER_FE_ID = 1
 FE_HTTP_PORT = 8030
 FE_RPC_PORT = 9020
 FE_QUERY_PORT = 9030
@@ -43,27 +42,12 @@ BE_BRPC_PORT = 8060
 
 ID_LIMIT = 10000
 
+IP_PART4_SIZE = 200
+
 LOG = utils.get_logger()
 
 REMOVE_TYPE_DROP = 1
 REMOVE_TYPE_DECOMMISSION = 2
-
-DORIS_PREFIX = "doris-"
-
-
-def with_doris_prefix(name):
-    return DORIS_PREFIX + name
-
-
-def get_cluster_name_from_service_name(service_name):
-    if not service_name or not service_name.startswith(DORIS_PREFIX):
-        return None
-    pos = service_name.find("-fe-")
-    if pos < 0:
-        pos = service_name.find("-be-")
-    if pos < 0:
-        return None
-    return service_name[len(DORIS_PREFIX):pos]
 
 
 def get_cluster_path(cluster_name):
@@ -198,20 +182,31 @@ class Node(object):
 
     def get_ip(self):
         seq = self.id
-        part4_size = 200
-        seq += part4_size
+        seq += IP_PART4_SIZE
         if self.node_type() == Node.TYPE_FE:
             seq += 0 * ID_LIMIT
         elif self.node_type() == Node.TYPE_BE:
             seq += 1 * ID_LIMIT
         else:
             seq += 2 * ID_LIMIT
-        return "{}.{}.{}".format(self.subnet, int(seq / part4_size),
-                                 seq % part4_size)
+        return "{}.{}.{}".format(self.subnet, int(seq / IP_PART4_SIZE),
+                                 seq % IP_PART4_SIZE)
+
+    @staticmethod
+    def get_id_from_ip(ip):
+        pos2 = ip.rfind(".")
+        pos1 = ip.rfind(".", 0, pos2 - 1)
+        num3 = int(ip[pos1 + 1:pos2])
+        num4 = int(ip[pos2 + 1:])
+        seq = num3 * IP_PART4_SIZE + num4
+        while seq > ID_LIMIT:
+            seq -= ID_LIMIT
+        seq -= IP_PART4_SIZE
+        return seq
 
     def service_name(self):
-        return with_doris_prefix("{}-{}".format(self.cluster_name,
-                                                self.get_name()))
+        return utils.with_doris_prefix("{}-{}".format(self.cluster_name,
+                                                      self.get_name()))
 
     def docker_env(self):
         return {
@@ -246,7 +241,7 @@ class Node(object):
             "image":
             self.get_image(),
             "networks": {
-                with_doris_prefix(self.cluster_name): {
+                utils.with_doris_prefix(self.cluster_name): {
                     "ipv4_address": self.get_ip(),
                 }
             },
@@ -431,7 +426,7 @@ class Cluster(object):
         compose = {
             "version": "3",
             "networks": {
-                with_doris_prefix(self.name): {
+                utils.with_doris_prefix(self.name): {
                     "driver": "bridge",
                     "ipam": {
                         "config": [{
