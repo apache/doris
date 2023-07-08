@@ -337,7 +337,6 @@ public:
         hash.update(reinterpret_cast<const char*>(&chars[offset]), string_size);
     }
 
-
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override {
         SIP_HASHES_FUNCTION_COLUMN_IMPL();

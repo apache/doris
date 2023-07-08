@@ -570,8 +570,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 // result[j] means column index, i means rows index
                 for (int j = 0; j < result_size; ++j) {
                     // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(siphashs);
+                    block->get_by_position(result[j]).column->update_hashes_with_value(siphashs);
                 }
                 for (int i = 0; i < rows; i++) {
                     hashes[i] = siphashs[i].get64() % element_size;
@@ -581,8 +580,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 // result[j] means column index, i means rows index, here to calculate the xxhash value
                 for (int j = 0; j < result_size; ++j) {
                     // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(hashes);
+                    block->get_by_position(result[j]).column->update_hashes_with_value(hashes);
                 }
 
                 for (int i = 0; i < rows; i++) {
@@ -595,9 +593,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         } else {
             for (int j = 0; j < result_size; ++j) {
                 // complex type most not implement get_data_at() method which column_const will call
-                unpack_if_const(block->get_by_position(result[j]).column)
-                        .first->update_crcs_with_value(
-                                hash_vals, _partition_expr_ctxs[j]->root()->type().type);
+                block->get_by_position(result[j]).column->update_crcs_with_value(
+                        hash_vals, _partition_expr_ctxs[j]->root()->type().type);
             }
             element_size = _channel_shared_ptrs.size();
             for (int i = 0; i < rows; i++) {
