@@ -494,14 +494,27 @@ public class MaterializedViewHandler extends AlterHandler {
                     mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
                 }
 
+                if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                    for (String slotName : mvColumnItem.getBaseColumnNames()) {
+                        if (!addMVClause.isReplay()
+                                && olapTable
+                                        .getColumn(MaterializedIndexMeta
+                                                .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
+                                        .isKey()) {
+                            mvColumnItem.setIsKey(true);
+                        }
+                    }
+                }
+
                 // check a.2 and b.2
                 for (String slotName : mvColumnItem.getBaseColumnNames()) {
                     if (!addMVClause.isReplay() && olapTable
                             .getColumn(MaterializedIndexMeta
                                     .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
                             .isKey() != mvColumnItem.isKey()) {
-                        throw new DdlException(
-                                "The mvItem[" + mvColumnItem.getName() + "]'s isKey must same with all slot");
+                        throw new DdlException("The mvItem[" + mvColumnItem.getName()
+                                + "]'s isKey must same with all slot, mvItem.isKey="
+                                + (mvColumnItem.isKey() ? "true" : "false"));
                     }
                 }
 
@@ -512,8 +525,8 @@ public class MaterializedViewHandler extends AlterHandler {
                                 .getColumn(MaterializedIndexMeta
                                         .normalizeName(CreateMaterializedViewStmt.mvColumnBreaker(slotName)))
                                 .getAggregationType() != mvColumnItem.getAggregationType()) {
-                            throw new DdlException(
-                                    "The mvItem[" + mvColumnItem.getName() + "]'s isKey must same with all slot");
+                            throw new DdlException("The mvItem[" + mvColumnItem.getName()
+                                    + "]'s AggregationType must same with all slot");
                         }
                     }
 
