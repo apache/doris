@@ -57,7 +57,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
-#include "util/bitmap.h"
 #include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
@@ -82,7 +81,8 @@ class RefCountClosure;
 
 namespace stream_load {
 
-class OlapTableValidator;
+class OlapTableBlockConvertor;
+class OlapTabletFinder;
 class OpenPartitionClosure;
 
 // The counter of add_batch rpc of a single node
@@ -251,7 +251,7 @@ public:
     // 2. just cancel()
     void mark_close();
 
-    bool is_rpc_done() const;
+    bool is_send_data_rpc_done() const;
 
     bool is_closed() const { return _is_closed; }
     bool is_cancelled() const { return _cancelled; }
@@ -516,11 +516,7 @@ private:
                                             uint32_t tablet_index, int row_idx, size_t row_cnt);
     Status _single_partition_generate(RuntimeState* state, vectorized::Block* block,
                                       ChannelDistributionPayload& channel_to_payload,
-                                      size_t num_rows, int32_t filtered_rows);
-
-    Status find_tablet(RuntimeState* state, vectorized::Block* block, int row_index,
-                       const VOlapTablePartition** partition, uint32_t& tablet_index,
-                       bool& stop_processing, bool& is_continue);
+                                      size_t num_rows, bool has_filtered_rows);
 
     void _open_partition(const VOlapTablePartition* partition);
 
@@ -561,11 +557,7 @@ private:
 
     RuntimeProfile* _profile = nullptr;
 
-    std::set<int64_t> _partition_ids;
-    // only used for partition with random distribution
-    std::map<int64_t, int64_t> _partition_to_tablet_map;
-
-    Bitmap _filter_bitmap;
+    std::unique_ptr<OlapTabletFinder> _tablet_finder;
 
     // index_channel
     std::vector<std::shared_ptr<IndexChannel>> _channels;
@@ -573,14 +565,11 @@ private:
     bthread_t _sender_thread = 0;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::unique_ptr<OlapTableValidator> _validator;
+    std::unique_ptr<OlapTableBlockConvertor> _block_convertor;
     // Stats for this
-    int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
-    int64_t _number_filtered_rows = 0;
-    int64_t _number_immutable_partition_filtered_rows = 0;
     int64_t _filter_ns = 0;
 
     MonotonicStopWatch _row_distribution_watch;
@@ -617,18 +606,12 @@ private:
     // Save the status of try_close() and close() method
     Status _close_status;
     bool _try_close = false;
+    bool _prepare = false;
+
+    std::atomic<bool> _open_partition_done {false};
 
     // User can change this config at runtime, avoid it being modified during query or loading process.
     bool _transfer_large_data_by_brpc = false;
-
-    // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
-    // should compute tablet index for every row
-    // FIND_TABLET_EVERY_BATCH is only used for random distribution info, which indicates that we should
-    // compute tablet index for every row batch
-    // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
-    // only compute tablet index in the corresponding partition once for the whole time in olap table sink
-    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
-    FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;

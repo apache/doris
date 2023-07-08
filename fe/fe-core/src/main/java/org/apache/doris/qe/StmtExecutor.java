@@ -563,6 +563,7 @@ public class StmtExecutor {
 
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
+        syncJournalIfNeeded();
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             this.queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
@@ -781,6 +782,14 @@ public class StmtExecutor {
                 }
             }
         }
+    }
+
+    private void syncJournalIfNeeded() throws Exception {
+        final Env env = context.getEnv();
+        if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
+            return;
+        }
+        new MasterOpExecutor(context).syncJournal();
     }
 
     /**

@@ -99,6 +99,7 @@ class ThreadContext;
 class MemTracker;
 class RuntimeState;
 
+extern bool k_doris_exit;
 extern bthread_key_t btls_key;
 
 // Using gcc11 compiles thread_local variable on lower versions of GLIBC will report an error,
@@ -230,7 +231,7 @@ public:
                 // The brpc server should respond as quickly as possible.
                 bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
                 // set the data so that next time bthread_getspecific in the thread returns the data.
-                CHECK_EQ(0, bthread_setspecific(btls_key, bthread_context));
+                CHECK((0 == bthread_setspecific(btls_key, bthread_context)) || doris::k_doris_exit);
                 thread_context_ptr.init = true;
             }
             bthread_id = bthread_self();

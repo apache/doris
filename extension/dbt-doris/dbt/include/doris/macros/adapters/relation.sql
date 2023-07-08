@@ -76,17 +76,17 @@
 {%- endmacro %}
 
 {% macro doris__distributed_by(column_names) -%}
-  {% set label = 'DISTRIBUTED BY HASH' %}
   {% set engine = config.get('engine', validator=validation.any[basestring]) %}
   {% set cols = config.get('distributed_by', validator=validation.any[list, basestring]) %}
   {% if cols is none and engine in [none,'OLAP'] %}
     {% set cols = column_names %}
   {% endif %}
-  {% if cols is not none %}
+
+  {% if cols %}
       {%- if cols is string -%}
         {%- set cols = [cols] -%}
       {%- endif -%}
-    {{ label }} (
+    DISTRIBUTED BY HASH (
       {% for item in cols %}
         {{ item }}{% if not loop.last %},{% endif %}
       {% endfor %}

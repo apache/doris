@@ -82,6 +82,9 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_mutex = new std::shared_mutex[_txn_shard_size];
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
+    // For debugging
+    _tablet_version_cache =
+            new ShardedLRUCache("TabletVersionCache", 100000, LRUCacheType::NUMBER, 32);
 }
 
 // prepare txn should always be allowed because ingest task will be retried
@@ -743,6 +746,39 @@ void TxnManager::clear_txn_tablet_delta_writer(int64_t transaction_id) {
         txn_tablet_delta_writer_map.erase(it);
     }
     VLOG_CRITICAL << "remove delta writer manager, txn_id=" << transaction_id;
+}
+
+int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version) {
+    char key[16];
+    memcpy(key, &tablet_id, sizeof(int64_t));
+    memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
+    CacheKey cache_key((const char*)&key, sizeof(key));
+
+    auto handle = _tablet_version_cache->lookup(cache_key);
+    if (handle == nullptr) {
+        return -1;
+    }
+    int64_t res = *(int64_t*)_tablet_version_cache->value(handle);
+    _tablet_version_cache->release(handle);
+    return res;
+}
+
+void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, int64_t txn_id) {
+    char key[16];
+    memcpy(key, &tablet_id, sizeof(int64_t));
+    memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
+    CacheKey cache_key((const char*)&key, sizeof(key));
+
+    int64_t* value = new int64_t;
+    *value = txn_id;
+    auto deleter = [](const doris::CacheKey& key, void* value) {
+        int64_t* cache_value = (int64_t*)value;
+        delete cache_value;
+    };
+
+    auto handle = _tablet_version_cache->insert(cache_key, value, sizeof(txn_id), deleter,
+                                                CachePriority::NORMAL, sizeof(txn_id));
+    _tablet_version_cache->release(handle);
 }
 
 } // namespace doris
