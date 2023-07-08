@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
@@ -28,7 +29,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -1398,8 +1398,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getParallelExecInstanceNum() {
         if (enablePipelineEngine && parallelPipelineTaskNum == 0) {
-            Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-            return beinfoCollector.getParallelExecInstanceNum();
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+            return (size + 1) / 2;
         } else if (enablePipelineEngine) {
             return parallelPipelineTaskNum;
         } else {
