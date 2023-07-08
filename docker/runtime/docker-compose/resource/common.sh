@@ -15,36 +15,22 @@
 # specific language governing permissions and limitations
 # under the License.
 
-DIR=$(cd $(dirname $0);pwd)
+export MASTER_FE_IP=""
+export MASTER_FE_IP_FILE=$DORIS_HOME/status/master_fe_ip
 
-source $DIR/common.sh
-
-REGISTER_FILE=$DORIS_HOME/status/$MY_IP-register
-
-add_backend() {
-    while true; do
-        read_master_fe_ip
-        if [ $? -ne 0 ]; then
-            sleep 1
-            continue
-        fi
-
-        output=`mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1`
-        res=$?
-        health_log "$output"
-        [ $res -eq 0 ] && break
-        (echo $output | grep "Same backend already exists") && break
-        sleep 1
-    done
-
-    touch $REGISTER_FILE
+health_log() {
+    date >> "$DORIS_HOME/log/health.out"
+    echo "$@" >> "$DORIS_HOME/log/health.out"
 }
 
-main() {
-    if [ ! -f $REGISTER_FILE ]; then
-        add_backend
+read_master_fe_ip() {
+    MASTER_FE_IP=`cat $MASTER_FE_IP_FILE`
+    if [ $? -eq 0 ]; then
+        health_log "master fe ${MASTER_FE_IP} has ready."
+        return 0
+    else
+        health_log "master fe has not ready."
+        return 1
     fi
-    bash $DORIS_HOME/bin/start_be.sh
 }
 
-main

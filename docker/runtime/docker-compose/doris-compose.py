@@ -56,8 +56,11 @@ def up(args):
     if args.no_up:
         LOG.info("Not up cluster cause specific --no-up")
     else:
+        options = ["-d", "--remove-orphans"]
+        if args.force_up:
+            options.append("--force-recreate")
         utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
-                                          ["-d", "--remove-orphans"])
+                                          options)
         LOG.info("Up cluster {} succ".format(args.NAME))
 
 
@@ -249,6 +252,7 @@ def ls(args):
         cluster_info["services"][container.name] = container
 
     if args.NAME:
+        #("is_alive", "is_master", "query_port", "last_heartbeat")
         headers = ("CLUSTER", "NAME", "STATUS", "CONTAINER ID", "IMAGE",
                    "CREATED", "PORTS")
         table = prettytable.PrettyTable(headers)
@@ -264,7 +268,8 @@ def ls(args):
                     ports = container.attrs.get("NetworkSettings",
                                                 {}).get("Ports", {})
                     show_ports = ", ".join([
-                        "{}=>{}".format(in_port, out_port[0]["HostPort"])
+                        "{}=>{}".format(in_port.replace("/tcp", ""),
+                                        out_port[0]["HostPort"])
                         for in_port, out_port in ports.items()
                     ])
                     show_image = ",".join(container.image.tags)
@@ -324,10 +329,21 @@ def parse_args():
     ap_up.add_argument("--be",
                        type=int,
                        help="Specify be count, default 3 for new cluster")
-    ap_up.add_argument("--no-up",
+    up_group = ap_up.add_mutually_exclusive_group()
+    up_group.add_argument("--no-up",
+                          default=False,
+                          action=get_parser_bool_action(True),
+                          help="Not run cluster, only create")
+    up_group.add_argument("--force-up",
                        default=False,
                        action=get_parser_bool_action(True),
-                       help="Not run cluster, only create")
+                       help="Recreate containers even if their configuration" \
+                            "and image haven't changed. ")
+    #up_group.add_argument("-d",
+    #                      "--daemon",
+    #                      default=False,
+    #                      action=get_parser_bool_action(True),
+    #                      help="Run up container in background")
 
     ap_down = sub_aps.add_parser(
         "down", help="Stop and remove doris containers, networks")
@@ -359,15 +375,15 @@ def parse_args():
                          default=False,
                          action=get_parser_bool_action(True),
                          help="Clean related containers data and logs")
-    group = ap_stop.add_mutually_exclusive_group()
-    group.add_argument(
+    stop_group = ap_stop.add_mutually_exclusive_group()
+    stop_group.add_argument(
         "--decommission",
         default=None,
         action=get_parser_bool_action(True),
         help=
         "Decommission doris node. for fe send drop sql, for be send decommission sql"
     )
-    group.add_argument(
+    stop_group.add_argument(
         "--drop",
         default=None,
         action=get_parser_bool_action(True),

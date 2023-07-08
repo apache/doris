@@ -74,6 +74,10 @@ def get_compose_file(cluster_name):
     return os.path.join(get_cluster_path(cluster_name), "docker-compose.yml")
 
 
+def get_status_path(cluster_name):
+    return os.path.join(get_cluster_path(cluster_name), "status")
+
+
 def gen_subnet_prefix16():
     used_subnet = utils.get_docker_subnets_prefix16()
     if os.path.exists(LOCAL_DORIS_PATH):
@@ -212,28 +216,18 @@ class Node(object):
     def docker_env(self):
         return {
             "MY_IP": self.get_ip(),
+            "MY_ID": self.id,
             "FE_QUERY_PORT": FE_QUERY_PORT,
             "FE_EDITLOG_PORT": FE_EDITLOG_PORT,
             "BE_HEARTBEAT_PORT": BE_HEARTBEAT_PORT,
-            "MASTER_FE_IP": self._get_master_fe().get_ip(),
-            "DOCKER_DORIS_PATH": DOCKER_DORIS_PATH,
+            "DORIS_HOME": os.path.join(DOCKER_DORIS_PATH, self.node_type()),
         }
-
-    def _get_master_fe(self):
-        return FE(self.cluster_name, MASTER_FE_ID, self.subnet,
-                  NodeMeta(self.get_image()))
 
     def docker_ports(self):
         raise Exception("No implemented")
 
     def docker_volumns(self):
         raise Exception("No implemented")
-
-    def docker_depends_on(self):
-        if self.node_type() == Node.TYPE_FE and self.id == MASTER_FE_ID:
-            return []
-        else:
-            return [self._get_master_fe().service_name()]
 
     def remove_command(self, remove_type):
         raise Exception("No implemented")
@@ -249,8 +243,6 @@ class Node(object):
             self.docker_command(),
             "environment":
             self.docker_env(),
-            "depends_on":
-            self.docker_depends_on(),
             "image":
             self.get_image(),
             "networks": {
@@ -271,6 +263,8 @@ class Node(object):
                 for sub_dir in self.expose_sub_dirs()
             ] + [
                 "{}:{}:ro".format(LOCAL_RESOURCE_PATH, DOCKER_RESOURCE_PATH),
+                "{}:{}/{}/status".format(get_status_path(self.cluster_name),
+                                         DOCKER_DORIS_PATH, self.node_type()),
             ],
         }
 
@@ -280,8 +274,8 @@ class FE(Node):
     def docker_command(self):
         return [
             "bash",
-            "{}/be/bin/init_be.sh".format(DOCKER_DORIS_PATH),
-            #os.path.join(DOCKER_RESOURCE_PATH, "fe_util.sh"),
+            os.path.join(DOCKER_RESOURCE_PATH, "init_fe.sh"),
+            #"{}/fe/bin/init_fe.sh".format(DOCKER_DORIS_PATH),
         ]
 
     def docker_ports(self):
@@ -305,8 +299,8 @@ class BE(Node):
     def docker_command(self):
         return [
             "bash",
-            "{}/be/bin/init_be.sh".format(DOCKER_DORIS_PATH),
-            #os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh"),
+            os.path.join(DOCKER_RESOURCE_PATH, "init_be.sh"),
+            #"{}/be/bin/init_be.sh".format(DOCKER_DORIS_PATH),
         ]
 
     def docker_ports(self):
@@ -343,6 +337,7 @@ class Cluster(object):
         subnet = gen_subnet_prefix16()
         cluster = Cluster(name, subnet, image)
         os.makedirs(cluster.get_path(), exist_ok=True)
+        os.makedirs(get_status_path(name), exist_ok=True)
         return cluster
 
     @staticmethod

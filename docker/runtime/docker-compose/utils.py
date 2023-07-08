@@ -131,4 +131,4 @@ def read_compose_file(file):
 
 def write_compose_file(file, compose):
     with open(file, "w") as f:
-        f.write(yaml.dumps(compose))
+        f.write(yaml.dump(compose))
