@@ -1701,6 +1701,13 @@ public class Config extends ConfigBase {
     public static short max_hive_list_partition_num = -1;
 
     /**
+     * Max hive file-splitter thread-pool size.
+     * Max thread pool size for loading external meta cache
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int max_hive_file_splitter_thread_pool_size = 64;
+
+    /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
      */

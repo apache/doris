@@ -153,11 +153,7 @@ public class HiveMetaStoreCache {
 
         partitionCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-                .build(new CacheBulkLoader<PartitionCacheKey, HivePartition>() {
-                    @Override
-                    protected ExecutorService getExecutor() {
-                        return HiveMetaStoreCache.this.executor;
-                    }
+                .build(new CacheLoader<PartitionCacheKey, HivePartition>() {
 
                     @Override
                     public HivePartition load(PartitionCacheKey key) {
