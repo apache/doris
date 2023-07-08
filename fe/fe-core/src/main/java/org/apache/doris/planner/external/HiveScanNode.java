@@ -105,7 +105,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     executor = ThreadPoolManager.newDaemonFixedThreadPool(
                                 Config.max_hive_file_splitter_thread_pool_size,
                                 Config.max_hive_file_splitter_thread_pool_size * 1000,
-                            "HiveFileSplitterPool", 120, true);
+                                "HiveFileSplitterPool", 120, true);
                 }
             }
         }
