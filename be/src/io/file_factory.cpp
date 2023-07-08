@@ -97,7 +97,7 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsFileSystem> fs;
-        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
+        RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", nullptr, &fs));
         RETURN_IF_ERROR(fs->create_file(path, &file_writer));
         break;
     }
@@ -108,33 +108,32 @@ Status FileFactory::create_file_writer(TFileType::type type, ExecEnv* env,
     return Status::OK();
 }
 
-Status FileFactory::create_file_reader(const FileSystemProperties& system_properties,
-                                       const FileDescription& file_description,
+Status FileFactory::create_file_reader(const io::FileSystemProperties& system_properties,
+                                       const io::FileDescription& file_description,
+                                       const io::FileReaderOptions& reader_options,
                                        std::shared_ptr<io::FileSystem>* file_system,
-                                       io::FileReaderSPtr* file_reader,
-                                       io::FileReaderOptions reader_options) {
+                                       io::FileReaderSPtr* file_reader, RuntimeProfile* profile) {
     TFileType::type type = system_properties.system_type;
-    reader_options.file_size = file_description.file_size;
     switch (type) {
     case TFileType::FILE_LOCAL: {
-        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description.path,
-                                                                 reader_options, file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(file_description, reader_options,
+                                                                 file_reader));
         break;
     }
     case TFileType::FILE_S3: {
-        RETURN_IF_ERROR(create_s3_reader(system_properties.properties, file_description.path,
-                                         file_system, file_reader, reader_options));
+        RETURN_IF_ERROR(create_s3_reader(system_properties.properties, file_description,
+                                         reader_options, file_system, file_reader));
         break;
     }
     case TFileType::FILE_HDFS: {
-        RETURN_IF_ERROR(create_hdfs_reader(system_properties.hdfs_params, file_description.path,
-                                           file_system, file_reader, reader_options));
+        RETURN_IF_ERROR(create_hdfs_reader(system_properties.hdfs_params, file_description,
+                                           reader_options, file_system, file_reader, profile));
         break;
     }
     case TFileType::FILE_BROKER: {
         RETURN_IF_ERROR(create_broker_reader(system_properties.broker_addresses[0],
                                              system_properties.properties, file_description,
-                                             file_system, file_reader, reader_options));
+                                             reader_options, file_system, file_reader));
         break;
     }
     default:
@@ -165,42 +164,43 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     return Status::OK();
 }
 
-Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
+Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params,
+                                       const io::FileDescription& fd,
+                                       const io::FileReaderOptions& reader_options,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
-                                       io::FileReaderSPtr* reader,
-                                       const io::FileReaderOptions& reader_options) {
+                                       io::FileReaderSPtr* reader, RuntimeProfile* profile) {
     std::shared_ptr<io::HdfsFileSystem> fs;
-    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", &fs));
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, reader));
+    RETURN_IF_ERROR(io::HdfsFileSystem::create(hdfs_params, "", profile, &fs));
+    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
     *hdfs_file_system = std::move(fs);
     return Status::OK();
 }
 
 Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& prop,
-                                     const std::string& path,
+                                     const io::FileDescription& fd,
+                                     const io::FileReaderOptions& reader_options,
                                      std::shared_ptr<io::FileSystem>* s3_file_system,
-                                     io::FileReaderSPtr* reader,
-                                     const io::FileReaderOptions& reader_options) {
-    S3URI s3_uri(path);
+                                     io::FileReaderSPtr* reader) {
+    S3URI s3_uri(fd.path);
     RETURN_IF_ERROR(s3_uri.parse());
     S3Conf s3_conf;
     RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
     std::shared_ptr<io::S3FileSystem> fs;
     RETURN_IF_ERROR(io::S3FileSystem::create(std::move(s3_conf), "", &fs));
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
     *s3_file_system = std::move(fs);
     return Status::OK();
 }
 
 Status FileFactory::create_broker_reader(const TNetworkAddress& broker_addr,
                                          const std::map<std::string, std::string>& prop,
-                                         const FileDescription& file_description,
+                                         const io::FileDescription& fd,
+                                         const io::FileReaderOptions& reader_options,
                                          std::shared_ptr<io::FileSystem>* broker_file_system,
-                                         io::FileReaderSPtr* reader,
-                                         const io::FileReaderOptions& reader_options) {
+                                         io::FileReaderSPtr* reader) {
     std::shared_ptr<io::BrokerFileSystem> fs;
     RETURN_IF_ERROR(io::BrokerFileSystem::create(broker_addr, prop, &fs));
-    RETURN_IF_ERROR(fs->open_file(file_description.path, reader_options, reader));
+    RETURN_IF_ERROR(fs->open_file(fd, reader_options, reader));
     *broker_file_system = std::move(fs);
     return Status::OK();
 }

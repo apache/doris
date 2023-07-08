@@ -484,8 +484,8 @@ private:
     RuntimeState* _state = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
-    FileSystemProperties _system_properties;
-    FileDescription _file_description;
+    io::FileSystemProperties _system_properties;
+    io::FileDescription _file_description;
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
