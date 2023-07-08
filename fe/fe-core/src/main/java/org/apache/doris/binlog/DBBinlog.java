@@ -83,6 +83,15 @@ public class DBBinlog {
                 return;
             }
 
+            switch (binlog.getType()) {
+                case CREATE_TABLE:
+                    return;
+                case DROP_TABLE:
+                    return;
+                default:
+                    break;
+            }
+
             for (long tableId : tableIds) {
                 TableBinlog tableBinlog = tableBinlogMap.get(tableId);
                 if (tableBinlog == null) {
