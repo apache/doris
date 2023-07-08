@@ -511,10 +511,7 @@ Status BetaRowsetWriter::flush() {
 }
 
 Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segment_id,
-                                        const std::shared_ptr<MemTracker>& flush_mem_tracker,
                                         int64_t* flush_size) {
-    SCOPED_CONSUME_MEM_TRACKER(flush_mem_tracker);
-
     if (block->rows() == 0) {
         return Status::OK();
     }

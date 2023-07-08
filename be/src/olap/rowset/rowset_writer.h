@@ -71,7 +71,6 @@ public:
     }
 
     virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
-                                  const std::shared_ptr<MemTracker>& flush_mem_tracker,
                                   int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_memtable");
