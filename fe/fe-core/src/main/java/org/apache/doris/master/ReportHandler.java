@@ -256,7 +256,8 @@ public class ReportHandler extends Daemon {
                 ReportHandler.taskReport(beId, tasks);
             }
             if (disks != null) {
-                ReportHandler.diskReport(beId, disks, cpuCores, pipelineExecutorSize);
+                ReportHandler.diskReport(beId, disks);
+                ReportHandler.cpuReport(beId, cpuCores, pipelineExecutorSize);
             }
             if (Config.enable_storage_policy && storagePolicies != null && storageResources != null) {
                 storagePolicyReport(beId, storagePolicies, storageResources);
@@ -549,8 +550,7 @@ public class ReportHandler extends Daemon {
                 backendId, batchTask.getTaskNum(), (System.currentTimeMillis() - start));
     }
 
-    private static void diskReport(long backendId, Map<String, TDisk> backendDisks, int cpuCores,
-            int pipelineExecutorSize) {
+    private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {
         LOG.info("begin to handle disk report from backend {}", backendId);
         long start = System.currentTimeMillis();
         Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
@@ -559,8 +559,26 @@ public class ReportHandler extends Daemon {
             return;
         }
         backend.updateDisks(backendDisks);
-        backend.updateCpuInfo(cpuCores, pipelineExecutorSize);
         LOG.info("finished to handle disk report from backend {}, cost: {} ms",
+                backendId, (System.currentTimeMillis() - start));
+    }
+
+    private static void cpuReport(long backendId, int cpuCores, int pipelineExecutorSize) {
+        LOG.info("begin to handle cpu report from backend {}", backendId);
+        long start = System.currentTimeMillis();
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+        if (backend == null) {
+            LOG.warn("backend doesn't exist. id: " + backendId);
+            return;
+        }
+        if (backend.updateCpuInfo(cpuCores, pipelineExecutorSize)) {
+            // cpu info is changed
+            LOG.info("new cpu info. backendId: {}, cpucores: {}, pipelineExecutorSize: {}", backendId, cpuCores,
+                    pipelineExecutorSize);
+            // log change
+            Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+        }
+        LOG.info("finished to handle cpu report from backend {}, cost: {} ms",
                 backendId, (System.currentTimeMillis() - start));
     }
 

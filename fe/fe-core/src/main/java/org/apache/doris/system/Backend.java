@@ -542,7 +542,7 @@ public class Backend implements Writable {
         }
     }
 
-    public void updateCpuInfo(int cpuCores, int pipelineExecutorSize) {
+    public boolean updateCpuInfo(int cpuCores, int pipelineExecutorSize) {
         boolean isChanged = false;
 
         if (this.cpuCores != cpuCores) {
@@ -553,11 +553,7 @@ public class Backend implements Writable {
             this.pipelineExecutorSize = pipelineExecutorSize;
             isChanged = true;
         }
-        if (isChanged) {
-            LOG.info("add new cpu info. backendId: {}, cpucores: {}, pipelineExecutorSize: {}", id, cpuCores,
-                    pipelineExecutorSize);
-            Env.getCurrentEnv().getEditLog().logBackendStateChange(this);
-        }
+        return isChanged;
     }
 
     /**
