@@ -137,7 +137,7 @@ public class BinlogManager {
         tableIds.add(createTableRecord.getTableId());
         long commitSeq = createTableRecord.getCommitSeq();
         long timestamp = -1;
-        TBinlogType type = TBinlogType.ADD_PARTITION;
+        TBinlogType type = TBinlogType.CREATE_TABLE;
         String data = createTableRecord.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);

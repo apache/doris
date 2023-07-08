@@ -83,6 +83,10 @@ public class DBBinlog {
                 return;
             }
 
+            // HACK: for metadata fix
+            if (!binlog.isSetType()) {
+                return;
+            }
             switch (binlog.getType()) {
                 case CREATE_TABLE:
                     return;
