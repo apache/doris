@@ -134,11 +134,14 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                                           channel_timeout_s, is_high_priority, params.sender_ip(),
                                           params.backend_id(), params.enable_profile()));
             _load_channels.insert({load_id, channel});
-            _register_channel_all_writers(channel);
         }
     }
 
     RETURN_IF_ERROR(channel->open(params));
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _register_channel_all_writers(channel);
+    }
     return Status::OK();
 }
 
