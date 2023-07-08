@@ -596,11 +596,11 @@ public:
     }
 
     static void vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets,
-                                const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets,
-                                ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
-                                NullMap& null_map, bool& is_invalid_json_path) {
+                              const ColumnString::Offsets& loffsets,
+                              const ColumnString::Chars& rdata,
+                              const ColumnString::Offsets& roffsets, ColumnString::Chars& res_data,
+                              ColumnString::Offsets& res_offsets, NullMap& null_map,
+                              bool& is_invalid_json_path) {
         size_t input_rows_count = loffsets.size();
         res_offsets.resize(input_rows_count);
 
