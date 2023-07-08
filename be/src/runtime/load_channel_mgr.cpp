@@ -230,8 +230,10 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
     {
         std::lock_guard<std::mutex> l(_lock);
-        _deregister_channel_all_writers(_load_channels.find(load_id)->second);
-        _load_channels.erase(load_id);
+        if (_load_channels.find(load_id) != _load_channels.end()) {
+            _deregister_channel_all_writers(_load_channels.find(load_id)->second);
+            _load_channels.erase(load_id);
+        }
         auto handle = _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
         _last_success_channel->release(handle);
     }
