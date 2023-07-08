@@ -818,15 +818,20 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         }
         _segcompaction_worker.get_file_writer().reset(file_writer.release());
     } else {
+        const auto& tablet_schema = flush_ctx && flush_ctx->flush_schema ? flush_ctx->flush_schema
+                                                                         : _context.tablet_schema;
+        if (flush_ctx && flush_ctx->block &&
+            flush_ctx->block->bytes() <= config::segment_compression_threshold_kb * 1024) {
+            writer_options.compression_type = NO_COMPRESSION;
+        }
         writer->reset(new segment_v2::SegmentWriter(
-                file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
-                _context.data_dir, _context.max_rows_per_segment, writer_options,
-                _context.mow_context));
+                file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
+                _context.max_rows_per_segment, writer_options, _context.mow_context));
         {
             std::lock_guard<SpinLock> l(_lock);
             _file_writers.push_back(std::move(file_writer));
         }
-        auto s = (*writer)->init(flush_ctx);
+        auto s = (*writer)->init();
         if (!s.ok()) {
             LOG(WARNING) << "failed to init segment writer: " << s.to_string();
             writer->reset(nullptr);
