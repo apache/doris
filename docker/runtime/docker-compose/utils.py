@@ -19,6 +19,7 @@ import docker
 import logging
 import os
 import subprocess
+import yaml
 
 
 def get_logger(name=None):
@@ -104,6 +105,11 @@ def get_docker_subnets_prefix16():
     return subnet_prefixes
 
 
+def get_containers(**kwargs):
+    client = docker.from_env()
+    return client.containers.list(**kwargs)
+
+
 def copy_image_directory(image, image_dir, local_dir):
     client = docker.from_env()
     volumes = ["{}:/opt/mount".format(local_dir)]
@@ -116,3 +122,13 @@ def copy_image_directory(image, image_dir, local_dir):
         remove=True,
         volumes=volumes,
         entrypoint="cp -r  {}  /opt/mount/".format(image_dir))
+
+
+def read_compose_file(file):
+    with open(file, "r") as f:
+        return yaml.safe_load(f.read())
+
+
+def write_compose_file(file, compose):
+    with open(file, "w") as f:
+        f.write(yaml.dumps(compose))

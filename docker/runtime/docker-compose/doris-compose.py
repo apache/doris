@@ -15,10 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from cluster import Cluster, Node, REMOVE_TYPE_DECOMMISSION, REMOVE_TYPE_DECOMMISSION
+import cluster as CLUSTER
 import argparse
 import utils
 from multiprocessing.pool import ThreadPool
+import os
+import os.path
+import prettytable
 import shutil
 import sys
 
@@ -29,13 +32,13 @@ def up(args):
     if not args.NAME:
         raise Exception("Need specific not empty cluster name")
     try:
-        cluster = Cluster.load(args.NAME)
+        cluster = CLUSTER.Cluster.load(args.NAME)
         if args.IMAGE:
             cluster.set_image(args.IMAGE)
     except:
         if not args.IMAGE:
             raise Exception("New cluster must specific image")
-        cluster = Cluster.new(args.NAME, args.IMAGE)
+        cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE)
         LOG.info("Create new cluster {} succ, cluster path is {}".format(
             args.NAME, cluster.get_path()))
         if not args.fe:
@@ -44,9 +47,9 @@ def up(args):
             args.be = 3
 
     if args.fe:
-        cluster.set_node_num(Node.TYPE_FE, args.fe)
+        cluster.set_node_num(CLUSTER.Node.TYPE_FE, args.fe)
     if args.be:
-        cluster.set_node_num(Node.TYPE_BE, args.be)
+        cluster.set_node_num(CLUSTER.Node.TYPE_BE, args.be)
 
     cluster.save()
 
@@ -59,7 +62,7 @@ def up(args):
 
 
 def down(args):
-    cluster = Cluster.load(args.NAME)
+    cluster = CLUSTER.Cluster.load(args.NAME)
     utils.exec_docker_compose_command(cluster.get_compose_file(), "down",
                                       ["--remove-orphans"])
     if args.clean:
@@ -68,20 +71,24 @@ def down(args):
 
 
 def add(args):
-    cluster = Cluster.load(args.NAME)
+    cluster = CLUSTER.Cluster.load(args.NAME)
     new_nodes = []
     if args.fe:
         for i in range(args.fe):
-            node = cluster.add(Node.TYPE_FE, image=args.IMAGE)
+            node = cluster.add(CLUSTER.Node.TYPE_FE, image=args.IMAGE)
             new_nodes.append(node)
     if args.be:
         for i in range(args.be):
-            node = cluster.add(Node.TYPE_BE, image=args.IMAGE)
+            node = cluster.add(CLUSTER.Node.TYPE_BE, image=args.IMAGE)
             new_nodes.append(node)
 
-    LOG.info("Add new fe ids: {}, new be ids {}".format(
-        [node.id for node in new_nodes if node.node_type() == Node.TYPE_FE],
-        [node.id for node in new_nodes if node.node_type() == Node.TYPE_BE]))
+    LOG.info("Add new fe ids: {}, new be ids {}".format([
+        node.id
+        for node in new_nodes if node.node_type() == CLUSTER.Node.TYPE_FE
+    ], [
+        node.id
+        for node in new_nodes if node.node_type() == CLUSTER.Node.TYPE_BE
+    ]))
 
     if not new_nodes:
         return
@@ -100,7 +107,7 @@ def add(args):
 
 
 def get_relate_cluster_and_nodes(args):
-    cluster = Cluster.load(args.NAME)
+    cluster = CLUSTER.Cluster.load(args.NAME)
 
     def get_nodes_with_ids(node_type, ids):
         if ids is None:
@@ -110,8 +117,9 @@ def get_relate_cluster_and_nodes(args):
         else:
             return [cluster.get_node(node_type, id) for id in ids]
 
-    nodes = get_nodes_with_ids(Node.TYPE_FE, args.fe) + get_nodes_with_ids(
-        Node.TYPE_BE, args.be)
+    nodes = get_nodes_with_ids(CLUSTER.Node.TYPE_FE,
+                               args.fe) + get_nodes_with_ids(
+                                   CLUSTER.Node.TYPE_BE, args.be)
 
     return cluster, nodes
 
@@ -189,6 +197,102 @@ def restart(args):
     LOG.info("Restart run succ, total relate {} nodes".format(len(nodes)))
 
 
+def ls(args):
+    COMPOSE_MISSING = "(missing)"
+    COMPOSE_BAD = "(bad)"
+    COMPOSE_GOOD = ""
+
+    SERVICE_DESTROY = "destroy"
+
+    def parse_cluster_compose_file(cluster_name):
+        compose_file = CLUSTER.get_compose_file(cluster_name)
+        if not os.path.exists(compose_file):
+            return COMPOSE_MISSING, {}
+        try:
+            compose = utils.read_compose_file(compose_file)
+            if not compose:
+                return COMPOSE_BAD, {}
+            services = compose.get("services", {})
+            if services is None:
+                return COMPOSE_BAD, {}
+            return COMPOSE_GOOD, {service: None for service in services.keys()}
+        except:
+            return COMPOSE_BAD, {}
+
+    clusters = {}
+    search_names = []
+    if args.NAME:
+        search_names = args.NAME
+    elif os.path.exists(CLUSTER.LOCAL_DORIS_PATH):
+        search_names = os.listdir(CLUSTER.LOCAL_DORIS_PATH)
+
+    for cluster_name in search_names:
+        status, services = parse_cluster_compose_file(cluster_name)
+        clusters[cluster_name] = {"status": status, "services": services}
+
+    containers = utils.get_containers(all=args.all or args.NAME)
+    for container in containers:
+        cluster_name = CLUSTER.get_cluster_name_from_service_name(
+            container.name)
+        if not cluster_name:
+            continue
+        if args.NAME and cluster_name not in args.NAME:
+            continue
+        cluster_info = clusters.get(cluster_name, None)
+        if not cluster_info:
+            cluster_info = {"status": COMPOSE_MISSING, "services": {}}
+            clusters[cluster_name] = cluster_info
+        if container.status == "running" and cluster_info[
+                "status"] == COMPOSE_GOOD and (
+                    container.name not in cluster_info["services"]):
+            container.status = "orphans"
+        cluster_info["services"][container.name] = container
+
+    if args.NAME:
+        headers = ("CLUSTER", "NAME", "STATUS", "CONTAINER ID", "IMAGE",
+                   "CREATED", "PORTS")
+        table = prettytable.PrettyTable(headers)
+        for name in sorted(clusters.keys()):
+            services = clusters[name]["services"]
+            for service_name, container in services.items():
+                if container is None:
+                    table.add_row(
+                        (name, service_name, SERVICE_DESTROY, "", "", "", ""))
+                else:
+                    create = container.attrs.get("Created",
+                                                 "")[:19].replace("T", " ")
+                    ports = container.attrs.get("NetworkSettings",
+                                                {}).get("Ports", {})
+                    show_ports = ", ".join([
+                        "{}=>{}".format(in_port, out_port[0]["HostPort"])
+                        for in_port, out_port in ports.items()
+                    ])
+                    show_image = ",".join(container.image.tags)
+                    table.add_row(
+                        (name, service_name, container.status,
+                         container.short_id, show_image, create, show_ports))
+    else:
+        headers = ("CLUSTER", "STATUS", "CONFIG FILES")
+        table = prettytable.PrettyTable(headers)
+        for name in sorted(clusters.keys()):
+            cluster_info = clusters[name]
+            service_statuses = {}
+            for _, container in cluster_info["services"].items():
+                status = container.status if container else SERVICE_DESTROY
+                service_statuses[status] = service_statuses.get(status, 0) + 1
+            show_status = ",".join([
+                "{}({})".format(status, count)
+                for status, count in service_statuses.items()
+            ])
+            if not args.all and service_statuses.get("running", 0) == 0:
+                continue
+            compose_file = CLUSTER.get_compose_file(name)
+            table.add_row(
+                (name, show_status, "{}{}".format(compose_file,
+                                                  cluster_info["status"])))
+    print(table)
+
+
 def get_parser_bool_action(is_store_true):
     if sys.version_info.major == 3 and sys.version_info.minor >= 9:
         return argparse.BooleanOptionalAction
@@ -197,10 +301,10 @@ def get_parser_bool_action(is_store_true):
 
 
 def add_cluster_and_node_list_arg(ap):
-    ap.add_argument("NAME", help="specify cluster name")
-    ap.add_argument("--fe", nargs="*", type=int, help="fe ids, support multiple ids, " \
+    ap.add_argument("NAME", help="Specify cluster name")
+    ap.add_argument("--fe", nargs="*", type=int, help="Specify fe ids, support multiple ids, " \
             "if specific --fe but not specific ids, apply to all fe")
-    ap.add_argument("--be", nargs="*", type=int, help="be ids, support multiple ids, " \
+    ap.add_argument("--be", nargs="*", type=int, help="Specify be ids, support multiple ids, " \
             "if specific --be but not specific ids, apply to all be")
 
 
@@ -208,70 +312,85 @@ def parse_args():
     ap = argparse.ArgumentParser(description="")
     sub_aps = ap.add_subparsers(dest="command")
 
-    ap_up = sub_aps.add_parser(
-        "up", help="re run a doris cluster, no clean data and log")
-    ap_up.add_argument("NAME", default="", help="specific cluster name")
+    ap_up = sub_aps.add_parser("up", help="Create and start doris containers")
+    ap_up.add_argument("NAME", default="", help="Specific cluster name")
     ap_up.add_argument("IMAGE",
                        default="",
                        nargs="?",
-                       help="specify docker image")
+                       help="Specify docker image")
     ap_up.add_argument("--fe",
                        type=int,
-                       help="specify fe count, default 3 for new cluster")
+                       help="Specify fe count, default 3 for new cluster")
     ap_up.add_argument("--be",
                        type=int,
-                       help="specify be count, default 3 for new cluster")
+                       help="Specify be count, default 3 for new cluster")
     ap_up.add_argument("--no-up",
                        default=False,
                        action=get_parser_bool_action(True),
-                       help="do not run cluster, only create")
+                       help="Not run cluster, only create")
 
-    ap_down = sub_aps.add_parser("down", help="shutdown a cluster")
-    ap_down.add_argument("NAME", help="specify cluster name")
+    ap_down = sub_aps.add_parser(
+        "down", help="Stop and remove doris containers, networks")
+    ap_down.add_argument("NAME", help="Specify cluster name")
     ap_down.add_argument("--clean",
                          default=False,
                          action=get_parser_bool_action(True),
-                         help="clean all files")
+                         help="Clean data and logs")
 
-    ap_add = sub_aps.add_parser("add", help="add multiple nodes")
-    ap_add.add_argument("NAME", help="specify cluster name")
-    ap_add.add_argument("--fe", type=int, help="specify new add fe num")
-    ap_add.add_argument("--be", type=int, help="specify new add be num")
+    ap_add = sub_aps.add_parser("add", help="Add doris containers")
+    ap_add.add_argument("NAME", help="Specify cluster name")
+    ap_add.add_argument("--fe", type=int, help="Specify new add fe num")
+    ap_add.add_argument("--be", type=int, help="Specify new add be num")
     ap_add.add_argument("--no-start",
                         default=False,
                         action=get_parser_bool_action(True),
-                        help="do not start this new node, create only")
+                        help="Not start new node, create only")
 
-    ap_start = sub_aps.add_parser("start", help="start multiple nodes")
+    ap_start = sub_aps.add_parser("start", help="Start doris containers")
     add_cluster_and_node_list_arg(ap_start)
     ap_start.add_argument("IMAGE",
                           default="",
                           nargs="?",
-                          help="update node docker image")
+                          help="Update containers' image")
 
-    ap_stop = sub_aps.add_parser("stop", help="stop multiple nodes")
+    ap_stop = sub_aps.add_parser("stop", help="Stop doris containers")
     add_cluster_and_node_list_arg(ap_stop)
     ap_stop.add_argument("--clean",
                          default=False,
                          action=get_parser_bool_action(True),
-                         help="clean nodes' files")
+                         help="Clean related containers data and logs")
     group = ap_stop.add_mutually_exclusive_group()
     group.add_argument(
         "--decommission",
         default=None,
         action=get_parser_bool_action(True),
-        help="drop node. for fe send drop sql, for be send decommission sql")
-    group.add_argument("--drop",
-                       default=None,
-                       action=get_parser_bool_action(True),
-                       help="drop node. for fe and be, both send drop sql")
+        help=
+        "Decommission doris node. for fe send drop sql, for be send decommission sql"
+    )
+    group.add_argument(
+        "--drop",
+        default=None,
+        action=get_parser_bool_action(True),
+        help="Drop doris node. for fe and be, both send drop sql")
 
-    ap_restart = sub_aps.add_parser("restart", help="restart multiple nodes")
+    ap_restart = sub_aps.add_parser("restart", help="Restart doris containers")
     ap_restart.add_argument("IMAGE",
                             default="",
                             nargs="?",
-                            help="update node docker image")
+                            help="Update containers' image")
     add_cluster_and_node_list_arg(ap_restart)
+
+    ap_ls = sub_aps.add_parser("ls", help="List running compose projects")
+    ap_ls.add_argument(
+        "NAME",
+        nargs="*",
+        help="Specify multiple clusters, if specific, show all their containers"
+    )
+    ap_ls.add_argument("-a",
+                       "--all",
+                       default=False,
+                       action=get_parser_bool_action(True),
+                       help="Show all stopped and bad doris compose projects")
 
     return ap.format_usage(), ap.format_help(), ap.parse_args()
 
@@ -290,6 +409,8 @@ def main():
         return stop(args)
     elif args.command == "restart":
         return restart(args)
+    elif args.command == "ls":
+        return ls(args)
     else:
         print(usage)
         return -1

@@ -19,7 +19,6 @@ import json
 import jsonpickle
 import os
 import os.path
-import yaml
 import utils
 
 DOCKER_DORIS_PATH = "/opt/apache-doris"
@@ -49,13 +48,30 @@ LOG = utils.get_logger()
 REMOVE_TYPE_DROP = 1
 REMOVE_TYPE_DECOMMISSION = 2
 
+DORIS_PREFIX = "doris-"
+
 
 def with_doris_prefix(name):
-    return "doris-" + name
+    return DORIS_PREFIX + name
+
+
+def get_cluster_name_from_service_name(service_name):
+    if not service_name or not service_name.startswith(DORIS_PREFIX):
+        return None
+    pos = service_name.find("-fe-")
+    if pos < 0:
+        pos = service_name.find("-be-")
+    if pos < 0:
+        return None
+    return service_name[len(DORIS_PREFIX):pos]
 
 
 def get_cluster_path(cluster_name):
     return os.path.join(LOCAL_DORIS_PATH, cluster_name)
+
+
+def get_compose_file(cluster_name):
+    return os.path.join(get_cluster_path(cluster_name), "docker-compose.yml")
 
 
 def gen_subnet_prefix16():
@@ -432,11 +448,11 @@ class Cluster(object):
             "services": services,
         }
 
-        with open(self.get_compose_file(), "w") as f:
-            f.write(yaml.dump(compose))
+        utils.write_compose_file(self.get_compose_file(), compose)
 
     def get_compose_file(self):
-        return os.path.join(self.get_path(), "docker-compose.yml")
+        global get_compose_file
+        return get_compose_file(self.name)
 
     def save(self):
         self.save_meta()
