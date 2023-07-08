@@ -202,19 +202,18 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
     }
 
-    protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
+    protected List<Split> splitFile(Path path, long blockSize, long splitSize, BlockLocation[] blockLocations, long length,
             long modificationTime, boolean splittable, List<String> partitionValues) throws IOException {
-        return splitFile(path, blockSize, blockLocations, length, modificationTime, splittable, partitionValues,
+        return splitFile(path, blockSize, splitSize, blockLocations, length, modificationTime, splittable, partitionValues,
                 FileSplitCreator.DEFAULT);
     }
 
-    protected List<Split> splitFile(Path path, long blockSize, BlockLocation[] blockLocations, long length,
+    protected List<Split> splitFile(Path path, long blockSize, long splitSize, BlockLocation[] blockLocations, long length,
             long modificationTime, boolean splittable, List<String> partitionValues, SplitCreator splitCreator)
             throws IOException {
         if (blockLocations == null) {
             blockLocations = new BlockLocation[0];
         }
-        long splitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         if (splitSize <= 0) {
             splitSize = blockSize;
         }
