@@ -377,10 +377,6 @@ public class BinlogManager {
     }
 
     public long read(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         // Step 1: read binlogs length
         int size = dis.readInt();
         LOG.info("read binlogs length: {}", size);
