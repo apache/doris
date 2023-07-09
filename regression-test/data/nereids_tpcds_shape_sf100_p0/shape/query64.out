@@ -114,10 +114,10 @@ CteAnchor[cteId= ( CTEId#14=] )
 ----------hashJoin[INNER_JOIN](cs1.item_sk = cs2.item_sk)(cs1.store_name = cs2.store_name)(cs1.store_zip = cs2.store_zip)(cs2.cnt <= cs1.cnt)
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------filter((cs1.syear = 2001))
+----------------filter((cs2.syear = 2002))
 ------------------CteConsumer[cteId= ( CTEId#14=] )
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------filter((cs2.syear = 2002))
+----------------filter((cs1.syear = 2001))
 ------------------CteConsumer[cteId= ( CTEId#14=] )
 

@@ -4,8 +4,8 @@ PhysicalTopN
 --PhysicalTopN
 ----PhysicalProject
 ------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalDistribute
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](cs1.cs_call_center_sk = call_center.cc_call_center_sk)
 ----------------PhysicalProject
