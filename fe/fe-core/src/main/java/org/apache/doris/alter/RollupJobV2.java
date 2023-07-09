@@ -148,12 +148,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         super(JobType.ROLLUP);
     }
 
-    public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs, long baseIndexId,
-            long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
-            Column whereColumn,
-            int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType, short rollupShortKeyColumnCount,
-            OriginStatement origStmt) throws AnalysisException {
-        super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
+    public RollupJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName, long timeoutMs,
+                       long baseIndexId,
+                       long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
+                       Column whereColumn,
+                       int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
+                       short rollupShortKeyColumnCount,
+                       OriginStatement origStmt) throws AnalysisException {
+        super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
         this.rollupIndexId = rollupIndexId;
@@ -882,5 +884,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             throw new IOException("error happens when parsing create materialized view stmt: " + stmt, e);
         }
         setColumnsDefineExpr(stmt.getMVColumnItemList());
+    }
+
+    @Override
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }
