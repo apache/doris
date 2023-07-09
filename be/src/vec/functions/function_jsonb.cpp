@@ -518,6 +518,9 @@ public:
         res_offsets.resize(input_rows_count);
 
         auto writer = std::make_unique<JsonbWriter>();
+        if (rdata_columns.size() > 1) {
+            writer->reset();
+        }
         std::unique_ptr<JsonbToJson> formater;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
