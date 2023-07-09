@@ -413,11 +413,15 @@ class Cluster(object):
         group = self.get_group(node_type)
         group.remove(id)
 
-    def save_meta(self):
+    def save(self):
+        self._save_meta()
+        self._save_compose()
+
+    def _save_meta(self):
         with open(Cluster._get_meta_file(self.name), "w") as f:
             f.write(jsonpickle.dumps(self, indent=2))
 
-    def save_compose(self):
+    def _save_compose(self):
         services = {}
         for node_type in self.groups.keys():
             for node in self.get_all_nodes(node_type):
@@ -443,7 +447,3 @@ class Cluster(object):
     def get_compose_file(self):
         global get_compose_file
         return get_compose_file(self.name)
-
-    def save(self):
-        self.save_meta()
-        self.save_compose()
