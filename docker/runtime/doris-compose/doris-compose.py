@@ -67,11 +67,22 @@ def up(args):
 
 def down(args):
     cluster = CLUSTER.Cluster.load(args.NAME)
+
     utils.exec_docker_compose_command(cluster.get_compose_file(), "down",
-                                      ["--remove-orphans"])
+                                      ["-v", "--remove-orphans"])
     if args.clean:
+        LOG.info("Clean cluster data cause has specific --clean")
+        utils.enable_dir_with_rw_perm(cluster.get_path())
         shutil.rmtree(cluster.get_path())
+
     LOG.info(utils.render_green("Down cluster {} succ".format(args.NAME)))
+
+
+def clean_node_data(node):
+    utils.exec_docker_compose_command(CLUSTER.get_compose_file(node.cluster_name), "rm", ["-f", "-v", "-s"],
+                                      [node.service_name()])
+    utils.enable_dir_with_rw_perm(node.get_path())
+    shutil.rmtree(node.get_path())
 
 
 def add(args):
@@ -195,20 +206,17 @@ def stop(args):
         else:
             raise Exception("Unknown node type: {}".format(node.node_type()))
 
-        utils.exec_docker_compose_command(cluster.get_compose_file(),
-                                          "stop",
-                                          services=[node.service_name()])
+        if args.clean:
+            clean_node_data(node)
+            LOG.info(
+                "Clean node {} with id {} files cause has specify --clean".
+                format(node.node_type(), node.id))
 
         LOG.info("Stop {} with id {} with ip {} succ".format(
             node.node_type(), node.id, node.get_ip()))
 
         cluster.remove(node.node_type(), node.id)
         cluster.save()
-
-        if args.clean:
-            for node in nodes:
-                shutil.rmtree(node.get_path())
-            LOG.info("Clean nodes's files cause has specify --clean")
 
     LOG.info(
         utils.render_green("Stop final succ, total relate {} nodes".format(
@@ -281,10 +289,10 @@ def ls(args):
             cluster_info = {"status": COMPOSE_MISSING, "services": {}}
             clusters[cluster_name] = cluster_info
         for container in containers:
-            if container.status == "running" and cluster_info[
-                    "status"] == COMPOSE_GOOD and (
-                        container.name not in cluster_info["services"]):
-                container.status = "orphans"
+            #if container.status == "running" and cluster_info[
+            #        "status"] == COMPOSE_GOOD and (
+            #            container.name not in cluster_info["services"]):
+            #    container.status = "orphans"
             cluster_info["services"][container.name] = container
 
     TYPE_COMPOSESERVICE = type(ComposeService("", ""))

@@ -70,26 +70,32 @@ class DBManager(object):
         self._load_be_states()
 
     def drop_fe(self, fe_endpoint):
+        id = CLUSTER.Node.get_id_from_ip(fe_endpoint[:fe_endpoint.find(":")])
         try:
             self._exec_query(
                 "ALTER SYSTEM DROP FOLLOWER '{}'".format(fe_endpoint))
-            LOG.info("Drop fe {} from db succ.".format(fe_endpoint))
+            LOG.info("Drop fe {} with id {} from db succ.".format(
+                fe_endpoint, id))
         except Exception as e:
             if str(e).find("frontend does not exist") >= 0:
                 LOG.info(
-                    "Drop fe {} from db succ cause it does not exist in db.")
+                    "Drop fe {} with id {} from db succ cause it does not exist in db."
+                    .format(fe_endpoint, id))
                 return
             raise e
 
     def drop_be(self, be_endpoint):
+        id = CLUSTER.Node.get_id_from_ip(be_endpoint[:be_endpoint.find(":")])
         try:
             self._exec_query(
                 "ALTER SYSTEM DROPP BACKEND '{}'".format(be_endpoint))
-            LOG.info("Drop be {} from db succ.".format(be_endpoint))
+            LOG.info("Drop be {} with id {} from db succ.".format(
+                be_endpoint, id))
         except Exception as e:
             if str(e).find("backend does not exists") >= 0:
                 LOG.info(
-                    "Drop be {} from db succ cause it does not exist in db.")
+                    "Drop be {} with id {} from db succ cause it does not exist in db."
+                    .format(be_endpoint, id))
                 return
             raise e
 
@@ -103,11 +109,12 @@ class DBManager(object):
         try:
             self._exec_query(
                 "ALTER SYSTEM DECOMMISSION BACKEND '{}'".format(be_endpoint))
-            LOG.info("Mark be {} as decommissioned, start migrate its tablets, " \
-                    "wait migrating job finish.".format(be_endpoint))
+            LOG.info("Mark be {} with id {} as decommissioned, start migrate its tablets, " \
+                    "wait migrating job finish.".format(be_endpoint, id))
         except Exception as e:
             if str(e).find("Backend does not exist") >= 0:
-                LOG.info(" be {} from db succ cause it does not exist in db.")
+                LOG.info("Decommission be {} with id {} from db succ " \
+                        "cause it does not exist in db.",format(be_endpoint, id))
                 return
             raise e
 
@@ -211,7 +218,8 @@ def get_db_mgr(cluster_name, required_load_succ=True):
         # A new cluster's master is fe-1
         if 1 in alive_fe_ports:
             query_port = alive_fe_ports[1]
-        query_port = list(alive_fe_ports.values())[0]
+        else:
+            query_port = list(alive_fe_ports.values())[0]
 
     db_mgr.set_query_port(query_port)
     try:

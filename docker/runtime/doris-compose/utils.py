@@ -134,6 +134,14 @@ def get_doris_containers(cluster_names):
     return clusters
 
 
+def get_doris_running_containers(cluster_name):
+    return {
+        container.name: container
+        for container in get_doris_containers(cluster_name).get(
+            cluster_name, []) if is_container_running(container)
+    }
+
+
 def is_dir_empty(dir):
     return False if os.listdir(dir) else True
 
@@ -155,10 +163,12 @@ def exec_shell_command(command, ignore_errors=False):
 def exec_docker_compose_command(compose_file,
                                 command,
                                 options=None,
-                                services=None):
-    compose_cmd = "docker-compose -f {}  {}  {} {}".format(
+                                services=None,
+                                user_command=None):
+    compose_cmd = "docker-compose -f {}  {}  {} {} {}".format(
         compose_file, command, " ".join(options) if options else "",
-        " ".join(services) if services else "")
+        " ".join(services) if services else "",
+        user_command if user_command else "")
     return exec_shell_command(compose_cmd)
 
 
@@ -213,6 +223,16 @@ def copy_image_directory(image, image_dir, local_dir):
         remove=True,
         volumes=volumes,
         entrypoint="cp -r  {}  /opt/mount/".format(image_dir))
+
+
+def enable_dir_with_rw_perm(dir):
+    if not os.path.exists(dir):
+        return
+    client = docker.client.from_env()
+    client.containers.run("ubuntu",
+                          remove=True,
+                          volumes=["{}:/opt/mount".format(dir)],
+                          entrypoint="chmod a+rw -R {}".format("/opt/mount"))
 
 
 def read_compose_file(file):
