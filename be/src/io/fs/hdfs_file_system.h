@@ -33,6 +33,7 @@
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 class THdfsParams;
@@ -78,7 +79,7 @@ public:
     bool invalid() {
         return _invalid ||
                (_is_kerberos &&
-                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000);
+                _now() - _create_time.load() > config::kerberos_expiration_time_seconds * 1000 / 2);
     }
 
     void set_invalid() { _invalid = true; }
@@ -111,7 +112,7 @@ class HdfsFileHandleCache;
 class HdfsFileSystem final : public RemoteFileSystem {
 public:
     static Status create(const THdfsParams& hdfs_params, const std::string& path,
-                         std::shared_ptr<HdfsFileSystem>* fs);
+                         RuntimeProfile* profile, std::shared_ptr<HdfsFileSystem>* fs);
 
     ~HdfsFileSystem() override;
 
@@ -122,7 +123,8 @@ public:
 protected:
     Status connect_impl() override;
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_internal(const Path& file, int64_t file_size, FileReaderSPtr* reader) override;
+    Status open_file_internal(const FileDescription& fd, const Path& abs_path,
+                              FileReaderSPtr* reader) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;
@@ -148,12 +150,14 @@ private:
 
 private:
     friend class HdfsFileWriter;
-    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path);
+    HdfsFileSystem(const THdfsParams& hdfs_params, const std::string& path,
+                   RuntimeProfile* profile);
     const THdfsParams& _hdfs_params;
     std::string _namenode;
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
     HdfsFileSystemHandle* _fs_handle;
+    RuntimeProfile* _profile;
 };
 } // namespace io
 } // namespace doris

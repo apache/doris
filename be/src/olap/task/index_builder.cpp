@@ -74,6 +74,18 @@ Status IndexBuilder::update_inverted_index_info() {
             for (auto t_inverted_index : _alter_inverted_indexes) {
                 TabletIndex index;
                 index.init_from_thrift(t_inverted_index, *input_rs_tablet_schema);
+                auto column_uid = index.col_unique_ids()[0];
+                const TabletIndex* exist_index =
+                        output_rs_tablet_schema->get_inverted_index(column_uid);
+                if (exist_index && exist_index->index_id() != index.index_id()) {
+                    // maybe there are concurrent drop index request did not obtain the lock,
+                    // so return error, to wait the drop index request finished.
+                    LOG(WARNING) << "column: " << column_uid << " has a exist inverted index"
+                                 << ", but the index id not equal request's index id, "
+                                 << ", exist index id: " << exist_index->index_id()
+                                 << ", request's index id: " << index.index_id();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_BUILD_WAITTING>();
+                }
                 output_rs_tablet_schema->append_index(std::move(index));
             }
         }
@@ -94,11 +106,9 @@ Status IndexBuilder::update_inverted_index_info() {
         if (!status.ok()) {
             return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>();
         }
-        std::set<int32_t> alter_column_ids_set =
-                _rowset_alter_index_column_ids[input_rowset->rowset_id().to_string()];
         RETURN_IF_ERROR(input_rowset->link_files_to(_tablet->tablet_path(),
                                                     output_rs_writer->rowset_id(), 0,
-                                                    &alter_column_ids_set)); // build output rowset
+                                                    &_alter_index_ids)); // build output rowset
 
         auto input_rowset_meta = input_rowset->rowset_meta();
         RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
@@ -402,8 +412,6 @@ Status IndexBuilder::do_build_inverted_index() {
         return Status::OK();
     }
 
-    _calc_alter_column_ids();
-
     auto st = update_inverted_index_info();
     if (!st.ok()) {
         LOG(WARNING) << "failed to update_inverted_index_info. "
@@ -471,30 +479,6 @@ void IndexBuilder::gc_output_rowset() {
         }
         StorageEngine::instance()->add_unused_rowset(output_rowset);
     }
-}
-
-Status IndexBuilder::_calc_alter_column_ids() {
-    for (auto& rs : _input_rowsets) {
-        RowsetId rowset_id = rs->rowset_id();
-        auto rs_tablet_schema = rs->tablet_schema();
-        std::set<int32_t> alter_column_uids;
-        for (auto inverted_index : _alter_inverted_indexes) {
-            auto column_name = inverted_index.columns[0];
-            auto column_idx = rs_tablet_schema->field_index(column_name);
-            if (column_idx < 0) {
-                LOG(WARNING) << "referenced column was missing. "
-                             << "[column=" << column_name << " referenced_column=" << column_idx
-                             << "]";
-                continue;
-            }
-            auto column = rs_tablet_schema->column(column_idx);
-            alter_column_uids.insert(column.unique_id());
-        }
-        _rowset_alter_index_column_ids.insert(
-                std::make_pair(rowset_id.to_string(), alter_column_uids));
-    }
-
-    return Status::OK();
 }
 
 } // namespace doris

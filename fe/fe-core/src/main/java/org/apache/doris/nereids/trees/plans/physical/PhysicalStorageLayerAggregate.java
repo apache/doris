@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
@@ -79,11 +78,6 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return ImmutableList.of();
-    }
-
-    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -113,7 +107,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
     }
 
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return new PhysicalStorageLayerAggregate(relation, aggOp);
+        return new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp);
     }
 
     @Override
@@ -142,8 +136,8 @@ public class PhysicalStorageLayerAggregate extends PhysicalRelation {
     public enum PushDownAggOp {
         COUNT, MIN_MAX, MIX;
 
-        public static Map<Class, PushDownAggOp> supportedFunctions() {
-            return ImmutableMap.<Class, PushDownAggOp>builder()
+        public static Map<Class<? extends AggregateFunction>, PushDownAggOp> supportedFunctions() {
+            return ImmutableMap.<Class<? extends AggregateFunction>, PushDownAggOp>builder()
                     .put(Count.class, PushDownAggOp.COUNT)
                     .put(Min.class, PushDownAggOp.MIN_MAX)
                     .put(Max.class, PushDownAggOp.MIN_MAX)

@@ -190,8 +190,8 @@ private:
     ScannerCounter* _counter;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
-    FileSystemProperties _system_properties;
-    FileDescription _file_description;
+    io::FileSystemProperties _system_properties;
+    io::FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
     std::shared_ptr<io::FileSystem> _file_system;
