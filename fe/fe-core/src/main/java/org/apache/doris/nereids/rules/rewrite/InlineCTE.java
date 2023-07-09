@@ -47,7 +47,7 @@ public class InlineCTE extends OneRewriteRuleFactory {
              *  Current we only implement CTE Materialize on pipeline engine and only materialize those CTE whose
              *  refCount > NereidsRewriter.INLINE_CTE_REFERENCED_THRESHOLD.
              */
-            if (ConnectContext.get().getSessionVariable().enablePipelineEngine
+            if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
                     && ConnectContext.get().getSessionVariable().enableCTEMaterialize
                     && refCount > INLINE_CTE_REFERENCED_THRESHOLD) {
                 return cteConsumer;

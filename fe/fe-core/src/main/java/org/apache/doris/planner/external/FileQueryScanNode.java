@@ -81,7 +81,7 @@ import java.util.Set;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
- * hive,hudi, iceberg and TVF.
+ * hive, hudi, iceberg and TVF.
  */
 public abstract class FileQueryScanNode extends FileScanNode {
     private static final Logger LOG = LogManager.getLogger(FileQueryScanNode.class);
@@ -163,6 +163,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
             Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
+        updateRequiredSlots();
+    }
+
+    private void updateRequiredSlots() throws UserException {
         params.unsetRequiredSlots();
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
@@ -196,6 +200,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     // Create scan range locations and the statistics.
     protected void doFinalize() throws UserException {
         createScanRangeLocations();
+        updateRequiredSlots();
     }
 
     private void setColumnPositionMapping()
@@ -415,3 +420,4 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return Optional.empty();
     }
 }
+

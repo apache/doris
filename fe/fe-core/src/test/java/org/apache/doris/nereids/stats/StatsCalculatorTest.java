@@ -252,8 +252,9 @@ public class StatsCalculatorTest {
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationUtil.newRelationId(), table1, Collections.emptyList())
-                .withLogicalProperties(Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
+        LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(RelationUtil.newRelationId(), table1,
+                Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))), ImmutableList.of());
         Group childGroup = newGroup();
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));
         Group ownerGroup = newGroup();

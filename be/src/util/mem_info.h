@@ -107,9 +107,15 @@ public:
 
     static inline void je_purge_all_arena_dirty_pages() {
 #ifdef USE_JEMALLOC
-        // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-        jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
-                  nullptr, 0);
+        try {
+            // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
+            jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
+                      nullptr, 0);
+        } catch (...) {
+            // https://github.com/jemalloc/jemalloc/issues/2470
+            // Occasional core dump during stress test.
+            LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
+        }
 #endif
     }
 

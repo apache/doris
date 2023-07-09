@@ -54,13 +54,11 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
 enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
 
 struct WriteRequest {
     int64_t tablet_id;
     int32_t schema_hash;
-    WriteType write_type;
     int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
@@ -121,8 +119,6 @@ public:
     Status wait_flush();
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
-
-    int32_t schema_hash() { return _tablet->schema_hash(); }
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
@@ -204,8 +200,6 @@ private:
     RuntimeProfile::Counter* _merged_rows_num = nullptr;
 
     MonotonicStopWatch _lock_watch;
-
-    MemTableStat _memtable_stat;
 };
 
 } // namespace doris
