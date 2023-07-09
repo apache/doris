@@ -121,7 +121,7 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, this.plan, right);
         return from(join);
     }
 
