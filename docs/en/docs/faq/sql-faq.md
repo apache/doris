@@ -87,9 +87,9 @@ In version 1.1.x, when vectorization is turned on, and the bitmp type field in t
 
 This is because the bitmap/hll type is in the vectorized execution engine: the input is all NULL, and the output result is also NULL instead of 0
 
-### Q6. Error when accessing object storage: curl 77: Problem with the SSL CA cert
+### Q6. Error when accessing object storage or using S3 load : curl 77: Problem with the SSL CA cert
 
-If the `curl 77: Problem with the SSL CA cert` error appears in the be.INFO log. You can try to solve it in the following ways:
+If the `curl 77: Problem with the SSL CA cert` error appears in the be.INFO or fe.INFO log. You can try to solve it in the following ways:
 
 1. Download the certificate at [https://curl.se/docs/caextract.html](https://curl.se/docs/caextract.html): cacert.pem
 2. Copy the certificate to the specified location: `sudo cp /tmp/cacert.pem /etc/ssl/certs/ca-certificates.crt`
