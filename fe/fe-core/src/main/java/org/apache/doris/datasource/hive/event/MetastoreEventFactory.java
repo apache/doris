@@ -118,6 +118,12 @@ public class MetastoreEventFactory implements EventFactory {
                         .collect(Collectors.toList());
             indexList.add(i);
             indexMap.put(groupKey, indexList);
+
+            // if the event is a rename event, just clear indexMap
+            // to make sure the table references of these events in indexMap will not change
+            if (event instanceof AlterTableEvent && ((AlterTableEvent) event).isRename()) {
+                indexMap.clear();
+            }
         }
 
         List<MetastoreEvent> filteredEvents = eventsCopy.stream().filter(Objects::nonNull)

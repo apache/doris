@@ -82,18 +82,13 @@ public class InsertEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent that) {
-        if (!(that instanceof MetastoreTableEvent) || !isSameTable(that)) {
-            return false;
-        }
-        if (that instanceof CreateTableEvent) {
-            return false;
-        }
-        if (that instanceof DropTableEvent) {
+        if (!isSameTable(that)) {
             return false;
         }
         if (that instanceof AlterTableEvent) {
-            return !((AlterTableEvent) that).isRename() && !((AlterTableEvent) that).isView();
+            // `that` event must not be a rename event
+            return !((AlterTableEvent) that).isView();
         }
-        return true;
+        return !(that instanceof DropTableEvent) && !(that instanceof CreateTableEvent);
     }
 }

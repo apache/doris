@@ -75,6 +75,7 @@ public class MetastoreEventFactoryTest {
         Assertions.assertTrue(mergedEvents.get(1).getEventId() == 10L);
         Assertions.assertTrue(mergedEvents.get(2).getEventId() == 4L);
 
+        // because e5 is a rename event, it will not be merged
         testEvents.clear();
         testEvents.add(e1);
         testEvents.add(e2);
@@ -121,6 +122,7 @@ public class MetastoreEventFactoryTest {
         Assertions.assertTrue(mergedEvents.get(0).getEventId() == 10L);
         Assertions.assertTrue(mergedEvents.get(1).getEventId() == 8L);
 
+        // because e5 is a rename event, it will not be merged
         testEvents.clear();
         testEvents.add(e1);
         testEvents.add(e2);
@@ -146,6 +148,7 @@ public class MetastoreEventFactoryTest {
         Assertions.assertTrue(mergedEvents.get(1).getEventId() == 12L);
         Assertions.assertTrue(mergedEvents.get(2).getEventId() == 7L);
 
+        // because e5 is a rename event, it will not be merged
         testEvents.clear();
         testEvents.add(e1);
         testEvents.add(e2);
