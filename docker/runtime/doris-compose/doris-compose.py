@@ -41,15 +41,15 @@ def up(args):
         cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE)
         LOG.info("Create new cluster {} succ, cluster path is {}".format(
             args.NAME, cluster.get_path()))
-        if not args.fe:
-            args.fe = 3
-        if not args.be:
-            args.be = 3
+        if not args.fe_num:
+            args.fe_num = 3
+        if not args.be_num:
+            args.be_num = 3
 
-    if args.fe:
-        cluster.set_node_num(CLUSTER.Node.TYPE_FE, args.fe)
-    if args.be:
-        cluster.set_node_num(CLUSTER.Node.TYPE_BE, args.be)
+    if args.fe_num:
+        cluster.set_node_num(CLUSTER.Node.TYPE_FE, args.fe_num)
+    if args.be_num:
+        cluster.set_node_num(CLUSTER.Node.TYPE_BE, args.be_num)
 
     cluster.save()
 
@@ -89,12 +89,12 @@ def clean_node_data(node):
 def add(args):
     cluster = CLUSTER.Cluster.load(args.NAME)
     new_nodes = []
-    if args.fe:
-        for i in range(args.fe):
+    if args.fe_num:
+        for i in range(args.fe_num):
             node = cluster.add(CLUSTER.Node.TYPE_FE, image=args.IMAGE)
             new_nodes.append(node)
-    if args.be:
-        for i in range(args.be):
+    if args.be_num:
+        for i in range(args.be_num):
             node = cluster.add(CLUSTER.Node.TYPE_BE, image=args.IMAGE)
             new_nodes.append(node)
 
@@ -431,12 +431,12 @@ def parse_args():
                        default="",
                        nargs="?",
                        help="Specify docker image")
-    ap_up.add_argument("--fe",
+    ap_up.add_argument("--fe-num",
                        type=int,
-                       help="Specify fe count, default 3 for new cluster")
-    ap_up.add_argument("--be",
+                       help="Specify fe num, default 3 for new cluster")
+    ap_up.add_argument("--be-num",
                        type=int,
-                       help="Specify be count, default 3 for new cluster")
+                       help="Specify be num, default 3 for new cluster")
     up_group = ap_up.add_mutually_exclusive_group()
     up_group.add_argument(
         "--no-start",
@@ -468,8 +468,8 @@ def parse_args():
                         default="",
                         nargs="?",
                         help="New add containers' image")
-    ap_add.add_argument("--fe", type=int, help="Specify new add fe num")
-    ap_add.add_argument("--be", type=int, help="Specify new add be num")
+    ap_add.add_argument("--fe-num", type=int, help="Specify new add fe num")
+    ap_add.add_argument("--be-num", type=int, help="Specify new add be num")
     ap_add.add_argument("--no-start",
                         default=False,
                         action=get_parser_bool_action(True),
