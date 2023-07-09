@@ -470,6 +470,11 @@ public:
             const std::vector<segment_v2::SegmentSharedPtr>& segments, int64_t txn_id,
             RowsetWriter* rowset_writer = nullptr);
 
+    Status full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                                const RowsetIdUnorderedSet& pre_rowset_ids,
+                                                DeleteBitmapPtr delete_bitmap,
+                                                RowsetWriter* rowset_writer = nullptr);
+
     Status update_delete_bitmap(const RowsetSharedPtr& rowset,
                                 const RowsetIdUnorderedSet& pre_rowset_ids,
                                 DeleteBitmapPtr delete_bitmap, int64_t txn_id,

@@ -19,12 +19,16 @@
 
 #include <time.h>
 
+#include <memory>
 #include <mutex>
 #include <ostream>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 #include "util/thread.h"
 #include "util/trace.h"
@@ -102,12 +106,27 @@ Status FullCompaction::pick_rowsets_to_compact() {
 }
 
 Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
+    // TODO: calculate publish rowsets delete bitmaps for full compaction.
+
+    std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
+    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+    RETURN_IF_ERROR(_tablet->full_compaction_update_delete_bitmap(
+            _output_rowset, pre_rowset_ids(),
+            std::make_shared<DeleteBitmap>(_output_rowset->rowset_meta()->tablet_id()),
+            _output_rs_writer.get()));
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
     RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     _tablet->save_meta();
     return Status::OK();
+}
+
+RowsetIdUnorderedSet FullCompaction::pre_rowset_ids() {
+    RowsetIdUnorderedSet pre_rowset_ids {};
+    for (const auto& rowset : _input_rowsets) {
+        pre_rowset_ids.insert(rowset->rowset_id());
+    }
+    return pre_rowset_ids;
 }
 
 } // namespace doris

@@ -3253,6 +3253,61 @@ Status Tablet::commit_phase_update_delete_bitmap(
     return Status::OK();
 }
 
+Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                                    RowsetWriter* rowset_writer) {
+    RowsetIdUnorderedSet cur_rowset_ids;
+    RowsetIdUnorderedSet rowset_ids_to_add;
+    DeleteBitmapPtr delete_bitmap =
+            std::make_shared<DeleteBitmap>(rowset->rowset_meta()->rowset_id());
+    int64_t cur_version = _tablet_meta->max_version().second;
+
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    _load_rowset_segments(rowset, &segments);
+
+    std::shared_lock meta_rlock(_meta_lock);
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(tablet_id())) {
+        LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
+                  << tablet_id();
+        return Status::OK();
+    }
+    cur_rowset_ids = all_rs_id(cur_version);
+    for (const auto& id : cur_rowset_ids) {
+        if (id < rowset->rowset_meta()->rowset_id()) {
+            cur_rowset_ids.erase(id);
+        }
+    }
+
+    std::vector<RowsetSharedPtr> specified_rowsets;
+    {
+        std::shared_lock meta_rlock(_meta_lock);
+        specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
+    }
+
+    OlapStopWatch watch;
+    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
+                                       cur_version, rowset_writer));
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << tablet_id()
+              << ", rowset_ids to add: " << rowset_ids_to_add.size()
+              << ", cur max_version: " << cur_version << ", cost: " << watch.get_elapse_time_us()
+              << "(us), total rows: " << total_rows;
+
+    // update version without write lock, compaction and publish_txn
+    // will update delete bitmap, handle compaction with _rowset_update_lock
+    // and publish_txn runs sequential so no need to lock here
+    for (auto iter = delete_bitmap->delete_bitmap.begin();
+         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
+        _tablet_meta->delete_bitmap().merge(
+                {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
+    }
+
+    return Status::OK();
+}
+
 Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset,
                                     const RowsetIdUnorderedSet& pre_rowset_ids,
                                     DeleteBitmapPtr delete_bitmap, int64_t txn_id,
