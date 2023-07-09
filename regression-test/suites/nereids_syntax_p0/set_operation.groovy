@@ -285,4 +285,9 @@ suite("test_nereids_set_operation") {
             ) a
         order by 1
     """
+
+    // test union distinct column prune
+    qt_union45 """
+        select count(*) from (select 1, 2 union select 1,1 ) a;
+    """
 }

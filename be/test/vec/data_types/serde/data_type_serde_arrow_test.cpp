@@ -52,6 +52,7 @@
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
@@ -61,29 +62,40 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 namespace doris::vectorized {
 
+template <bool is_scalar>
 void serialize_and_deserialize_arrow_test() {
     vectorized::Block block;
-    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols {
-            {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
-            {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
-            {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
-            {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
-            {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
-            {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false}};
+    std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols;
+    if constexpr (is_scalar) {
+        cols = {{"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
+                {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
+                {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
+                {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
+                {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
+                {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false}};
+    } else {
+        cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
+                {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
+                {"s", FieldType::OLAP_FIELD_TYPE_STRUCT, 5, TYPE_STRUCT, true}};
+    }
+
     int row_num = 7;
     // make desc and generate block
     TupleDescriptor tuple_desc(PTupleDescriptor(), true);
@@ -117,7 +129,11 @@ void serialize_and_deserialize_arrow_test() {
                             vectorized::make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
-                        mutable_nullable_vector->insert(int32(i));
+                        if (i % 2 == 0) {
+                            mutable_nullable_vector->insert_default();
+                        } else {
+                            mutable_nullable_vector->insert(int32(i));
+                        }
                     }
                     auto data_type = vectorized::make_nullable(
                             std::make_shared<vectorized::DataTypeInt32>());
@@ -239,6 +255,97 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(test_datetime);
             }
             break;
+        case TYPE_ARRAY: // array
+            type_desc.add_sub_type(TYPE_STRING, true);
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                DataTypePtr s =
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+                DataTypePtr au = std::make_shared<DataTypeArray>(s);
+                Array a1, a2;
+                a1.push_back(String("sss"));
+                a1.push_back(Null());
+                a1.push_back(String("clever amory"));
+                a2.push_back(String("hello amory"));
+                a2.push_back(Null());
+                a2.push_back(String("cute amory"));
+                a2.push_back(String("sf"));
+                MutableColumnPtr array_column = au->create_column();
+                array_column->reserve(2);
+                array_column->insert(a1);
+                array_column->insert(a2);
+                vectorized::ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au,
+                                                                col_name);
+                block.insert(type_and_name);
+            }
+            break;
+        case TYPE_MAP:
+            type_desc.add_sub_type(TYPE_STRING, true);
+            type_desc.add_sub_type(TYPE_STRING, true);
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                DataTypePtr s = std::make_shared<DataTypeString>();
+                DataTypePtr d =
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+                DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
+                Array k1, k2, v1, v2;
+                k1.push_back("null");
+                k1.push_back("doris");
+                k1.push_back("clever amory");
+                v1.push_back("ss");
+                v1.push_back(Null());
+                v1.push_back("NULL");
+                k2.push_back("hello amory");
+                k2.push_back("NULL");
+                k2.push_back("cute amory");
+                k2.push_back("doris");
+                v2.push_back("s");
+                v2.push_back("0");
+                v2.push_back("sf");
+                v2.push_back(Null());
+                Map m1, m2;
+                m1.push_back(k1);
+                m1.push_back(v1);
+                m2.push_back(k2);
+                m2.push_back(v2);
+                MutableColumnPtr map_column = m->create_column();
+                map_column->reserve(2);
+                map_column->insert(m1);
+                map_column->insert(m2);
+                vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+                block.insert(type_and_name);
+            }
+            break;
+        case TYPE_STRUCT:
+            type_desc.add_sub_type(TYPE_STRING, "name", true);
+            type_desc.add_sub_type(TYPE_LARGEINT, "age", true);
+            type_desc.add_sub_type(TYPE_BOOLEAN, "is", true);
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                DataTypePtr s =
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+                DataTypePtr d =
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+                DataTypePtr m =
+                        std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+                DataTypePtr st =
+                        std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
+                Tuple t1, t2;
+                t1.push_back(String("amory cute"));
+                t1.push_back(__int128_t(37));
+                t1.push_back(true);
+                t2.push_back("null");
+                t2.push_back(__int128_t(26));
+                t2.push_back(false);
+                MutableColumnPtr struct_column = st->create_column();
+                struct_column->reserve(2);
+                struct_column->insert(t1);
+                struct_column->insert(t2);
+                vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
+                                                                col_name);
+                block.insert(type_and_name);
+            }
+            break;
         default:
             break;
         }
@@ -260,6 +367,8 @@ void serialize_and_deserialize_arrow_test() {
 
     convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
     Block new_block = block.clone_empty();
+    EXPECT_TRUE(result != nullptr);
+    std::cout << "result: " << result->ToString() << std::endl;
     // deserialize
     for (auto t : cols) {
         std::string real_column_name = std::get<0>(t);
@@ -315,7 +424,11 @@ void serialize_and_deserialize_arrow_test() {
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
-    serialize_and_deserialize_arrow_test();
+    serialize_and_deserialize_arrow_test<true>();
+}
+
+TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
+    serialize_and_deserialize_arrow_test<false>();
 }
 
 } // namespace doris::vectorized

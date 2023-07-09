@@ -209,7 +209,7 @@ Status DeltaWriter::init() {
     // we can make sure same keys sort in the same order in all replicas.
     bool should_serial = false;
     RETURN_IF_ERROR(_storage_engine->memtable_flush_executor()->create_flush_token(
-            &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
+            _flush_token, _rowset_writer.get(), should_serial, _req.is_high_priority));
 
     _is_init = true;
     return Status::OK();
@@ -263,10 +263,6 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
 }
 
 Status DeltaWriter::_flush_memtable_async() {
-    if (_mem_table->empty()) {
-        return Status::OK();
-    }
-    _mem_table->assign_segment_id();
     return _flush_token->submit(std::move(_mem_table));
 }
 
@@ -342,22 +338,10 @@ void DeltaWriter::_reset_mem_table() {
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
     _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema.get(), _req.slots, _req.tuple_desc,
-                                  _rowset_writer.get(), _tablet->enable_unique_key_merge_on_write(),
+                                  _tablet->enable_unique_key_merge_on_write(),
                                   mem_table_insert_tracker, mem_table_flush_tracker));
 
     COUNTER_UPDATE(_segment_num, 1);
-    _mem_table->set_callback([this](MemTableStat& stat) {
-        _memtable_stat += stat;
-        COUNTER_SET(_sort_timer, _memtable_stat.sort_ns);
-        COUNTER_SET(_agg_timer, _memtable_stat.agg_ns);
-        COUNTER_SET(_memtable_duration_timer, _memtable_stat.duration_ns);
-        COUNTER_SET(_segment_writer_timer, _memtable_stat.segment_writer_ns);
-        COUNTER_SET(_put_into_output_timer, _memtable_stat.put_into_output_ns);
-        COUNTER_SET(_sort_times, _memtable_stat.sort_times);
-        COUNTER_SET(_agg_times, _memtable_stat.agg_times);
-        COUNTER_SET(_raw_rows_num, _memtable_stat.raw_rows);
-        COUNTER_SET(_merged_rows_num, _memtable_stat.merged_rows);
-    });
 }
 
 Status DeltaWriter::close() {
@@ -417,10 +401,11 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
 
     _mem_table.reset();
 
-    if (_rowset_writer->num_rows() + _memtable_stat.merged_rows != _total_received_rows) {
+    if (_rowset_writer->num_rows() + _flush_token->memtable_stat().merged_rows !=
+        _total_received_rows) {
         LOG(WARNING) << "the rows number written doesn't match, rowset num rows written to file: "
                      << _rowset_writer->num_rows()
-                     << ", merged_rows: " << _memtable_stat.merged_rows
+                     << ", merged_rows: " << _flush_token->memtable_stat().merged_rows
                      << ", total received rows: " << _total_received_rows;
         return Status::InternalError("rows number written by delta writer dosen't match");
     }
@@ -495,6 +480,16 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     }
     COUNTER_UPDATE(_lock_timer, _lock_watch.elapsed_time() / 1000);
     COUNTER_SET(_delete_bitmap_timer, _rowset_writer->delete_bitmap_ns());
+    COUNTER_SET(_segment_writer_timer, _rowset_writer->segment_writer_ns());
+    const auto& memtable_stat = _flush_token->memtable_stat();
+    COUNTER_SET(_sort_timer, memtable_stat.sort_ns);
+    COUNTER_SET(_agg_timer, memtable_stat.agg_ns);
+    COUNTER_SET(_memtable_duration_timer, memtable_stat.duration_ns);
+    COUNTER_SET(_put_into_output_timer, memtable_stat.put_into_output_ns);
+    COUNTER_SET(_sort_times, memtable_stat.sort_times);
+    COUNTER_SET(_agg_times, memtable_stat.agg_times);
+    COUNTER_SET(_raw_rows_num, memtable_stat.raw_rows);
+    COUNTER_SET(_merged_rows_num, memtable_stat.merged_rows);
     return Status::OK();
 }
 

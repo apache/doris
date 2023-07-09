@@ -19,33 +19,21 @@ package org.apache.doris.hudi;
 
 
 import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnValue;
-import org.apache.doris.common.jni.vec.TableSchema;
+import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.common.jni.vec.ScanPredicate;
 
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.serde2.Deserializer;
-import org.apache.hadoop.hive.serde2.objectinspector.StructField;
-import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
-import org.apache.hadoop.io.ArrayWritable;
-import org.apache.hadoop.io.NullWritable;
-import org.apache.hadoop.mapred.FileSplit;
-import org.apache.hadoop.mapred.InputFormat;
-import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.mapred.RecordReader;
-import org.apache.hadoop.mapred.Reporter;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hudi.common.model.HoodieLogFile;
-import org.apache.hudi.common.util.Option;
-import org.apache.hudi.hadoop.realtime.HoodieRealtimeFileSplit;
 import org.apache.log4j.Logger;
+import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.sources.Filter;
+import scala.collection.Iterator;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -57,118 +45,44 @@ import java.util.stream.Collectors;
  */
 public class HudiJniScanner extends JniScanner {
     private static final Logger LOG = Logger.getLogger(HudiJniScanner.class);
-    private final HudiScanParam hudiScanParam;
 
-    UserGroupInformation ugi = null;
-    private RecordReader<NullWritable, ArrayWritable> reader;
-    private StructObjectInspector rowInspector;
-    private Deserializer deserializer;
+    private final int fetchSize;
+    private final HoodieSplit split;
+    private final ScanPredicate[] predicates;
     private final ClassLoader classLoader;
+    private final UserGroupInformation ugi;
 
     private long getRecordReaderTimeNs = 0;
+    private Iterator<InternalRow> recordIterator;
 
     public HudiJniScanner(int fetchSize, Map<String, String> params) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Hudi JNI params:\n" + params.entrySet().stream().map(kv -> kv.getKey() + "=" + kv.getValue())
                     .collect(Collectors.joining("\n")));
         }
-        this.hudiScanParam = new HudiScanParam(fetchSize, params);
         this.classLoader = this.getClass().getClassLoader();
+        String predicatesAddressString = params.remove("push_down_predicates");
+        this.fetchSize = fetchSize;
+        this.split = new HoodieSplit(params);
+        if (predicatesAddressString == null) {
+            predicates = new ScanPredicate[0];
+        } else {
+            long predicatesAddress = Long.parseLong(predicatesAddressString);
+            if (predicatesAddress != 0) {
+                predicates = ScanPredicate.parseScanPredicates(predicatesAddress, split.requiredTypes());
+                LOG.info("HudiJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
+            } else {
+                predicates = new ScanPredicate[0];
+            }
+        }
+        ugi = Utils.getUserGroupInformation(split.hadoopConf());
     }
-
 
     @Override
     public void open() throws IOException {
-        try {
-            initTableInfo(hudiScanParam.getRequiredTypes(), hudiScanParam.getRequiredFields(), null,
-                    hudiScanParam.getFetchSize());
-            Properties properties = hudiScanParam.createProperties();
-            JobConf jobConf = HudiScanUtils.createJobConf(properties);
-            ugi = Utils.getUserGroupInformation(jobConf);
-            init(jobConf, properties);
-        } catch (Exception e) {
-            close();
-            throw new IOException("Failed to open the hudi reader.", e);
-        }
-    }
-
-    @Override
-    public void close() throws IOException {
-        try {
-            if (reader != null) {
-                reader.close();
-            }
-        } catch (IOException e) {
-            LOG.error("Failed to close the hudi reader.", e);
-            throw e;
-        }
-    }
-
-    @Override
-    public int getNext() throws IOException {
-        try {
-            NullWritable key = reader.createKey();
-            ArrayWritable value = reader.createValue();
-
-            int readRowNumbers = 0;
-            while (readRowNumbers < getBatchSize()) {
-                if (!reader.next(key, value)) {
-                    break;
-                }
-                Object rowData = deserializer.deserialize(value);
-
-                for (int i = 0; i < hudiScanParam.getRequiredFields().length; i++) {
-                    Object fieldData = rowInspector.getStructFieldData(rowData, hudiScanParam.getStructFields()[i]);
-                    if (fieldData == null) {
-                        appendData(i, null);
-                    } else {
-                        ColumnValue fieldValue = new HudiColumnValue(hudiScanParam.getFieldInspectors()[i], fieldData,
-                                hudiScanParam.getRequiredTypes()[i].getPrecision());
-                        appendData(i, fieldValue);
-                    }
-                }
-                readRowNumbers++;
-            }
-            return readRowNumbers;
-        } catch (Exception e) {
-            close();
-            throw new IOException("Failed to get the next batch of hudi.", e);
-        }
-    }
-
-    @Override
-    protected TableSchema parseTableSchema() throws UnsupportedOperationException {
-        // do nothing
-        return null;
-    }
-
-    private void init(JobConf jobConf, Properties properties) throws Exception {
-        String basePath = hudiScanParam.getBasePath();
-        String dataFilePath = hudiScanParam.getDataFilePath();
-        long dataFileLength = hudiScanParam.getDataFileLength();
-        String[] deltaFilePaths = hudiScanParam.getDeltaFilePaths();
-        String[] requiredFields = hudiScanParam.getRequiredFields();
-
-        String realtimePath = dataFilePath.isEmpty() ? deltaFilePaths[0] : dataFilePath;
-        long realtimeLength = dataFileLength > 0 ? dataFileLength : 0;
-
-        Path path = new Path(realtimePath);
-
-        FileSplit fileSplit = new FileSplit(path, 0, realtimeLength, (String[]) null);
-        List<HoodieLogFile> logFiles = Arrays.stream(deltaFilePaths).map(HoodieLogFile::new)
-                .collect(Collectors.toList());
-
-        FileSplit hudiSplit =
-                new HoodieRealtimeFileSplit(fileSplit, basePath, logFiles, hudiScanParam.getInstantTime(), false,
-                        Option.empty());
-
-        InputFormat<?, ?> inputFormatClass = HudiScanUtils.createInputFormat(jobConf, hudiScanParam.getInputFormat());
-
-        // org.apache.hudi.common.util.SerializationUtils$KryoInstantiator.newKryo
-        // throws error like `java.lang.IllegalArgumentException: classLoader cannot be null`.
-        // Set the default class loader
         Thread.currentThread().setContextClassLoader(classLoader);
-
+        initTableInfo(split.requiredTypes(), split.requiredFields(), predicates, fetchSize);
+        long startTime = System.nanoTime();
         // RecordReader will use ProcessBuilder to start a hotspot process, which may be stuck,
         // so use another process to kill this stuck process.
         // TODO(gaoxin): better way to solve the stuck process?
@@ -190,31 +104,49 @@ public class HudiJniScanner extends JniScanner {
                 }
             }
         }, 100, 1000, TimeUnit.MILLISECONDS);
-
-        long startTime = System.nanoTime();
         if (ugi != null) {
-            reader = ugi.doAs((PrivilegedExceptionAction<RecordReader<NullWritable, ArrayWritable>>) () -> {
-                RecordReader<NullWritable, ArrayWritable> ugiReader
-                        = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass.getRecordReader(hudiSplit,
-                        jobConf, Reporter.NULL);
-                return ugiReader;
-            });
+            try {
+                recordIterator = ugi.doAs(
+                        (PrivilegedExceptionAction<Iterator<InternalRow>>) () -> new MORSnapshotSplitReader(
+                                split).buildScanIterator(split.requiredFields(), new Filter[0]));
+            } catch (InterruptedException e) {
+                throw new IOException(e);
+            }
         } else {
-            reader = (RecordReader<NullWritable, ArrayWritable>) inputFormatClass
-                    .getRecordReader(hudiSplit, jobConf, Reporter.NULL);
+            recordIterator = new MORSnapshotSplitReader(split)
+                    .buildScanIterator(split.requiredFields(), new Filter[0]);
         }
-        getRecordReaderTimeNs += System.nanoTime() - startTime;
         isKilled.set(true);
         executorService.shutdownNow();
+        getRecordReaderTimeNs += System.nanoTime() - startTime;
+    }
 
-        deserializer = HudiScanUtils.getDeserializer(jobConf, properties, hudiScanParam.getSerde());
+    @Override
+    public void close() throws IOException {
+        if (recordIterator instanceof Closeable) {
+            ((Closeable) recordIterator).close();
+        }
+    }
 
-        rowInspector = (StructObjectInspector) deserializer.getObjectInspector();
-
-        for (int i = 0; i < requiredFields.length; i++) {
-            StructField field = rowInspector.getStructFieldRef(requiredFields[i]);
-            hudiScanParam.getStructFields()[i] = field;
-            hudiScanParam.getFieldInspectors()[i] = field.getFieldObjectInspector();
+    @Override
+    public int getNext() throws IOException {
+        try {
+            int readRowNumbers = 0;
+            HudiColumnValue columnValue = new HudiColumnValue();
+            int numFields = split.requiredFields().length;
+            ColumnType[] columnTypes = split.requiredTypes();
+            while (readRowNumbers < fetchSize && recordIterator.hasNext()) {
+                columnValue.reset(recordIterator.next());
+                for (int i = 0; i < numFields; i++) {
+                    columnValue.reset(i, columnTypes[i].getPrecision(), columnTypes[i].getScale());
+                    appendData(i, columnValue);
+                }
+                readRowNumbers++;
+            }
+            return readRowNumbers;
+        } catch (Exception e) {
+            close();
+            throw new IOException("Failed to get the next batch of hudi.", e);
         }
     }
 

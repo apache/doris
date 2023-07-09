@@ -213,8 +213,8 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 }
 
 Status FullTextIndexReader::new_iterator(OlapReaderStatistics* stats,
-                                         InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(stats, this);
+                                         std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
 
@@ -404,9 +404,9 @@ InvertedIndexReaderType FullTextIndexReader::type() {
     return InvertedIndexReaderType::FULLTEXT;
 }
 
-Status StringTypeInvertedIndexReader::new_iterator(OlapReaderStatistics* stats,
-                                                   InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(stats, this);
+Status StringTypeInvertedIndexReader::new_iterator(
+        OlapReaderStatistics* stats, std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
 
@@ -543,13 +543,14 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
         LOG(WARNING) << "bkd index: " << index_file.string() << " not exist.";
         return;
     }
-    _compoundReader = new DorisCompoundReader(
+    _compoundReader = std::make_unique<DorisCompoundReader>(
             DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
             config::inverted_index_read_buffer_size);
 }
 
-Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats, InvertedIndexIterator** iterator) {
-    *iterator = new InvertedIndexIterator(stats, this);
+Status BkdIndexReader::new_iterator(OlapReaderStatistics* stats,
+                                    std::unique_ptr<InvertedIndexIterator>* iterator) {
+    *iterator = InvertedIndexIterator::create_unique(stats, shared_from_this());
     return Status::OK();
 }
 

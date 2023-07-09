@@ -16,9 +16,6 @@
    limitations under the License.
   -->
 <project version="4">
-  <component name="VcsDirectoryMappings">
-    <mapping directory="$PROJECT_DIR$" vcs="Git" />
-  </component>
   <component name="IssueNavigationConfiguration">
     <option name="links">
       <list>
@@ -28,5 +25,10 @@
         </IssueNavigationLink>
       </list>
     </option>
+  </component>
+  <component name="VcsDirectoryMappings">
+    <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/be/src/apache-orc" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/be/src/clucene" vcs="Git" />
   </component>
 </project>

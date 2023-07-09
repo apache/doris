@@ -1583,6 +1583,7 @@ public class ShowExecutor {
         HMSExternalCatalog catalog = (HMSExternalCatalog) (showStmt.getCatalog());
         List<List<String>> rows = new ArrayList<>();
         String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+
         List<String> partitionNames = catalog.getClient().listPartitionNames(dbName,
                 showStmt.getTableName().getTbl());
         for (String partition : partitionNames) {
@@ -1592,9 +1593,7 @@ public class ShowExecutor {
         }
 
         // sort by partition name
-        rows.sort((x, y) -> {
-            return x.get(0).compareTo(y.get(0));
-        });
+        rows.sort(Comparator.comparing(x -> x.get(0)));
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

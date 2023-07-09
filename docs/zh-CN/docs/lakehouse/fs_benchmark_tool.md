@@ -85,11 +85,13 @@ sh run-fs-benchmark.sh \
 
 - `open_read`：在`create_write`创建好文件的基础下，每个线程读取文件名为`test_当前的线程号`的文件，读取大小为`file_size`。
 
+- `single_read`：读取`file_path(conf文件中设置)`文件，读取大小为`file_size`。
+
+- `prefetch_read`：使用 prefetch reader 读取`file_path(conf文件中设置)`文件，读取大小为`file_size`。仅适用于 s3。
+
 - `exists` ：每个线程查询文件名为`test_当前的线程号`的文件是否存在。
 
 - `rename` ：在`create_write`创建好文件的基础下，每个线程将文件名为为`test_当前的线程号`的文件更改为为`test_当前的线程号_new`。
-
-- `single_read`：读取`file_path(conf文件中设置)`文件，读取大小为`file_size`。
 
 - `list`：获取 `base_dir(conf文件中设置)` 目录下的文件列表。
 
