@@ -159,7 +159,7 @@ def start(args):
     updated = []
     no_updated = nodes
     if args.IMAGE:
-        updated, no_updated = split_nodes_updated_or_not(nodes, args.IMAGE)
+        updated, no_updated = update_node_image(nodes, args.IMAGE)
 
     if updated:
         cluster.save()
@@ -238,7 +238,7 @@ def restart(args):
     updated = []
     no_updated = nodes
     if args.IMAGE:
-        updated, no_updated = split_nodes_updated_or_not(nodes, args.IMAGE)
+        updated, no_updated = update_node_image(nodes, args.IMAGE)
 
     if updated:
         cluster.save()
@@ -256,7 +256,7 @@ def restart(args):
             len(nodes))))
 
 
-def split_nodes_updated_or_not(nodes, new_image):
+def update_node_image(nodes, new_image):
     updated = []
     no_updated = []
     for node in nodes:
