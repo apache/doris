@@ -18,6 +18,7 @@
 import cluster as CLUSTER
 import os.path
 import pymysql
+import time
 import utils
 
 LOG = utils.get_logger()
@@ -37,22 +38,23 @@ class FEState(object):
 
 class BEState(object):
 
-    def __init__(self, id, decommissioned, alive, last_heartbeat, err_msg):
+    def __init__(self, id, decommissioned, alive, tablet_num, last_heartbeat,
+                 err_msg):
         self.id = id
         self.decommissioned = decommissioned
         self.alive = alive
+        self.tablet_num = tablet_num
         self.last_heartbeat = last_heartbeat
         self.err_msg = err_msg
 
 
-class DB(object):
+class DBManager(object):
 
     def __init__(self):
         self.fe_states = {}
         self.be_states = {}
         self.query_port = -1
         self.conn = None
-        self.updated = False
 
     def set_query_port(self, query_port):
         self.query_port = query_port
@@ -63,15 +65,70 @@ class DB(object):
     def get_be(self, id):
         return self.be_states.get(id, None)
 
-    def update_states(self, query_ports):
-        self._update_fe_states(query_ports)
-        self._update_be_states()
-        self.updated = True
+    def load_states(self, query_ports):
+        self._load_fe_states(query_ports)
+        self._load_be_states()
 
-    def _update_fe_states(self, query_ports):
+    def drop_fe(self, fe_endpoint):
+        try:
+            self._exec_query(
+                "ALTER SYSTEM DROP FOLLOWER '{}'".format(fe_endpoint))
+            LOG.info("Drop fe {} from db succ.".format(fe_endpoint))
+        except Exception as e:
+            if str(e).find("frontend does not exist") >= 0:
+                LOG.info(
+                    "Drop fe {} from db succ cause it does not exist in db.")
+                return
+            raise e
+
+    def drop_be(self, be_endpoint):
+        try:
+            self._exec_query(
+                "ALTER SYSTEM DROPP BACKEND '{}'".format(be_endpoint))
+            LOG.info("Drop be {} from db succ.".format(be_endpoint))
+        except Exception as e:
+            if str(e).find("backend does not exists") >= 0:
+                LOG.info(
+                    "Drop be {} from db succ cause it does not exist in db.")
+                return
+            raise e
+
+    def decommission_be(self, be_endpoint):
+        old_tablet_num = 0
+        id = CLUSTER.Node.get_id_from_ip(be_endpoint[:be_endpoint.find(":")])
+        if id not in self.be_states:
+            self._load_be_states()
+        if id in self.be_states:
+            old_tablet_num = self.be_states[id].tablet_num
+        try:
+            self._exec_query(
+                "ALTER SYSTEM DECOMMISSION BACKEND '{}'".format(be_endpoint))
+            LOG.info("Mark be {} as decommissioned, start migrate its tablets, " \
+                    "wait migrating job finish.".format(be_endpoint))
+        except Exception as e:
+            if str(e).find("Backend does not exist") >= 0:
+                LOG.info(" be {} from db succ cause it does not exist in db.")
+                return
+            raise e
+
+        while True:
+            self._load_be_states()
+            be = self.be_states.get(id, None)
+            if not be:
+                LOG.info("Decommission be {} succ, total migrate {} tablets, " \
+                        "has drop it from db.".format(be_endpoint, old_tablet_num))
+                return
+            LOG.info(
+                    "Decommission be {} status: alive {}, decommissioned {}. " \
+                    "It is migrating its tablets, left {}/{} tablets."
+                .format(be_endpoint, be.alive, be.decommissioned, be.tablet_num, old_tablet_num))
+
+            time.sleep(5)
+
+    def _load_fe_states(self, query_ports):
         fe_states = {}
         alive_master_fe_port = None
-        for record in self._exec_sql("show frontends"):
+        for record in self._exec_query("show frontends;"):
             ip = record[1]
             is_master = record[7] == "true"
             alive = record[10] == "true"
@@ -91,20 +148,22 @@ class DB(object):
                                         port=alive_master_fe_port)
             self.query_port = alive_master_fe_port
 
-    def _update_be_states(self):
+    def _load_be_states(self):
         be_states = {}
-        for record in self._exec_sql("show backends"):
+        for record in self._exec_query("show backends;"):
             ip = record[1]
             last_heartbeat = record[7]
             alive = record[8] == "true"
             decommissioned = record[9] == "true"
+            tablet_num = int(record[10])
             err_msg = record[18]
             id = CLUSTER.Node.get_id_from_ip(ip)
-            be = BEState(id, decommissioned, alive, last_heartbeat, err_msg)
+            be = BEState(id, decommissioned, alive, tablet_num, last_heartbeat,
+                         err_msg)
             be_states[id] = be
         self.be_states = be_states
 
-    def _exec_sql(self, sql):
+    def _exec_query(self, sql):
         self._prepare_conn()
         with self.conn.cursor() as cursor:
             cursor.execute(sql)
@@ -120,13 +179,13 @@ class DB(object):
                                     port=self.query_port)
 
 
-def get_current_db(cluster_name):
+def get_db_mgr(cluster_name, required_load_succ=True):
     assert cluster_name
-    db = DB()
+    db_mgr = DBManager()
     containers = utils.get_doris_containers(cluster_name).get(
         cluster_name, None)
     if not containers:
-        return db
+        return db_mgr
     alive_fe_ports = {}
     for container in containers:
         if utils.is_container_running(container):
@@ -137,7 +196,7 @@ def get_current_db(cluster_name):
                 if query_port:
                     alive_fe_ports[id] = query_port
     if not alive_fe_ports:
-        return db
+        return db_mgr
 
     master_fe_ip_file = os.path.join(CLUSTER.get_status_path(cluster_name),
                                      "master_fe_ip")
@@ -154,10 +213,12 @@ def get_current_db(cluster_name):
             query_port = alive_fe_ports[1]
         query_port = list(alive_fe_ports.values())[0]
 
-    db.set_query_port(query_port)
+    db_mgr.set_query_port(query_port)
     try:
-        db.update_states(alive_fe_ports)
+        db_mgr.load_states(alive_fe_ports)
     except Exception as e:
+        if required_load_succ:
+            raise e
         LOG.exception(e)
 
-    return db
+    return db_mgr

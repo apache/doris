@@ -55,14 +55,14 @@ def up(args):
     cluster.save()
 
     if args.no_up:
-        LOG.info("Not up cluster cause specific --no-up")
+        LOG.info(utils.render_green("Not up cluster cause specific --no-up"))
     else:
         options = ["-d", "--remove-orphans"]
         if args.force_recreate:
             options.append("--force-recreate")
         utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
                                           options)
-        LOG.info("Up cluster {} succ".format(args.NAME))
+        LOG.info(utils.render_green("Up cluster {} succ".format(args.NAME)))
 
 
 def down(args):
@@ -71,7 +71,7 @@ def down(args):
                                       ["--remove-orphans"])
     if args.clean:
         shutil.rmtree(cluster.get_path())
-    LOG.info("Down cluster {} succ".format(args.NAME))
+    LOG.info(utils.render_green("Down cluster {} succ".format(args.NAME)))
 
 
 def add(args):
@@ -95,22 +95,27 @@ def add(args):
     ]))
 
     if not new_nodes:
+        LOG.info(utils.render_green("No add new nodes"))
         return
 
     cluster.save()
     if args.no_start:
         utils.exec_docker_compose_command(
-            cluster.get_compose_file, ["--no-start"],
+            cluster.get_compose_file(), "up", ["--no-start"],
             [node.service_name() for node in new_nodes])
-        LOG.info("Not start new add nodes cause specific --no-start")
+        LOG.info(
+            utils.render_green(
+                "Not start new add nodes cause specific --no-start"))
     else:
         utils.exec_docker_compose_command(
-            cluster.get_compose_file, ["-d"],
+            cluster.get_compose_file(), "up", ["-d"],
             [node.service_name() for node in new_nodes])
-        LOG.info("Start new add succ, relate {} nodes".format(len(new_nodes)))
+        LOG.info(
+            utils.render_green("Start new add succ, relate {} nodes".format(
+                len(new_nodes))))
 
 
-def get_relate_cluster_and_nodes(args):
+def get_relate_cluster_and_nodes(args, ignore_not_exists=False):
     cluster = CLUSTER.Cluster.load(args.NAME)
 
     def get_nodes_with_ids(node_type, ids):
@@ -118,8 +123,17 @@ def get_relate_cluster_and_nodes(args):
             return []
         elif not ids:
             return cluster.get_all_node(node_type)
-        else:
+        elif not ignore_not_exists:
             return [cluster.get_node(node_type, id) for id in ids]
+        else:
+            nodes = []
+            for id in ids:
+                try:
+                    nodes.append(cluster.get_node(node_type, id))
+                except:
+                    LOG.warning("Not contains {} with id {}".format(
+                        node_type, id))
+            return nodes
 
     nodes = get_nodes_with_ids(CLUSTER.Node.TYPE_FE,
                                args.fe) + get_nodes_with_ids(
@@ -137,56 +151,68 @@ def start(args):
         cluster.get_compose_file(),
         "start",
         services=[node.service_name() for node in nodes])
-    LOG.info("Start run succ, total relate {} nodes".format(len(nodes)))
-
-
-def remove(node, drop, decommission):
-    cluster.run_docker_compose_with_nodes("stop", nodes)
+    LOG.info(
+        utils.render_green("Start run succ, total relate {} nodes".format(
+            len(nodes))))
 
 
 def stop(args):
-    cluster, nodes = get_relate_cluster_and_nodes(args)
+    cluster, nodes = get_relate_cluster_and_nodes(args, ignore_not_exists=True)
     if not nodes:
-        LOG.info("Stop run succ, total relate {} nodes".format(len(nodes)))
+        LOG.info(
+            utils.render_green("Stop run succ, total relate {} nodes".format(
+                len(nodes))))
         return
 
     if not args.drop and not args.decommission:
         utils.exec_docker_compose_command(
-            cluster.get_compose_file(), "stop",
-            [node.service_name() for node in nodes])
-        LOG.info("Stop run succ, total relate {} nodes".format(len(nodes)))
+            cluster.get_compose_file(),
+            "stop",
+            services=[node.service_name() for node in nodes])
+        LOG.info(
+            utils.render_green("Stop run succ, total relate {} nodes".format(
+                len(nodes))))
         return
 
-    try:
-        pool = ThreadPool(process=10)
-        tasks = [
-            pool.apply_async(remove, node, drop, decommission)
-            for node in nodes
-        ]
-        for _ in tasks.get():
-            pass
-    finally:
-        pool.close()
-        pool.join
-
     if args.drop:
-        LOG.info("Drop nodes cause has specify --drop")
+        LOG.info("Start drop nodes cause has specify --drop")
     else:
-        LOG.info("Decommission nodes cause has specify --decommission")
+        LOG.info("Start decommission nodes cause has specify --decommission")
 
-    if args.clean:
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(), "down", ["--remove-orphans"],
-            [node.service_name() for node in nodes])
-        for node in nodes:
-            shutil.rmtree(node.get_path())
-        LOG.info("Clean nodes's files cause has specify --clean")
-
+    db_mgr = database.get_db_mgr(cluster.name)
     for node in nodes:
-        cluster.remove(node.node_type(), node.id)
+        if node.is_fe():
+            fe_endpoint = "{}:{}".format(node.get_ip(),
+                                         CLUSTER.FE_EDITLOG_PORT)
+            db_mgr.drop_fe(fe_endpoint)
+        elif node.is_be():
+            be_endpoint = "{}:{}".format(node.get_ip(),
+                                         CLUSTER.BE_HEARTBEAT_PORT)
+            if args.drop:
+                db_mgr.drop_be(be_endpoint)
+            else:
+                db_mgr.decommission_be(be_endpoint)
+        else:
+            raise Exception("Unknown node type: {}".format(node.node_type()))
 
-    cluster.save()
-    LOG.info("Stop run succ, total relate {} nodes".format(len(nodes)))
+        utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                          "stop",
+                                          services=[node.service_name()])
+
+        LOG.info("Stop {} with id {} with ip {} succ".format(
+            node.node_type(), node.id, node.get_ip()))
+
+        cluster.remove(node.node_type(), node.id)
+        cluster.save()
+
+        if args.clean:
+            for node in nodes:
+                shutil.rmtree(node.get_path())
+            LOG.info("Clean nodes's files cause has specify --clean")
+
+    LOG.info(
+        utils.render_green("Stop final succ, total relate {} nodes".format(
+            len(nodes))))
 
 
 def restart(args):
@@ -198,7 +224,9 @@ def restart(args):
         cluster.get_compose_file(),
         "restart",
         services=[node.service_name() for node in nodes])
-    LOG.info("Restart run succ, total relate {} nodes".format(len(nodes)))
+    LOG.info(
+        utils.render_green("Restart run succ, total relate {} nodes".format(
+            len(nodes))))
 
 
 def ls(args):
@@ -207,6 +235,12 @@ def ls(args):
     COMPOSE_GOOD = ""
 
     SERVICE_DEAD = "dead"
+
+    class ComposeService(object):
+
+        def __init__(self, ip, image):
+            self.ip = ip
+            self.image = image
 
     def parse_cluster_compose_file(cluster_name):
         compose_file = CLUSTER.get_compose_file(cluster_name)
@@ -219,7 +253,13 @@ def ls(args):
             services = compose.get("services", {})
             if services is None:
                 return COMPOSE_BAD, {}
-            return COMPOSE_GOOD, {service: None for service in services.keys()}
+            return COMPOSE_GOOD, {
+                service:
+                ComposeService(
+                    list(service_conf["networks"].values())[0]["ipv4_address"],
+                    service_conf["image"])
+                for service, service_conf in services.items()
+            }
         except:
             return COMPOSE_BAD, {}
 
@@ -247,58 +287,17 @@ def ls(args):
                 container.status = "orphans"
             cluster_info["services"][container.name] = container
 
-    if args.NAME:
-        headers = ("CLUSTER", "NAME", "STATUS", "CONTAINER ID", "IMAGE",
-                   "CREATED", "alive", "is_master", "query_port",
-                   "last_heartbeat", "err_msg")
-        table = prettytable.PrettyTable(headers)
-        for name in sorted(clusters.keys()):
-            services = clusters[name]["services"]
-            db = database.get_current_db(name)
-            for service_name, container in services.items():
-                if container is None:
-                    table.add_row((name, service_name, SERVICE_DEAD, "", "",
-                                   "", "", "", "", "", ""))
-                else:
-                    create = container.attrs.get("Created",
-                                                 "")[:19].replace("T", " ")
-                    #show_ports = ", ".join([
-                    #    "{}=>{}".format(inner, outer) for inner, outer in
-                    #    utils.get_map_ports(container).items()
-                    #])
-                    show_image = ",".join(container.image.tags)
-                    alive = ""
-                    is_master = ""
-                    query_port = ""
-                    last_heartbeat = ""
-                    err_msg = ""
-                    _, node_type, id = utils.parse_service_name(container.name)
-                    if node_type == CLUSTER.Node.TYPE_FE:
-                        fe = db.get_fe(id)
-                        if fe:
-                            alive = fe.alive
-                            is_master = fe.is_master
-                            query_port = fe.query_port
-                            last_heartbeat = fe.last_heartbeat
-                            err_msg = fe.err_msg
-                    elif node_type == CLUSTER.Node.TYPE_BE:
-                        be = db.get_be(id)
-                        if be:
-                            alive = be.alive
-                            last_heartbeat = be.last_heartbeat
-                            err_msg = be.err_msg
-                    table.add_row(
-                        (name, service_name, container.status,
-                         container.short_id, show_image, create, alive,
-                         is_master, query_port, last_heartbeat, err_msg))
-    else:
-        headers = ("CLUSTER", "STATUS", "CONFIG FILES")
+    TYPE_COMPOSESERVICE = type(ComposeService("", ""))
+    if not args.NAME:
+        headers = (utils.render_green(field)
+                   for field in ("CLUSTER", "STATUS", "CONFIG FILES"))
         table = prettytable.PrettyTable(headers)
         for name in sorted(clusters.keys()):
             cluster_info = clusters[name]
             service_statuses = {}
             for _, container in cluster_info["services"].items():
-                status = container.status if container else SERVICE_DEAD
+                status = SERVICE_DEAD if type(
+                    container) == TYPE_COMPOSESERVICE else container.status
                 service_statuses[status] = service_statuses.get(status, 0) + 1
             show_status = ",".join([
                 "{}({})".format(status, count)
@@ -310,6 +309,61 @@ def ls(args):
             table.add_row(
                 (name, show_status, "{}{}".format(compose_file,
                                                   cluster_info["status"])))
+        print(table)
+        return
+
+    headers = (utils.render_green(field)
+               for field in ("CLUSTER", "NAME", "IP", "STATUS", "CONTAINER ID",
+                             "IMAGE", "CREATED", "alive", "is_master",
+                             "query_port", "tablet_num", "last_heartbeat",
+                             "err_msg"))
+    table = prettytable.PrettyTable(headers)
+    for name in sorted(clusters.keys()):
+        services = clusters[name]["services"]
+        db_mgr = database.get_db_mgr(name, False)
+        for service_name, container in services.items():
+            if type(container) == TYPE_COMPOSESERVICE:
+                table.add_row(
+                    (name, service_name, container.ip, SERVICE_DEAD, "",
+                     container.image, "", "", "", "", "", "", ""))
+            else:
+                create = container.attrs.get("Created",
+                                             "")[:19].replace("T", " ")
+                #show_ports = ", ".join([
+                #    "{}=>{}".format(inner, outer) for inner, outer in
+                #    utils.get_map_ports(container).items()
+                #])
+                ip = list(
+                    container.attrs["NetworkSettings"]
+                    ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
+                show_image = ",".join(container.image.tags)
+                alive = ""
+                is_master = ""
+                query_port = ""
+                last_heartbeat = ""
+                err_msg = ""
+                tablet_num = ""
+                _, node_type, id = utils.parse_service_name(container.name)
+                if node_type == CLUSTER.Node.TYPE_FE:
+                    fe = db_mgr.get_fe(id)
+                    if fe:
+                        alive = str(fe.alive).lower()
+                        is_master = str(fe.is_master).lower()
+                        query_port = fe.query_port
+                        last_heartbeat = fe.last_heartbeat
+                        err_msg = fe.err_msg
+                elif node_type == CLUSTER.Node.TYPE_BE:
+                    be = db_mgr.get_be(id)
+                    if be:
+                        alive = str(be.alive).lower()
+                        tablet_num = be.tablet_num
+                        last_heartbeat = be.last_heartbeat
+                        err_msg = be.err_msg
+
+                table.add_row(
+                    (name, service_name, ip, container.status,
+                     container.short_id, show_image, create, alive, is_master,
+                     query_port, tablet_num, last_heartbeat, err_msg))
     print(table)
 
 
@@ -370,6 +424,10 @@ def parse_args():
 
     ap_add = sub_aps.add_parser("add", help="Add doris containers")
     ap_add.add_argument("NAME", help="Specify cluster name")
+    ap_add.add_argument("IMAGE",
+                        default="",
+                        nargs="?",
+                        help="New add containers' image")
     ap_add.add_argument("--fe", type=int, help="Specify new add fe num")
     ap_add.add_argument("--be", type=int, help="Specify new add be num")
     ap_add.add_argument("--no-start",
@@ -428,6 +486,7 @@ def parse_args():
 
 def main():
     usage, _, args = parse_args()
+    timer = utils.Timer()
     if args.command == "up":
         return up(args)
     elif args.command == "down":
@@ -443,6 +502,7 @@ def main():
     elif args.command == "ls":
         return ls(args)
     else:
+        timer.cancel()
         print(usage)
         return -1
 

@@ -19,9 +19,25 @@ import docker
 import logging
 import os
 import subprocess
+import time
 import yaml
 
 DORIS_PREFIX = "doris-"
+
+
+class Timer(object):
+
+    def __init__(self):
+        self.start = time.time()
+        self.canceled = False
+
+    def __del__(self):
+        if not self.canceled:
+            LOG.info("=== Total run time: {} s".format(
+                int(time.time() - self.start)))
+
+    def cancel(self):
+        self.canceled = True
 
 
 def get_logger(name=None):
@@ -40,6 +56,18 @@ def get_logger(name=None):
 
 
 LOG = get_logger()
+
+
+def render_red(s):
+    return "\x1B[31m" + str(s) + "\x1B[0m"
+
+
+def render_green(s):
+    return "\x1B[32m" + str(s) + "\x1B[0m"
+
+
+def render_blue(s):
+    return "\x1B[34m" + str(s) + "\x1B[0m"
 
 
 def with_doris_prefix(name):
@@ -119,6 +147,8 @@ def exec_shell_command(command, ignore_errors=False):
     out = p.communicate()[0].decode('utf-8')
     if not ignore_errors:
         assert p.returncode == 0, out
+    if out:
+        print(out)
     return p.returncode, out
 
 

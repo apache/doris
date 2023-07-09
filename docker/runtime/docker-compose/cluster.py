@@ -111,6 +111,9 @@ class Group(object):
 
         return id
 
+    def remove(self, id):
+        self.nodes.pop(id, None)
+
     def get_node_num(self):
         return len(self.nodes)
 
@@ -160,6 +163,14 @@ class Node(object):
                 conf_dir)
             assert not utils.is_dir_empty(conf_dir), "conf directory {} is empty, " \
                     "check doris path in image is correct".format(conf_dir)
+        for sub_dir in self.expose_sub_dirs():
+            os.makedirs(os.path.join(path, sub_dir), exist_ok=True)
+
+    def is_fe(self):
+        return self.node_type() == Node.TYPE_FE
+
+    def is_be(self):
+        return self.node_type() == Node.TYPE_BE
 
     def node_type(self):
         raise Exception("No implemented")
@@ -224,9 +235,6 @@ class Node(object):
     def docker_volumns(self):
         raise Exception("No implemented")
 
-    def remove_command(self, remove_type):
-        raise Exception("No implemented")
-
     def compose(self):
         return {
             "cap_add": ["SYS_PTRACE"],
@@ -286,12 +294,6 @@ class FE(Node):
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["doris-meta"]
 
-    def remove_command(self, remove_type):
-        cmd = "bash {}/fe_util.sh --drop"
-        if drop or decommission:
-            cmd += " --drop"
-        return cmd
-
 
 class BE(Node):
 
@@ -310,14 +312,6 @@ class BE(Node):
 
     def expose_sub_dirs(self):
         return super().expose_sub_dirs() + ["storage"]
-
-    def stop_command(self, drop, decommission):
-        cmd = "bash {}/be_util.sh --stop"
-        if drop:
-            cmd += " --drop"
-        elif decommission:
-            cmd += " --decommission"
-        return cmd
 
 
 class Cluster(object):
@@ -386,8 +380,9 @@ class Cluster(object):
         old_num = self.get_group(node_type).get_node_num()
         for i in range(num - old_num):
             self.add(node_type)
-        for i in range(old_num - num):
-            self.remove(node_type)
+        # TODO
+        #for i in range(old_num - num):
+        #    self.remove(node_type)
 
     def get_node(self, node_type, id):
         group = self.get_group(node_type)
@@ -414,8 +409,9 @@ class Cluster(object):
         node.init_dir()
         return node
 
-    def remove(self, node_type, id=None):
-        pass
+    def remove(self, node_type, id):
+        group = self.get_group(node_type)
+        group.remove(id)
 
     def save_meta(self):
         with open(Cluster._get_meta_file(self.name), "w") as f:
