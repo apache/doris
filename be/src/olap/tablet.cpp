@@ -3264,7 +3264,6 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
 
-    std::shared_lock meta_rlock(_meta_lock);
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet_state() == TABLET_NOTREADY &&
         SchemaChangeHandler::tablet_in_converting(tablet_id())) {
@@ -3280,10 +3279,7 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
     }
 
     std::vector<RowsetSharedPtr> specified_rowsets;
-    {
-        std::shared_lock meta_rlock(_meta_lock);
-        specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
-    }
+    specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
 
     OlapStopWatch watch;
     RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,

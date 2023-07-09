@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <shared_mutex>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -106,14 +107,10 @@ Status FullCompaction::pick_rowsets_to_compact() {
 }
 
 Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
-    // TODO: calculate publish rowsets delete bitmaps for full compaction.
-
-    std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
-    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
-    RETURN_IF_ERROR(_tablet->full_compaction_update_delete_bitmap(
-            _output_rowset, pre_rowset_ids(),
-            std::make_shared<DeleteBitmap>(_output_rowset->rowset_meta()->tablet_id()),
-            _output_rs_writer.get()));
+    std::lock_guard<std::mutex> rowset_update_lock(_tablet->get_rowset_update_lock());
+    std::lock_guard<std::shared_mutex> header_lock(_tablet->get_header_lock());
+    RETURN_IF_ERROR(
+            _tablet->full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
     RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
