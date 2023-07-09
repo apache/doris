@@ -486,7 +486,7 @@ def parse_args():
 
 
 def main():
-    usage, _, args = parse_args()
+    _, help, args = parse_args()
     timer = utils.Timer()
     if args.command == "up":
         return up(args)
@@ -504,7 +504,7 @@ def main():
         return ls(args)
     else:
         timer.cancel()
-        print(usage)
+        print(help)
         return -1
 
 
