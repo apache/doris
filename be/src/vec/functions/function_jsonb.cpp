@@ -517,11 +517,7 @@ public:
         size_t input_rows_count = json_data_const ? rdata_columns.size() : loffsets.size();
         res_offsets.resize(input_rows_count);
 
-        std::unique_ptr<JsonbWriter> writer;
-        if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
-            writer.reset(new JsonbWriter());
-        }
-
+        auto writer = std::make_unique<JsonbWriter>();
         std::unique_ptr<JsonbToJson> formater;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -551,7 +547,6 @@ public:
                     size_t r_off = roffsets[index_check_const(i, path_const[pi]) - 1];
                     size_t r_size = roffsets[index_check_const(i, path_const[pi])] - r_off;
                     const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
-                    String path(r_raw, r_size);
                     // doc is NOT necessary to be deleted since JsonbDocument will not allocate memory
                     JsonbDocument* doc = JsonbDocument::createDocument(l_raw, l_size);
                     if (UNLIKELY(!doc || !doc->getValue())) {
@@ -571,25 +566,14 @@ public:
                     }
                     if (UNLIKELY(!value)) {
                         writer->writeNull();
-                        continue;
+                    } else {
+                        writer->writeValue(value);
                     }
-                    writer->writeValue(value);
                 }
                 writer->writeEndArray();
-                if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
-                    StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
-                                                                 writer->getOutput()->getSize()),
-                                                i, res_data, res_offsets);
-                } else {
-                    // transform jsonb to json
-                    if (!formater) {
-                        formater.reset(new JsonbToJson());
-                    }
-                    StringOP::push_value_string(
-                            formater->to_json_string(writer->getOutput()->getBuffer(),
-                                                     writer->getOutput()->getSize()),
-                            i, res_data, res_offsets);
-                }
+                StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
+                                                             writer->getOutput()->getSize()),
+                                            i, res_data, res_offsets);
             }
         } //for
         return Status::OK();
