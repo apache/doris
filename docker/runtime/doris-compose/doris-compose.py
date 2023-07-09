@@ -156,13 +156,22 @@ def get_relate_cluster_and_nodes(args, ignore_not_exists=False):
 
 def start(args):
     cluster, nodes = get_relate_cluster_and_nodes(args)
+    updated = []
+    no_updated = nodes
     if args.IMAGE:
-        for node in nodes:
-            node.set_image(args.IMAGE)
-    utils.exec_docker_compose_command(
-        cluster.get_compose_file(),
-        "start",
-        services=[node.service_name() for node in nodes])
+        updated, no_updated = split_nodes_updated_or_not(nodes, args.IMAGE)
+
+    if updated:
+        cluster.save()
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "up", ["-d"],
+            services=[node.service_name() for node in updated])
+    if no_updated:
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "start",
+            services=[node.service_name() for node in no_updated])
     LOG.info(
         utils.render_green("Start run succ, total relate {} nodes".format(
             len(nodes))))
@@ -176,11 +185,11 @@ def stop(args):
                 len(nodes))))
         return
 
+    utils.exec_docker_compose_command(
+        cluster.get_compose_file(),
+        "stop",
+        services=[node.service_name() for node in nodes])
     if not args.drop and not args.decommission:
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(),
-            "stop",
-            services=[node.service_name() for node in nodes])
         LOG.info(
             utils.render_green("Stop run succ, total relate {} nodes".format(
                 len(nodes))))
@@ -226,16 +235,37 @@ def stop(args):
 
 def restart(args):
     cluster, nodes = get_relate_cluster_and_nodes(args)
+    updated = []
+    no_updated = nodes
     if args.IMAGE:
-        for node in nodes:
-            node.set_image(args.IMAGE)
-    utils.exec_docker_compose_command(
-        cluster.get_compose_file(),
-        "restart",
-        services=[node.service_name() for node in nodes])
+        updated, no_updated = split_nodes_updated_or_not(nodes, args.IMAGE)
+
+    if updated:
+        cluster.save()
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "up", ["-d"],
+            services=[node.service_name() for node in updated])
+    if no_updated:
+        utils.exec_docker_compose_command(
+            cluster.get_compose_file(),
+            "restart",
+            services=[node.service_name() for node in no_updated])
     LOG.info(
         utils.render_green("Restart run succ, total relate {} nodes".format(
             len(nodes))))
+
+
+def split_nodes_updated_or_not(nodes, new_image):
+    updated = []
+    no_updated = []
+    for node in nodes:
+        if node.get_image() == new_image:
+            no_updated.append(node)
+        else:
+            node.set_image(new_image)
+            updated.append(node)
+    return updated, no_updated
 
 
 def ls(args):
@@ -473,11 +503,11 @@ def parse_args():
         help="Drop doris node. for fe and be, both send drop sql")
 
     ap_restart = sub_aps.add_parser("restart", help="Restart doris containers")
+    add_cluster_and_node_list_arg(ap_restart)
     ap_restart.add_argument("IMAGE",
                             default="",
                             nargs="?",
                             help="Update containers' image")
-    add_cluster_and_node_list_arg(ap_restart)
 
     ap_ls = sub_aps.add_parser("ls", help="List running compose projects")
     ap_ls.add_argument(
