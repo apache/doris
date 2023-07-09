@@ -29,7 +29,7 @@ class SlotDescriptor;
 // numeric types, etc.
 class TextConverter {
 public:
-    TextConverter(char escape_char ,char array_delimiter ='\2');
+    TextConverter(char escape_char, char array_delimiter ='\2');
 
     void write_string_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data,
