@@ -50,6 +50,8 @@
 #include "io/fs/local_file_system.h"
 #include "olap/olap_common.h"
 #include "util/string_parser.hpp"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 
 using std::string;
 using std::set;
@@ -659,6 +661,25 @@ bool valid_bool(const std::string& value_str) {
     StringParser::string_to_bool(value_str.c_str(), value_str.length(), &result);
     return result == StringParser::PARSE_SUCCESS;
 }
+
+bool valid_ipv4(const std::string& value_str) {
+    if (value_str.size() == 0) {
+        return false;
+    }
+
+    vectorized::IPv4 value;
+    return IPv4Value::from_string(value, value_str);
+}
+
+bool valid_ipv6(const std::string& value_str) {
+    if (value_str.size() == 0) {
+        return false;
+    }
+
+    vectorized::IPv6 value;
+    return IPv6Value::from_string(value, value_str);
+}
+
 
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...) {
     va_list args;
