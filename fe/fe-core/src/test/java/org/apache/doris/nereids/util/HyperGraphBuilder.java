@@ -130,7 +130,7 @@ public class HyperGraphBuilder {
                     rightBitmap);
             Plan leftPlan = plans.get(leftKey.get());
             Plan rightPlan = plans.get(rightKey.get());
-            LogicalJoin join = new LogicalJoin<>(joinType, new ArrayList<>(), leftPlan, rightPlan);
+            LogicalJoin join = new LogicalJoin<>(joinType, leftPlan, rightPlan);
 
             BitSet key = new BitSet();
             key.or(leftKey.get());

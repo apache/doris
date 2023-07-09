@@ -160,7 +160,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
                             using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
-                            using.left(), using.right());
+                            using.children());
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
                     List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
@@ -208,7 +208,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
                             hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
-                            join.left(), join.right());
+                            join.children());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
