@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
@@ -49,9 +50,9 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_FILE_SINK, groupExpression, logicalProperties, child);
-        this.filePath = filePath;
-        this.format = format;
-        this.properties = properties;
+        this.filePath = Objects.requireNonNull(filePath);
+        this.format = Objects.requireNonNull(format);
+        this.properties = ImmutableMap.copyOf(Objects.requireNonNull(properties));
     }
 
     @Override
@@ -96,8 +97,10 @@ public class LogicalFileSink<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFileSink<>(filePath, format, properties, groupExpression, logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalFileSink<>(filePath, format, properties, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

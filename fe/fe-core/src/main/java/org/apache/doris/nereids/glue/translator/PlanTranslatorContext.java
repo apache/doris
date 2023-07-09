@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -87,8 +86,6 @@ public class PlanTranslatorContext {
     private final Map<CTEId, PlanFragment> cteProduceFragments = Maps.newHashMap();
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
-
-    private OutFileClause outFileClause;
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -222,13 +219,5 @@ public class PlanTranslatorContext {
 
     public DescriptorTable getDescTable() {
         return descTable;
-    }
-
-    public void setOutFileClause(OutFileClause outFileClause) {
-        this.outFileClause = outFileClause;
-    }
-
-    public OutFileClause getOutFileClause() {
-        return outFileClause;
     }
 }

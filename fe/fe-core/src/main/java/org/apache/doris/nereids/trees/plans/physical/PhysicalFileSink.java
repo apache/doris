@@ -118,8 +118,10 @@ public class PhysicalFileSink<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, getLogicalProperties(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalFileSink<>(filePath, format, properties, groupExpression, logicalProperties.get(),
+                children.get(0));
     }
 
     @Override
