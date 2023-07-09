@@ -56,25 +56,25 @@ public class AlterTableEvent extends MetastoreTableEvent {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.ALTER_TABLE.equals(getEventType()));
         Preconditions
-            .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
             JSONAlterTableMessage alterTableMessage =
-                (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
-                    .getAlterTableMessage(event.getMessage());
+                    (JSONAlterTableMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
+                            .getAlterTableMessage(event.getMessage());
             tableAfter = Preconditions.checkNotNull(alterTableMessage.getTableObjAfter());
             tableBefore = Preconditions.checkNotNull(alterTableMessage.getTableObjBefore());
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                debugString("Unable to parse the alter table message"), e);
+                    debugString("Unable to parse the alter table message"), e);
         }
         // this is a rename event if either dbName or tblName of before and after object changed
         isRename = !tableBefore.getDbName().equalsIgnoreCase(tableAfter.getDbName())
-            || !tableBefore.getTableName().equalsIgnoreCase(tableAfter.getTableName());
+                || !tableBefore.getTableName().equalsIgnoreCase(tableAfter.getTableName());
         isView = tableBefore.isSetViewExpandedText() || tableBefore.isSetViewOriginalText();
     }
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event,
-                                                 String catalogName) {
+            String catalogName) {
         return Lists.newArrayList(new AlterTableEvent(event, catalogName));
     }
 
@@ -83,9 +83,9 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-            .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-            .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
     }
 
     private void processRename() throws DdlException {
@@ -93,17 +93,17 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         boolean hasExist = Env.getCurrentEnv().getCatalogMgr()
-            .externalTableExistInLocal(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
+                .externalTableExistInLocal(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
         if (hasExist) {
             infoLog("AlterExternalTable canceled,because tableAfter has exist, "
-                    + "catalogName:[{}],dbName:[{}],tableName:[{}]",
-                catalogName, dbName, tableAfter.getTableName());
+                            + "catalogName:[{}],dbName:[{}],tableName:[{}]",
+                    catalogName, dbName, tableAfter.getTableName());
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-            .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-            .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
 
     }
 
@@ -123,7 +123,7 @@ public class AlterTableEvent extends MetastoreTableEvent {
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableBefore:[{}],tableAfter:[{}]", catalogName, dbName,
-                tableBefore.getTableName(), tableAfter.getTableName());
+                    tableBefore.getTableName(), tableAfter.getTableName());
             if (isRename) {
                 processRename();
                 return;
@@ -136,10 +136,10 @@ public class AlterTableEvent extends MetastoreTableEvent {
             }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                debugString("Failed to process event"), e);
+                    debugString("Failed to process event"), e);
         }
     }
 
