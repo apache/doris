@@ -3255,7 +3255,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
 
 Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                     RowsetWriter* rowset_writer) {
-    RowsetIdUnorderedSet cur_rowset_ids;
+    std::vector<RowsetId> cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
     int64_t cur_version = _tablet_meta->max_version().second;
@@ -3270,10 +3270,13 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
                   << tablet_id();
         return Status::OK();
     }
-    cur_rowset_ids = all_rs_id(cur_version);
-    for (const auto& id : cur_rowset_ids) {
-        if (id < rowset->rowset_meta()->rowset_id()) {
-            cur_rowset_ids.erase(id);
+
+    // TODO: refactor this code.
+    for (const auto& it : _rs_version_map) {
+        if (it.first.first > rowset->version().second) {
+            rowset_ids_to_add.insert(it.second->rowset_id());
+            LOG(INFO) << "[Full compaction rowsets to add]"
+                      << "[" << it.first.first << "-" << it.first.second << "]";
         }
     }
 
