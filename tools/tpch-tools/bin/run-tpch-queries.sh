@@ -106,7 +106,7 @@ start=$(date +%s)
 run_sql "analyze database ${DB} with sync;"
 end=$(date +%s)
 totalTime=$((end - start))
-echo "analyze database ${DB} with sync total time: $totalTime s"
+echo "analyze database ${DB} with sync total time: ${totalTime} s"
 echo '============================================'
 echo "Time Unit: ms"
 
