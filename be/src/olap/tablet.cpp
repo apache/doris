@@ -3257,8 +3257,7 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
                                                     RowsetWriter* rowset_writer) {
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
-    DeleteBitmapPtr delete_bitmap =
-            std::make_shared<DeleteBitmap>(rowset->rowset_meta()->rowset_id());
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
     int64_t cur_version = _tablet_meta->max_version().second;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
