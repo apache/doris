@@ -201,7 +201,7 @@ suite("test_bitmap_index") {
                 k8 DATETIME,
                 k9 LARGEINT,
                k10 DECIMAL,
-               k11 BOOLEAN,s
+               k11 BOOLEAN,
                k12 DATEV2,
                k13 DATETIMEV2,
                k14 DATETIMEV2(3),
