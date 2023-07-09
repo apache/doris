@@ -208,10 +208,11 @@ public class MaterializedViewHandler extends AlterHandler {
             List<Column> mvColumns = checkAndPrepareMaterializedView(addMVClause, olapTable);
 
             // Step2: create mv job
-            RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns,
-                    addMVClause.getWhereClauseItemExpr(olapTable),
-                    addMVClause.getProperties(), olapTable, db, baseIndexId,
-                    addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
+            RollupJobV2 rollupJobV2 =
+                    createMaterializedViewJob(addMVClause.toSql(), mvIndexName, baseIndexName, mvColumns,
+                            addMVClause.getWhereClauseItemExpr(olapTable),
+                            addMVClause.getProperties(), olapTable, db, baseIndexId,
+                            addMVClause.getMVKeysType(), addMVClause.getOrigStmt());
 
             addAlterJobV2(rollupJobV2);
 
@@ -236,7 +237,7 @@ public class MaterializedViewHandler extends AlterHandler {
      * @throws DdlException
      * @throws AnalysisException
      */
-    public void processBatchAddRollup(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
+    public void processBatchAddRollup(String rawSql, List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
         checkReplicaCount(olapTable);
         Map<String, RollupJobV2> rollupNameJobMap = new LinkedHashMap<>();
@@ -285,8 +286,10 @@ public class MaterializedViewHandler extends AlterHandler {
                         addRollupClause, olapTable, baseIndexId, changeStorageFormat);
 
                 // step 3 create rollup job
-                RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, null,
-                        addRollupClause.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(), null);
+                RollupJobV2 alterJobV2 =
+                        createMaterializedViewJob(rawSql, rollupIndexName, baseIndexName, rollupSchema, null,
+                                addRollupClause.getProperties(), olapTable, db, baseIndexId, olapTable.getKeysType(),
+                                null);
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());
@@ -335,7 +338,7 @@ public class MaterializedViewHandler extends AlterHandler {
      * @throws DdlException
      * @throws AnalysisException
      */
-    private RollupJobV2 createMaterializedViewJob(String mvName, String baseIndexName,
+    private RollupJobV2 createMaterializedViewJob(String rawSql, String mvName, String baseIndexName,
             List<Column> mvColumns, Column whereColumn, Map<String, String> properties,
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
             OriginStatement origStmt) throws DdlException, AnalysisException {
@@ -364,7 +367,7 @@ public class MaterializedViewHandler extends AlterHandler {
         IdGeneratorBuffer idGeneratorBuffer = env.getIdGeneratorBuffer(bufferSize);
         long jobId = idGeneratorBuffer.getNextId();
         long mvIndexId = idGeneratorBuffer.getNextId();
-        RollupJobV2 mvJob = new RollupJobV2(jobId, dbId, tableId, olapTable.getName(), timeoutMs,
+        RollupJobV2 mvJob = new RollupJobV2(rawSql, jobId, dbId, tableId, olapTable.getName(), timeoutMs,
                 baseIndexId, mvIndexId, baseIndexName, mvName,
                 mvColumns, whereColumn, baseSchemaHash, mvSchemaHash,
                 mvKeysType, mvShortKeyColumnCount, origStmt);
@@ -1196,7 +1199,8 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     @Override
-    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
+    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+                        OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         if (olapTable.isDuplicateWithoutKey()) {
             throw new DdlException("Duplicate table without keys do not support alter rollup!");
@@ -1204,7 +1208,7 @@ public class MaterializedViewHandler extends AlterHandler {
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
         if (alterClauseOptional.isPresent()) {
             if (alterClauseOptional.get() instanceof AddRollupClause) {
-                processBatchAddRollup(alterClauses, db, olapTable);
+                processBatchAddRollup(rawSql, alterClauses, db, olapTable);
             } else if (alterClauseOptional.get() instanceof DropRollupClause) {
                 processBatchDropRollup(alterClauses, db, olapTable);
             } else {

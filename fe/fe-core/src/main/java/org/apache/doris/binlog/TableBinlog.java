@@ -149,15 +149,17 @@ public class TableBinlog {
             Iterator<TBinlog> iter = binlogs.iterator();
             while (iter.hasNext()) {
                 TBinlog binlog = iter.next();
-                if (binlog.getTimestamp() <= expireMs) {
-                    if (binlog.getType() == TBinlogType.UPSERT) {
-                        tombstoneUpsert = binlog;
-                    }
-                    largestExpiredCommitSeq = binlog.getCommitSeq();
-                    iter.remove();
-                } else {
+                long timestamp = binlog.getTimestamp();
+
+                if (timestamp > expireMs) {
                     break;
                 }
+
+                if (binlog.getType() == TBinlogType.UPSERT) {
+                    tombstoneUpsert = binlog;
+                }
+                largestExpiredCommitSeq = binlog.getCommitSeq();
+                iter.remove();
             }
         } finally {
             lock.writeLock().unlock();
