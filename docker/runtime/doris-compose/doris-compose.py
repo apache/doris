@@ -79,8 +79,9 @@ def down(args):
 
 
 def clean_node_data(node):
-    utils.exec_docker_compose_command(CLUSTER.get_compose_file(node.cluster_name), "rm", ["-f", "-v", "-s"],
-                                      [node.service_name()])
+    utils.exec_docker_compose_command(
+        CLUSTER.get_compose_file(node.cluster_name), "rm", ["-f", "-v", "-s"],
+        [node.service_name()])
     utils.enable_dir_with_rw_perm(node.get_path())
     shutil.rmtree(node.get_path())
 
