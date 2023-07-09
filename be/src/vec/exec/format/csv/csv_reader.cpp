@@ -91,7 +91,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _file_compress_type = _params.compress_type;
     _size = _range.size;
 
-    _text_converter.reset(new (std::nothrow) TextConverter('\\',_array_delimiter[0]));
+    _text_converter.reset(new (std::nothrow) TextConverter('\\', _array_delimiter[0]));
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
