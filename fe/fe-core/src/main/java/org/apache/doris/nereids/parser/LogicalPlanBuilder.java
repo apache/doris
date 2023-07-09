@@ -37,6 +37,7 @@ import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
@@ -1439,8 +1440,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         Map<String, String> properties = Maps.newHashMap();
         for (TvfPropertyContext argument : ctx.properties) {
-            String key = parseTVFPropertyItem(argument.key);
-            String value = parseTVFPropertyItem(argument.value);
+            String key = parseConstant(argument.key.constant());
+            String value = parseConstant(argument.value.constant());
             properties.put(key, value);
         }
         Literal filePath = (Literal) visit(ctx.filePath);
@@ -1876,10 +1877,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private String parseTVFPropertyItem(TvfPropertyItemContext item) {
         if (item.constant() != null) {
-            Object constant = visit(item.constant());
-            if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
-                return ((Literal) constant).getStringValue();
-            }
+            return parseConstant(item.constant());
         }
         return item.getText();
     }
@@ -1929,5 +1927,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         throw new ParseException("Unsupported function with order expressions" + ctx.getText(), ctx);
+    }
+
+    private String parseConstant(ConstantContext context) {
+        Object constant = visit(context);
+        if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
+            return ((Literal) constant).getStringValue();
+        }
     }
 }
