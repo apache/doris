@@ -408,6 +408,8 @@ public class NereidsPlanner extends Planner {
                 return "cost = " + cost + "\n" + optimizedPlan.treeString();
             case SHAPE_PLAN:
                 return optimizedPlan.shape("");
+            case MEMO_PLAN:
+                return cascadesContext.getMemo().toString();
             case ALL_PLAN:
                 return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
