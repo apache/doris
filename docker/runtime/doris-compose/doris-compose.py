@@ -19,7 +19,6 @@ import argparse
 import cluster as CLUSTER
 import database
 import utils
-from multiprocessing.pool import ThreadPool
 import os
 import os.path
 import prettytable
@@ -54,8 +53,9 @@ def up(args):
 
     cluster.save()
 
-    if args.no_up:
-        LOG.info(utils.render_green("Not up cluster cause specific --no-up"))
+    if args.no_start:
+        LOG.info(
+            utils.render_green("Not up cluster cause specific --no-start"))
     else:
         options = ["-d", "--remove-orphans"]
         if args.force_recreate:
@@ -399,10 +399,11 @@ def parse_args():
                        type=int,
                        help="Specify be count, default 3 for new cluster")
     up_group = ap_up.add_mutually_exclusive_group()
-    up_group.add_argument("--no-up",
-                          default=False,
-                          action=get_parser_bool_action(True),
-                          help="Not run cluster, only create")
+    up_group.add_argument(
+        "--no-start",
+        default=False,
+        action=get_parser_bool_action(True),
+        help="Not start cluster, create or update config image only")
     up_group.add_argument("--force-recreate",
                        default=False,
                        action=get_parser_bool_action(True),
