@@ -28,244 +28,183 @@ import sys
 LOG = utils.get_logger()
 
 
-def up(args):
-    if not args.NAME:
-        raise Exception("Need specific not empty cluster name")
-    try:
-        cluster = CLUSTER.Cluster.load(args.NAME)
-        if args.IMAGE:
-            cluster.set_image(args.IMAGE)
-    except:
-        if not args.IMAGE:
-            raise Exception("New cluster must specific image")
-        cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE)
-        LOG.info("Create new cluster {} succ, cluster path is {}".format(
-            args.NAME, cluster.get_path()))
-        if not args.fe_num:
-            args.fe_num = 3
-        if not args.be_num:
-            args.be_num = 3
+def get_ids_related_nodes(cluster, fe_ids, be_ids, ignore_not_exists=False):
+    if fe_ids is None and be_ids is None:
+        return True, None, cluster.get_all_nodes_num()
 
-    if args.fe_num:
-        cluster.set_node_num(CLUSTER.Node.TYPE_FE, args.fe_num)
-    if args.be_num:
-        cluster.set_node_num(CLUSTER.Node.TYPE_BE, args.be_num)
-
-    cluster.save()
-
-    if args.no_start:
-        LOG.info(
-            utils.render_green("Not up cluster cause specific --no-start"))
-    else:
-        options = ["-d", "--remove-orphans"]
-        if args.force_recreate:
-            options.append("--force-recreate")
-        utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
-                                          options)
-        LOG.info(utils.render_green("Up cluster {} succ".format(args.NAME)))
-
-
-def down(args):
-    cluster = CLUSTER.Cluster.load(args.NAME)
-
-    utils.exec_docker_compose_command(cluster.get_compose_file(), "down",
-                                      ["-v", "--remove-orphans"])
-    if args.clean:
-        LOG.info("Clean cluster data cause has specific --clean")
-        utils.enable_dir_with_rw_perm(cluster.get_path())
-        shutil.rmtree(cluster.get_path())
-
-    LOG.info(utils.render_green("Down cluster {} succ".format(args.NAME)))
-
-
-def clean_node_data(node):
-    utils.exec_docker_compose_command(
-        CLUSTER.get_compose_file(node.cluster_name), "rm", ["-f", "-v", "-s"],
-        [node.service_name()])
-    utils.enable_dir_with_rw_perm(node.get_path())
-    shutil.rmtree(node.get_path())
-
-
-def add(args):
-    cluster = CLUSTER.Cluster.load(args.NAME)
-    new_nodes = []
-    if args.fe_num:
-        for i in range(args.fe_num):
-            node = cluster.add(CLUSTER.Node.TYPE_FE, image=args.IMAGE)
-            new_nodes.append(node)
-    if args.be_num:
-        for i in range(args.be_num):
-            node = cluster.add(CLUSTER.Node.TYPE_BE, image=args.IMAGE)
-            new_nodes.append(node)
-
-    LOG.info("Add new fe ids: {}, new be ids {}".format([
-        node.id
-        for node in new_nodes if node.node_type() == CLUSTER.Node.TYPE_FE
-    ], [
-        node.id
-        for node in new_nodes if node.node_type() == CLUSTER.Node.TYPE_BE
-    ]))
-
-    if not new_nodes:
-        LOG.info(utils.render_green("No add new nodes"))
-        return
-
-    cluster.save()
-    if args.no_start:
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(), "up", ["--no-start"],
-            [node.service_name() for node in new_nodes])
-        LOG.info(
-            utils.render_green(
-                "Not start new add nodes cause specific --no-start"))
-    else:
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(), "up", ["-d"],
-            [node.service_name() for node in new_nodes])
-        LOG.info(
-            utils.render_green("Start new add succ, relate {} nodes".format(
-                len(new_nodes))))
-
-
-def get_relate_cluster_and_nodes(args, ignore_not_exists=False):
-    cluster = CLUSTER.Cluster.load(args.NAME)
-
-    def get_nodes_with_ids(node_type, ids):
+    def get_ids_related_nodes_with_type(node_type, ids):
         if ids is None:
             return []
-        elif not ids:
-            return cluster.get_all_node(node_type)
-        elif not ignore_not_exists:
-            return [cluster.get_node(node_type, id) for id in ids]
+        if not ids:
+            return cluster.get_all_nodes(node_type)
         else:
             nodes = []
             for id in ids:
                 try:
                     nodes.append(cluster.get_node(node_type, id))
-                except:
-                    LOG.warning("Not contains {} with id {}".format(
-                        node_type, id))
+                except Exception as e:
+                    if ignore_not_exists:
+                        LOG.warning("Not found {} with id {}".format(
+                            node_type, id))
+                    else:
+                        raise e
             return nodes
 
-    nodes = get_nodes_with_ids(CLUSTER.Node.TYPE_FE,
-                               args.fe) + get_nodes_with_ids(
-                                   CLUSTER.Node.TYPE_BE, args.be)
+    nodes = get_ids_related_nodes_with_type(
+        CLUSTER.Node.TYPE_FE, fe_ids) + get_ids_related_nodes_with_type(
+            CLUSTER.Node.TYPE_BE, be_ids)
+    return False, nodes, len(nodes)
 
-    return cluster, nodes
+
+def up(args):
+    if not args.NAME:
+        raise Exception("Need specific not empty cluster name")
+    for_all = True
+    try:
+        cluster = CLUSTER.Cluster.load(args.NAME)
+        if args.fe_id != None or args.be_id != None or args.add_fe_num or args.add_be_num:
+            for_all = False
+    except:
+        # a new cluster
+        if not args.IMAGE:
+            raise Exception("New cluster must specific image")
+        args.fe_id = None
+        args.be_id = None
+        cluster = CLUSTER.Cluster.new(args.NAME, args.IMAGE)
+        LOG.info("Create new cluster {} succ, cluster path is {}".format(
+            args.NAME, cluster.get_path()))
+        if not args.add_fe_num:
+            args.add_fe_num = 3
+        if not args.add_be_num:
+            args.add_be_num = 3
+
+    _, related_nodes, _ = get_ids_related_nodes(cluster, args.fe_id,
+                                                args.be_id)
+    if not related_nodes:
+        related_nodes = []
+    if args.add_fe_num:
+        for i in range(args.add_fe_num):
+            related_nodes.append(cluster.add(CLUSTER.Node.TYPE_FE))
+    if args.add_be_num:
+        for i in range(args.add_be_num):
+            related_nodes.append(cluster.add(CLUSTER.Node.TYPE_BE))
+    if args.IMAGE:
+        for node in related_nodes:
+            node.set_image(args.IMAGE)
+    if for_all and args.IMAGE:
+        cluster.set_image(args.IMAGE)
+    cluster.save()
+
+    options = []
+    if args.no_start:
+        options.append("--no-start")
+    else:
+        options = ["-d", "--remove-orphans"]
+        if args.force_recreate:
+            options.append("--force-recreate")
+
+    related_node_num = len(related_nodes)
+    if for_all:
+        related_node_num = cluster.get_all_nodes_num()
+        related_nodes = None
+
+    utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
+                                      options, related_nodes)
+    if args.no_start:
+        LOG.info(
+            utils.render_green(
+                "Not up cluster cause specific --no-start, related node num {}"
+                .format(related_node_num)))
+    else:
+        LOG.info(
+            utils.render_green(
+                "Up cluster {} succ, related node num {}".format(
+                    args.NAME, related_node_num)))
+
+
+def down(args):
+    cluster = CLUSTER.Cluster.load(args.NAME)
+    for_all, related_nodes, related_node_num = get_ids_related_nodes(
+        cluster, args.fe_id, args.be_id, ignore_not_exists=True)
+
+    if for_all:
+        utils.exec_docker_compose_command(cluster.get_compose_file(), "down",
+                                          ["-v", "--remove-orphans"])
+        if args.clean:
+            LOG.info("Clean cluster data cause has specific --clean")
+            utils.enable_dir_with_rw_perm(cluster.get_path())
+            shutil.rmtree(cluster.get_path())
+    else:
+        db_mgr = database.get_db_mgr(cluster.name)
+
+        for node in related_nodes:
+            if node.is_fe():
+                fe_endpoint = "{}:{}".format(node.get_ip(),
+                                             CLUSTER.FE_EDITLOG_PORT)
+                db_mgr.drop_fe(fe_endpoint)
+            elif node.is_be():
+                be_endpoint = "{}:{}".format(node.get_ip(),
+                                             CLUSTER.BE_HEARTBEAT_PORT)
+                if args.drop_force:
+                    db_mgr.drop_be(be_endpoint)
+                else:
+                    db_mgr.decommission_be(be_endpoint)
+            else:
+                raise Exception("Unknown node type: {}".format(
+                    node.node_type()))
+
+            utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                              "stop",
+                                              nodes=[node])
+            utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                              "rm", ["-v", "-f"],
+                                              nodes=[node])
+            if args.clean:
+                utils.enable_dir_with_rw_perm(node.get_path())
+                shutil.rmtree(node.get_path())
+
+            cluster.remove(node.node_type(), node.id)
+            cluster.save()
+
+    LOG.info(
+        utils.render_green("Down cluster {} succ, related node num {}".format(
+            args.NAME, related_node_num)))
 
 
 def start(args):
-    cluster, nodes = get_relate_cluster_and_nodes(args)
-    updated = []
-    no_updated = nodes
-    if args.IMAGE:
-        updated, no_updated = update_node_image(nodes, args.IMAGE)
-
-    if updated:
-        cluster.save()
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(),
-            "up", ["-d"],
-            services=[node.service_name() for node in updated])
-    if no_updated:
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(),
-            "start",
-            services=[node.service_name() for node in no_updated])
+    cluster = CLUSTER.Cluster.load(args.NAME)
+    _, related_nodes, related_node_num = get_ids_related_nodes(
+        cluster, args.fe_id, args.be_id)
+    utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                      "start",
+                                      nodes=related_nodes)
     LOG.info(
-        utils.render_green("Start run succ, total relate {} nodes".format(
-            len(nodes))))
+        utils.render_green(
+            "Start succ, total related node num {}".format(related_node_num)))
 
 
 def stop(args):
-    cluster, nodes = get_relate_cluster_and_nodes(args, ignore_not_exists=True)
-    if not nodes:
-        LOG.info(
-            utils.render_green("Stop run succ, total relate {} nodes".format(
-                len(nodes))))
-        return
-
-    utils.exec_docker_compose_command(
-        cluster.get_compose_file(),
-        "stop",
-        services=[node.service_name() for node in nodes])
-    if not args.drop and not args.decommission:
-        LOG.info(
-            utils.render_green("Stop run succ, total relate {} nodes".format(
-                len(nodes))))
-        return
-
-    if args.drop:
-        LOG.info("Start drop nodes cause has specify --drop")
-    else:
-        LOG.info("Start decommission nodes cause has specify --decommission")
-
-    db_mgr = database.get_db_mgr(cluster.name)
-    for node in nodes:
-        if node.is_fe():
-            fe_endpoint = "{}:{}".format(node.get_ip(),
-                                         CLUSTER.FE_EDITLOG_PORT)
-            db_mgr.drop_fe(fe_endpoint)
-        elif node.is_be():
-            be_endpoint = "{}:{}".format(node.get_ip(),
-                                         CLUSTER.BE_HEARTBEAT_PORT)
-            if args.drop:
-                db_mgr.drop_be(be_endpoint)
-            else:
-                db_mgr.decommission_be(be_endpoint)
-        else:
-            raise Exception("Unknown node type: {}".format(node.node_type()))
-
-        if args.clean:
-            clean_node_data(node)
-            LOG.info(
-                "Clean node {} with id {} files cause has specify --clean".
-                format(node.node_type(), node.id))
-
-        LOG.info("Stop {} with id {} with ip {} succ".format(
-            node.node_type(), node.id, node.get_ip()))
-
-        cluster.remove(node.node_type(), node.id)
-        cluster.save()
-
+    cluster = CLUSTER.Cluster.load(args.NAME)
+    _, related_nodes, related_node_num = get_ids_related_nodes(
+        cluster, args.fe_id, args.be_id)
+    utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                      "stop",
+                                      nodes=related_nodes)
     LOG.info(
-        utils.render_green("Stop final succ, total relate {} nodes".format(
-            len(nodes))))
+        utils.render_green(
+            "Stop succ, total related node num {}".format(related_node_num)))
 
 
 def restart(args):
-    cluster, nodes = get_relate_cluster_and_nodes(args)
-    updated = []
-    no_updated = nodes
-    if args.IMAGE:
-        updated, no_updated = update_node_image(nodes, args.IMAGE)
-
-    if updated:
-        cluster.save()
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(),
-            "up", ["-d"],
-            services=[node.service_name() for node in updated])
-    if no_updated:
-        utils.exec_docker_compose_command(
-            cluster.get_compose_file(),
-            "restart",
-            services=[node.service_name() for node in no_updated])
+    cluster = CLUSTER.Cluster.load(args.NAME)
+    _, related_nodes, related_node_num = get_ids_related_nodes(
+        cluster, args.fe_id, args.be_id)
+    utils.exec_docker_compose_command(cluster.get_compose_file(),
+                                      "restart",
+                                      nodes=related_nodes)
     LOG.info(
-        utils.render_green("Restart run succ, total relate {} nodes".format(
-            len(nodes))))
-
-
-def update_node_image(nodes, new_image):
-    updated = []
-    no_updated = []
-    for node in nodes:
-        if node.get_image() == new_image:
-            no_updated.append(node)
-        else:
-            node.set_image(new_image)
-            updated.append(node)
-    return updated, no_updated
+        utils.render_green("Restart succ, total related node num {}".format(
+            related_node_num)))
 
 
 def ls(args):
@@ -277,7 +216,8 @@ def ls(args):
 
     class ComposeService(object):
 
-        def __init__(self, ip, image):
+        def __init__(self, name, ip, image):
+            self.name = name
             self.ip = ip
             self.image = image
 
@@ -295,6 +235,7 @@ def ls(args):
             return COMPOSE_GOOD, {
                 service:
                 ComposeService(
+                    service,
                     list(service_conf["networks"].values())[0]["ipv4_address"],
                     service_conf["image"])
                 for service, service_conf in services.items()
@@ -326,7 +267,7 @@ def ls(args):
             #    container.status = "orphans"
             cluster_info["services"][container.name] = container
 
-    TYPE_COMPOSESERVICE = type(ComposeService("", ""))
+    TYPE_COMPOSESERVICE = type(ComposeService("", "", ""))
     if not args.NAME:
         headers = (utils.render_green(field)
                    for field in ("CLUSTER", "STATUS", "CONFIG FILES"))
@@ -361,48 +302,55 @@ def ls(args):
         services = clusters[name]["services"]
         db_mgr = database.get_db_mgr(name, False)
         for service_name, container in services.items():
+            alive = ""
+            is_master = ""
+            query_port = ""
+            last_heartbeat = ""
+            err_msg = ""
+            tablet_num = ""
+
+            create = ""
+            ip = ""
+            image = ""
+            container_id = ""
+            status = ""
+
+            _, node_type, id = utils.parse_service_name(container.name)
+
+            if node_type == CLUSTER.Node.TYPE_FE:
+                fe = db_mgr.get_fe(id)
+                if fe:
+                    alive = str(fe.alive).lower()
+                    is_master = str(fe.is_master).lower()
+                    query_port = fe.query_port
+                    last_heartbeat = fe.last_heartbeat
+                    err_msg = fe.err_msg
+            elif node_type == CLUSTER.Node.TYPE_BE:
+                be = db_mgr.get_be(id)
+                if be:
+                    alive = str(be.alive).lower()
+                    tablet_num = be.tablet_num
+                    last_heartbeat = be.last_heartbeat
+                    err_msg = be.err_msg
+
             if type(container) == TYPE_COMPOSESERVICE:
-                table.add_row(
-                    (name, service_name, container.ip, SERVICE_DEAD, "",
-                     container.image, "", "", "", "", "", "", ""))
+                ip = container.ip
+                image = container.image
+                status = SERVICE_DEAD
             else:
                 create = container.attrs.get("Created",
                                              "")[:19].replace("T", " ")
-                #show_ports = ", ".join([
-                #    "{}=>{}".format(inner, outer) for inner, outer in
-                #    utils.get_map_ports(container).items()
-                #])
                 ip = list(
                     container.attrs["NetworkSettings"]
                     ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
-                show_image = ",".join(container.image.tags)
-                alive = ""
-                is_master = ""
-                query_port = ""
-                last_heartbeat = ""
-                err_msg = ""
-                tablet_num = ""
-                _, node_type, id = utils.parse_service_name(container.name)
-                if node_type == CLUSTER.Node.TYPE_FE:
-                    fe = db_mgr.get_fe(id)
-                    if fe:
-                        alive = str(fe.alive).lower()
-                        is_master = str(fe.is_master).lower()
-                        query_port = fe.query_port
-                        last_heartbeat = fe.last_heartbeat
-                        err_msg = fe.err_msg
-                elif node_type == CLUSTER.Node.TYPE_BE:
-                    be = db_mgr.get_be(id)
-                    if be:
-                        alive = str(be.alive).lower()
-                        tablet_num = be.tablet_num
-                        last_heartbeat = be.last_heartbeat
-                        err_msg = be.err_msg
+                image = ",".join(container.image.tags)
+                container_id = container.short_id
+                status = container.status
 
-                table.add_row(
-                    (name, service_name, ip, container.status,
-                     container.short_id, show_image, create, alive, is_master,
-                     query_port, tablet_num, last_heartbeat, err_msg))
+            table.add_row((name, service_name, ip, status, container_id, image,
+                           create, alive, is_master, query_port, tablet_num,
+                           last_heartbeat, err_msg))
+
     print(table)
 
 
@@ -413,101 +361,93 @@ def get_parser_bool_action(is_store_true):
         return "store_true" if is_store_true else "store_false"
 
 
-def add_cluster_and_node_list_arg(ap):
-    ap.add_argument("NAME", help="Specify cluster name")
-    ap.add_argument("--fe", nargs="*", type=int, help="Specify fe ids, support multiple ids, " \
-            "if specific --fe but not specific ids, apply to all fe")
-    ap.add_argument("--be", nargs="*", type=int, help="Specify be ids, support multiple ids, " \
+def add_fe_be_id_args(ap):
+    ap.add_argument("--fe-id", nargs="*", type=int, help="Specify up fe ids, support multiple ids, " \
+            "if specific --fe-id but not specific ids, apply to all fe")
+    ap.add_argument("--be-id", nargs="*", type=int, help="Specify up be ids, support multiple ids, " \
             "if specific --be but not specific ids, apply to all be")
+
+
+def get_ids_or_all_hint():
+    return "If none of --fe-id, --be-id is specific, then will apply to all containers. "
 
 
 def parse_args():
     ap = argparse.ArgumentParser(description="")
     sub_aps = ap.add_subparsers(dest="command")
 
-    ap_up = sub_aps.add_parser("up", help="Create and start doris containers")
+    ap_up = sub_aps.add_parser("up", help="Create and start doris containers. "\
+            "If none of --add-fe-num, --add-be-num, --fe-id, --be-id is specific, " \
+            "then will apply to all containers.")
     ap_up.add_argument("NAME", default="", help="Specific cluster name")
     ap_up.add_argument("IMAGE",
                        default="",
                        nargs="?",
                        help="Specify docker image")
-    ap_up.add_argument("--fe-num",
-                       type=int,
-                       help="Specify fe num, default 3 for new cluster")
-    ap_up.add_argument("--be-num",
-                       type=int,
-                       help="Specify be num, default 3 for new cluster")
-    up_group = ap_up.add_mutually_exclusive_group()
-    up_group.add_argument(
+
+    up_group1 = ap_up.add_argument_group("add new nodes",
+                                         "add cluster new nodes")
+    up_group1.add_argument(
+        "--add-fe-num",
+        type=int,
+        help="Specify add fe num, default 3 for a new cluster")
+    up_group1.add_argument(
+        "--add-be-num",
+        type=int,
+        help="Specify add be num, default 3 for a new cluster")
+
+    up_group2 = ap_up.add_argument_group(
+        "update exists nodes",
+        "update exists cluster nodes, will be ignore for a new cluster")
+    add_fe_be_id_args(up_group2)
+
+    up_group3 = ap_up.add_mutually_exclusive_group()
+    up_group3.add_argument(
         "--no-start",
         default=False,
         action=get_parser_bool_action(True),
         help="Not start cluster, create or update config image only")
-    up_group.add_argument("--force-recreate",
+    up_group3.add_argument("--force-recreate",
                        default=False,
                        action=get_parser_bool_action(True),
                        help="Recreate containers even if their configuration" \
                             "and image haven't changed. ")
-    #up_group.add_argument("-d",
-    #                      "--daemon",
-    #                      default=False,
-    #                      action=get_parser_bool_action(True),
-    #                      help="Run up container in background")
 
-    ap_down = sub_aps.add_parser(
-        "down", help="Stop and remove doris containers, networks")
+    ap_down = sub_aps.add_parser("down",
+                                 help="Down doris containers, networks. It will remove node from DB. "\
+                                         "For be, if specific --drop-force, it will send dropp sql to FE." \
+                                  "otherwise it will send decommission sql to FE. " + get_ids_or_all_hint())
     ap_down.add_argument("NAME", help="Specify cluster name")
-    ap_down.add_argument("--clean",
-                         default=False,
-                         action=get_parser_bool_action(True),
-                         help="Clean data and logs")
-
-    ap_add = sub_aps.add_parser("add", help="Add doris containers")
-    ap_add.add_argument("NAME", help="Specify cluster name")
-    ap_add.add_argument("IMAGE",
-                        default="",
-                        nargs="?",
-                        help="New add containers' image")
-    ap_add.add_argument("--fe-num", type=int, help="Specify new add fe num")
-    ap_add.add_argument("--be-num", type=int, help="Specify new add be num")
-    ap_add.add_argument("--no-start",
-                        default=False,
-                        action=get_parser_bool_action(True),
-                        help="Not start new node, create only")
-
-    ap_start = sub_aps.add_parser("start", help="Start doris containers")
-    add_cluster_and_node_list_arg(ap_start)
-    ap_start.add_argument("IMAGE",
-                          default="",
-                          nargs="?",
-                          help="Update containers' image")
-
-    ap_stop = sub_aps.add_parser("stop", help="Stop doris containers")
-    add_cluster_and_node_list_arg(ap_stop)
-    ap_stop.add_argument("--clean",
-                         default=False,
-                         action=get_parser_bool_action(True),
-                         help="Clean related containers data and logs")
-    stop_group = ap_stop.add_mutually_exclusive_group()
-    stop_group.add_argument(
-        "--decommission",
-        default=None,
+    add_fe_be_id_args(ap_down)
+    ap_down.add_argument(
+        "--clean",
+        default=False,
         action=get_parser_bool_action(True),
         help=
-        "Decommission doris node. for fe send drop sql, for be send decommission sql"
-    )
-    stop_group.add_argument(
-        "--drop",
+        "Clean container related files, include expose data, config and logs")
+    ap_down.add_argument(
+        "--drop-force",
         default=None,
         action=get_parser_bool_action(True),
-        help="Drop doris node. for fe and be, both send drop sql")
+        help="Drop doris node. for fe and be, both send drop sql.")
 
-    ap_restart = sub_aps.add_parser("restart", help="Restart doris containers")
-    add_cluster_and_node_list_arg(ap_restart)
-    ap_restart.add_argument("IMAGE",
-                            default="",
-                            nargs="?",
-                            help="Update containers' image")
+    ap_start = sub_aps.add_parser("start",
+                                  help="Start doris containers. " +
+                                  get_ids_or_all_hint())
+    ap_start.add_argument("NAME", help="Specify cluster name")
+    add_fe_be_id_args(ap_start)
+
+    ap_stop = sub_aps.add_parser("stop",
+                                 help="Stop doris containers. " +
+                                 get_ids_or_all_hint())
+    ap_stop.add_argument("NAME", help="Specify cluster name")
+    add_fe_be_id_args(ap_stop)
+
+    ap_restart = sub_aps.add_parser("restart",
+                                    help="Restart doris containers. " +
+                                    get_ids_or_all_hint())
+    ap_restart.add_argument("NAME", help="Specify cluster name")
+    add_fe_be_id_args(ap_restart)
 
     ap_ls = sub_aps.add_parser("ls", help="List running compose projects")
     ap_ls.add_argument(
@@ -531,8 +471,6 @@ def main():
         return up(args)
     elif args.command == "down":
         return down(args)
-    elif args.command == "add":
-        return add(args)
     elif args.command == "start":
         return start(args)
     elif args.command == "stop":

@@ -49,44 +49,36 @@ python -m pip install --user -r docker/runtime/doris-compose/requirements.txt
 ### Create a cluster or recreate its containers
 
 ```
-python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image>   --fe  <fe-num>  --be <be-num>
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
+    --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
+    --fe-id <fd-id> --be-id <be-id>
+
 ```
 
 if it's a new cluster, must specific the image.
 
-### Down a cluster
+add fe/be nodes with the specific image, or update existing nodes with `--fe-id`, `--be-id`
+
+### Remove node from the cluster
 
 ```
-python docker/runtime/doris-compose/doris-compose.py down  <cluster-name> [--clean]
+python docker/runtime/doris-compose/doris-compose.py down  <cluster-name> --fe-id <fe-id>  --be-id<be-id> [--clean]  [--drop-force]
 ```
 
-Shutdown the whold cluster. If specific `--clean`, it will delete its data too.
+Down the containers and remove it from the DB.
 
-### Add new fe or be node
+For BE, if specific drop force, it will send dropp sql to FE, otherwise it will send decommission sql to FE.
 
-```
-python docker/runtime/doris-compose/doris-compose.py add  <cluster-name> --fe <add-fe-num>  --be <add-be-num>
-```
-
-### Start or restart specific nodes
+If specific `--clean`, it will delete its data too.
 
 
-```
-python docker/runtime/doris-compose/doris-compose.py start  <cluster-name>  --fe  <multiple fe ids>  --be <multiple be ids>
-python docker/runtime/doris-compose/doris-compose.py restart  <cluster-name>  --fe  <multiple fe ids>  --be <multiple be ids>
-```
+### Start, stop, restart specific nodes
 
-### Stop specific nodes
 
 ```
-python docker/runtime/doris-compose/doris-compose.py stop  <cluster-name>  --fe  <multiple fe ids>  --be <multiple be ids>
+python docker/runtime/doris-compose/doris-compose.py start  <cluster-name>  --fe-id  <multiple fe ids>  --be-id <multiple be ids>
+python docker/runtime/doris-compose/doris-compose.py restart  <cluster-name>  --fe-id  <multiple fe ids>  --be-id <multiple be ids>
 ```
-
-if specific `--drop`, it will send drop force command to FE.
-
-if specific `--decommission`, for be it will send decommission command to FE, for fe, it willl send drop command to FE.
-
-if specific `--clean`, it will clean node's all files, including doris data, configurations, and logs.
 
 ### List doris cluster
 

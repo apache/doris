@@ -376,14 +376,6 @@ class Cluster(object):
             raise Exception("Unknown node_type: {}".format(node_type))
         return group
 
-    def set_node_num(self, node_type, num):
-        old_num = self.get_group(node_type).get_node_num()
-        for i in range(num - old_num):
-            self.add(node_type)
-        # TODO
-        #for i in range(old_num - num):
-        #    self.remove(node_type)
-
     def get_node(self, node_type, id):
         group = self.get_group(node_type)
         meta = group.get_node(id)
@@ -400,11 +392,14 @@ class Cluster(object):
             for id, meta in group.get_all_nodes().items()
         ]
 
-    def add(self, node_type, id=None, image=None):
-        if not image:
-            image = self.image
+    def get_all_nodes_num(self):
+        num = 0
+        for group in self.groups.values():
+            num += group.get_node_num()
+        return num
 
-        id = self.get_group(node_type).add(id, image)
+    def add(self, node_type, id=None):
+        id = self.get_group(node_type).add(id, self.image)
         node = self.get_node(node_type, id)
         node.init_dir()
         return node

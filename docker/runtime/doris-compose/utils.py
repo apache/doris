@@ -163,12 +163,16 @@ def exec_shell_command(command, ignore_errors=False):
 def exec_docker_compose_command(compose_file,
                                 command,
                                 options=None,
-                                services=None,
+                                nodes=None,
                                 user_command=None):
+    if nodes != None and not nodes:
+        return 0, "Skip"
+
     compose_cmd = "docker-compose -f {}  {}  {} {} {}".format(
         compose_file, command, " ".join(options) if options else "",
-        " ".join(services) if services else "",
+        " ".join([node.service_name() for node in nodes]) if nodes else "",
         user_command if user_command else "")
+
     return exec_shell_command(compose_cmd)
 
 
