@@ -58,7 +58,7 @@ def up(args):
         LOG.info("Not up cluster cause specific --no-up")
     else:
         options = ["-d", "--remove-orphans"]
-        if args.force_up:
+        if args.force_recreate:
             options.append("--force-recreate")
         utils.exec_docker_compose_command(cluster.get_compose_file(), "up",
                                           options)
@@ -254,8 +254,7 @@ def ls(args):
         table = prettytable.PrettyTable(headers)
         for name in sorted(clusters.keys()):
             services = clusters[name]["services"]
-            database.get_db_states(name)
-            fe_states, be_states = database.get_db_states(name)
+            db = database.get_current_db(name)
             for service_name, container in services.items():
                 if container is None:
                     table.add_row((name, service_name, SERVICE_DEAD, "", "",
@@ -275,19 +274,19 @@ def ls(args):
                     err_msg = ""
                     _, node_type, id = utils.parse_service_name(container.name)
                     if node_type == CLUSTER.Node.TYPE_FE:
-                        state = fe_states.get(id, None)
-                        if state:
-                            alive = state.alive
-                            is_master = state.is_master
-                            query_port = state.query_port
-                            last_heartbeat = state.last_heartbeat
-                            err_msg = state.err_msg
+                        fe = db.get_fe(id)
+                        if fe:
+                            alive = fe.alive
+                            is_master = fe.is_master
+                            query_port = fe.query_port
+                            last_heartbeat = fe.last_heartbeat
+                            err_msg = fe.err_msg
                     elif node_type == CLUSTER.Node.TYPE_BE:
-                        state = be_states.get(id, None)
-                        if state:
-                            alive = state.alive
-                            last_heartbeat = state.last_heartbeat
-                            err_msg = state.err_msg
+                        be = db.get_be(id)
+                        if be:
+                            alive = be.alive
+                            last_heartbeat = be.last_heartbeat
+                            err_msg = be.err_msg
                     table.add_row(
                         (name, service_name, container.status,
                          container.short_id, show_image, create, alive,
@@ -350,7 +349,7 @@ def parse_args():
                           default=False,
                           action=get_parser_bool_action(True),
                           help="Not run cluster, only create")
-    up_group.add_argument("--force-up",
+    up_group.add_argument("--force-recreate",
                        default=False,
                        action=get_parser_bool_action(True),
                        help="Recreate containers even if their configuration" \

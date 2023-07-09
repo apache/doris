@@ -260,6 +260,10 @@ class Node(object):
                 "{}:{}:ro".format(LOCAL_RESOURCE_PATH, DOCKER_RESOURCE_PATH),
                 "{}:{}/{}/status".format(get_status_path(self.cluster_name),
                                          DOCKER_DORIS_PATH, self.node_type()),
+            ] + [
+                "{0}:{0}:ro".format(path)
+                for path in ("/etc/localtime", "/etc/timezone",
+                             "/usr/share/zoneinfo") if os.path.exists(path)
             ],
         }
 
