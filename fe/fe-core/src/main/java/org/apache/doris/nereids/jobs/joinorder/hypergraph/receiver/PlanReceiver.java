@@ -321,7 +321,7 @@ public class PlanReceiver implements AbstractReceiver {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
                         physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
-                        physicalJoin.child(0), physicalJoin.child(1));
+                        physicalJoin.children());
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }
