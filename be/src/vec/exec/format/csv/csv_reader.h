@@ -108,8 +108,8 @@ private:
     ScannerCounter* _counter;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
-    FileSystemProperties _system_properties;
-    FileDescription _file_description;
+    io::FileSystemProperties _system_properties;
+    io::FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     // Only for query task, save the file slot to columns in block map.
     // eg, there are 3 cols in "_file_slot_descs" named: k1, k2, k3

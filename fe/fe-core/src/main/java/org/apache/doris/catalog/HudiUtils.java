@@ -65,6 +65,9 @@ public class HudiUtils {
                     int scale = ((LogicalTypes.Decimal) logicalType).getScale();
                     return String.format("decimal(%s,%s)", precision, scale);
                 } else {
+                    if (columnType == Schema.Type.BYTES) {
+                        return "binary";
+                    }
                     return "string";
                 }
             case ARRAY:

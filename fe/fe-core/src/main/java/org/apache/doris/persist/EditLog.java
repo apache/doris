@@ -25,6 +25,8 @@ import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.AddPartitionRecord;
+import org.apache.doris.binlog.CreateTableRecord;
+import org.apache.doris.binlog.DropTableRecord;
 import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
@@ -210,7 +212,9 @@ public class EditLog {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
                     LOG.info("Begin to unprotect create table. db = " + info.getDbName() + " table = " + info.getTable()
                             .getId());
+                    CreateTableRecord record = new CreateTableRecord(logId, info);
                     env.replayCreateTable(info.getDbName(), info.getTable());
+                    env.getBinlogManager().addCreateTableRecord(record);
                     break;
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
@@ -225,7 +229,9 @@ public class EditLog {
                     Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = " + db.getFullName() + " table = "
                             + info.getTableId());
+                    DropTableRecord record = new DropTableRecord(logId, info);
                     env.replayDropTable(db, info.getTableId(), info.isForceDrop(), info.getRecycleTime());
+                    env.getBinlogManager().addDropTableRecord(record);
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
@@ -715,6 +721,7 @@ public class EditLog {
                         default:
                             break;
                     }
+                    env.getBinlogManager().addAlterJobV2(alterJob, logId);
                     break;
                 }
                 case OperationType.OP_UPDATE_COOLDOWN_CONF:
@@ -868,6 +875,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableLightSchemaChange(info);
+                    env.getBinlogManager().addModifyTableAddOrDropColumns(info, logId);
                     break;
                 }
                 case OperationType.OP_ALTER_LIGHT_SCHEMA_CHANGE: {
@@ -1198,7 +1206,9 @@ public class EditLog {
     }
 
     public void logCreateTable(CreateTableInfo info) {
-        logEdit(OperationType.OP_CREATE_TABLE, info);
+        long logId = logEdit(OperationType.OP_CREATE_TABLE, info);
+        CreateTableRecord record = new CreateTableRecord(logId, info);
+        Env.getCurrentEnv().getBinlogManager().addCreateTableRecord(record);
     }
 
     public void logRefreshExternalTableSchema(RefreshExternalTableInfo info) {
@@ -1235,7 +1245,9 @@ public class EditLog {
     }
 
     public void logDropTable(DropInfo info) {
-        logEdit(OperationType.OP_DROP_TABLE, info);
+        long logId = logEdit(OperationType.OP_DROP_TABLE, info);
+        DropTableRecord record = new DropTableRecord(logId, info);
+        Env.getCurrentEnv().getBinlogManager().addDropTableRecord(record);
     }
 
     public void logEraseTable(long tableId) {
@@ -1586,7 +1598,8 @@ public class EditLog {
     }
 
     public void logAlterJob(AlterJobV2 alterJob) {
-        logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
+        long logId = logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
+        Env.getCurrentEnv().getBinlogManager().addAlterJobV2(alterJob, logId);
     }
 
     public void logUpdateCooldownConf(CooldownConfList cooldownConf) {
@@ -1766,7 +1779,8 @@ public class EditLog {
     }
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
-        logEdit(OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE, info);
+        long logId = logEdit(OperationType.OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE, info);
+        Env.getCurrentEnv().getBinlogManager().addModifyTableAddOrDropColumns(info, logId);
     }
 
     public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {

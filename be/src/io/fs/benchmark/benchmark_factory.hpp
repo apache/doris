@@ -44,6 +44,8 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
             *bm = new S3OpenReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "single_read") {
             *bm = new S3SingleReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "prefetch_read") {
+            *bm = new S3PrefetchReadBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "rename") {
             *bm = new S3RenameBenchmark(threads, iterations, file_size, conf_map);
         } else if (op_type == "exists") {

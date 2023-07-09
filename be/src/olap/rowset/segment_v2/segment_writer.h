@@ -35,7 +35,6 @@
 #include "gutil/macros.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_v2/column_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
@@ -58,7 +57,6 @@ class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
 class KeyCoder;
 struct RowsetWriterContext;
-struct FlushContext;
 
 namespace io {
 class FileWriter;
@@ -89,11 +87,10 @@ public:
                            std::shared_ptr<MowContext> mow_context);
     ~SegmentWriter();
 
-    Status init(const FlushContext* flush_ctx = nullptr);
+    Status init();
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
-                const FlushContext* flush_ctx = nullptr);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
     template <typename RowType>
     Status append_row(const RowType& row);

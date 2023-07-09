@@ -47,7 +47,7 @@ class DataTypeDate64SerDe : public DataTypeNumberSerDe<Int64> {
 
     Status deserialize_one_cell_from_text(IColumn& column, ReadBuffer& rb,
                                           const FormatOptions& options) const override;
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_bytemap,
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,

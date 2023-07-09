@@ -35,7 +35,6 @@
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
-#include "util/stack_util.h"
 
 namespace doris {
 
@@ -45,7 +44,6 @@ namespace doris {
 static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM);
 
 std::atomic<bool> MemTrackerLimiter::_enable_print_log_process_usage {true};
-bool MemTrackerLimiter::_oom_avoidance {true};
 
 MemTrackerLimiter::MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit,
                                      RuntimeProfile* profile,
@@ -207,7 +205,6 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
         _enable_print_log_usage = false;
         std::string detail = msg;
         detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
-        detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
         detail += "\nMemory Tracker Summary:    " + log_usage();
         std::string child_trackers_usage;
         std::vector<MemTracker::Snapshot> snapshots;
@@ -221,10 +218,9 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     }
 }
 
-std::string MemTrackerLimiter::log_process_usage_str(const std::string& msg, bool with_stacktrace) {
-    std::string detail = msg;
+std::string MemTrackerLimiter::log_process_usage_str() {
+    std::string detail;
     detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
-    if (with_stacktrace) detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
     std::vector<MemTracker::Snapshot> snapshots;
     MemTrackerLimiter::make_process_snapshots(&snapshots);
     MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
@@ -246,18 +242,15 @@ std::string MemTrackerLimiter::log_process_usage_str(const std::string& msg, boo
     return detail;
 }
 
-void MemTrackerLimiter::print_log_process_usage(const std::string& msg, bool with_stacktrace) {
+void MemTrackerLimiter::print_log_process_usage() {
     // The default interval between two prints is 100ms (config::memory_maintenance_sleep_time_ms).
     if (MemTrackerLimiter::_enable_print_log_process_usage) {
         MemTrackerLimiter::_enable_print_log_process_usage = false;
-        LOG(WARNING) << log_process_usage_str(msg, with_stacktrace);
+        LOG(WARNING) << log_process_usage_str();
     }
 }
 
 bool MemTrackerLimiter::sys_mem_exceed_limit_check(int64_t bytes) {
-    if (!_oom_avoidance) {
-        return false;
-    }
     // Limit process memory usage using the actual physical memory of the process in `/proc/self/status`.
     // This is independent of the consumption value of the mem tracker, which counts the virtual memory
     // of the process malloc.
@@ -268,8 +261,6 @@ bool MemTrackerLimiter::sys_mem_exceed_limit_check(int64_t bytes) {
     // but it may not actually alloc physical memory, which is not expected in mem hook fail.
     if (MemInfo::proc_mem_no_allocator_cache() + bytes >= MemInfo::mem_limit() ||
         MemInfo::sys_mem_available() < MemInfo::sys_mem_available_low_water_mark()) {
-        print_log_process_usage(
-                fmt::format("System Mem Exceed Limit Check Faild, Try Alloc: {}", bytes));
         return true;
     }
     return false;
@@ -295,6 +286,15 @@ std::string MemTrackerLimiter::process_limit_exceeded_errmsg_str() {
             PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
             MemInfo::sys_mem_available_str(),
             PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES));
+}
+
+std::string MemTrackerLimiter::process_soft_limit_exceeded_errmsg_str() {
+    return fmt::format(
+            "process memory used {} exceed soft limit {} or sys mem available {} less than warning "
+            "water mark {}.",
+            PerfCounters::get_vm_rss_str(), MemInfo::soft_mem_limit_str(),
+            MemInfo::sys_mem_available_str(),
+            PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(), TUnit::BYTES));
 }
 
 std::string MemTrackerLimiter::query_tracker_limit_exceeded_str(
@@ -352,8 +352,9 @@ int64_t MemTrackerLimiter::free_top_memory_query(
     MemTrackerMinQueue min_pq;
     // After greater than min_free_mem, will not be modified.
     int64_t prepare_free_mem = 0;
+    std::vector<std::string> canceling_task;
 
-    auto cancel_top_query = [&cancel_msg, type](auto& min_pq) -> int64_t {
+    auto cancel_top_query = [&cancel_msg, type](auto& min_pq, auto& canceling_task) -> int64_t {
         std::vector<std::string> usage_strings;
         int64_t freed_mem = 0;
         while (!min_pq.empty()) {
@@ -371,10 +372,10 @@ int64_t MemTrackerLimiter::free_top_memory_query(
                                                 min_pq.top().first));
             min_pq.pop();
         }
-        if (!usage_strings.empty()) {
-            LOG(INFO) << "Process GC Free Top Memory Usage " << type_string(type) << ": "
-                      << join(usage_strings, ",");
-        }
+
+        LOG(INFO) << "Process GC Free Top Memory Usage " << type_string(type) << ": "
+                  << join(usage_strings, ",")
+                  << ". previous canceling task: " << join(canceling_task, ",");
         return freed_mem;
     };
 
@@ -383,12 +384,14 @@ int64_t MemTrackerLimiter::free_top_memory_query(
         for (auto tracker : tracker_groups[i].trackers) {
             if (tracker->type() == type) {
                 if (tracker->is_query_cancelled()) {
+                    canceling_task.push_back(
+                            fmt::format("{}:{} Bytes", tracker->label(), tracker->consumption()));
                     continue;
                 }
                 if (tracker->consumption() > min_free_mem) {
                     MemTrackerMinQueue min_pq_single;
                     min_pq_single.emplace(tracker->consumption(), tracker->label());
-                    return cancel_top_query(min_pq_single);
+                    return cancel_top_query(min_pq_single, canceling_task);
                 } else if (tracker->consumption() + prepare_free_mem < min_free_mem) {
                     min_pq.emplace(tracker->consumption(), tracker->label());
                     prepare_free_mem += tracker->consumption();
@@ -403,7 +406,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(
             }
         }
     }
-    return cancel_top_query(min_pq);
+    return cancel_top_query(min_pq, canceling_task);
 }
 
 int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
@@ -433,6 +436,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
         const std::function<std::string(int64_t, const std::string&)>& cancel_msg) {
     std::priority_queue<std::pair<int64_t, std::string>> max_pq;
     std::unordered_map<std::string, int64_t> query_consumption;
+    std::vector<std::string> canceling_task;
 
     for (unsigned i = 1; i < tracker_groups.size(); ++i) {
         std::lock_guard<std::mutex> l(tracker_groups[i].group_lock);
@@ -444,6 +448,8 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                     continue;
                 }
                 if (tracker->is_query_cancelled()) {
+                    canceling_task.push_back(
+                            fmt::format("{}:{} Bytes", tracker->label(), tracker->consumption()));
                     continue;
                 }
                 int64_t overcommit_ratio =
@@ -480,10 +486,10 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
         }
         max_pq.pop();
     }
-    if (!usage_strings.empty()) {
-        LOG(INFO) << "Process GC Free Top Memory Overcommit " << type_string(type) << ": "
-                  << join(usage_strings, ",");
-    }
+
+    LOG(INFO) << "Process GC Free Top Memory Overcommit " << type_string(type) << ": "
+              << join(usage_strings, ",")
+              << ". previous canceling task: " << join(canceling_task, ",");
     return freed_mem;
 }
 

@@ -394,7 +394,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                 break;
             }
             tablets_mem_heap.pop();
-            if (std::get<0>(tablet_mem_item)++ != std::get<1>(tablet_mem_item)) {
+            if (++std::get<0>(tablet_mem_item) != std::get<1>(tablet_mem_item)) {
                 tablets_mem_heap.push(tablet_mem_item);
             }
         }

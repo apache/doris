@@ -136,7 +136,7 @@ Status DataTypeDateTimeSerDe::deserialize_one_cell_from_text(IColumn& column, Re
     return Status::OK();
 }
 
-void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
@@ -146,7 +146,7 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const UIn
         const vectorized::VecDateTimeValue* time_val =
                 (const vectorized::VecDateTimeValue*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
-        if (null_map && null_map[i]) {
+        if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
