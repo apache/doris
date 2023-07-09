@@ -135,6 +135,18 @@ public:
 
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
+        auto real_data = data->get_data_at(0);
+        if (real_data.data == nullptr) {
+            hash = HashUtil::xxHash64NullWithSeed(hash);
+        } else {
+            hash = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hash);
+        }
+    }
+
+    void update_crc_with_value(size_t n, uint64_t& crc) const override {
+        get_data_column_ptr()->update_crc_with_value(n, crc);
+    }
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
