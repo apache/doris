@@ -32,7 +32,7 @@ Use doris compose to create doris docker compose clusters.
 if build doris use `sh build.sh`, then its output satisfy with this, then run command in doris root
 
 ```
-docker build -f docker/runtime/doris-compose/Dockerfile  .
+docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
 will generate a image.
