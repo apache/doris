@@ -139,6 +139,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
+    public void setMVKeysType(KeysType type) {
+        mvKeysType = type;
+    }
+
     public KeysType getMVKeysType() {
         return mvKeysType;
     }
