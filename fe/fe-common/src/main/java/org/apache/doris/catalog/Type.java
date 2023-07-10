@@ -1823,9 +1823,11 @@ public abstract class Type {
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
-            case IPV4:
-            case IPV6:
                 return VARCHAR;
+            case IPV4:
+                return IPV4;
+            case IPV6:
+                return IPV6;
             case DECIMALV2:
                 return DECIMALV2;
             case DECIMAL32:
@@ -1920,6 +1922,18 @@ public abstract class Type {
                 && (t2ResultType == PrimitiveType.BIGINT
                 || t2ResultType == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
+        }
+        if ((t1ResultType == PrimitiveType.IPV4
+                || t1ResultType == PrimitiveType.VARCHAR)
+                && (t2ResultType == PrimitiveType.IPV4
+                || t2ResultType == PrimitiveType.VARCHAR)) {
+            return Type.IPV4;
+        }
+        if ((t1ResultType == PrimitiveType.IPV6
+                || t1ResultType == PrimitiveType.VARCHAR)
+                && (t2ResultType == PrimitiveType.IPV6
+                || t2ResultType == PrimitiveType.VARCHAR)) {
+            return Type.IPV6;
         }
         return Type.DOUBLE;
     }
