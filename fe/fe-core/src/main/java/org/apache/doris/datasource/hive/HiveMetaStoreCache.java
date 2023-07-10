@@ -311,7 +311,7 @@ public class HiveMetaStoreCache {
     // convert oss:// to s3://
     private String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
-        if (location.startsWith(FeConstants.FS_PREFIX_COS)
+        if (location.equals(FeConstants.FS_PREFIX_COS)
                 || location.startsWith(FeConstants.FS_PREFIX_BOS)
                 || location.startsWith(FeConstants.FS_PREFIX_BOS)
                 || location.startsWith(FeConstants.FS_PREFIX_OSS)
