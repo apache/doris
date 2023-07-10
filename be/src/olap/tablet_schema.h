@@ -360,7 +360,7 @@ private:
     std::set<std::string> _partial_update_input_columns;
     std::vector<uint32_t> _missing_cids;
     std::vector<uint32_t> _update_cids;
-    // if key not exist in old rowset, use default value or null value for the unmentioned cols 
+    // if key not exist in old rowset, use default value or null value for the unmentioned cols
     // to generate a new row, only available in non-strict mode
     bool _can_insert_new_rows_in_partial_update = true;
     bool _is_strict_mode = false;
