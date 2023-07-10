@@ -22,7 +22,7 @@ suite("test_backends_tvf") {
     assertEquals(23, table[0].size)
 
     // filter columns
-    table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
+    def table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
     assertTrue(table.size() > 0)
     assertTrue(table[0].size == 6)
     assertEquals(true, table[0][2])

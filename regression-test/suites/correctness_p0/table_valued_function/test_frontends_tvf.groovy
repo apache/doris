@@ -22,7 +22,7 @@ suite("test_frontends_tvf") {
     assertTrue(table[0].size == 17)
 
     // filter columns
-    table = sql """ select Name from `frontends`();"""
+    def table = sql """ select Name from `frontends`();"""
     assertTrue(table.size() > 0)
     assertTrue(table[0].size == 1)
 }
