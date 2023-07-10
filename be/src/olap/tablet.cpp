@@ -3255,10 +3255,8 @@ Status Tablet::commit_phase_update_delete_bitmap(
 
 Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                     RowsetWriter* rowset_writer) {
-    std::vector<RowsetId> cur_rowset_ids;
-    RowsetIdUnorderedSet rowset_ids_to_add;
+    std::vector<RowsetSharedPtr> published_rowsets;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
-    int64_t cur_version = _tablet_meta->max_version().second;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     _load_rowset_segments(rowset, &segments);
@@ -3271,36 +3269,36 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
         return Status::OK();
     }
 
-    // TODO: refactor this code.
+    std::vector<RowsetSharedPtr> specified_rowsets(1, rowset);
     for (const auto& it : _rs_version_map) {
-        if (it.first.first > rowset->version().second) {
-            rowset_ids_to_add.insert(it.second->rowset_id());
-            LOG(INFO) << "[Full compaction rowsets to add]"
+        const int64_t& cur_version = it.first.first;
+        const RowsetSharedPtr& published_rowset = it.second;
+        delete_bitmap.reset();
+        if (cur_version > rowset->version().second) {
+            LOG(INFO) << "[Full compaction published rowsets]"
                       << "[" << it.first.first << "-" << it.first.second << "]";
+
+            OlapStopWatch watch;
+            RETURN_IF_ERROR(calc_delete_bitmap(published_rowset, segments, specified_rowsets,
+                                               delete_bitmap, cur_version, rowset_writer));
+            size_t total_rows =
+                    std::accumulate(segments.begin(), segments.end(), 0,
+                                    [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
+                                        return sum += s->num_rows();
+                                    });
+            LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << tablet_id()
+                      << ", published rowset version: [" << published_rowset->version().first << "-"
+                      << published_rowset->version().second << "]"
+                      << ", full compaction rowset version: [" << rowset->version().first << "-"
+                      << rowset->version().second << "]"
+                      << ", cost: " << watch.get_elapse_time_us()
+                      << "(us), total rows: " << total_rows;
+
+            for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
+                _tablet_meta->delete_bitmap().merge({std::get<0>(k), std::get<1>(k), cur_version},
+                                                    v);
+            }
         }
-    }
-
-    std::vector<RowsetSharedPtr> specified_rowsets;
-    specified_rowsets = get_rowset_by_ids(&rowset_ids_to_add);
-
-    OlapStopWatch watch;
-    RETURN_IF_ERROR(calc_delete_bitmap(rowset, segments, specified_rowsets, delete_bitmap,
-                                       cur_version, rowset_writer));
-    size_t total_rows = std::accumulate(
-            segments.begin(), segments.end(), 0,
-            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
-    LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << tablet_id()
-              << ", rowset_ids to add: " << rowset_ids_to_add.size()
-              << ", cur max_version: " << cur_version << ", cost: " << watch.get_elapse_time_us()
-              << "(us), total rows: " << total_rows;
-
-    // update version without write lock, compaction and publish_txn
-    // will update delete bitmap, handle compaction with _rowset_update_lock
-    // and publish_txn runs sequential so no need to lock here
-    for (auto iter = delete_bitmap->delete_bitmap.begin();
-         iter != delete_bitmap->delete_bitmap.end(); ++iter) {
-        _tablet_meta->delete_bitmap().merge(
-                {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
     }
 
     return Status::OK();
