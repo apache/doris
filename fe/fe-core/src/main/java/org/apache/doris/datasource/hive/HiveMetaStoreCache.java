@@ -311,12 +311,12 @@ public class HiveMetaStoreCache {
     // convert oss:// to s3://
     private String convertToS3IfNecessary(String location) {
         LOG.debug("try convert location to s3 prefix: " + location);
-        if (location.startsWith(FeConstants.FS_PREFIX_COS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                || location.startsWith(FeConstants.FS_PREFIX_S3A)
-                || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
+        if ((location.startsWith(FeConstants.FS_PREFIX_COS)) && !(location.startsWith(FeConstants.FS_PREFIX_COSN))
+            || location.startsWith(FeConstants.FS_PREFIX_BOS)
+            || location.startsWith(FeConstants.FS_PREFIX_BOS)
+            || location.startsWith(FeConstants.FS_PREFIX_OSS)
+            || location.startsWith(FeConstants.FS_PREFIX_S3A)
+            || location.startsWith(FeConstants.FS_PREFIX_S3N)) {
             int pos = location.indexOf("://");
             if (pos == -1) {
                 throw new RuntimeException("No '://' found in location: " + location);
