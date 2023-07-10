@@ -471,7 +471,7 @@ ALL_COMMANDS = [
     LsCommand("ls"),
     SimpleCommand("start", "Start the doris containers. "),
     SimpleCommand("stop", "Stop the doris containers. "),
-    SimpleCommand("restart", "Stop the doris containers. "),
-    SimpleCommand("pause", "Stop the doris containers. "),
-    SimpleCommand("unpause", "Stop the doris containers. "),
+    SimpleCommand("restart", "Restart the doris containers. "),
+    SimpleCommand("pause", "Pause the doris containers. "),
+    SimpleCommand("unpause", "Unpause the doris containers. "),
 ]
