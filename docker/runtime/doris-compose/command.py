@@ -123,7 +123,7 @@ class UpCommand(Command):
                             help="Specify docker image.")
 
         group1 = parser.add_argument_group("add new nodes",
-                                           "add cluster nodes")
+                                           "add cluster nodes.")
         group1.add_argument(
             "--add-fe-num",
             type=int,
@@ -140,7 +140,7 @@ class UpCommand(Command):
             "--no-start",
             default=False,
             action=self._get_parser_bool_action(True),
-            help="Not start cluster, create or update config image only.")
+            help="Not start containers, create or update config image only.")
         group2.add_argument("--force-recreate",
                            default=False,
                            action=self._get_parser_bool_action(True),
@@ -225,7 +225,8 @@ class DownCommand(Command):
         parser = args_parsers.add_parser("down",
                                      help="Down doris containers, networks. "\
                                            "It will also remove node from DB. " \
-                                           "If none of --fe-id, --be-id is specific, then apply to all containers.")
+                                           "If none of --fe-id, --be-id is specific, "\
+                                           "then apply to all containers.")
         parser.add_argument("NAME", help="Specify cluster name")
         self._add_parser_ids_args(parser)
         parser.add_argument(
@@ -239,7 +240,7 @@ class DownCommand(Command):
             "--drop-force",
             default=None,
             action=self._get_parser_bool_action(True),
-            help="Drop doris node force. For be, if specific --drop-force "\
+            help="Drop doris node force. For be, if specific --drop-force, "\
                     "it will send dropp to fe, otherwise send decommission to fe.")
 
     def run(self, args):
@@ -308,7 +309,7 @@ class LsCommand(Command):
             "NAME",
             nargs="*",
             help=
-            "Specify multiple clusters, if specific, show all their containers"
+            "Specify multiple clusters, if specific, show all their containers."
         )
         parser.add_argument(
             "-a",
