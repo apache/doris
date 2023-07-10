@@ -75,8 +75,12 @@ public class DropTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent that) {
-        // `that` event must not be a rename event,
-        // so just return true if the event belongs to the same table
-        return isSameTable(that);
+        if (!isSameTable(that)) {
+            return false;
+        }
+        if (that instanceof AlterTableEvent) {
+            return !((AlterTableEvent) that).isRename();
+        }
+        return true;
     }
 }

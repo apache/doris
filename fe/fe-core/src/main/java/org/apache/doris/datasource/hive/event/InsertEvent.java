@@ -86,8 +86,7 @@ public class InsertEvent extends MetastoreTableEvent {
             return false;
         }
         if (that instanceof AlterTableEvent) {
-            // `that` event must not be a rename event
-            return !((AlterTableEvent) that).isView();
+            return !((AlterTableEvent) that).isRename() && !((AlterTableEvent) that).isView();
         }
         return !(that instanceof DropTableEvent) && !(that instanceof CreateTableEvent);
     }
