@@ -32,21 +32,24 @@ CteAnchor[cteId= ( CTEId#0=] )
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[store_returns]
 --PhysicalQuickSort
-----PhysicalQuickSort
-------PhysicalProject
---------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(netpaid)) as DOUBLE))
-----------PhysicalAssertNumRows
-------------PhysicalProject
---------------hashAgg[GLOBAL]
-----------------PhysicalDistribute
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------CteConsumer[cteId= ( CTEId#0=] )
-----------PhysicalDistribute
+----PhysicalDistribute
+------PhysicalQuickSort
+--------PhysicalProject
+----------NestedLoopJoin[INNER_JOIN](cast(paid as DOUBLE) > cast((0.05 * avg(netpaid)) as DOUBLE))
 ------------hashAgg[GLOBAL]
 --------------PhysicalDistribute
 ----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------filter((cast(i_color as VARCHAR(*)) = 'beige'))
-----------------------CteConsumer[cteId= ( CTEId#0=] )
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------filter((cast(i_color as VARCHAR(*)) = 'beige'))
+------------------------CteConsumer[cteId= ( CTEId#0=] )
+------------PhysicalDistribute
+--------------PhysicalAssertNumRows
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------CteConsumer[cteId= ( CTEId#0=] )
 

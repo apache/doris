@@ -27,7 +27,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -63,13 +62,16 @@ public class ShowColumnStatsStmt extends ShowStmt {
 
     private final List<String> columnNames;
     private final PartitionNames partitionNames;
+    private final boolean cached;
 
     private TableIf table;
 
-    public ShowColumnStatsStmt(TableName tableName, List<String> columnNames, PartitionNames partitionNames) {
+    public ShowColumnStatsStmt(TableName tableName, List<String> columnNames,
+                               PartitionNames partitionNames, boolean cached) {
         this.tableName = tableName;
         this.columnNames = columnNames;
         this.partitionNames = partitionNames;
+        this.cached = cached;
     }
 
     public TableName getTableName() {
@@ -86,8 +88,6 @@ public class ShowColumnStatsStmt extends ShowStmt {
                 throw new AnalysisException("Only one partition name could be specified");
             }
         }
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         CatalogIf<DatabaseIf> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalog == null) {
             ErrorReport.reportAnalysisException("Catalog: {} not exists", tableName.getCtl());
@@ -163,5 +163,9 @@ public class ShowColumnStatsStmt extends ShowStmt {
         }
         return table.getColumns().stream()
                 .map(Column::getName).collect(Collectors.toSet());
+    }
+
+    public boolean isCached() {
+        return cached;
     }
 }

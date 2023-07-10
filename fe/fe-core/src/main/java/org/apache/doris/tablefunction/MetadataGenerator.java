@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
@@ -257,8 +258,13 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult workloadGroupsMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+
+        TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
         List<List<String>> workloadGroupsInfo = Env.getCurrentEnv().getWorkloadGroupMgr()
-                .getResourcesInfo();
+                .getResourcesInfo(tcurrentUserIdentity);
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         for (List<String> rGroupsInfo : workloadGroupsInfo) {

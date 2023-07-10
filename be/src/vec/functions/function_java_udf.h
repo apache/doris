@@ -23,6 +23,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <mutex>
 #include <ostream>
 
 #include "common/logging.h"
@@ -83,18 +84,24 @@ private:
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
 
-    /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
-    /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
-    jclass executor_cl_;
-    jmethodID executor_ctor_id_;
-    jmethodID executor_evaluate_id_;
-    jmethodID executor_close_id_;
-
     struct IntermediateState {
         size_t buffer_size;
         size_t row_idx;
 
         IntermediateState() : buffer_size(0), row_idx(0) {}
+    };
+
+    struct JniEnv {
+        /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
+        /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
+        jclass executor_cl;
+        jmethodID executor_ctor_id;
+        jmethodID executor_evaluate_id;
+        jmethodID executor_convert_basic_argument_id;
+        jmethodID executor_convert_array_argument_id;
+        jmethodID executor_result_basic_batch_id;
+        jmethodID executor_result_array_batch_id;
+        jmethodID executor_close_id;
     };
 
     struct JniContext {
@@ -124,9 +131,9 @@ private:
         // intermediate_state includes two parts: reserved / used buffer size and rows
         std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
 
-        JniContext(int64_t num_args, JavaFunctionCall* parent)
-                : executor_cl_(parent->executor_cl_),
-                  executor_close_id_(parent->executor_close_id_),
+        JniContext(int64_t num_args, jclass executor_cl, jmethodID executor_close_id)
+                : executor_cl_(executor_cl),
+                  executor_close_id_(executor_close_id),
                   input_values_buffer_ptr(new int64_t[num_args]),
                   input_nulls_buffer_ptr(new int64_t[num_args]),
                   input_offsets_ptrs(new int64_t[num_args]),

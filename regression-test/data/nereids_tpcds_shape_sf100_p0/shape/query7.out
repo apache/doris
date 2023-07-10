@@ -27,6 +27,7 @@ PhysicalTopN
 ----------------------PhysicalProject
 ------------------------filter(((cast(p_channel_email as VARCHAR(*)) = 'N') OR (cast(p_channel_event as VARCHAR(*)) = 'N')))
 --------------------------PhysicalOlapScan[promotion]
-----------------PhysicalProject
-------------------PhysicalOlapScan[item]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[item]
 

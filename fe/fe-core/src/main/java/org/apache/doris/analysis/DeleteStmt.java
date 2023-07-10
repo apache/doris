@@ -118,7 +118,14 @@ public class DeleteStmt extends DdlStmt {
         if (fromClause == null) {
             ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
-            analyzePredicate(wherePredicate);
+            try {
+                analyzePredicate(wherePredicate);
+            } catch (Exception e) {
+                if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+                constructInsertStmt();
+            }
         } else {
             constructInsertStmt();
         }

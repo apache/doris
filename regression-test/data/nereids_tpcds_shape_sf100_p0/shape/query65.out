@@ -39,6 +39,7 @@ PhysicalTopN
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store]
-----------PhysicalProject
-------------PhysicalOlapScan[item]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[item]
 

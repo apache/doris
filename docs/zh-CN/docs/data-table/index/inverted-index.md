@@ -96,6 +96,15 @@ CREATE TABLE table_name
 table_properties;
 ```
 
+:::tip
+
+倒排索引在不同数据模型中有不同的使用限制：
+- Aggregate 模型：只能为 Key 列建立倒排索引。
+- Unique 模型：需要开启 merge on write 特性，开启后，可以为任意列建立倒排索引。
+- Duplicate 模型：可以为任意列建立倒排索引。
+
+:::
+
 - 已有表增加倒排索引
 
 **2.0-beta版本之前：**

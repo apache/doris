@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -72,6 +74,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
             .put(LogicalJoin.class, ImmutableSet.of(
                     AggregateFunction.class,
                     GroupingScalarFunction.class,
+                    TableGeneratingFunction.class,
+                    WindowExpression.class))
+            .put(LogicalOneRowRelation.class, ImmutableSet.of(
+                    AggregateFunction.class,
+                    GroupingScalarFunction.class,
+                    SlotReference.class,
                     TableGeneratingFunction.class,
                     WindowExpression.class))
             .put(LogicalProject.class, ImmutableSet.of(

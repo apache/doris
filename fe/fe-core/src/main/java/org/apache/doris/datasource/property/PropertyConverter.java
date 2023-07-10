@@ -314,29 +314,28 @@ public class PropertyConverter {
         if (Strings.isNullOrEmpty(uid)) {
             throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
         }
-        // access OSS by AWS client, so set s3 parameters
-        getAWSPropertiesFromDLFConf(props, hiveConf);
+        getOSSPropertiesFromDLFConf(props, hiveConf);
     }
 
-    private static void getAWSPropertiesFromDLFConf(Map<String, String> props, HiveConf hiveConf) {
+    private static void getOSSPropertiesFromDLFConf(Map<String, String> props, HiveConf hiveConf) {
         // get following properties from hive-site.xml
         // 1. region and endpoint. eg: cn-beijing
         String region = hiveConf.get(DataLakeConfig.CATALOG_REGION_ID);
         if (!Strings.isNullOrEmpty(region)) {
             // See: https://help.aliyun.com/document_detail/31837.html
             // And add "-internal" to access oss within vpc
-            props.put(S3Properties.REGION, "oss-" + region);
+            props.put(OssProperties.REGION, "oss-" + region);
             String publicAccess = hiveConf.get("dlf.catalog.accessPublic", "false");
-            props.put(S3Properties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            props.put(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
         }
         // 2. ak and sk
         String ak = hiveConf.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID);
         String sk = hiveConf.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET);
         if (!Strings.isNullOrEmpty(ak)) {
-            props.put(S3Properties.ACCESS_KEY, ak);
+            props.put(OssProperties.ACCESS_KEY, ak);
         }
         if (!Strings.isNullOrEmpty(sk)) {
-            props.put(S3Properties.SECRET_KEY, sk);
+            props.put(OssProperties.SECRET_KEY, sk);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("Get properties for oss in hive-site.xml: {}", props);
@@ -369,19 +368,19 @@ public class PropertyConverter {
         if (Strings.isNullOrEmpty(uid)) {
             throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
         }
-        // convert to s3 client property
+        // convert to oss property
         if (credential.isWhole()) {
-            props.put(S3Properties.ACCESS_KEY, credential.getAccessKey());
-            props.put(S3Properties.SECRET_KEY, credential.getSecretKey());
+            props.put(OssProperties.ACCESS_KEY, credential.getAccessKey());
+            props.put(OssProperties.SECRET_KEY, credential.getSecretKey());
         }
         if (credential.isTemporary()) {
-            props.put(S3Properties.SESSION_TOKEN, credential.getSessionToken());
+            props.put(OssProperties.SESSION_TOKEN, credential.getSessionToken());
         }
         String publicAccess = props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false");
         String region = props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID, props.get(DLFProperties.REGION));
         if (!Strings.isNullOrEmpty(region)) {
-            props.put(S3Properties.REGION, "oss-" + region);
-            props.put(S3Properties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            props.put(OssProperties.REGION, "oss-" + region);
+            props.put(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
         }
     }
 

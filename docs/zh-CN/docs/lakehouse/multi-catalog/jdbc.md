@@ -254,7 +254,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -491,7 +491,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "io.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
 );
 ```
 
@@ -671,3 +671,15 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
     ```
 
     可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `encrypt=false` ,如 `"jdbc_url" = "jdbc:sqlserver://127.0.0.1:1433;DataBaseName=doris_test;encrypt=false"`
+
+11. 读取 MySQL datetime 类型出现异常
+
+    ```
+    ERROR 1105 (HY000): errCode = 2, detailMessage = (10.16.10.6)[INTERNAL_ERROR]UdfRuntimeException: get next block failed: 
+    CAUSED BY: SQLException: Zero date value prohibited
+    CAUSED BY: DataReadException: Zero date value prohibited
+    ```
+    
+    这是因为 JDBC 并不能处理 0000-00-00 00:00:00 这种时间格式，
+    需要在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `zeroDateTimeBehavior=convertToNull` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull"`
+    这种情况下，JDBC 会把 0000-00-00 00:00:00 转换成 null，然后 Doris 会把 DateTime 类型的列按照可空类型处理，这样就可以正常读取了。

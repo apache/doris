@@ -72,12 +72,16 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     // cannot put the env into fields, because frames in an env object is limited
     // to avoid limited frames in a thread, we should get local env in a method instead of in whole object.
     JNIEnv* env = nullptr;
+    int batch_size = 0;
+    if (!_is_table_schema) {
+        batch_size = _state->batch_size();
+    }
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == nullptr) {
         return Status::InternalError("Failed to get/create JVM");
     }
     SCOPED_TIMER(_open_scanner_time);
-    RETURN_IF_ERROR(_init_jni_scanner(env, state->batch_size()));
+    RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_open);
     RETURN_ERROR_IF_EXC(env);
@@ -126,6 +130,18 @@ Status JniConnector::get_nex_block(Block* block, size_t* read_rows, bool* eof) {
     env->CallVoidMethod(_jni_scanner_obj, _jni_scanner_release_table);
     RETURN_ERROR_IF_EXC(env);
     _has_read += num_rows;
+    return Status::OK();
+}
+
+Status JniConnector::get_table_schema(std::string& table_schema_str) {
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    // Call org.apache.doris.jni.JniScanner#getTableSchema
+    // return the TableSchema information
+    jstring jstr = (jstring)env->CallObjectMethod(_jni_scanner_obj, _jni_scanner_get_table_schema);
+    RETURN_ERROR_IF_EXC(env);
+    table_schema_str = env->GetStringUTFChars(jstr, nullptr);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -197,6 +213,9 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
 
     _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
     _jni_scanner_get_next_batch = env->GetMethodID(_jni_scanner_cls, "getNextBatchMeta", "()J");
+    _jni_scanner_get_table_schema =
+            env->GetMethodID(_jni_scanner_cls, "getTableSchema", "()Ljava/lang/String;");
+    RETURN_ERROR_IF_EXC(env);
     _jni_scanner_close = env->GetMethodID(_jni_scanner_cls, "close", "()V");
     _jni_scanner_release_column = env->GetMethodID(_jni_scanner_cls, "releaseColumn", "(I)V");
     _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");

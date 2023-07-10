@@ -19,8 +19,11 @@
 // and modified by Doris
 
 #pragma once
+
 #include <algorithm>
+#include <array>
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <utility>
 

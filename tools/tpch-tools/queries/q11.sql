@@ -15,7 +15,7 @@
 -- specific language governing permissions and limitations
 -- under the License.
 
-select /*+SET_VAR(enable_nereids_planner=true,enable_pipeline_engine=true) */
+select
     ps_partkey,
     sum(ps_supplycost * ps_availqty) as value
 from

@@ -1583,6 +1583,7 @@ public class ShowExecutor {
         HMSExternalCatalog catalog = (HMSExternalCatalog) (showStmt.getCatalog());
         List<List<String>> rows = new ArrayList<>();
         String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+
         List<String> partitionNames = catalog.getClient().listPartitionNames(dbName,
                 showStmt.getTableName().getTbl());
         for (String partition : partitionNames) {
@@ -1592,9 +1593,7 @@ public class ShowExecutor {
         }
 
         // sort by partition name
-        rows.sort((x, y) -> {
-            return x.get(0).compareTo(y.get(0));
-        });
+        rows.sort(Comparator.comparing(x -> x.get(0)));
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -2363,9 +2362,16 @@ public class ShowExecutor {
         List<Pair<String, ColumnStatistic>> columnStatistics = new ArrayList<>();
         Set<String> columnNames = showColumnStatsStmt.getColumnNames();
         PartitionNames partitionNames = showColumnStatsStmt.getPartitionNames();
+        boolean showCache = showColumnStatsStmt.isCached();
 
         for (String colName : columnNames) {
-            if (partitionNames == null) {
+            // Show column statistics in columnStatisticsCache. For validation.
+            if (showCache) {
+                ColumnStatistic columnStatistic = Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
+                        tableIf.getDatabase().getCatalog().getId(),
+                        tableIf.getDatabase().getId(), tableIf.getId(), colName);
+                columnStatistics.add(Pair.of(colName, columnStatistic));
+            } else if (partitionNames == null) {
                 ColumnStatistic columnStatistic =
                         StatisticsRepository.queryColumnStatisticsByName(tableIf.getId(), colName);
                 columnStatistics.add(Pair.of(colName, columnStatistic));
@@ -2699,7 +2705,7 @@ public class ShowExecutor {
         if (showStmt.isShowAllTasks()) {
             tasks.addAll(jobManager.getTaskManager().showAllTasks());
         } else if (showStmt.isShowAllTasksFromDb()) {
-            tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName()));
+            tasks.addAll(jobManager.getTaskManager().showTasksWithLock(showStmt.getDbName()));
         } else if (showStmt.isShowAllTasksOnMv()) {
             tasks.addAll(jobManager.getTaskManager().showTasks(showStmt.getDbName(), showStmt.getMVName()));
         } else if (showStmt.isSpecificTask()) {

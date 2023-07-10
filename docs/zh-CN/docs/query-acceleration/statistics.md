@@ -671,11 +671,12 @@ mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
 语法如下：
 
 ```SQL
-SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
 ```
 
 其中：
 
+- cached: 展示当前FE内存缓存中的统计信息。
 - table_name: 收集统计信息的目标表。可以是  `db_name.table_name`  形式。
 - column_name: 指定的目标列，必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - partition_name: 指定的目标分区，必须是  `table_name`  中存在的分区，只能指定一个分区。

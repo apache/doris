@@ -41,7 +41,6 @@ struct FlushContext {
     TabletSchemaSPtr flush_schema = nullptr;
     const vectorized::Block* block = nullptr;
     std::optional<int32_t> segment_id = std::nullopt;
-    std::function<Status(int32_t)> generate_delete_bitmap;
 };
 
 class RowsetWriter {
@@ -73,19 +72,20 @@ public:
     }
     virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
 
-    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                         const FlushContext* ctx = nullptr) {
+    virtual Status unfold_variant_column_and_flush_block(
+            vectorized::Block* block, int32_t segment_id,
+            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    }
+
+    virtual Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
+                                      const FlushContext* ctx = nullptr) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
-
-    // we have to load segment data to build delete_bitmap for current segment,
-    // so we  build a tmp rowset ptr to load segment data.
-    // real build will be called in DeltaWriter close_wait.
-    virtual RowsetSharedPtr build_tmp() = 0;
 
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
@@ -110,8 +110,9 @@ public:
 
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
-    virtual vectorized::schema_util::LocalSchemaChangeRecorder*
-    mutable_schema_change_recorder() = 0;
+    virtual int64_t delete_bitmap_ns() { return 0; }
+
+    virtual int64_t segment_writer_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

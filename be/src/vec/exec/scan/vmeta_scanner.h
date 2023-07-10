@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Data_types.h>
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <vector>
@@ -51,7 +52,8 @@ class VMetaScanner : public VScanner {
 
 public:
     VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
-                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile);
+                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
+                 TUserIdentity user_identity);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
@@ -74,6 +76,7 @@ private:
 
     bool _meta_eos;
     TupleId _tuple_id;
+    TUserIdentity _user_identity;
     const TupleDescriptor* _tuple_desc;
     std::vector<TRow> _batch_data;
     const TScanRange& _scan_range;

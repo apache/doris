@@ -1035,6 +1035,15 @@ public class Auth implements Writable {
         }
     }
 
+    public Pair<Boolean, String> isWorkloadGroupInUse(String groupName) {
+        readLock();
+        try {
+            return propertyMgr.isWorkloadGroupInUse(groupName);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {

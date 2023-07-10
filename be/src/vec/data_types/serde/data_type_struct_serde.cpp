@@ -17,6 +17,7 @@
 
 #include "data_type_struct_serde.h"
 
+#include "arrow/array/builder_nested.h"
 #include "util/jsonb_document.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -45,16 +46,36 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
-    LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    for (int r = start; r < end; ++r) {
+        if (null_map != nullptr && (*null_map)[r]) {
+            checkArrowStatus(builder.AppendNull(), struct_column.get_name(),
+                             builder.type()->name());
+            continue;
+        }
+        checkArrowStatus(builder.Append(), struct_column.get_name(), builder.type()->name());
+        for (size_t ei = 0; ei < struct_column.tuple_size(); ++ei) {
+            auto elem_builder = builder.field_builder(ei);
+            elemSerDeSPtrs[ei]->write_column_to_arrow(struct_column.get_column(ei), nullptr,
+                                                      elem_builder, r, r + 1);
+        }
+    }
 }
 
 void DataTypeStructSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int start, int end,
                                                  const cctz::time_zone& ctz) const {
-    LOG(FATAL) << "Not support read " << column.get_name() << " from arrow";
+    auto& struct_column = static_cast<ColumnStruct&>(column);
+    auto concrete_struct = down_cast<const arrow::StructArray*>(arrow_array);
+    DCHECK_EQ(struct_column.tuple_size(), concrete_struct->num_fields());
+    for (size_t i = 0; i < struct_column.tuple_size(); ++i) {
+        elemSerDeSPtrs[i]->read_column_from_arrow(struct_column.get_column(i),
+                                                  concrete_struct->field(i).get(), start, end, ctz);
+    }
 }
 
 template <bool is_binary_format>

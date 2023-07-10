@@ -31,9 +31,10 @@ PhysicalTopN
 ------------------------------------PhysicalProject
 --------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
 ----------------------------------------PhysicalOlapScan[item]
---------------------------PhysicalProject
-----------------------------filter((customer_address.ca_gmt_offset = -6.00))
-------------------------------PhysicalOlapScan[customer_address]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------------PhysicalOlapScan[customer_address]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
@@ -58,9 +59,10 @@ PhysicalTopN
 ------------------------------------PhysicalProject
 --------------------------------------filter(i_color IN ('powder', 'green', 'cyan'))
 ----------------------------------------PhysicalOlapScan[item]
---------------------------PhysicalProject
-----------------------------filter((customer_address.ca_gmt_offset = -6.00))
-------------------------------PhysicalOlapScan[customer_address]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------filter((customer_address.ca_gmt_offset = -6.00))
+--------------------------------PhysicalOlapScan[customer_address]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute

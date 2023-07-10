@@ -23,8 +23,10 @@ import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -53,6 +55,10 @@ public class WorkloadGroupMgrTest {
 
     @Mocked
     AccessControllerManager accessControllerManager;
+
+    @Mocked
+    private Auth auth;
+
 
     private AtomicLong id = new AtomicLong(10);
 
@@ -86,6 +92,18 @@ public class WorkloadGroupMgrTest {
                 accessControllerManager.checkWorkloadGroupPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
+
+                env.getAuth();
+                minTimes = 0;
+                result = auth;
+
+                auth.isWorkloadGroupInUse(anyString);
+                minTimes = 0;
+                result = new Delegate() {
+                    Pair<Boolean, String> list() {
+                        return Pair.of(false, "");
+                    }
+                };
             }
         };
     }

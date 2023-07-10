@@ -67,10 +67,19 @@ public class TableBinlog {
         }
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long prevCommitSeq) {
         lock.readLock().lock();
         try {
-            return BinlogUtils.getBinlog(binlogs, commitSeq);
+            return BinlogUtils.getBinlog(binlogs, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Pair<TStatus, Long> getBinlogLag(long prevCommitSeq) {
+        lock.readLock().lock();
+        try {
+            return BinlogUtils.getBinlogLag(binlogs, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }
@@ -140,15 +149,17 @@ public class TableBinlog {
             Iterator<TBinlog> iter = binlogs.iterator();
             while (iter.hasNext()) {
                 TBinlog binlog = iter.next();
-                if (binlog.getTimestamp() <= expireMs) {
-                    if (binlog.getType() == TBinlogType.UPSERT) {
-                        tombstoneUpsert = binlog;
-                    }
-                    largestExpiredCommitSeq = binlog.getCommitSeq();
-                    iter.remove();
-                } else {
+                long timestamp = binlog.getTimestamp();
+
+                if (timestamp > expireMs) {
                     break;
                 }
+
+                if (binlog.getType() == TBinlogType.UPSERT) {
+                    tombstoneUpsert = binlog;
+                }
+                largestExpiredCommitSeq = binlog.getCommitSeq();
+                iter.remove();
             }
         } finally {
             lock.writeLock().unlock();

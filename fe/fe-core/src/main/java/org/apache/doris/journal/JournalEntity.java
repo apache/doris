@@ -69,6 +69,7 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
@@ -826,6 +827,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_GC_BINLOG: {
                 data = BinlogGcInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BARRIER: {
+                data = new BarrierLog();
                 isRead = true;
                 break;
             }

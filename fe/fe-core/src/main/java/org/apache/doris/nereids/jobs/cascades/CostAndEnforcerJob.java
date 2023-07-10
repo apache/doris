@@ -222,8 +222,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         // it's certain that lowestCostChildren is equals to arity().
         ChildrenPropertiesRegulator regulator = new ChildrenPropertiesRegulator(groupExpression,
                 lowestCostChildren, outputChildrenProperties, requestChildrenProperties, context);
-        double enforceCost = regulator.adjustChildrenProperties();
-        if (enforceCost < 0) {
+        boolean success = regulator.adjustChildrenProperties();
+        if (!success) {
             // invalid enforce, return.
             return false;
         }
@@ -317,7 +317,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
         this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
-        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId().toString(),
+        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId(),
                 groupExpression.children(), groupExpression.getPlan(), requestProperty, curTotalCost);
     }
 

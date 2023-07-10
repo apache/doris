@@ -26,7 +26,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -89,9 +88,6 @@ public class DropStatsStmt extends DdlStmt {
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrAnalysisException(tblName);
         tblId = table.getId();
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(),
-                this.getClass().getSimpleName());
         // check permission
         checkAnalyzePriv(db.getFullName(), table.getName());
         // check columnNames

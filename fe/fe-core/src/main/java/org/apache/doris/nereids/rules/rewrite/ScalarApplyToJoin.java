@@ -93,7 +93,6 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                         : correlationFilter.get()),
                 JoinHint.NONE,
                 apply.getMarkJoinSlotReference(),
-                (LogicalPlan) apply.left(),
-                (LogicalPlan) apply.right());
+                apply.children());
     }
 }

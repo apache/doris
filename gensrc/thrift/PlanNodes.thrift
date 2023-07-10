@@ -115,6 +115,7 @@ enum TFileFormatType {
     FORMAT_JSON,
     FORMAT_PROTO,
     FORMAT_JNI,
+    FORMAT_AVRO,
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -583,6 +584,7 @@ struct TSchemaScanNode {
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
   2: optional Types.TMetadataType metadata_type
+  3: optional Types.TUserIdentity current_user_ident
 }
 
 struct TTestExternalScanNode {
