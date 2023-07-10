@@ -107,8 +107,6 @@ Status FullCompaction::pick_rowsets_to_compact() {
 }
 
 Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
-    std::lock_guard<std::mutex> rowset_update_lock(_tablet->get_rowset_update_lock());
-    std::lock_guard<std::shared_mutex> header_lock(_tablet->get_header_lock());
     RETURN_IF_ERROR(
             _tablet->full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
     std::vector<RowsetSharedPtr> output_rowsets;
