@@ -91,6 +91,8 @@ public:
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
+    void reserve(size_t count);
+
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
     void insert(size_t position, ColumnWithTypeAndName&& elem);
