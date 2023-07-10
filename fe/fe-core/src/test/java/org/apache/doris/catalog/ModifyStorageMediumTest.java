@@ -50,5 +50,4 @@ public class ModifyStorageMediumTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1', 'storage_medium' = 'hdd');";
         Assertions.assertThrows(DdlException.class, () -> createTables(sql3));
     }
-
 }
