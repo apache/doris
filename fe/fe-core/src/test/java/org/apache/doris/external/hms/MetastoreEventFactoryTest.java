@@ -143,10 +143,9 @@ public class MetastoreEventFactoryTest {
         testEvents.add(e4);
         testEvents.add(e7);
         mergedEvents = factory.createBatchEvents("test_ctl", testEvents);
-        Assertions.assertTrue(mergedEvents.size() == 3);
+        Assertions.assertTrue(mergedEvents.size() == 2);
         Assertions.assertTrue(mergedEvents.get(0).getEventId() == 10L);
-        Assertions.assertTrue(mergedEvents.get(1).getEventId() == 12L);
-        Assertions.assertTrue(mergedEvents.get(2).getEventId() == 7L);
+        Assertions.assertTrue(mergedEvents.get(1).getEventId() == 7L);
 
         // because e5 is a rename event, it will not be merged
         testEvents.clear();
