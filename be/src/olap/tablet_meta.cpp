@@ -26,6 +26,7 @@
 #include <json2pb/pb_to_json.h>
 #include <time.h>
 
+#include <mutex>
 #include <set>
 #include <utility>
 
@@ -929,6 +930,11 @@ void DeleteBitmap::remove(const BitmapKey& start, const BitmapKey& end) {
         }
         it = delete_bitmap.erase(it);
     }
+}
+
+void DeleteBitmap::clear() {
+    std::lock_guard l(lock);
+    delete_bitmap.clear();
 }
 
 bool DeleteBitmap::contains(const BitmapKey& bmk, uint32_t row_id) const {

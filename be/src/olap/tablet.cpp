@@ -3273,7 +3273,7 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
     for (const auto& it : _rs_version_map) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
-        delete_bitmap.reset();
+        delete_bitmap->clear();
         if (cur_version > rowset->version().second) {
             LOG(INFO) << "[Full compaction published rowsets]"
                       << "[" << it.first.first << "-" << it.first.second << "]";
