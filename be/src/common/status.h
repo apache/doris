@@ -331,11 +331,13 @@ public:
     Status& operator=(Status&& rhs) noexcept = default;
 
     Status static create(const TStatus& status) {
-        return Error<true>(status.status_code, status.error_msgs[0]);
+        return Error<true>(status.status_code,
+                           status.error_msgs.empty() ? "" : status.error_msgs[0]);
     }
 
     Status static create(const PStatus& pstatus) {
-        return Error<true>(pstatus.status_code(), pstatus.error_msgs(0));
+        return Error<true>(pstatus.status_code(),
+                           pstatus.error_msgs_size() == 0 ? "" : pstatus.error_msgs(0));
     }
 
     template <int code, bool stacktrace = true, typename... Args>
