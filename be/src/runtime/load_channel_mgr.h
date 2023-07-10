@@ -91,6 +91,7 @@ protected:
     // lock protect the load channel map
     std::mutex _lock;
     // load id -> load channel
+    // when you erase, you should call deregister_writer method in MemtableFlushMgr;
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
 

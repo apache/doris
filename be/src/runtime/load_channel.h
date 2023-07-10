@@ -35,6 +35,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/memtable_flush_mgr.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "util/runtime_profile.h"
@@ -104,7 +106,14 @@ protected:
             std::lock_guard<std::mutex> l(_lock);
             {
                 std::lock_guard<SpinLock> l(_tablets_channels_lock);
-                _tablets_channels.erase(index_id);
+                auto memtable_flush_mgr = ExecEnv::GetInstance()->memtable_flush_mgr();
+                auto tablet_channel_it = _tablets_channels.find(index_id);
+                if (tablet_channel_it != _tablets_channels.end()) {
+                    for (auto& writer_it : tablet_channel_it->second->get_tablet_writers()) {
+                        memtable_flush_mgr->deregister_writer(writer_it.second);
+                    }
+                    _tablets_channels.erase(index_id);
+                }
             }
             _finished_channel_ids.emplace(index_id);
         }
@@ -131,6 +140,7 @@ private:
     // lock protect the tablets channel map
     std::mutex _lock;
     // index id -> tablets channel
+    // when you erase, you should call deregister_writer method in MemtableFlushMgr;
     std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
     SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.

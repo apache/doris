@@ -164,7 +164,7 @@ TEST_F(MemtableFlushMgrTest, handle_memtable_flush_test) {
         std::lock_guard<std::mutex> l(lock);
         _mgr->register_writer(delta_writer);
     }
-    _mgr->handle_memtable_flush(lock);
+    _mgr->handle_memtable_flush();
     CHECK_EQ(0, delta_writer->active_memtable_mem_consumption());
     {
         std::lock_guard<std::mutex> l(lock);
