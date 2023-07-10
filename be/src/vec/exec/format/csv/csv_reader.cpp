@@ -680,7 +680,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _array_delimiter = _params.file_attributes.text_params.array_delimiter;
     _text_converter->set_array_delimiter(_array_delimiter[0]);
 
-
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
