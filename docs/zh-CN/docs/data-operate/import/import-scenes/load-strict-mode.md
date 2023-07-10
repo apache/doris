@@ -169,7 +169,7 @@ mysql> desc user_profile;
 curl  --location-trusted -u root -H "partial_columns:true" -H "strict_mode:false" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://host:port/api/db1/user_profile/_stream_load
 ```
 
-表中原有的一条数据将会被更新，此外还向表中插入了两条新数据。对于插入的数据中用户没有指定的列，如果该列有默认值，则会议默认值填充；否则，如果该列可以为NULL，则将以NULL值填充；否则本次插入不成功。
+表中原有的一条数据将会被更新，此外还向表中插入了两条新数据。对于插入的数据中用户没有指定的列，如果该列有默认值，则会以默认值填充；否则，如果该列可以为NULL，则将以NULL值填充；否则本次插入不成功。
 
 而当用户使用严格模式的stram load部分列更新向表中插入上述数据时
 

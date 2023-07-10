@@ -17,8 +17,8 @@
 // under the License.
 
 suite("test_partial_update_upsert", "p0") {
-    def tableName = "test_partial_update_upsert"
 
+    def tableName = "test_partial_update_upsert1"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} ( 
@@ -39,13 +39,8 @@ suite("test_partial_update_upsert", "p0") {
                 "enable_single_replica_compaction" = "false" 
             );
     """
-
-    sql """
-        insert into ${tableName} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");
-    """
-
+    sql """insert into ${tableName} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
     qt_sql """select * from ${tableName} order by id;"""
-
     streamLoad {
         table "${tableName}"
 
@@ -58,11 +53,51 @@ suite("test_partial_update_upsert", "p0") {
         file 'upsert.csv'
         time 10000 // limit inflight 10s
     }
-
     sql "sync"
-
     qt_sql """select * from ${tableName} order by id;"""
+    sql """ DROP TABLE IF EXISTS ${tableName} """
 
-    // drop drop
+
+    def tableName2 = "test_partial_update_upsert2"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """
+            CREATE TABLE ${tableName2} ( 
+                `id` int(11) NULL, 
+                `name` varchar(10) NULL,
+                `age` int(11) NULL DEFAULT "20", 
+                `city` varchar(10) NOT NULL DEFAULT "beijing", 
+                `balance` decimalv3(9, 0) NULL, 
+                `last_access_time` datetime NULL 
+            ) ENGINE = OLAP UNIQUE KEY(`id`) 
+            COMMENT 'OLAP' DISTRIBUTED BY HASH(`id`) 
+            BUCKETS AUTO PROPERTIES ( 
+                "replication_allocation" = "tag.location.default: 1", 
+                "storage_format" = "V2", 
+                "enable_unique_key_merge_on_write" = "true", 
+                "light_schema_change" = "true", 
+                "disable_auto_compaction" = "false", 
+                "enable_single_replica_compaction" = "false" 
+            );
+    """
+    sql """insert into ${tableName2} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
+    qt_sql """select * from ${tableName2} order by id;"""
+    streamLoad {
+        table "${tableName2}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,balance,last_access_time'
+        set 'strict_mode', 'true'
+
+        file 'upsert.csv'
+        time 10000 // limit inflight 10s
+
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception == null)
+            def json = parseJson(result)
+            assertEquals("fail", json.Status.toLowerCase())
+        }
+    }
     sql """ DROP TABLE IF EXISTS ${tableName} """
 }
