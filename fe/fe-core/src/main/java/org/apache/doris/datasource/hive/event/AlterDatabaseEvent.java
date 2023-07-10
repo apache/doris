@@ -41,6 +41,14 @@ public class AlterDatabaseEvent extends MetastoreEvent {
     // true if this alter event was due to a rename operation
     private final boolean isRename;
 
+    // for test
+    public AlterDatabaseEvent(long eventId, String catalogName, String dbName, boolean isRename) {
+        super(eventId, catalogName, dbName, null);
+        this.isRename = isRename;
+        this.dbBefore = null;
+        this.dbAfter = null;
+    }
+
     private AlterDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);

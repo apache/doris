@@ -18,6 +18,7 @@
 package org.apache.doris.external.hms;
 
 import org.apache.doris.datasource.hive.event.AddPartitionEvent;
+import org.apache.doris.datasource.hive.event.AlterDatabaseEvent;
 import org.apache.doris.datasource.hive.event.AlterPartitionEvent;
 import org.apache.doris.datasource.hive.event.AlterTableEvent;
 import org.apache.doris.datasource.hive.event.CreateDatabaseEvent;
@@ -52,6 +53,8 @@ public class MetastoreEventFactoryTest {
         AlterPartitionEvent e10 = new AlterPartitionEvent(10L, "test_ctl", "test_db", "t2", "p1", "p1");
         AlterTableEvent e11 = new AlterTableEvent(11L, "test_ctl", "test_db", "t1", false, false);
         CreateTableEvent e12 = new CreateTableEvent(12L, "test_ctl", "test_db", "t1");
+        AlterDatabaseEvent e13 = new AlterDatabaseEvent(13L, "test_ctl", "test_db", true);
+        AlterDatabaseEvent e14 = new AlterDatabaseEvent(14L, "test_ctl", "test_db", false);
 
         List<MetastoreEvent> mergedEvents;
         List<MetastoreEvent> testEvents = Lists.newLinkedList();
@@ -158,6 +161,33 @@ public class MetastoreEventFactoryTest {
         Assertions.assertTrue(mergedEvents.size() == 3);
         Assertions.assertTrue(mergedEvents.get(0).getEventId() == 10L);
         Assertions.assertTrue(mergedEvents.get(1).getEventId() == 5L);
+        Assertions.assertTrue(mergedEvents.get(2).getEventId() == 7L);
+
+        testEvents.clear();
+        testEvents.add(e1);
+        testEvents.add(e2);
+        testEvents.add(e10);
+        testEvents.add(e4);
+        testEvents.add(e13);
+        testEvents.add(e7);
+        mergedEvents = factory.createBatchEvents("test_ctl", testEvents);
+        Assertions.assertTrue(mergedEvents.size() == 4);
+        Assertions.assertTrue(mergedEvents.get(0).getEventId() == 10L);
+        Assertions.assertTrue(mergedEvents.get(1).getEventId() == 4L);
+        Assertions.assertTrue(mergedEvents.get(2).getEventId() == 13L);
+        Assertions.assertTrue(mergedEvents.get(3).getEventId() == 7L);
+
+        testEvents.clear();
+        testEvents.add(e1);
+        testEvents.add(e2);
+        testEvents.add(e10);
+        testEvents.add(e4);
+        testEvents.add(e14);
+        testEvents.add(e7);
+        mergedEvents = factory.createBatchEvents("test_ctl", testEvents);
+        Assertions.assertTrue(mergedEvents.size() == 3);
+        Assertions.assertTrue(mergedEvents.get(0).getEventId() == 10L);
+        Assertions.assertTrue(mergedEvents.get(1).getEventId() == 14L);
         Assertions.assertTrue(mergedEvents.get(2).getEventId() == 7L);
     }
 }
