@@ -369,10 +369,10 @@ int64_t MemTrackerLimiter::free_top_memory_query(
     // After greater than min_free_mem, will not be modified.
     int64_t prepare_free_mem = 0;
     std::vector<std::string> canceling_task;
-    cancel_cost_time->set(0L);
-    find_cost_time->set(0L);
-    freed_memory_counter->set(0L);
-    cancel_tasks_counter->set(0L);
+    COUNTER_SET(cancel_cost_time, (int64_t)0);
+    COUNTER_SET(find_cost_time, (int64_t)0);
+    COUNTER_SET(freed_memory_counter, (int64_t)0);
+    COUNTER_SET(cancel_tasks_counter, (int64_t)0);
 
     auto cancel_top_query = [&cancel_msg, type, profile](auto& min_pq,
                                                          auto& canceling_task) -> int64_t {
@@ -389,8 +389,8 @@ int64_t MemTrackerLimiter::free_top_memory_query(
                         cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
                         cancel_msg(min_pq.top().first, min_pq.top().second));
 
-                freed_memory_counter->update(min_pq.top().first);
-                cancel_tasks_counter->update(1);
+                COUNTER_UPDATE(freed_memory_counter, min_pq.top().first);
+                COUNTER_UPDATE(cancel_tasks_counter, 1);
                 usage_strings.push_back(fmt::format("{} memory usage {} Bytes", min_pq.top().second,
                                                     min_pq.top().first));
                 min_pq.pop();
@@ -467,10 +467,10 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
     std::priority_queue<std::pair<int64_t, std::string>> max_pq;
     std::unordered_map<std::string, int64_t> query_consumption;
     std::vector<std::string> canceling_task;
-    cancel_cost_time->set(0L);
-    find_cost_time->set(0L);
-    freed_memory_counter->set(0L);
-    cancel_tasks_counter->set(0L);
+    COUNTER_SET(cancel_cost_time, (int64_t)0);
+    COUNTER_SET(find_cost_time, (int64_t)0);
+    COUNTER_SET(freed_memory_counter, (int64_t)0);
+    COUNTER_SET(cancel_tasks_counter, (int64_t)0);
 
     {
         SCOPED_TIMER(find_cost_time);
@@ -520,8 +520,8 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
             usage_strings.push_back(fmt::format("{} memory usage {} Bytes, overcommit ratio: {}",
                                                 max_pq.top().second, query_mem,
                                                 max_pq.top().first));
-            freed_memory_counter->update(query_mem);
-            cancel_tasks_counter->update(1);
+            COUNTER_UPDATE(freed_memory_counter, query_mem);
+            COUNTER_UPDATE(cancel_tasks_counter, 1);
             if (freed_memory_counter->value() > min_free_mem) {
                 break;
             }

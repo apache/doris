@@ -49,7 +49,7 @@ public:
     // Try to prune the cache if expired.
     void prune_stale() override {
         if (_cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
-            _cost_timer->set(0L);
+            COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             const int64_t curtime = UnixMillis();
             int64_t byte_size = 0L;
@@ -63,9 +63,9 @@ public:
             };
 
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
-            _freed_entrys_counter->set(_cache->prune_if(pred, true));
-            _freed_memory_counter->set(byte_size);
-            _prune_stale_number_counter->update(1);
+            COUNTER_SET(_freed_entrys_counter, _cache->prune_if(pred, true));
+            COUNTER_SET(_freed_memory_counter, byte_size);
+            COUNTER_UPDATE(_prune_stale_number_counter, 1);
             LOG(INFO) << fmt::format("{} prune stale {} entries, {} bytes, {} times prune", _name,
                                      _freed_entrys_counter->value(), _freed_memory_counter->value(),
                                      _prune_stale_number_counter->value());
@@ -74,12 +74,12 @@ public:
 
     void prune_all() override {
         if (_cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
-            _cost_timer->set(0L);
+            COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
             auto size = _cache->mem_consumption();
-            _freed_entrys_counter->set(_cache->prune());
-            _freed_memory_counter->set(size);
-            _prune_all_number_counter->update(1);
+            COUNTER_SET(_freed_entrys_counter, _cache->prune());
+            COUNTER_SET(_freed_memory_counter, size);
+            COUNTER_UPDATE(_prune_all_number_counter, 1);
             LOG(INFO) << fmt::format("{} prune all {} entries, {} bytes, {} times prune", _name,
                                      _freed_entrys_counter->value(), _freed_memory_counter->value(),
                                      _prune_stale_number_counter->value());

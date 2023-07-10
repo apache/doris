@@ -112,7 +112,7 @@ bool MemInfo::process_minor_gc() {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("MinorGC");
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
     std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
@@ -161,7 +161,7 @@ bool MemInfo::process_full_gc() {
     MonotonicStopWatch watch;
     watch.start();
     int64_t freed_mem = 0;
-    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("FullGC");
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("");
     std::string pre_vm_rss = PerfCounters::get_vm_rss_str();
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 

@@ -178,21 +178,23 @@ private:
             if (_data_page_cache) {
                 return _data_page_cache->get();
             }
+            return nullptr;
         }
         case segment_v2::INDEX_PAGE: {
             if (_index_page_cache) {
                 return _index_page_cache->get();
             }
+            return nullptr;
         }
         case segment_v2::PRIMARY_KEY_INDEX_PAGE: {
             if (_pk_index_page_cache) {
                 return _pk_index_page_cache->get();
             }
+            return nullptr;
         }
         default:
             return nullptr;
         }
-        return nullptr;
     }
 };
 
