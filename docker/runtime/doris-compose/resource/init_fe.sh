@@ -39,7 +39,7 @@ add_frontend() {
 fe_daemon() {
     set +e
     while true; do
-        output=`mysql -P $FE_QUERY_PORT -h $MY_IP -u root --execute "SHOW FRONTENDS;" | grep $MY_IP | awk '{print $8}' 2>&1`
+        output=`mysql -P $FE_QUERY_PORT -h $MY_IP -u root --execute "SHOW FRONTENDS;" | grep -w $MY_IP | awk '{print $8}' 2>&1`
         if [ $? -ne 0 ]; then
             health_log "$output"
         else
