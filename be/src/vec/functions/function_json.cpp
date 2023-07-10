@@ -35,6 +35,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,7 @@
 #else
 #include "util/jsonb_parser.h"
 #endif
+#include "util/jsonb_document.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -66,9 +68,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
+#include "vec/functions/function_json_search.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/json/simd_json_parser.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris {
@@ -1128,6 +1132,240 @@ public:
     }
 };
 
+class FunctionJsonSearch : public IFunction {
+    struct Argument {
+        const ColumnNullable* col_nullable = nullptr;
+        const ColumnString* col_str = nullptr;
+        bool is_const = true;
+
+        explicit Argument(const ColumnPtr& arg_col) {
+            const auto& [col_unpacked, col_is_const] = unpack_if_const(arg_col);
+            const auto col = make_nullable(col_unpacked);
+            col_nullable = check_and_get_column<ColumnNullable>(col);
+            col_str = check_and_get_column<ColumnString>(col_nullable->get_nested_column());
+            is_const = col_is_const;
+        }
+    };
+
+    bool check_path(const std::string_view& path) {
+        Stream path_stream(path.data(), path.length());
+        return JsonbPath::parsePath(&stream);
+    }
+
+    std::string make_result_str(const std::unordered_set<std::string>& matches) {
+        if (matches.size() == 1) {
+            return "\"" + *matches.cbegin() + "\"";
+        }
+
+        // the order of the matches is undefined.
+        std::string result_str = "[\"";
+        for (const std::string& match : matches) {
+            result_str += match;
+        }
+        result_str += "\"]";
+
+        return result_str;
+    }
+
+public:
+    static constexpr auto name = "json_search";
+
+    static FunctionPtr create() { return std::make_shared<FunctionJsonSearch>(); }
+
+    String get_name() const override { return name; }
+
+    // `json_search` takes in variable number of arguments.
+    bool is_variadic() const override { return true; }
+
+    // by convention, calling `get_number_of_arguments` on a variadic function returns 0.
+    size_t get_number_of_arguments() const override { return 0; }
+
+    // in MySQL's manual, `json_search` returns a single path string if only one match is found
+    // while returns an array of path strings if multiple matches was found.
+    // in doris, to simplify the processing, we make the return type `DataTypeString` in either case.
+    // if there's only one match, it's trivial.
+    // if there're multiple matches, we construct an array-like string which is literally a string
+    // but looks like an array.
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    // the arguments are:
+    // json_doc, one_or_all, search_str, escape_char, path, ..., path
+    // json_doc: the json document to be searched in.
+    // one_or_all:
+    //      if set to 'one', the searching terminates as long as the first match is found.
+    //      if set to 'all', the searching will exhaust all matches.
+    // search_str: the string to be searched.
+    //      the search string may contain '%' and/or '_' characters:
+    //      '%' matches any number of characters (including zero characters).
+    //      '_' matches any single character.
+    // escape_char: used to specify that the '%' and/or '_' in the search string are literal characters.
+    // path: a string expression to identify a specific element in the json doc.
+    //
+    // pathExpression:
+    //     scope[(pathLeg)*]
+    // scope:
+    //     '$'
+    // pathLeg:
+    //     member | arrayLocation | doubleAsterisk
+    // member:
+    //     period ( keyName | asterisk )
+    // arrayLocation:
+    //     leftBracket ( nonNegativeInteger | asterisk ) rightBracket
+    // keyName:
+    //     ESIdentifier | doubleQuotedString
+    // doubleAsterisk:
+    //     '**'
+    // period:
+    //     '.'
+    // asterisk:
+    //     '*'
+    // leftBracket:
+    //     '['
+    // rightBracket:
+    //     ']'
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        // the json_doc, one_or_all, and search_str must be given.
+        // and we require the positions are static.
+        if (arguments.size() < 3) {
+            return Status::InvalidArgument("too few arguments for function {}", name);
+        }
+
+        auto result_col = ColumnString::create(input_rows_count);
+        auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        // how this function is implemented:
+        // (1) validate args. If invalid, returns Status::InvalidArgument error.
+        //      json_doc arg is invalid json doc.
+        //      one_or_all arg is not 'one' nor 'all'.
+        //      search_str arg is not a valid string (not necessary, since the frontend already filters this out).
+        //      escape_char is not empty nor a constant char.
+        //      any path arg is not valid.
+        //          here, we don't check if a path exists in the json doc, we only check it's a valid path expression.
+        // (2) check arg nullity:
+        //      if json_doc, one_or_all, or any path arg is null, returns null.
+        //      if search_str is not found in the json doc, returns null.
+        //      if no paths exist in the json doc, returns null.
+        // (3) prepare default args:
+        //      if escape_char arg is null or missing, the escape_char is set to '\'.
+        //      if path arg is missing, there exists a path '$'.
+        // (4) perform searching:
+        //      maintain a hash set to store path expressions corresponding to the matches.
+        //          this is used to deduplicate matches.
+        //      maintain a path_legs var which is a vector and initially contains a '$' character.
+        //      if the json element at the current depth is an array or an object, dive into it by
+        //      calling the searching function recursively. The cur_path var is updated accordingly.
+        //          if it's an array, append an array path leg to the cur_path var.
+        //          if it's an object, append an object path leg to the cur_path var.
+        //      otherwise, we match the search_str to each json element of type string.
+        //              the matching is performed while taking into account the wildcards: % and _.
+        //              the matching is performed while taking into accound the escape_char.
+        //          for each match, we further check if its path is within any path args.
+        //              the within-ness is checked as such:
+        //                  when parsing path args, each path arg will be split into a sequence of path legs.
+        //                  when performing searching,
+        //      if the one_or_all arg is 'one' and we've found a match, stop the searching immediately.
+        //      if the one_or_all arg is 'all', stop the searching until the json_doc is exhausted.
+
+        std::vector<Argument> args;
+        for (const auto& arg_num : arguments) {
+            args.push_back(Argument(block.get_by_position(arg_num).column));
+        }
+
+        SimdJSONParser parser;
+        SimdJSONParser::Element root_element;
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            // an error occurs if the json_doc argument is not a valid json document.
+            const std::string_view json_doc_str = args[0].col_str->get_data_at(i).to_string_view();
+            if (parser.parse(json_doc_str, root_element)) {
+                return Status::InvalidArgument(
+                        "the json_doc argument {} is not a valid json document", json_doc_str);
+            }
+
+            // an error occurs if the one_or_all argument is not 'one' nor 'all'.
+            const std::string_view one_or_all_str =
+                    args[1].col_str->get_data_at(i).to_string_view();
+            if (one_or_all_str != "one" && one_or_all_str != "all") {
+                return Status::InvalidArgument("the one_or_all argument {} is not 'one' not 'all'",
+                                               one_or_all_str);
+            }
+
+            // an error occurs if the escape_char argument is not empty nor an empty constant char.
+            if (args.size() > 3) {
+                const std::string_view escape_char_str =
+                        args[3].col_str->get_data_at(i).to_string_view();
+
+                if (!args[3].is_const) {
+                    return Status::InvalidArgument(
+                            "the escape_char argument {} is not a constant expression",
+                            escape_char_str);
+                }
+
+                if (escape_char_str.size() > 1) {
+                    return Status::InvalidArgument(
+                            "the escape_char argument {} is not empty nor a single character",
+                            escape_char_str);
+                }
+            }
+
+            // an error occurs if any path argument is not a valid path expression.
+            for (size_t pi = 4; pi < args.size(); ++pi) {
+                if (!args[pi].col_nullable->is_null_at(pi)) {
+                    const std::string_view path_str =
+                            args[pi].col_str->get_data_at(i).to_string_view();
+                    if (!check_path(path_str)) {
+                        return Status::InvalidArgument("found an invalid path argument: {}",
+                                                       path_str);
+                    }
+                }
+            }
+
+            bool has_null_path_arg = false;
+            for (size_t pi = 4; pi < args.size(); ++pi) {
+                if (args[pi].col_nullable->is_null_at(pi)) {
+                    has_null_path_arg = true;
+                    break;
+                }
+            }
+
+            // returns NULL if any of the json_doc, search_str, or path arguments are NULL;
+            if (args[0].col_nullable->is_null_at(i) || args[2].col_nullable->is_null_at(i) ||
+                has_null_path_arg) {
+                result_null_map->get_data()[i] = 1;
+                continue;
+            }
+
+            // if the escape_char argument is given and it's not null, set the escape_char explicitly.
+            // otherwise, the escape_char is the '\' character by default.
+            char escape_char = '\\';
+            if (args.size() > 3 && !args[3].col_nullable->is_null_at(i)) {
+                const std::string_view escape_char_str =
+                        args[3].col_str->get_data_at(i).to_string_view();
+                escape_char = escape_char_str.front();
+            }
+
+            // returns NULL if the search_str is not found in the document.
+            // TODO: solved with json_contains.
+
+            // returns NULL if no path exists within the document.
+            // TODO: solved with json_contains_path.
+        }
+
+        auto result_col_nullable =
+                ColumnNullable::create(std::move(result_col), std::move(result_null_map));
+        block.replace_by_position(result, std::move(result_col_nullable));
+
+        return Status::OK();
+    }
+};
+
 void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGetJsonInt>();
     factory.register_function<FunctionGetJsonBigInt>();
@@ -1142,6 +1380,7 @@ void register_function_json(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionJsonValid>();
     factory.register_function<FunctionJsonContains>();
+    factory.register_function<FunctionJsonSearch>();
 }
 
 } // namespace doris::vectorized
