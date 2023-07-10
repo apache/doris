@@ -2150,6 +2150,17 @@ true	abc	def	2022-10-11	1.234	1	2	99	2022-10-22T10:59:59	34.123
 1	jsonb	{"nullKey":null,"arrayKey":["element1",2,false,null,{"nestedKey":"nestedValue"}],"floatKey":123.45,"objectKey":{"nestedStringKey":"nestedStringValue","nestedIntegerKey":67890},"stringKey":"stringValue","booleanKey":true,"integerKey":12345}
 2	jsonb2	\N
 
+-- !filter1 --
+1	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:aa	1010101010	01010	1	{"id":1}
+2	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:ff	0000001010	0000001010	2	{"id":1}
+3	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:ff	0000001010	0001010	3	{"id":1}
+
+-- !filter2 --
+1	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:aa	1010101010	01010	1	{"id":1}
+
+-- !filter3 --
+1	false	12.123456	10.16.10.14/32	10.16.10.14	ff:ff:ff:ff:ff:aa	1010101010	01010	1	{"id":1}
+
 -- !test_insert1 --
 doris1	18
 
