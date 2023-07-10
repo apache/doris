@@ -6,6 +6,7 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h> // for TStatus
+#include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -329,10 +330,13 @@ public:
     // move assign
     Status& operator=(Status&& rhs) noexcept = default;
 
-    // "Copy" c'tor from TStatus.
-    Status(const TStatus& status);
+    Status static create(const TStatus& status) {
+        return Error<true>(status.status_code, status.error_msgs[0]);
+    }
 
-    Status(const PStatus& pstatus);
+    Status static create(const PStatus& pstatus) {
+        return Error<true>(pstatus.status_code(), pstatus.error_msgs(0));
+    }
 
     template <int code, bool stacktrace = true, typename... Args>
     Status static Error(std::string_view msg, Args&&... args) {
@@ -351,6 +355,7 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
+            LOG(WARNING) << "meet error status: " << status;
             status._err_msg->_stack = get_stack_trace();
         }
 #endif
@@ -564,8 +569,3 @@ using Result = expected<T, Status>;
     } while (false)
 
 } // namespace doris
-#ifdef WARN_UNUSED_RESULT
-#undef WARN_UNUSED_RESULT
-#endif
-
-#define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

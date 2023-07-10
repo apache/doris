@@ -384,7 +384,7 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
                 client->make_snapshot(result, request);
             }));
     if (result.status.status_code != TStatusCode::OK) {
-        return Status(result.status);
+        return Status::create(result.status);
     }
 
     if (result.__isset.snapshot_path) {
@@ -510,7 +510,7 @@ Status SingleReplicaCompaction::_release_snapshot(const std::string& ip, int por
             ip, port, [&snapshot_path, &result](BackendServiceConnection& client) {
                 client->release_snapshot(result, snapshot_path);
             }));
-    return Status(result.status);
+    return Status::create(result.status);
 }
 
 Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
