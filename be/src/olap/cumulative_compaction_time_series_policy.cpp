@@ -137,9 +137,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
 
         // check the rowset is whether less than _compaction_goal_size
         // The result of compaction may be slightly smaller than the _compaction_goal_size.
-        if (!is_delete && rs->version().first != 0 &&
-            rs->total_disk_size() <
-                    (config::time_series_compaction_goal_size_mbytes * 1024 * 1024 * 0.8)) {
+        if (!is_delete && rs->version().first != 0 && rs->version().first == rs->version().second) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
