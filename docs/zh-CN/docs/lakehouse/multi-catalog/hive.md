@@ -154,7 +154,7 @@ CREATE CATALOG hive PROPERTIES (
     "glue.secret_key" = "sk"
 );
 ```
-### 配置kerberos
+### 配置 kerberos
 
 集群开启 kerberos 认证的前提下需要在创建 catalog 时增加以下配置项才可正常访问
 
