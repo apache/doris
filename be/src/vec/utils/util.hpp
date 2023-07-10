@@ -42,13 +42,11 @@ public:
                                 block);
         }
     }
-    static MemReuseMutableColumns build_mutable_mem_reuse_columns(Block* output_block,
-                                                                  const Block* origin_block) {
-        if (output_block->mem_reuse()) {
-            return MemReuseMutableColumns(output_block->mutate_columns());
+    static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
+        if (block->mem_reuse()) {
+            return MutableBlock(block);
         } else {
-            return MemReuseMutableColumns(output_block->mutate_columns(), output_block,
-                                          origin_block);
+            return MutableBlock(other.clone_empty(), block);
         }
     }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(

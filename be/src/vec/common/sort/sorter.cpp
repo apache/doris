@@ -32,6 +32,7 @@
 #include "runtime/thread_context.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
 #include "vec/core/block_spill_reader.h"
 #include "vec/core/block_spill_writer.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -161,8 +162,8 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
                                                       doris::vectorized::Block* block, bool* eos) {
     size_t num_columns = sorted_blocks_[0].columns();
 
-    MemReuseMutableColumns merged_columns =
-            VectorizedUtils::build_mutable_mem_reuse_columns(block, &sorted_blocks_[0]);
+    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, sorted_blocks_[0]);
+    MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
