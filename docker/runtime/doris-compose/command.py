@@ -113,9 +113,10 @@ class SimpleCommand(Command):
 class UpCommand(Command):
 
     def add_parser(self, args_parsers):
-        parser = args_parsers.add_parser("up", help="Create and upgrade doris containers. " \
+        parser = args_parsers.add_parser("up", help="Create and upgrade doris containers, "\
+                "or add new containers. " \
                 "If none of --add-fe-num, --add-be-num, --fe-id, --be-id is specific, " \
-                "apply to all containers.")
+                "then apply to all containers.")
         parser.add_argument("NAME", default="", help="Specific cluster name.")
         parser.add_argument("IMAGE",
                             default="",
@@ -300,7 +301,7 @@ class DownCommand(Command):
                     args.NAME, related_node_num)))
 
 
-class LsCommand(Command):
+class ListCommand(Command):
 
     def add_parser(self, args_parsers):
         parser = args_parsers.add_parser(
@@ -469,10 +470,10 @@ class LsCommand(Command):
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
-    LsCommand("ls"),
     SimpleCommand("start", "Start the doris containers. "),
     SimpleCommand("stop", "Stop the doris containers. "),
     SimpleCommand("restart", "Restart the doris containers. "),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
+    ListCommand("ls"),
 ]

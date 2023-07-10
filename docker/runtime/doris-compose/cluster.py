@@ -46,9 +46,6 @@ IP_PART4_SIZE = 200
 
 LOG = utils.get_logger()
 
-REMOVE_TYPE_DROP = 1
-REMOVE_TYPE_DECOMMISSION = 2
-
 
 def get_cluster_path(cluster_name):
     return os.path.join(LOCAL_DORIS_PATH, cluster_name)
