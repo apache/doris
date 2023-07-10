@@ -1565,6 +1565,13 @@ public class FunctionCallExpr extends Expr {
         }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
+            ScalarType left = (ScalarType) argTypes[0];
+            ScalarType right = (ScalarType) argTypes[1];
+            if (left.isDatetimeV2() || right.isDatetimeV2() || left.isDateV2() || right.isDateV2()) {
+                Type ret = ScalarType.createTimeV2Type(Math.max(left.getScalarScale(), right.getScalarScale()));
+                fn.setReturnType(ret);
+                fn.getReturnType().getPrimitiveType().setTimeType();
+            }
         }
 
         if (fnName.getFunction().equalsIgnoreCase("map")) {

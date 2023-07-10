@@ -861,7 +861,7 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
                             {{std::string("2019-00-18"), std::string("2019-07-18")}, Null()},
                             {{std::string("2019-07-18"), std::string("2019-07-00")}, Null()}};
 
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
+        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
     }
 
     {
@@ -869,11 +869,12 @@ TEST(VTimestampFunctionsTest, timediff_v2_test) {
 
         DataSet data_set = {
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-18 00:00:00")}, 0.0},
-                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")}, 10.0},
+                {{std::string("2019-07-18 00:00:10"), std::string("2019-07-18 00:00:00")},
+                 10000000.0},
                 {{std::string("2019-00-18 00:00:00"), std::string("2019-07-18 00:00:00")}, Null()},
                 {{std::string("2019-07-18 00:00:00"), std::string("2019-07-00 00:00:00")}, Null()}};
 
-        check_function<DataTypeTime, true>(func_name, input_types, data_set);
+        check_function<DataTypeTimeV2, true>(func_name, input_types, data_set);
     }
 }
 

@@ -205,6 +205,8 @@ bool call_on_index_and_data_type(TypeIndex number, F&& f) {
         return f(TypePair<DataTypeNumber<Float64>, T>());
     case TypeIndex::Time:
         return f(TypePair<DataTypeTime, T>());
+    case TypeIndex::TimeV2:
+        return f(TypePair<DataTypeTimeV2, T>());
     case TypeIndex::Decimal32:
         return f(TypePair<DataTypeDecimal<Decimal32>, T>());
     case TypeIndex::Decimal64:
