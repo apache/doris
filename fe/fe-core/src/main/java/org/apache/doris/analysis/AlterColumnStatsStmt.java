@@ -17,10 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -28,7 +27,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -109,9 +108,6 @@ public class AlterColumnStatsStmt extends DdlStmt {
         // check table name
         tableName.analyze(analyzer);
 
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
         // check partition & column
         checkColumnNames();
 
@@ -138,19 +134,11 @@ public class AlterColumnStatsStmt extends DdlStmt {
         });
     }
 
-    /**
-     * TODO(wzt): Support for external tables
-     */
     private void checkColumnNames() throws AnalysisException {
-        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-        Table table = db.getTableOrAnalysisException(tableName.getTbl());
-
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only OLAP table statistics are supported");
-        }
-
-        OlapTable olapTable = (OlapTable) table;
-        if (olapTable.getColumn(columnName) == null) {
+        CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
+        TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
+        if (table.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.getColumnNameRegex());
         }
