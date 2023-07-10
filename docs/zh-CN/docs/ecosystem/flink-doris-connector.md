@@ -28,10 +28,6 @@ under the License.
 
 # Flink Doris Connector
 
-> 本文档适用于flink-doris-connector 1.1.0之后的版本，1.1.0之前的版本参考[这里](https://doris.apache.org/zh-CN/docs/0.15/extending-doris/flink-doris-connector)
-
-
-
 Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改、删除） Doris 中存储的数据。
 
 代码库地址：https://github.com/apache/doris-flink-connector
