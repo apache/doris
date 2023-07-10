@@ -23,6 +23,7 @@ namespace doris {
 
 class CachePolicy;
 
+// Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {
 public:
     static void create_global_instance() {

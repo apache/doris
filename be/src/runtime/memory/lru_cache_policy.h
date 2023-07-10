@@ -23,6 +23,15 @@
 
 namespace doris {
 
+// Base of the lru cache value.
+struct LRUCacheValuePolicy {
+    // Save the last visit time of this cache entry.
+    // Use atomic because it may be modified by multi threads.
+    std::atomic<int64_t> last_visit_time = 0;
+    size_t size = 0;
+};
+
+// Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
 public:
     LRUCachePolicy(const std::string& name, uint32_t stale_sweep_time_s)
@@ -45,7 +54,7 @@ public:
             const int64_t curtime = UnixMillis();
             int64_t byte_size = 0L;
             auto pred = [this, curtime, &byte_size](const void* value) -> bool {
-                CacheValuePolicy* cache_value = (CacheValuePolicy*)value;
+                LRUCacheValuePolicy* cache_value = (LRUCacheValuePolicy*)value;
                 if ((cache_value->last_visit_time + _stale_sweep_time_s * 1000) < curtime) {
                     byte_size += cache_value->size;
                     return true;
@@ -56,10 +65,10 @@ public:
             // Prune cache in lazy mode to save cpu and minimize the time holding write lock
             _freed_entrys_counter->set(_cache->prune_if(pred, true));
             _freed_memory_counter->set(byte_size);
-            _prune_if_number_counter->update(1);
+            _prune_stale_number_counter->update(1);
             LOG(INFO) << fmt::format("{} prune stale {} entries, {} bytes, {} times prune", _name,
                                      _freed_entrys_counter->value(), _freed_memory_counter->value(),
-                                     _prune_if_number_counter->value());
+                                     _prune_stale_number_counter->value());
         }
     }
 
@@ -73,7 +82,7 @@ public:
             _prune_all_number_counter->update(1);
             LOG(INFO) << fmt::format("{} prune all {} entries, {} bytes, {} times prune", _name,
                                      _freed_entrys_counter->value(), _freed_memory_counter->value(),
-                                     _prune_if_number_counter->value());
+                                     _prune_stale_number_counter->value());
         }
     }
 

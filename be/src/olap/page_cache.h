@@ -37,7 +37,7 @@ namespace doris {
 class PageCacheHandle;
 
 template <typename TAllocator>
-class PageBase : private TAllocator, CacheValuePolicy {
+class PageBase : private TAllocator, LRUCacheValuePolicy {
 public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 
@@ -175,15 +175,24 @@ private:
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
-            return _data_page_cache->get();
+            if (_data_page_cache) {
+                return _data_page_cache->get();
+            }
         }
-        case segment_v2::INDEX_PAGE:
-            return _index_page_cache->get();
-        case segment_v2::PRIMARY_KEY_INDEX_PAGE:
-            return _pk_index_page_cache->get();
+        case segment_v2::INDEX_PAGE: {
+            if (_index_page_cache) {
+                return _index_page_cache->get();
+            }
+        }
+        case segment_v2::PRIMARY_KEY_INDEX_PAGE: {
+            if (_pk_index_page_cache) {
+                return _pk_index_page_cache->get();
+            }
+        }
         default:
             return nullptr;
         }
+        return nullptr;
     }
 };
 

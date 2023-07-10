@@ -66,7 +66,7 @@ public:
 
     // The cache value of index_searcher lru cache.
     // Holding a opened index_searcher.
-    struct CacheValue : public CacheValuePolicy {
+    struct CacheValue : public LRUCacheValuePolicy {
         IndexSearcherPtr index_searcher;
     };
 
@@ -219,7 +219,7 @@ public:
         }
     };
 
-    struct CacheValue : public CacheValuePolicy {
+    struct CacheValue : public LRUCacheValuePolicy {
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 

@@ -24,6 +24,7 @@ namespace doris {
 
 static constexpr int32_t CACHE_MIN_FREE_SIZE = 67108864; // 64M
 
+// Base of all caches. register to CacheManager when cache is constructed.
 class CachePolicy {
 public:
     CachePolicy(const std::string& name, uint32_t stale_sweep_time_s)
@@ -41,7 +42,7 @@ public:
 protected:
     void init_profile() {
         _profile = std::make_unique<RuntimeProfile>(fmt::format("Cache name={}", _name));
-        _prune_if_number_counter = ADD_COUNTER(_profile, "PruneIfNumber", TUnit::UNIT);
+        _prune_stale_number_counter = ADD_COUNTER(_profile, "PruneStaleNumber", TUnit::UNIT);
         _prune_all_number_counter = ADD_COUNTER(_profile, "PruneAllNumber", TUnit::UNIT);
         _freed_memory_counter = ADD_COUNTER(_profile, "FreedMemory", TUnit::BYTES);
         _freed_entrys_counter = ADD_COUNTER(_profile, "FreedEntrys", TUnit::UNIT);
@@ -52,7 +53,7 @@ protected:
     std::list<CachePolicy*>::iterator _it;
 
     std::unique_ptr<RuntimeProfile> _profile;
-    RuntimeProfile::Counter* _prune_if_number_counter = nullptr;
+    RuntimeProfile::Counter* _prune_stale_number_counter = nullptr;
     RuntimeProfile::Counter* _prune_all_number_counter = nullptr;
     // Reset before each gc
     RuntimeProfile::Counter* _freed_memory_counter = nullptr;
@@ -60,13 +61,6 @@ protected:
     RuntimeProfile::Counter* _cost_timer = nullptr;
 
     uint32_t _stale_sweep_time_s;
-};
-
-struct CacheValuePolicy {
-    // Save the last visit time of this cache entry.
-    // Use atomic because it may be modified by multi threads.
-    std::atomic<int64_t> last_visit_time = 0;
-    size_t size = 0;
 };
 
 } // namespace doris
