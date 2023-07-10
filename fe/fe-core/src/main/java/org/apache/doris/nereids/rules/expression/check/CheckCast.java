@@ -59,20 +59,16 @@ public class CheckCast extends AbstractExpressionRewriteRule {
 
     /**
      * forbid this original and target type
-     *   1. boolean to date, datev2, datetime, datetimev2
-     *   2. original type is object type
-     *   3. target type is object type
-     *   4. original type is same with target type
-     *   5. target type is null type
+     *   1. original type is object type
+     *   2. target type is object type
+     *   3. original type is same with target type
+     *   4. target type is null type
      */
     private boolean checkPrimitiveType(DataType originalType, DataType targetType) {
         if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
             return false;
         }
         if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isBooleanType() && targetType.isDateLikeType()) {
             return false;
         }
         if (originalType.isNullType()) {

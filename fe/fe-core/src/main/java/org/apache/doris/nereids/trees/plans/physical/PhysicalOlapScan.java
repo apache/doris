@@ -158,13 +158,6 @@ public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
     }
 
     @Override
-    public PhysicalOlapScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,
-                selectedPartitionIds, distributionSpec, preAggStatus, baseOutputs, Optional.empty(),
-                logicalProperties.get());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapScan(id, olapTable, qualifier, selectedIndexId, selectedTabletIds,

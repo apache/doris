@@ -90,10 +90,14 @@ public:
 
     Status flush() override;
 
+    Status unfold_variant_column_and_flush_block(
+            vectorized::Block* block, int32_t segment_id,
+            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) override;
+
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                 const FlushContext* ctx = nullptr) override;
+    Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
+                              const FlushContext* ctx = nullptr) override;
 
     RowsetSharedPtr build() override;
 
@@ -115,11 +119,6 @@ public:
 
     int32_t allocate_segment_id() override { return _next_segment_id.fetch_add(1); };
 
-    // Maybe modified by local schema change
-    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() override {
-        return _context.schema_change_recorder.get();
-    }
-
     SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
 
     Status flush_segment_writer_for_segcompaction(
@@ -133,6 +132,8 @@ public:
     void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
+
+    int64_t segment_writer_ns() override { return _segment_writer_ns; }
 
 private:
     Status _do_add_block(const vectorized::Block* block,
@@ -170,6 +171,13 @@ private:
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+
+    // Unfold variant column to Block
+    // Eg. [A | B | C | (D, E, F)]
+    // After unfold block structure changed to -> [A | B | C | D | E | F]
+    // The expanded D, E, F is dynamic part of the block
+    // The flushed Block columns should match exactly from the same type of frontend meta
+    Status _unfold_variant_column(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
 
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
@@ -231,6 +239,7 @@ protected:
     std::shared_ptr<MowContext> _mow_context;
 
     int64_t _delete_bitmap_ns = 0;
+    int64_t _segment_writer_ns = 0;
 };
 
 } // namespace doris

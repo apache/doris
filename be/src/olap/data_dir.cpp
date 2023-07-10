@@ -39,7 +39,6 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
@@ -149,7 +148,7 @@ Status DataDir::read_cluster_id(const std::string& cluster_id_path, int32_t* clu
     if (exists) {
         std::string content;
         RETURN_IF_ERROR(
-                io::read_file_to_string(io::global_local_filesystem(), cluster_id_path, &content));
+                io::global_local_filesystem()->read_file_to_string(cluster_id_path, &content));
         if (content.size() > 0) {
             *cluster_id = std::stoi(content);
         } else {

@@ -29,8 +29,7 @@ import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
-import org.apache.doris.statistics.HiveAnalysisTask;
-import org.apache.doris.statistics.IcebergAnalysisTask;
+import org.apache.doris.statistics.HMSAnalysisTask;
 import org.apache.doris.statistics.TableStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
@@ -322,14 +321,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
-        switch (dlaType) {
-            case HIVE:
-                return new HiveAnalysisTask(info);
-            case ICEBERG:
-                return new IcebergAnalysisTask(info);
-            default:
-                throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
-        }
+        return new HMSAnalysisTask(info);
     }
 
     public String getViewText() {
@@ -473,6 +465,19 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return getHiveColumnStats(colName);
+            case ICEBERG:
+                return StatisticsUtil.getIcebergColumnStats(colName, HiveMetaStoreClientHelper.getIcebergTable(this));
+            default:
+                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<ColumnStatistic> getHiveColumnStats(String colName) {
         List<ColumnStatisticsObj> tableStats = getHiveTableColumnStats(Lists.newArrayList(colName));
         if (tableStats == null || tableStats.isEmpty()) {
             LOG.debug(String.format("No table stats found in Hive metastore for column %s in table %s.",

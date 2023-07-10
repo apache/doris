@@ -78,15 +78,16 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                      const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
     io::FileReaderSPtr file_reader;
+    io::FileDescription fd;
+    fd.path = path;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(
-                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(fd, reader_options, &file_reader));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(fs->open_file(fd, reader_options, &file_reader));
     }
 #endif
 

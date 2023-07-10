@@ -118,14 +118,6 @@ public class LogicalCTEConsumer extends LogicalLeaf {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTEConsumer(groupExpression, logicalProperties, cteId,
-                consumerToProducerOutputMap,
-                producerToConsumerOutputMap,
-                consumerId, name);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalCTEConsumer(groupExpression, logicalProperties, cteId,

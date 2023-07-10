@@ -102,11 +102,6 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     }
 
     @Override
-    public PhysicalJdbcScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalJdbcScan(id, table, qualifier, distributionSpec, groupExpression, logicalProperties.get());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalJdbcScan(id, table, qualifier, distributionSpec, groupExpression, logicalProperties.get());

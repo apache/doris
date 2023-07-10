@@ -74,12 +74,6 @@ public class LogicalJdbcScan extends LogicalRelation {
     }
 
     @Override
-    public LogicalJdbcScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
-            logicalProperties);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalJdbcScan(id, table, qualifier, groupExpression, logicalProperties);

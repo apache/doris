@@ -165,6 +165,9 @@ StorageEngine::~StorageEngine() {
     if (_calc_delete_bitmap_thread_pool) {
         _calc_delete_bitmap_thread_pool->shutdown();
     }
+    if (_cold_data_compaction_thread_pool) {
+        _cold_data_compaction_thread_pool->shutdown();
+    }
     _clear();
     _s_instance = nullptr;
 }
@@ -560,6 +563,8 @@ void StorageEngine::stop() {
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
     THREAD_JOIN(_async_publish_thread);
+    THREAD_JOIN(_cold_data_compaction_producer_thread);
+    THREAD_JOIN(_cooldown_tasks_producer_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)            \

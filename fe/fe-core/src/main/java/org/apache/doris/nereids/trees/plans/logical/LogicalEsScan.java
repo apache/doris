@@ -71,12 +71,6 @@ public class LogicalEsScan extends LogicalRelation {
     }
 
     @Override
-    public LogicalEsScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalEsScan(id, (ExternalTable) table, qualifier, groupExpression,
-            logicalProperties);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalEsScan(id, (ExternalTable) table, qualifier, groupExpression, logicalProperties);
