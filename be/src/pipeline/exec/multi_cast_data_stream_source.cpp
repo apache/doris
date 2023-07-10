@@ -55,7 +55,8 @@ MultiCastDataStreamerSourceOperator::MultiCastDataStreamerSourceOperator(
 
 Status MultiCastDataStreamerSourceOperator::prepare(doris::RuntimeState* state) {
     RETURN_IF_ERROR(vectorized::RuntimeFilterConsumer::init(state));
-    _register_runtime_filter();
+    // init profile for runtime filter
+    RuntimeFilterConsumer::_init_profile(_multi_cast_data_streamer->profile());
     if (_t_data_stream_sink.__isset.output_exprs) {
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_data_stream_sink.output_exprs,
                                                              _output_expr_contexts));
