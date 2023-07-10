@@ -621,6 +621,28 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
     }
 }
 
+void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
+        const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
+    for (int32_t i = 0; i < _txn_map_shard_size; i++) {
+        std::shared_lock txn_rdlock(_txn_map_locks[i]);
+        for (const auto& it : _txn_tablet_maps[i]) {
+            auto tablet_load_it = it.second.find(tablet->get_tablet_info());
+            if (tablet_load_it != it.second.end()) {
+                TPartitionId partition_id = it.first.first;
+                TTransactionId transaction_id = it.first.second;
+                const RowsetSharedPtr& rowset = tablet_load_it->second.rowset;
+                const DeleteBitmapPtr& delete_bitmap = tablet_load_it->second.delete_bitmap;
+                const RowsetIdUnorderedSet& rowset_ids = tablet_load_it->second.rowset_ids;
+                if (!rowset || !delete_bitmap) {
+                    continue;
+                }
+                commit_tablet_txn_info_vec->push_back(CommitTabletTxnInfo(
+                        partition_id, transaction_id, rowset, delete_bitmap, rowset_ids));
+            }
+        }
+    }
+}
+
 bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                          TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);

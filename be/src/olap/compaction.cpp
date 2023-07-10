@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <list>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <set>
@@ -50,6 +51,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/task/engine_checksum_task.h"
+#include "olap/txn_manager.h"
 #include "olap/utils.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/time.h"
@@ -578,7 +580,8 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of incremental data later.
         _tablet->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
-                &location_map, &output_rowset_delete_bitmap);
+                &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                &output_rowset_delete_bitmap);
         std::size_t missed_rows_size = missed_rows.size();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             if (stats != nullptr && stats->merged_rows != missed_rows_size) {
@@ -594,16 +597,41 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
+
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
 
+            // Here we will calculate all the rowsets delete bitmaps which are committed but not published to reduce the calculation pressure
+            // of publish phase.
+            // All rowsets which need to recalculate have been published so we don't need to acquire lock.
+            // Step1: collect this tablet's all committed rowsets' delete bitmaps
+            CommitTabletTxnInfoVec commit_tablet_txn_info_vec {};
+            StorageEngine::instance()->txn_manager()->get_all_commit_tablet_txn_info_by_tablet(
+                    _tablet, &commit_tablet_txn_info_vec);
+
+            // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
+            for (auto& it : commit_tablet_txn_info_vec) {
+                DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
+                _tablet->calc_compaction_output_rowset_delete_bitmap(
+                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
+                        &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
+                it.delete_bitmap->merge(output_delete_bitmap);
+                // Step3: write back updated delete bitmap and tablet info.
+                it.rowset_ids.insert(_output_rowset->rowset_id());
+                StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                        it.partition_id, it.transaction_id, _tablet->tablet_id(),
+                        _tablet->schema_hash(), _tablet->tablet_uid(), true, it.delete_bitmap,
+                        it.rowset_ids);
+            }
+
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &missed_rows,
-                    &location_map, &output_rowset_delete_bitmap);
+                    &location_map, _tablet->tablet_meta()->delete_bitmap(),
+                    &output_rowset_delete_bitmap);
             if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 DCHECK_EQ(missed_rows.size(), missed_rows_size);
                 if (missed_rows.size() != missed_rows_size) {
