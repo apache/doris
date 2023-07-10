@@ -517,9 +517,9 @@ public:
         size_t input_rows_count = json_data_const ? rdata_columns.size() : loffsets.size();
         res_offsets.resize(input_rows_count);
 
-        auto writer = std::make_unique<JsonbWriter>();
+        std::unique<JsonbWriter> writer;
         if (rdata_columns.size() > 1) {
-            writer->reset();
+            writer->reset(new JsonbWriter());
         }
         std::unique_ptr<JsonbToJson> formater;
 
