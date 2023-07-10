@@ -112,16 +112,17 @@ public class HiveScanProvider extends HMSTableScanProvider {
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         String location = hmsTable.getRemoteTable().getSd().getLocation();
         if (location != null && !location.isEmpty()) {
-            if (location.startsWith(FeConstants.FS_PREFIX_S3)
-                    || location.startsWith(FeConstants.FS_PREFIX_S3A)
-                    || location.startsWith(FeConstants.FS_PREFIX_S3N)
-                    || location.startsWith(FeConstants.FS_PREFIX_BOS)
-                    || location.startsWith(FeConstants.FS_PREFIX_COS)
-                    || location.startsWith(FeConstants.FS_PREFIX_OSS)
-                    || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
-                return TFileType.FILE_S3;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
+            if (location.startsWith(FeConstants.FS_PREFIX_HDFS)
+                || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
                 return TFileType.FILE_HDFS;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_S3)
+                || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                || location.startsWith(FeConstants.FS_PREFIX_S3N)
+                || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                || location.startsWith(FeConstants.FS_PREFIX_COS)
+                || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
+                return TFileType.FILE_S3;
             } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
                 return TFileType.FILE_LOCAL;
             } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
