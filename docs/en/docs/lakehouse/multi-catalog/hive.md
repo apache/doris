@@ -155,7 +155,7 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-### configure kerberos
+### Configure kerberos
 
 On the premise that kerberos authentication is enabled in the cluster, the following configuration items need to be added when creating the catalog for normal access
 
