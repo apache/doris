@@ -202,6 +202,18 @@ public class StatisticsRepository {
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
 
+    public static void dropExternalTableStatistics(long tblId) throws DdlException {
+        Map<String, String> params = new HashMap<>();
+        String inPredicate = String.format("tbl_id = %s", tblId);
+        params.put("tblName", StatisticConstants.ANALYSIS_TBL_NAME);
+        params.put("condition", inPredicate);
+        try {
+            StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
     public static void dropStatisticsByColName(long tblId, Set<String> colNames, String statsTblName)
             throws DdlException {
         Map<String, String> params = new HashMap<>();
