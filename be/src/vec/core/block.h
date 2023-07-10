@@ -448,6 +448,7 @@ public:
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
+        std::swap(_output_block, m_block._output_block);
         initialize_index_by_name();
     }
 
@@ -647,6 +648,23 @@ struct IteratorRowRef {
 
 using BlockView = std::vector<IteratorRowRef>;
 using BlockUPtr = std::unique_ptr<Block>;
-
+struct MemReuseMutableColumns : MutableColumns {
+    Block* _output_block = nullptr;
+    const Block* _origin_block = nullptr;
+    MemReuseMutableColumns() = default;
+    MemReuseMutableColumns(const MemReuseMutableColumns& rhs) = delete;
+    MemReuseMutableColumns(MemReuseMutableColumns&& rhs) = delete;
+    MemReuseMutableColumns(MutableColumns&& rhs, Block* output_block = nullptr,
+                           const Block* origin_block = nullptr)
+            : MutableColumns(std::move(rhs)),
+              _output_block {output_block},
+              _origin_block {origin_block} {};
+    ~MemReuseMutableColumns() {
+        if (_output_block) {
+            Block merge_block = _origin_block->clone_with_columns(std::move(*this));
+            merge_block.swap(*_output_block);
+        }
+    }
+};
 } // namespace vectorized
 } // namespace doris

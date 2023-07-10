@@ -34,12 +34,21 @@ public:
         // Block block;
         return create_columns_with_type_and_name(row_desc);
     }
-    static MutableBlock build_mutable_block(Block* block, const RowDescriptor& row_desc) {
+    static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
         if (block->mem_reuse()) {
             return MutableBlock(block);
         } else {
             return MutableBlock(VectorizedUtils::create_columns_with_type_and_name(row_desc),
                                 block);
+        }
+    }
+    static MemReuseMutableColumns build_mutable_mem_reuse_columns(Block* output_block,
+                                                                  const Block* origin_block) {
+        if (output_block->mem_reuse()) {
+            return MemReuseMutableColumns(output_block->mutate_columns());
+        } else {
+            return MemReuseMutableColumns(output_block->mutate_columns(), output_block,
+                                          origin_block);
         }
     }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
