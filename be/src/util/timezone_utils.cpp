@@ -28,12 +28,11 @@
 namespace doris {
 
 RE2 TimezoneUtils::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
-DorisCallOnce<Status> TimezoneUtils::load_timezone_once_;
 std::unordered_map<std::string, std::string> TimezoneUtils::timezone_names_map_;
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 
-void TimezoneUtils::_load_timezone_names() {
+void TimezoneUtils::load_timezone_names() {
     std::string path;
     const char* tzdir = "/usr/share/zoneinfo";
     char* tzdir_env = std::getenv("TZDIR");
@@ -53,10 +52,6 @@ void TimezoneUtils::_load_timezone_names() {
     }
 }
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
-    load_timezone_once_.call([] {
-        _load_timezone_names();
-        return Status::OK();
-    });
     auto timezone_lower = boost::algorithm::to_lower_copy(timezone);
     re2::StringPiece value;
     if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,

@@ -33,14 +33,13 @@ namespace doris {
 
 class TimezoneUtils {
 public:
+    static void load_timezone_names();
     static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
 
 public:
     static const std::string default_time_zone;
 
 private:
-    static void _load_timezone_names();
-    static DorisCallOnce<Status> load_timezone_once_;
     static std::unordered_map<std::string, std::string> timezone_names_map_;
 
     // RE2 obj is thread safe
