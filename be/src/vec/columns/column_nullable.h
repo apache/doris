@@ -186,6 +186,8 @@ public:
                                 const uint8_t* __restrict null_data) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override;
+    void update_crc_with_value(size_t n, uint64_t& crc) const override;
     void get_extremes(Field& min, Field& max) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
