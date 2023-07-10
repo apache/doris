@@ -118,12 +118,4 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
     return Status::OK();
 }
 
-RowsetIdUnorderedSet FullCompaction::pre_rowset_ids() {
-    RowsetIdUnorderedSet pre_rowset_ids {};
-    for (const auto& rowset : _input_rowsets) {
-        pre_rowset_ids.insert(rowset->rowset_id());
-    }
-    return pre_rowset_ids;
-}
-
 } // namespace doris

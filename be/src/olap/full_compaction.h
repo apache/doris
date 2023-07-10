@@ -49,7 +49,6 @@ protected:
 
 private:
     Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
-    RowsetIdUnorderedSet pre_rowset_ids();
 
     DISALLOW_COPY_AND_ASSIGN(FullCompaction);
 };
