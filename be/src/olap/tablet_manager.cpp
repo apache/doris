@@ -584,18 +584,14 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, TabletUid tablet_
     return nullptr;
 }
 
-std::vector<TabletSharedPtr> TabletManager::get_all_tablet() {
+std::vector<TabletSharedPtr> TabletManager::get_all_tablet(std::function<bool(Tablet*)>&& filter) {
     std::vector<TabletSharedPtr> res;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& tablet_map : tablets_shard.tablet_map) {
-            // these are tablets which is not deleted
-            TabletSharedPtr tablet = tablet_map.second;
-            if (!tablet->is_used()) {
-                LOG(WARNING) << "tablet cannot be used. tablet=" << tablet->tablet_id();
-                continue;
+        for (auto& [id, tablet] : tablets_shard.tablet_map) {
+            if (filter(tablet.get())) {
+                res.emplace_back(tablet);
             }
-            res.emplace_back(tablet);
         }
     }
     return res;
