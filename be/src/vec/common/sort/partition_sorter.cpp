@@ -94,10 +94,8 @@ Status PartitionSorter::get_next(RuntimeState* state, Block* block, bool* eos) {
 Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int batch_size) {
     const auto& sorted_block = _state->get_sorted_block()[0];
     size_t num_columns = sorted_block.columns();
-    bool mem_reuse = output_block->mem_reuse();
-    MutableColumns merged_columns =
-            mem_reuse ? output_block->mutate_columns() : sorted_block.clone_empty_columns();
-
+    MemReuseMutableColumns merged_columns =
+            VectorizedUtils::build_mutable_mem_reuse_columns(output_block, &sorted_block);
     size_t current_output_rows = 0;
     auto& priority_queue = _state->get_priority_queue();
 
@@ -189,10 +187,6 @@ Status PartitionSorter::partition_sort_read(Block* output_block, bool* eos, int 
         }
     }
 
-    if (!mem_reuse) {
-        Block merge_block = sorted_block.clone_with_columns(std::move(merged_columns));
-        merge_block.swap(*output_block);
-    }
     _output_total_rows += output_block->rows();
     if (current_output_rows == 0 || get_enough_data == true) {
         *eos = true;

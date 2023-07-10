@@ -529,11 +529,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
     SCOPED_TIMER(_projection_timer);
     using namespace vectorized;
     MutableBlock mutable_block =
-            VectorizedUtils::build_mutable_block(output_block, *_output_row_descriptor);
-    // MutableBlock mutable_block =
-    //         is_mem_reuse ? MutableBlock(output_block)
-    //                      : MutableBlock(VectorizedUtils::create_empty_columnswithtypename(
-    //                                *_output_row_descriptor));
+            VectorizedUtils::build_mutable_mem_reuse_block(output_block, *_output_row_descriptor);
     auto rows = origin_block->rows();
 
     if (rows != 0) {

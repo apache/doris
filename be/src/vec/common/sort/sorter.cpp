@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 class RowDescriptor;
@@ -160,9 +161,8 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
                                                       doris::vectorized::Block* block, bool* eos) {
     size_t num_columns = sorted_blocks_[0].columns();
 
-    bool mem_reuse = block->mem_reuse();
-    MutableColumns merged_columns =
-            mem_reuse ? block->mutate_columns() : sorted_blocks_[0].clone_empty_columns();
+    MemReuseMutableColumns merged_columns =
+            VectorizedUtils::build_mutable_mem_reuse_columns(block, &sorted_blocks_[0]);
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
@@ -189,11 +189,6 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
     if (merged_rows == 0) {
         *eos = true;
         return Status::OK();
-    }
-
-    if (!mem_reuse) {
-        Block merge_block = sorted_blocks_[0].clone_with_columns(std::move(merged_columns));
-        merge_block.swap(*block);
     }
 
     return Status::OK();
