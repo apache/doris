@@ -35,9 +35,6 @@ PipelineTask* SubTaskQueue::try_take(bool is_steal) {
         return nullptr;
     }
     auto task = _queue.front();
-    if (!task->can_steal() && is_steal) {
-        return nullptr;
-    }
     _queue.pop();
     return task;
 }
