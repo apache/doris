@@ -433,6 +433,15 @@ public abstract class JoinNodeBase extends PlanNode {
         }
         // 5. replace tuple is null expr
         TupleIsNullPredicate.substitueListForTupleIsNull(vSrcToOutputSMap.getLhs(), originTidsToIntermediateTidMap);
+
+        Preconditions.checkState(vSrcToOutputSMap.getLhs().size() == vOutputTupleDesc.getSlots().size());
+        List<Expr> exprs = vSrcToOutputSMap.getLhs();
+        ArrayList<SlotDescriptor> slots = vOutputTupleDesc.getSlots();
+        for (int i = 0; i < slots.size(); i++) {
+            slots.get(i).setIsNullable(exprs.get(i).isNullable() || slots.get(i).getIsNullable());
+        }
+        vSrcToOutputSMap.reCalculateNullableInfoForSlotInRhs();
+        vOutputTupleDesc.computeMemLayout();
     }
 
     protected abstract List<SlotId> computeSlotIdsForJoinConjuncts(Analyzer analyzer);
