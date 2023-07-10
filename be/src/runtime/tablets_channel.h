@@ -113,12 +113,7 @@ public:
     // no-op when this channel has been closed or cancelled
     Status cancel();
 
-    int64_t mem_consumption();
-
     void refresh_profile();
-
-    void get_active_memtable_mem_consumption(
-            std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions);
 
     std::unordered_map<int64_t, DeltaWriter*> get_tablet_writers() { return _tablet_writers; }
 

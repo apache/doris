@@ -52,9 +52,8 @@ class OpenPartitionRequest;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, std::unique_ptr<MemTracker> mem_tracker, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip, int64_t backend_id,
-                bool enable_profile);
+    LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_high_priority,
+                const std::string& sender_ip, int64_t backend_id, bool enable_profile);
     ~LoadChannel();
 
     // open a new load channel if not exist
@@ -74,29 +73,6 @@ public:
     time_t last_updated_time() const { return _last_updated_time.load(); }
 
     const UniqueId& load_id() const { return _load_id; }
-
-    int64_t mem_consumption() {
-        int64_t mem_usage = 0;
-        {
-            std::lock_guard<SpinLock> l(_tablets_channels_lock);
-            for (auto& it : _tablets_channels) {
-                mem_usage += it.second->mem_consumption();
-            }
-        }
-        _mem_tracker->set_consumption(mem_usage);
-        return mem_usage;
-    }
-
-    void get_active_memtable_mem_consumption(
-            std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>*
-                    writers_mem_snap) {
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
-        for (auto& it : _tablets_channels) {
-            std::multimap<int64_t, int64_t, std::greater<int64_t>> tablets_channel_mem;
-            it.second->get_active_memtable_mem_consumption(&tablets_channel_mem);
-            writers_mem_snap->emplace_back(it.first, std::move(tablets_channel_mem));
-        }
-    }
 
     int64_t timeout() const { return _timeout_s; }
 
@@ -141,8 +117,6 @@ protected:
 
 private:
     UniqueId _load_id;
-    // Tracks the total memory consumed by current load job on this BE
-    std::unique_ptr<MemTracker> _mem_tracker;
 
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile* _self_profile;
@@ -182,7 +156,7 @@ private:
 };
 
 inline std::ostream& operator<<(std::ostream& os, LoadChannel& load_channel) {
-    os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
+    os << "LoadChannel(id=" << load_channel.load_id()
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
        << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;

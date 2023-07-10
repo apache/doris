@@ -38,15 +38,23 @@ public:
 
     // check if the total mem consumption exceeds limit.
     // If yes, it will flush memtable to try to reduce memory consumption.
-    void handle_memtable_flush(std::mutex& lock);
+    void handle_memtable_flush();
 
     void register_writer(DeltaWriter* writer);
 
     void deregister_writer(DeltaWriter* writer);
 
-private:
-    void _refresh_mem_tracker();
+    void refresh_mem_tracker() {
+        std::lock_guard<std::mutex> l(_lock);
+        _refresh_mem_tracker_without_lock();
+    }
 
+    MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
+
+private:
+    void _refresh_mem_tracker_without_lock();
+
+    std::mutex _lock;
     // If hard limit reached, one thread will trigger load channel flush,
     // other threads should wait on the condition variable.
     bool _should_wait_flush = false;

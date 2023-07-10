@@ -27,11 +27,12 @@
 #include <vector>
 
 #include "common/config.h"
+#include "olap/memtable_flush_mgr.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_channel_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
@@ -60,7 +61,7 @@ MemTable::MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
 #ifndef BE_TEST
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id)),
-            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
+            ExecEnv::GetInstance()->memtable_flush_mgr()->mem_tracker());
 #else
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id)));

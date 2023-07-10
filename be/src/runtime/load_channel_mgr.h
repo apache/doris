@@ -63,13 +63,6 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
-    void refresh_mem_tracker() {
-        std::lock_guard<std::mutex> l(_lock);
-        _refresh_mem_tracker_without_lock();
-    }
-
-    MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
-
 private:
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const PTabletWriterAddBlockRequest& request);
@@ -77,16 +70,6 @@ private:
     void _finish_load_channel(UniqueId load_id);
 
     Status _start_bg_worker();
-
-    // lock should be held when calling this method
-    void _refresh_mem_tracker_without_lock() {
-        _mem_usage = 0;
-        for (auto& kv : _load_channels) {
-            _mem_usage += kv.second->mem_consumption();
-        }
-        THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(),
-                                       _mem_tracker.get());
-    }
 
     void _register_channel_all_writers(std::shared_ptr<doris::LoadChannel> channel) {
         for (auto& tablet_channel_it : channel->get_tablets_channels()) {
@@ -110,11 +93,6 @@ protected:
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
     Cache* _last_success_channel = nullptr;
-
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
-    int64_t _mem_usage = 0;
-    int64_t _load_hard_mem_limit = -1;
-    int64_t _load_soft_mem_limit = -1;
 
     MemtableFlushMgr* _memtable_flush_mgr = nullptr;
 

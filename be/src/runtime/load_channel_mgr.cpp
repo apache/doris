@@ -57,16 +57,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "load"}}));
 
-// Calculate the total memory limit of all load tasks on this BE
-static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
-    if (process_mem_limit == -1) {
-        // no limit
-        return -1;
-    }
-    int32_t max_load_memory_percent = config::load_process_max_memory_limit_percent;
-    return process_mem_limit * max_load_memory_percent / 100;
-}
-
 static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
     int64_t load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
     if (timeout_in_req_s > 0) {
@@ -93,13 +83,7 @@ LoadChannelMgr::~LoadChannelMgr() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
-    _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
-    _mem_tracker =
-            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD, "LoadChannelMgr");
     _memtable_flush_mgr = ExecEnv::GetInstance()->memtable_flush_mgr();
-    REGISTER_HOOK_METRIC(load_channel_mem_consumption,
-                         [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
@@ -120,19 +104,9 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t channel_timeout_s = calc_channel_timeout_s(timeout_in_req_s);
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
 
-            // Use the same mem limit as LoadChannelMgr for a single load channel
-#ifndef BE_TEST
-            auto channel_mem_tracker = std::make_unique<MemTracker>(
-                    fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
-                                load_id.to_string()),
-                    ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
-#else
-            auto channel_mem_tracker = std::make_unique<MemTracker>(fmt::format(
-                    "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));
-#endif
-            channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
-                                          channel_timeout_s, is_high_priority, params.sender_ip(),
-                                          params.backend_id(), params.enable_profile()));
+            channel.reset(new LoadChannel(load_id, channel_timeout_s, is_high_priority,
+                                          params.sender_ip(), params.backend_id(),
+                                          params.enable_profile()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -207,7 +181,7 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
         // If this is a high priority load task, do not handle this.
         // because this may block for a while, which may lead to rpc timeout.
         SCOPED_TIMER(channel->get_handle_mem_limit_timer());
-        _memtable_flush_mgr->handle_memtable_flush(_lock);
+        _memtable_flush_mgr->handle_memtable_flush();
     }
 
     // 3. add batch to load channel
@@ -306,13 +280,6 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
                   << ", timeout(s): " << channel->timeout();
     }
-
-    // this log print every 1 min, so that we could observe the mem consumption of load process
-    // on this Backend
-    LOG(INFO) << "load mem consumption(bytes). limit: " << _load_hard_mem_limit
-              << ", current: " << _mem_tracker->consumption()
-              << ", peak: " << _mem_tracker->peak_consumption()
-              << ", total running load channels: " << _load_channels.size();
 
     return Status::OK();
 }

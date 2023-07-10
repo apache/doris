@@ -251,18 +251,6 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     }
 }
 
-int64_t TabletsChannel::mem_consumption() {
-    int64_t mem_usage = 0;
-    {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        for (auto& it : _tablet_writers) {
-            int64_t writer_mem = it.second->mem_consumption(MemType::ALL);
-            mem_usage += writer_mem;
-        }
-    }
-    return mem_usage;
-}
-
 void TabletsChannel::refresh_profile() {
     int64_t write_mem_usage = 0;
     int64_t flush_mem_usage = 0;
@@ -288,16 +276,6 @@ void TabletsChannel::refresh_profile() {
     COUNTER_SET(_max_tablet_memory_usage_counter, max_tablet_mem_usage);
     COUNTER_SET(_max_tablet_write_memory_usage_counter, max_tablet_write_mem_usage);
     COUNTER_SET(_max_tablet_flush_memory_usage_counter, max_tablet_flush_mem_usage);
-}
-
-void TabletsChannel::get_active_memtable_mem_consumption(
-        std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions) {
-    mem_consumptions->clear();
-    std::lock_guard<SpinLock> l(_tablet_writers_lock);
-    for (auto& it : _tablet_writers) {
-        int64_t active_memtable_mem = it.second->active_memtable_mem_consumption();
-        mem_consumptions->emplace(active_memtable_mem, it.first);
-    }
 }
 
 // Old logic,used for opening all writers of all partitions.

@@ -587,6 +587,9 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between load channel memory refresh iterations
 DECLARE_mInt64(load_channel_memory_refresh_sleep_time_ms);
 
+// Sleep time in milliseconds between load channel memory refresh iterations
+DECLARE_mInt64(memtable_flush_mgr_memory_refresh_sleep_time_ms);
+
 // Alignment
 DECLARE_Int32(memory_max_alignment);
 

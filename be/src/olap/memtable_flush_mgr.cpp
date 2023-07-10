@@ -60,17 +60,17 @@ Status MemtableFlushMgr::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-// should use lock when call this method
 void MemtableFlushMgr::register_writer(DeltaWriter* writer) {
+    std::lock_guard<std::mutex> l(_lock);
     _writers.insert(writer);
 }
 
-// should use lock when call this method
 void MemtableFlushMgr::deregister_writer(DeltaWriter* writer) {
+    std::lock_guard<std::mutex> l(_lock);
     _writers.erase(writer);
 }
 
-void MemtableFlushMgr::handle_memtable_flush(std::mutex& lock) {
+void MemtableFlushMgr::handle_memtable_flush() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
     // Record current memory status.
@@ -93,7 +93,7 @@ void MemtableFlushMgr::handle_memtable_flush(std::mutex& lock) {
     {
         MonotonicStopWatch timer;
         timer.start();
-        std::unique_lock<std::mutex> l(lock);
+        std::unique_lock<std::mutex> l(_lock);
         while (_should_wait_flush) {
             _wait_flush_cond.wait(l);
         }
@@ -195,7 +195,7 @@ void MemtableFlushMgr::handle_memtable_flush(std::mutex& lock) {
     }
 
     {
-        std::lock_guard<std::mutex> l(lock);
+        std::lock_guard<std::mutex> l(_lock);
         // If a thread have finished the memtable flush for soft limit, and now
         // the hard limit is already reached, it should not update these variables.
         if (reducing_mem_on_hard_limit && _should_wait_flush) {
@@ -206,11 +206,11 @@ void MemtableFlushMgr::handle_memtable_flush(std::mutex& lock) {
             _soft_reduce_mem_in_progress = false;
         }
         // refresh mem tacker to avoid duplicate reduce
-        _refresh_mem_tracker();
+        _refresh_mem_tracker_without_lock();
     }
 }
 
-void MemtableFlushMgr::_refresh_mem_tracker() {
+void MemtableFlushMgr::_refresh_mem_tracker_without_lock() {
     int64_t mem_usage = 0;
     for (auto& writer : _writers) {
         mem_usage += writer->mem_consumption(MemType::ALL);
