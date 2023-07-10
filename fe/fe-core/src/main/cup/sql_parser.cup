@@ -547,6 +547,12 @@ terminal String
     KW_ROLLBACK,
     KW_ROLLUP,
     KW_ROUTINE,
+    KW_EVENT,
+    KW_EVERY,
+    KW_AT,
+    KW_SCHEDULER,
+    KW_STARTS,
+    KW_ENDS,    
     KW_ROW,
     KW_ROWS,
     KW_S3,
@@ -661,6 +667,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
+    create_event_stmt,pause_event_stmt,resume_event_stmt,stop_event_stmt,show_event_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -795,6 +802,8 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
+nonterminal String starts;
+nonterminal String ends;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1126,6 +1135,16 @@ stmt ::=
     | show_routine_load_task_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | create_event_stmt : stmt   
+    {: RESULT = stmt; :}
+    | pause_event_stmt : stmt   
+    {: RESULT = stmt; :}
+    | show_event_stmt : stmt   
+    {: RESULT = stmt; :}
+    | stop_event_stmt : stmt   
+    {: RESULT = stmt; :}
+    | resume_event_stmt : stmt                    
     {: RESULT = stmt; :}
     | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
@@ -2610,7 +2629,53 @@ resource_desc ::=
         RESULT = new ResourceDesc(resourceName, properties);                         
     :}                                                                               
     ; 
+create_event_stmt ::=
+    KW_CREATE KW_EVENT job_label:jobLabel
+    KW_ON KW_SCHEDULER
+    KW_AT STRING_LITERAL:at_time
+    | KW_EVERY KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit starts:starts ends:ends
+    opt_comment:comment
+    {:
+        CreateJobStmt stmt = new CreateJobStmt();
+        RESULT = stmt;
+    :}
+    ;                           
+ starts ::= KW_STARTS STRING_LITERAL:start_time {: /* 规约操作 */ :}
+            ;
+ 
+ ends ::= KW_ENDS STRING_LITERAL:ends_time {: /* 规约操作 */ :}
+          ;  
 
+show_event_stmt ::=
+    KW_SHOW KW_EVENT
+    {:
+        RESULT = new ShowJobStmt();
+    :}
+    ;
+pause_event_stmt ::=
+    KW_PAUSE KW_EVENT job_label:jobLabel
+    {:
+        RESULT = new PauseJobStmt(jobLabel);
+    :}
+    ;
+resume_event_stmt ::=
+    KW_RESUME KW_EVENT job_label:jobLabel
+    {:
+        RESULT = new ResumeJobStmt(jobLabel);
+    :}
+    ;    
+stop_event_stmt ::=
+    KW_STOP KW_EVENT job_label:jobLabel
+    {:
+        RESULT = new StopJobStmt(jobLabel);
+    :}
+    ;
+show_event_stmt ::=
+    KW_SHOW KW_EVENT
+    {:
+        RESULT = new ShowJobStmt();
+    :}
+    ;                     
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -7605,6 +7670,18 @@ keyword ::=
     | KW_TASK:id
     {: RESULT = id; :}
     | KW_ROUTINE:id
+    {: RESULT = id; :}
+    | KW_EVENT:id
+    {: RESULT = id; :}
+    | KW_EVERY:id   
+    {: RESULT = id; :}
+    | KW_AT:id         
+    {: RESULT = id; :}
+    | KW_SCHEDULER:id    
+    {: RESULT = id; :}
+    | KW_STARTS:id     
+    {: RESULT = id; :}
+    | KW_ENDS:id                  
     {: RESULT = id; :}
     | KW_PAUSE:id
     {: RESULT = id; :}

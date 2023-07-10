@@ -18,6 +18,7 @@
 package org.apache.doris.scheduler;
 
 import org.apache.doris.analysis.CreateJobStmt;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
@@ -26,6 +27,7 @@ import org.apache.doris.scheduler.registry.JobRegister;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * This class registers timed scheduling events using the Netty time wheel algorithm to trigger events in a timely
@@ -72,6 +74,16 @@ public class AsyncJobRegister implements JobRegister {
     }
 
     @Override
+    public Boolean pauseJob(String dbName, String jobName, boolean isAll) {
+        return null;
+    }
+
+    @Override
+    public Boolean resumeJob(String dbName, String jobName, boolean isAll) {
+        return null;
+    }
+
+    @Override
     public Boolean stopJob(Long jobId) {
         return asyncJobManager.stopJob(jobId);
     }
@@ -79,6 +91,11 @@ public class AsyncJobRegister implements JobRegister {
     @Override
     public Boolean resumeJob(Long jobId) {
         return asyncJobManager.resumeJob(jobId);
+    }
+
+    @Override
+    public List<Job> getJobs(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher) {
+        return null;
     }
 
     @Override

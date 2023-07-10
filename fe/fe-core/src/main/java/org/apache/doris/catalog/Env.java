@@ -208,6 +208,8 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.scheduler.JobRegisterFactory;
+import org.apache.doris.scheduler.registry.JobRegister;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
@@ -323,6 +325,8 @@ public class Env {
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
     private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
+
+    private JobRegister jobRegister;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -579,6 +583,7 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
+        this.jobRegister = JobRegisterFactory.getInstance();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -3665,6 +3670,10 @@ public class Env {
 
     public SyncJobManager getSyncJobManager() {
         return this.syncJobManager;
+    }
+
+    public JobRegister getJobRegister() {
+        return jobRegister;
     }
 
     public SmallFileMgr getSmallFileMgr() {

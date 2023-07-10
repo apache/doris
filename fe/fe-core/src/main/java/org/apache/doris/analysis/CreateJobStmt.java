@@ -43,6 +43,7 @@ public class CreateJobStmt extends DdlStmt {
     public CreateJobStmt() {
     }
 
+/*
     public CreateJobStmt(String jobName, boolean isRecurring, String executeAtTimeStamp, IntervalUnit executeAtIntervalUnit, long executeAtInterval, long cycleSchedulerInterval, IntervalUnit cycleSchedulerIntervalUnit, String startsTimeStamp, long startsInterval, IntervalUnit startsIntervalUnit, String endsTimeStamp, long endsInterval, IntervalUnit endsIntervalUnit, String executeSql) {
         this.jobName = jobName;
         this.executeAtTimeStamp = executeAtTimeStamp;
@@ -63,6 +64,8 @@ public class CreateJobStmt extends DdlStmt {
         job.setCycleJob(isRecurring);
 
     }
+*/
+    
 
     private void checkOneTimeJobExecuteAtTimeStamp() throws AnalysisException {
         if (StringUtils.isBlank(executeAtTimeStamp)) {

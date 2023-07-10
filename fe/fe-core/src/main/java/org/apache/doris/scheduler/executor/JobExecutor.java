@@ -17,6 +17,8 @@
 
 package org.apache.doris.scheduler.executor;
 
+import org.apache.doris.scheduler.job.Job;
+
 /**
  * This interface represents a callback for an event registration. All event registrations
  * must implement this interface to provide an execution method.
@@ -36,6 +38,6 @@ public interface JobExecutor<T> {
      *
      * @return The result of the event job execution.
      */
-    T execute();
+    T execute(Job job);
 }
 

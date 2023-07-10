@@ -87,7 +87,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
         try {
             // TODO: We should record the result of the event task.
             //Object result = job.getExecutor().execute();
-            job.getExecutor().execute();
+            job.getExecutor().execute(job);
             job.setLatestCompleteExecuteTimestamp(System.currentTimeMillis());
             if (job.isCycleJob()) {
                 updateJobStatusIfPastEndTime(job);

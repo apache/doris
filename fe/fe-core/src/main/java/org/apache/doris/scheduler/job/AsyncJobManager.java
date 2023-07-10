@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.job;
 
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.scheduler.disruptor.TimerTaskDisruptor;
 
 import io.netty.util.HashedWheelTimer;
@@ -123,6 +124,16 @@ public class AsyncJobManager implements Closeable {
         jobMap.get(jobId).resume();
         return true;
     }
+    public List<Job> getJobs(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher){
+        List<Job> jobs = new ArrayList<>();
+        for (Job job : jobMap.values()) {
+          /*  if (matcher.match(job.getDbName(), dbFullName) && matcher.match(job.getJobName(), jobName)) {
+                jobs.add(job);
+            }*/
+        }
+        return jobs;
+    }
+    
 
     public boolean stopJob(Long jobId) {
         if (jobMap.get(jobId) == null) {

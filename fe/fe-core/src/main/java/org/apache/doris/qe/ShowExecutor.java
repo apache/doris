@@ -62,6 +62,7 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
+import org.apache.doris.analysis.ShowJobStmt;
 import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
@@ -188,6 +189,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -1376,6 +1378,39 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+    
+    private void handleShowJob()throws AnalysisException{
+        ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        // if job exists
+        List<Job> jobList;
+        PatternMatcher matcher = null;
+        if (showJobStmt.getPattern() != null) {
+            matcher = PatternMatcherWrapper.createMysqlPattern(showJobStmt.getPattern(),
+                    CaseSensibility.JOB.getCaseSensibility());
+        }
+        jobList = Env.getCurrentEnv().getJobRegister()
+                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), showJobStmt.isIncludeHistory(),
+                        matcher);
+
+        if (jobList.isEmpty()) {
+            resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
+            return;
+        }
+
+        // check auth
+        for (Job job : jobList) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), job.getDbName(), PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
+                        ConnectContext.get().getQualifiedUser(), job.getDbName());
+            }
+        }
+        for (Job job : jobList) {
+            rows.add(job.getShowInfo());
+        }
+        resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {

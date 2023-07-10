@@ -64,7 +64,7 @@ public class TimerTaskDisruptorTest {
 
     class TestExecutor implements JobExecutor<Boolean> {
         @Override
-        public Boolean execute() {
+        public Boolean execute(Job job) {
             testEventExecuteFlag = true;
             return true;
         }

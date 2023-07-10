@@ -128,7 +128,7 @@ public class AsyncJobManagerTest {
 
     class TestExecutor implements JobExecutor<Boolean> {
         @Override
-        public Boolean execute() {
+        public Boolean execute(Job job) {
             log.info("test execute count:{}", testExecuteCount.incrementAndGet());
             return true;
         }
