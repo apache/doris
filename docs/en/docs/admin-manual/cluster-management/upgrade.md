@@ -281,7 +281,15 @@ Upgrade the non-Master nodes first, and then upgrade the Master nodes.
     cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
     ```
 
-4. Start the BE node
+   <version since="2.0.0-alpha1">
+
+   Copy the new version of `/mysql_ssl_default_certificate` directory to the original FE directory
+   ```shell
+   mv ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate_back
+   cp ${DORIS_NEW_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate
+   ```
+   
+4. Start the FE node
 
     ```shell
     sh ${DORIS_OLD_HOME}/fe/bin/start_fe.sh --daemon

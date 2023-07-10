@@ -281,7 +281,15 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
    ```
 
-4. 启动该 BE 节点
+   <version since="2.0.0-alpha1">
+   
+   复制新版本的 `/mysql_ssl_default_certificate` 目录到原FE目录下
+   ```shell
+   mv ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate_back
+   cp ${DORIS_NEW_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate
+   ```
+
+4. 启动该 FE 节点
 
    ```shell
    sh ${DORIS_OLD_HOME}/fe/bin/start_fe.sh --daemon
@@ -296,6 +304,8 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    若该 FE 节点 `alive` 状态为 `true`，且 `Version` 值为新版本，则该节点升级成功
 
 6. 依次完成其他 FE 节点升级，**最后完成 Master 节点的升级**
+
+
 
 #### 打开集群副本修复和均衡功能
 
