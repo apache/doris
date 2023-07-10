@@ -593,7 +593,7 @@ public class MaterializedViewSelector {
 
     private void compensateCandidateIndex(Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta,
             Map<Long, MaterializedIndexMeta> allVisibleIndexes, OlapTable table) {
-        isPreAggregation = false;
+        isPreAggregation = table.getTableProperty().getEnableUniqueKeyMergeOnWrite();
         reasonOfDisable = "The aggregate operator does not match";
         int keySizeOfBaseIndex = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
         for (Map.Entry<Long, MaterializedIndexMeta> index : allVisibleIndexes.entrySet()) {
