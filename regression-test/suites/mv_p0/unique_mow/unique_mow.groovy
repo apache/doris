@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("unique") {
+suite ("unique_mow") {
 
     sql """ DROP TABLE IF EXISTS u_table; """
 
@@ -30,8 +30,10 @@ suite ("unique") {
             )
             unique key (k1,k2,k3)
             distributed BY hash(k1) buckets 3
-            properties("replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "false");
+            properties(
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true"
+            );
         """
 
     sql "insert into u_table select 1,1,1,'a';"

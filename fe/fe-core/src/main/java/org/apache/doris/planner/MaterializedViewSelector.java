@@ -169,8 +169,7 @@ public class MaterializedViewSelector {
         checkOutputColumns(columnNamesInQueryOutput.get(tableId), candidateIndexIdToMeta, selectBaseIndex,
                 scanNode.getTupleId());
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
-        if ((table.getKeysType() == KeysType.AGG_KEYS || (table.getKeysType() == KeysType.UNIQUE_KEYS
-                && !table.getTableProperty().getEnableUniqueKeyMergeOnWrite()))
+        if ((table.getKeysType() == KeysType.AGG_KEYS || table.getKeysType() == KeysType.UNIQUE_KEYS)
                 && candidateIndexIdToMeta.size() == 0) {
             // the base index will be added in the candidateIndexIdToSchema.
             /**
@@ -405,9 +404,7 @@ public class MaterializedViewSelector {
              * It also need to check the grouping column using following steps.
              * ISSUE-3016, MaterializedViewFunctionTest: testDeduplicateQueryInAgg
              */
-            boolean noNeedAggregation = candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS
-                    || (candidateIndexMeta.getKeysType() == KeysType.UNIQUE_KEYS
-                            && table.getTableProperty().getEnableUniqueKeyMergeOnWrite());
+            boolean noNeedAggregation = candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS;
             if (indexNonAggregatedColumnNames.size() == candidateIndexSchema.size() && noNeedAggregation) {
                 continue;
             }
@@ -471,9 +468,7 @@ public class MaterializedViewSelector {
             MaterializedIndexMeta candidateIndexMeta = entry.getValue();
             List<FunctionCallExpr> indexAggColumnExpsList = mvAggColumnsToExprList(candidateIndexMeta);
             // When the candidate index is SPJ type, it passes the verification directly
-            boolean noNeedAggregation = candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS
-                    || (candidateIndexMeta.getKeysType() == KeysType.UNIQUE_KEYS
-                            && table.getTableProperty().getEnableUniqueKeyMergeOnWrite());
+            boolean noNeedAggregation = candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS;
             List<Expr> indexExprs = new ArrayList<Expr>();
             candidateIndexMeta.getSchema().forEach(column -> indexExprs.add(column.getDefineExpr()));
             indexExprs.removeIf(Objects::isNull);
