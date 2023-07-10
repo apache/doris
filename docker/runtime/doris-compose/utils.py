@@ -66,6 +66,10 @@ def render_green(s):
     return "\x1B[32m" + str(s) + "\x1B[0m"
 
 
+def render_yellow(s):
+    return "\x1B[33m" + str(s) + "\x1B[0m"
+
+
 def render_blue(s):
     return "\x1B[34m" + str(s) + "\x1B[0m"
 
