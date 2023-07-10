@@ -51,6 +51,9 @@ public class SummaryProfile {
 
     // Execution  Summary
     public static final String ANALYSIS_TIME = "Analysis Time";
+    public static final String JOIN_REORDER_TIME = "JoinReorder Time";
+    public static final String CREATE_SINGLE_NODE_TIME = "CreateSingleNode Time";
+    public static final String QUERY_DISTRIBUTED_TIME = "QueryDistributed Time";
     public static final String PLAN_TIME = "Plan Time";
     public static final String SCHEDULE_TIME = "Schedule Time";
     public static final String FETCH_RESULT_TIME = "Fetch Result Time";
@@ -71,6 +74,12 @@ public class SummaryProfile {
     private long queryBeginTime = -1;
     // Analysis end time
     private long queryAnalysisFinishTime = -1;
+    // Join reorder end time
+    private long queryJoinReorderFinishTime = -1;
+    // Create single node plan end time
+    private long queryCreateSingleNodeFinishTime = -1;
+    // Create distribute plan end time
+    private long queryDistributedFinishTime = -1;
     // Plan end time
     private long queryPlanFinishTime = -1;
     // Fragment schedule and send end time
@@ -113,6 +122,9 @@ public class SummaryProfile {
 
     private void updateExecutionSummaryProfile() {
         executionSummaryProfile.addInfoString(ANALYSIS_TIME, getPrettyQueryAnalysisFinishTime());
+        executionSummaryProfile.addInfoString(JOIN_REORDER_TIME, getPrettyQueryJoinReorderFinishTime());
+        executionSummaryProfile.addInfoString(CREATE_SINGLE_NODE_TIME, getPrettyCreateSingleNodeFinishTime());
+        executionSummaryProfile.addInfoString(QUERY_DISTRIBUTED_TIME, getPrettyQueryDistributedFinishTime());
         executionSummaryProfile.addInfoString(PLAN_TIME, getPrettyQueryPlanFinishTime());
         executionSummaryProfile.addInfoString(SCHEDULE_TIME, getPrettyQueryScheduleFinishTime());
         executionSummaryProfile.addInfoString(FETCH_RESULT_TIME,
@@ -128,6 +140,18 @@ public class SummaryProfile {
 
     public void setQueryAnalysisFinishTime() {
         this.queryAnalysisFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setQueryJoinReorderFinishTime() {
+        this.queryJoinReorderFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setCreateSingleNodeFinishTime() {
+        this.queryCreateSingleNodeFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setQueryDistributedFinishTime() {
+        this.queryDistributedFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryPlanFinishTime() {
@@ -251,6 +275,27 @@ public class SummaryProfile {
             return "N/A";
         }
         return RuntimeProfile.printCounter(queryAnalysisFinishTime - queryBeginTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyQueryJoinReorderFinishTime() {
+        if (queryAnalysisFinishTime == -1 || queryJoinReorderFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryJoinReorderFinishTime - queryAnalysisFinishTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyCreateSingleNodeFinishTime() {
+        if (queryJoinReorderFinishTime == -1 || queryCreateSingleNodeFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryCreateSingleNodeFinishTime - queryJoinReorderFinishTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyQueryDistributedFinishTime() {
+        if (queryCreateSingleNodeFinishTime == -1 || queryDistributedFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryDistributedFinishTime - queryCreateSingleNodeFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyQueryPlanFinishTime() {

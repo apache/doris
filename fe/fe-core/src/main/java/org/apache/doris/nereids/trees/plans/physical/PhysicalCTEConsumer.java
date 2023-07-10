@@ -155,9 +155,10 @@ public class PhysicalCTEConsumer extends PhysicalRelation {
     }
 
     @Override
-    public PhysicalCTEConsumer withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalCTEConsumer(cteId, consumerToProducerSlotMap, producerToConsumerSlotMap,
-            Optional.empty(), logicalProperties.get());
+                groupExpression, logicalProperties.get());
     }
 
     @Override

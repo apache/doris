@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExperimentalUtil.ExperimentalType;
@@ -28,7 +29,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -352,6 +352,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String IGNORE_COMPLEX_TYPE_COLUMN = "ignore_column_with_complex_type";
 
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
+
+    public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
 
     public static final String CBO_CPU_WEIGHT = "cbo_cpu_weight";
 
@@ -1023,6 +1025,14 @@ public class SessionVariable implements Serializable, Writable {
     )
     public boolean ignoreColumnWithComplexType = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_STRONG_CONSISTENCY, description = {"用以开启强一致读。Doris 默认支持同一个会话内的"
+            + "强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。",
+            "Used to enable strong consistent reading. By default, Doris supports strong consistency "
+                    + "within the same session, that is, changes to data within the same session are visible in "
+                    + "real time. If you want strong consistent reads between sessions, set this variable to true. "
+    })
+    public boolean enableStrongConsistencyRead = false;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -1423,8 +1433,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getParallelExecInstanceNum() {
         if (enablePipelineEngine && parallelPipelineTaskNum == 0) {
-            Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-            return beinfoCollector.getParallelExecInstanceNum();
+            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+            return (size + 1) / 2;
         } else if (enablePipelineEngine) {
             return parallelPipelineTaskNum;
         } else {

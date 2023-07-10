@@ -64,18 +64,20 @@ Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer
     return Status::OK();
 }
 
-Status LocalFileSystem::open_file_impl(const Path& file,
+Status LocalFileSystem::open_file_impl(const FileDescription& file_desc, const Path& abs_path,
                                        const FileReaderOptions& /*reader_options*/,
                                        FileReaderSPtr* reader) {
-    int64_t fsize = 0;
-    RETURN_IF_ERROR(file_size_impl(file, &fsize));
+    int64_t fsize = file_desc.file_size;
+    if (fsize <= 0) {
+        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
+    }
     int fd = -1;
-    RETRY_ON_EINTR(fd, open(file.c_str(), O_RDONLY));
+    RETRY_ON_EINTR(fd, open(abs_path.c_str(), O_RDONLY));
     if (fd < 0) {
-        return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
+        return Status::IOError("failed to open {}: {}", abs_path.native(), errno_to_str());
     }
     *reader = std::make_shared<LocalFileReader>(
-            std::move(file), fsize, fd,
+            std::move(abs_path), fsize, fd,
             std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
@@ -402,6 +404,22 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
         }
     }
     return true;
+}
+
+Status LocalFileSystem::read_file_to_string(const Path& file, std::string* content) {
+    FileReaderSPtr file_reader;
+    FileDescription fd;
+    fd.path = file.native();
+    RETURN_IF_ERROR(open_file(fd, &file_reader));
+    size_t file_size = file_reader->size();
+    content->resize(file_size);
+    size_t bytes_read = 0;
+    RETURN_IF_ERROR(file_reader->read_at(0, {*content}, &bytes_read));
+    if (bytes_read != file_size) {
+        return Status::IOError("failed to read file {} to string. bytes read: {}, file size: {}",
+                               file.native(), bytes_read, file_size);
+    }
+    return file_reader->close();
 }
 
 static std::shared_ptr<LocalFileSystem> local_fs = io::LocalFileSystem::create("");

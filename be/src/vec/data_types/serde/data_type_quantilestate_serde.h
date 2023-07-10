@@ -48,7 +48,7 @@ public:
                                  int32_t col_id, int row_num) const override;
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override {
         LOG(FATAL) << "Not support write " << column.get_name() << " to arrow";

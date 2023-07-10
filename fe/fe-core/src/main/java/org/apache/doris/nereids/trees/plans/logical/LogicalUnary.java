@@ -38,10 +38,6 @@ public abstract class LogicalUnary<CHILD_TYPE extends Plan>
         super(type, child);
     }
 
-    public LogicalUnary(PlanType type, Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(type, logicalProperties, child);
-    }
-
     public LogicalUnary(PlanType type, Optional<GroupExpression> groupExpression,
                             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, child);

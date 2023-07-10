@@ -90,6 +90,6 @@ public class PushdownProjectThroughSemiJoin implements ExplorationRuleFactory {
         Plan newLeft = CBOUtils.projectOrSelf(newProject, join.left());
 
         Plan newJoin = join.withChildren(newLeft, join.right());
-        return CBOUtils.projectOrSelf(new ArrayList<>(project.getOutput()), newJoin);
+        return CBOUtils.projectOrSelf(ImmutableList.copyOf(project.getOutput()), newJoin);
     }
 }

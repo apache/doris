@@ -699,8 +699,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under aggregate temporary, because nereids could generate
         //  so complex aggregate plan than legacy planner, and should add forbid parallel scan hint when
         //  generate physical aggregate plan.
+        //  There is one exception, we use some precondition in optimizer, input to buffer always require any for input,
+        //  so when agg mode is INPUT_TO_BUFFER, we do not forbid parallel scan
         if (leftMostNode instanceof OlapScanNode
-                && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM) {
+                && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM
+                && aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
             inputPlanFragment.setHasColocatePlanNode(true);
         }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
@@ -1742,7 +1745,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(e -> {
                     Expression function = e.child(0).child(0);
                     if (function instanceof AggregateFunction) {
-                        AggregateParam param = AggregateParam.localResult();
+                        AggregateParam param = AggregateParam.LOCAL_RESULT;
                         function = new AggregateExpression((AggregateFunction) function, param);
                     }
                     return ExpressionTranslator.translate(function, context);

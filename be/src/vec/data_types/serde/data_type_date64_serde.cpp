@@ -27,7 +27,7 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     auto& col_data = static_cast<const ColumnVector<Int64>&>(column).get_data();
@@ -37,7 +37,7 @@ void DataTypeDate64SerDe::write_column_to_arrow(const IColumn& column, const UIn
         const vectorized::VecDateTimeValue* time_val =
                 (const vectorized::VecDateTimeValue*)(&col_data[i]);
         int len = time_val->to_buffer(buf);
-        if (null_map && null_map[i]) {
+        if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
@@ -99,7 +99,6 @@ void DataTypeDate64SerDe::read_column_from_arrow(IColumn& column, const arrow::A
         auto concrete_array = down_cast<const arrow::Date32Array*>(arrow_array);
         multiplier = 24 * 60 * 60; // day => secs
         for (size_t value_i = start; value_i < end; ++value_i) {
-            //            std::cout << "serde : " <<  concrete_array->Value(value_i) << std::endl;
             VecDateTimeValue v;
             v.from_unixtime(
                     static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
