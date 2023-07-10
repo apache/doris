@@ -82,6 +82,9 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_mutex = new std::shared_mutex[_txn_shard_size];
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
+    // For debugging
+    _tablet_version_cache =
+            new ShardedLRUCache("TabletVersionCache", 100000, LRUCacheType::NUMBER, 32);
 }
 
 // prepare txn should always be allowed because ingest task will be retried
@@ -372,7 +375,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info.unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
-        _create_transient_rowset_writer(tablet, rowset, &rowset_writer);
+        tablet->create_transient_rowset_writer(rowset, &rowset_writer);
 
         int64_t t2 = MonotonicMicros();
         RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset, tablet_txn_info.rowset_ids,
@@ -448,27 +451,6 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     return status;
-}
-
-// create a rowset writer with rowset_id and seg_id
-// after writer, merge this transient rowset with original rowset
-Status TxnManager::_create_transient_rowset_writer(std::shared_ptr<Tablet> tablet,
-                                                   RowsetSharedPtr rowset_ptr,
-                                                   std::unique_ptr<RowsetWriter>* rowset_writer) {
-    RowsetWriterContext context;
-    context.rowset_state = PREPARED;
-    context.segments_overlap = OVERLAPPING;
-    context.tablet_schema = std::make_shared<TabletSchema>();
-    context.tablet_schema->copy_from(*(rowset_ptr->tablet_schema()));
-    context.tablet_schema->set_partial_update_info(false, std::set<std::string>());
-    context.newest_write_timestamp = UnixSeconds();
-    context.tablet_id = tablet->table_id();
-    context.tablet = tablet;
-    context.write_type = DataWriteType::TYPE_DIRECT;
-    RETURN_IF_ERROR(tablet->create_transient_rowset_writer(context, rowset_ptr->rowset_id(),
-                                                           rowset_writer));
-    (*rowset_writer)->set_segment_start_id(rowset_ptr->num_segments());
-    return Status::OK();
 }
 
 // txn could be rollbacked if it does not have related rowset
@@ -764,6 +746,39 @@ void TxnManager::clear_txn_tablet_delta_writer(int64_t transaction_id) {
         txn_tablet_delta_writer_map.erase(it);
     }
     VLOG_CRITICAL << "remove delta writer manager, txn_id=" << transaction_id;
+}
+
+int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version) {
+    char key[16];
+    memcpy(key, &tablet_id, sizeof(int64_t));
+    memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
+    CacheKey cache_key((const char*)&key, sizeof(key));
+
+    auto handle = _tablet_version_cache->lookup(cache_key);
+    if (handle == nullptr) {
+        return -1;
+    }
+    int64_t res = *(int64_t*)_tablet_version_cache->value(handle);
+    _tablet_version_cache->release(handle);
+    return res;
+}
+
+void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, int64_t txn_id) {
+    char key[16];
+    memcpy(key, &tablet_id, sizeof(int64_t));
+    memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
+    CacheKey cache_key((const char*)&key, sizeof(key));
+
+    int64_t* value = new int64_t;
+    *value = txn_id;
+    auto deleter = [](const doris::CacheKey& key, void* value) {
+        int64_t* cache_value = (int64_t*)value;
+        delete cache_value;
+    };
+
+    auto handle = _tablet_version_cache->insert(cache_key, value, sizeof(txn_id), deleter,
+                                                CachePriority::NORMAL, sizeof(txn_id));
+    _tablet_version_cache->release(handle);
 }
 
 } // namespace doris

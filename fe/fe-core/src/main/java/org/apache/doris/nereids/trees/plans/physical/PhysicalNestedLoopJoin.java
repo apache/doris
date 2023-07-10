@@ -141,11 +141,12 @@ public class PhysicalNestedLoopJoin<
     }
 
     @Override
-    public PhysicalNestedLoopJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withLogicalProperties(
-            Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
         return new PhysicalNestedLoopJoin<>(joinType,
-                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, Optional.empty(),
-                logicalProperties.get(), left(), right());
+                hashJoinConjuncts, otherJoinConjuncts, markJoinSlotReference, groupExpression,
+                logicalProperties.get(), children.get(0), children.get(1));
     }
 
     @Override

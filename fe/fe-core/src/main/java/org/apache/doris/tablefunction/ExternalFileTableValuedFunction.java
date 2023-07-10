@@ -206,6 +206,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             case "json":
                 this.fileFormatType = TFileFormatType.FORMAT_JSON;
                 break;
+            case "avro":
+                this.fileFormatType = TFileFormatType.FORMAT_AVRO;
+                break;
             default:
                 throw new AnalysisException("format:" + formatString + " is not supported.");
         }

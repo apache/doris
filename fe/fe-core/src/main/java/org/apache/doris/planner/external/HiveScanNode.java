@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveTransaction;
+import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.HiveSplit.HiveSplitCreator;
@@ -91,7 +92,9 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        genSlotToSchemaIdMap();
+        if (HiveVersionUtil.isHive1(hmsTable.getHiveVersion())) {
+            genSlotToSchemaIdMap();
+        }
         String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
         if (inputFormat.contains("TextInputFormat")) {
             for (SlotDescriptor slot : desc.getSlots()) {
@@ -215,8 +218,9 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() {
-        return hmsTable.getRemoteTable().getPartitionKeys()
-                .stream().map(FieldSchema::getName).map(String::toLowerCase).collect(Collectors.toList());
+        return hmsTable.getRemoteTable().getPartitionKeys().stream()
+                .map(FieldSchema::getName).filter(partitionKey -> !"".equals(partitionKey))
+                .map(String::toLowerCase).collect(Collectors.toList());
     }
 
     @Override
@@ -226,7 +230,11 @@ public class HiveScanNode extends FileQueryScanNode {
 
     @Override
     protected TFileType getLocationType() throws UserException {
-        String location = hmsTable.getRemoteTable().getSd().getLocation();
+        return getLocationType(hmsTable.getRemoteTable().getSd().getLocation());
+    }
+
+    @Override
+    protected TFileType getLocationType(String location) throws UserException {
         return getTFileType(location).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }

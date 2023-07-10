@@ -1021,9 +1021,8 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
         return Status::InternalError("tablet not exist, tablet_id={}.", tablet_id);
     }
 
-    IndexBuilderSharedPtr index_builder =
-            std::make_shared<IndexBuilder>(tablet, request.columns, request.indexes_desc,
-                                           request.alter_inverted_indexes, request.is_drop_op);
+    IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
+            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }

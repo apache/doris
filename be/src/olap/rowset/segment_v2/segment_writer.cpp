@@ -36,9 +36,7 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h" // IWYU pragma: keep
-#include "olap/row_cursor.h" // RowCursor
-#include "olap/rowset/rowset_writer.h"
+#include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
@@ -118,31 +116,25 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
 }
 
-Status SegmentWriter::init(const FlushContext* flush_ctx) {
+Status SegmentWriter::init() {
     std::vector<uint32_t> column_ids;
     int column_cnt = _tablet_schema->num_columns();
-    if (flush_ctx && flush_ctx->flush_schema) {
-        column_cnt = flush_ctx->flush_schema->num_columns();
-    }
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
-    return init(column_ids, true, flush_ctx);
+    return init(column_ids, true);
 }
 
-Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
-                           const FlushContext* flush_ctx) {
+Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-    _opts.compression_type =
-            (flush_ctx == nullptr || flush_ctx->block == nullptr ||
-             flush_ctx->block->bytes() > config::segment_compression_threshold_kb * 1024)
-                    ? _tablet_schema->compression_type()
-                    : NO_COMPRESSION;
+    if (_opts.compression_type == UNKNOWN_COMPRESSION) {
+        _opts.compression_type = _tablet_schema->compression_type();
+    }
     auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
@@ -242,11 +234,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         return Status::OK();
     };
 
-    if (flush_ctx && flush_ctx->flush_schema) {
-        RETURN_IF_ERROR(_create_writers(*flush_ctx->flush_schema, col_ids, create_column_writer));
-    } else {
-        RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
-    }
+    RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -330,7 +318,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
     CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns());
+          block->columns() < _tablet_schema->num_columns())
+            << "block columns: " << block->columns()
+            << ", num key columns: " << _tablet_schema->num_key_columns()
+            << ", total schema columns: " << _tablet_schema->num_columns();
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
@@ -365,12 +356,12 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     bool has_default = false;
     std::vector<bool> use_default_flag;
     use_default_flag.reserve(num_rows);
-    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
     }
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
     {
         for (size_t pos = row_pos; pos < num_rows; pos++) {
@@ -764,10 +755,13 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             RETURN_IF_ERROR(_write_primary_key_index());
+            // IndexedColumnWriter write data pages mixed with segment data, we should use
+            // the stat from primary key index builder.
+            *index_size += _primary_key_index_builder->disk_size();
         } else {
             RETURN_IF_ERROR(_write_short_key_index());
+            *index_size = _file_writer->bytes_appended() - index_start;
         }
-        *index_size = _file_writer->bytes_appended() - index_start;
     }
     _inverted_index_file_size = try_get_inverted_index_file_size();
     // reset all column writers and data_conveter

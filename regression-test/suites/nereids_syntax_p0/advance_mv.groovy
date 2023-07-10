@@ -87,45 +87,17 @@ suite("advance_mv") {
     sql """insert into ${tbName2} values (4,4,4,'d');"""
     sql """insert into ${tbName2} values (5,5,5,'e');"""
     sql """insert into ${tbName2} values (6,6,6,'f');"""
-    //
-    sql "CREATE materialized VIEW mv1 AS SELECT k1, sum(k2) FROM ${tbName1} GROUP BY k1;"
-    int max_try_secs = 60
-    while (max_try_secs--) {
-        String res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+
+    createMV("CREATE materialized VIEW mv1 AS SELECT k1, sum(v2) FROM ${tbName1} GROUP BY k1;")
+
     explain {
-        sql("select k1, sum(k2) from ${tbName1} group by k1 order by k1;")
+        sql("select k1, sum(v2) from ${tbName1} group by k1 order by k1;")
         contains "(mv1)"
     }
     order_qt_select_star "select k1 from ${tbName1} order by k1;"
 
-        sql "CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;"
-    int max_try_secs1 = 60
-    while (max_try_secs1--) {
-        String res = getJobState(tbName2)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            Thread.sleep(2000)
-            if (max_try_secs1 < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
-    }
+    createMV("CREATE materialized VIEW mv2 AS SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) FROM ${tbName2} GROUP BY tmp;")
+
     explain {
         sql("SELECT abs(k1)+k2+1 tmp, sum(abs(k2+2)+k3+3) from FROM ${tbName2} GROUP BY tmp;")
         contains "(mv2)"

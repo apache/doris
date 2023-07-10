@@ -370,6 +370,7 @@ public class NereidsPlanner extends Planner {
 
             Plan plan = groupExpression.getPlan().withChildren(planChildren);
             if (!(plan instanceof PhysicalPlan)) {
+                // TODO need add some log
                 throw new AnalysisException("Result plan must be PhysicalPlan");
             }
             // add groupExpression to plan so that we could print group id in plan.treeString()

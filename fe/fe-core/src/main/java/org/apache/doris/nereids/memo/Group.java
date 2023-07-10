@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -377,12 +376,12 @@ public class Group {
      */
     public boolean isInnerJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
-        if (plan instanceof LogicalJoin) {
-            // Right now, we only support inner join with some join conditions
-            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN
-                    && (((LogicalJoin) plan).getOtherJoinConjuncts().isEmpty()
-                            || !(((LogicalJoin) plan).getOtherJoinConjuncts()
-                                    .get(0) instanceof Literal));
+        if (plan instanceof LogicalJoin
+                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN) {
+            // Right now, we only support inner join
+            Preconditions.checkArgument(!((LogicalJoin) plan).getExpressions().isEmpty(),
+                    "inner join must have join conjuncts");
+            return true;
         }
         return false;
     }

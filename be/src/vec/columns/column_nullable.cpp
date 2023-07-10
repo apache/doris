@@ -65,6 +65,24 @@ MutableColumnPtr ColumnNullable::get_shrinked_column() {
                                   get_null_map_column_ptr());
 }
 
+void ColumnNullable::update_xxHash_with_value(size_t n, uint64_t& hash) const {
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (real_null_data[n] != 0) {
+        hash = HashUtil::xxHash64NullWithSeed(hash);
+    } else {
+        nested_column->update_xxHash_with_value(n, hash);
+    }
+}
+
+void ColumnNullable::update_crc_with_value(size_t n, uint64_t& crc) const {
+    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+    if (real_null_data[n] != 0) {
+        crc = HashUtil::zlib_crc_hash_null(crc);
+    } else {
+        nested_column->update_xxHash_with_value(n, crc);
+    }
+}
+
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     if (is_null_at(n))
         hash.update(0);

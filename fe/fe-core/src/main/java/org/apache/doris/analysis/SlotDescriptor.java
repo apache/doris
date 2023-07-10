@@ -59,8 +59,6 @@ public class SlotDescriptor {
     // physical layout parameters
     private int byteSize;
     private int byteOffset;  // within tuple
-    private int nullIndicatorByte;  // index into byte array
-    private int nullIndicatorBit; // index within byte
     private int slotIdx;          // index within tuple struct
     private int slotOffset;       // index within slot array list
 
@@ -85,8 +83,6 @@ public class SlotDescriptor {
         this.id = id;
         this.parent = parent;
         this.byteOffset = src.byteOffset;
-        this.nullIndicatorBit = src.nullIndicatorBit;
-        this.nullIndicatorByte = src.nullIndicatorByte;
         this.slotIdx = src.slotIdx;
         this.isMaterialized = src.isMaterialized;
         this.column = src.column;
@@ -119,22 +115,6 @@ public class SlotDescriptor {
 
     public void setIsAgg(boolean agg) {
         isAgg = agg;
-    }
-
-    public int getNullIndicatorByte() {
-        return nullIndicatorByte;
-    }
-
-    public void setNullIndicatorByte(int nullIndicatorByte) {
-        this.nullIndicatorByte = nullIndicatorByte;
-    }
-
-    public int getNullIndicatorBit() {
-        return nullIndicatorBit;
-    }
-
-    public void setNullIndicatorBit(int nullIndicatorBit) {
-        this.nullIndicatorBit = nullIndicatorBit;
     }
 
     public SlotId getId() {
@@ -300,19 +280,14 @@ public class SlotDescriptor {
         if (getByteOffset() != other.getByteOffset()) {
             return false;
         }
-        if (getNullIndicatorByte() != other.getNullIndicatorByte()) {
-            return false;
-        }
-        if (getNullIndicatorBit() != other.getNullIndicatorBit()) {
-            return false;
-        }
         return true;
     }
 
     public TSlotDescriptor toThrift() {
-        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(),
-                type.toThrift(), -1, byteOffset, nullIndicatorByte,
-                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        TSlotDescriptor tSlotDescriptor = new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
+                byteOffset, 0, getIsNullable() ? 0 : -1, ((column != null) ? column.getName() : ""), slotIdx,
+                isMaterialized);
         tSlotDescriptor.setNeedMaterialize(needMaterialize);
         if (column != null) {
             LOG.debug("column name:{}, column unique id:{}", column.getName(), column.getUniqueId());
@@ -328,8 +303,7 @@ public class SlotDescriptor {
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId).add("col", colStr)
                 .add("type", typeStr).add("materialized", isMaterialized).add("byteSize", byteSize)
-                .add("byteOffset", byteOffset).add("nullIndicatorByte", nullIndicatorByte)
-                .add("nullIndicatorBit", nullIndicatorBit).add("slotIdx", slotIdx).toString();
+                .add("byteOffset", byteOffset).add("slotIdx", slotIdx).add("nullable", getIsNullable()).toString();
     }
 
     @Override

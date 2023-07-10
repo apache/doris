@@ -522,9 +522,9 @@ public class DateTimeExtractAndTransform {
         return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
     }
 
-    @ExecFunction(name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATE")
+    @ExecFunction(name = "to_date", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
     public static Expression toDate(DateTimeV2Literal date) {
-        return new DateLiteral(date.getYear(), date.getMonth(), date.getDay());
+        return new DateV2Literal(date.getYear(), date.getMonth(), date.getDay());
     }
 
     /**

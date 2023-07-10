@@ -107,7 +107,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                         : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
                     apply.getMarkJoinSlotReference(),
-                    (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
+                    apply.children());
         } else {
             return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, ExpressionUtils.EMPTY_CONDITION,
                     predicate != null
@@ -115,7 +115,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
                         : ExpressionUtils.EMPTY_CONDITION,
                     JoinHint.NONE,
                     apply.getMarkJoinSlotReference(),
-                    (LogicalPlan) apply.left(), (LogicalPlan) apply.right());
+                    apply.children());
         }
     }
 

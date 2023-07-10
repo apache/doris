@@ -411,7 +411,7 @@ public class CreateTableStmt extends DdlStmt {
                         PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " property only support unique key table");
             }
             if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
-                enableUniqueKeyMergeOnWrite = true;
+                enableUniqueKeyMergeOnWrite = false;
                 if (properties != null) {
                     // `analyzeXXX` would modify `properties`, which will be used later,
                     // so we just clone a properties map here.
@@ -464,7 +464,18 @@ public class CreateTableStmt extends DdlStmt {
         }
         // add a hidden column as row store
         if (properties != null && PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties))) {
-            columnDefs.add(ColumnDef.newRowStoreColumnDef());
+            if (keysDesc != null && keysDesc.getKeysType() == KeysType.AGG_KEYS) {
+                throw new AnalysisException("Aggregate table can't support row column now");
+            }
+            if (keysDesc != null && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+                if (enableUniqueKeyMergeOnWrite) {
+                    columnDefs.add(ColumnDef.newRowStoreColumnDef(AggregateType.NONE));
+                } else {
+                    columnDefs.add(ColumnDef.newRowStoreColumnDef(AggregateType.REPLACE));
+                }
+            } else {
+                columnDefs.add(ColumnDef.newRowStoreColumnDef(null));
+            }
         }
         if (Config.enable_hidden_version_column_by_default && keysDesc != null
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {

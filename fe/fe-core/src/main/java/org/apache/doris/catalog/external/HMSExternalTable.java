@@ -22,13 +22,16 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
-import org.apache.doris.statistics.HiveAnalysisTask;
-import org.apache.doris.statistics.IcebergAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
+import org.apache.doris.statistics.HMSAnalysisTask;
 import org.apache.doris.statistics.TableStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -36,15 +39,25 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
+import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.Decimal;
+import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +78,7 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+    private static final String NUM_ROWS = "numRows";
 
     static {
         SUPPORTED_HIVE_FILE_FORMATS = Sets.newHashSet();
@@ -252,7 +266,24 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public long getRowCount() {
-        return 0;
+        makeSureInitialized();
+        long rowCount;
+        switch (dlaType) {
+            case HIVE:
+                rowCount = StatisticsUtil.getHiveRowCount(this);
+                break;
+            case ICEBERG:
+                rowCount = StatisticsUtil.getIcebergRowCount(this);
+                break;
+            default:
+                LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
+                rowCount = -1;
+        }
+        if (rowCount == -1) {
+            LOG.debug("Will estimate row count from file list.");
+            rowCount = StatisticsUtil.getRowCountFromFileList(this);
+        }
+        return rowCount;
     }
 
     @Override
@@ -290,14 +321,7 @@ public class HMSExternalTable extends ExternalTable {
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
-        switch (dlaType) {
-            case HIVE:
-                return new HiveAnalysisTask(info);
-            case ICEBERG:
-                return new IcebergAnalysisTask(info);
-            default:
-                throw new IllegalArgumentException("Analysis job for dlaType " + dlaType + " not supported.");
-        }
+        return new HMSAnalysisTask(info);
     }
 
     public String getViewText() {
@@ -322,6 +346,10 @@ public class HMSExternalTable extends ExternalTable {
 
     public String getMetastoreUri() {
         return ((HMSExternalCatalog) catalog).getHiveMetastoreUris();
+    }
+
+    public String getHiveVersion() {
+        return ((HMSExternalCatalog) catalog).getHiveVersion();
     }
 
     public Map<String, String> getCatalogProperties() {
@@ -395,10 +423,12 @@ public class HMSExternalTable extends ExternalTable {
             Optional<TableStatistic> tableStatistics = Env.getCurrentEnv().getStatisticsCache().getTableStatistics(
                     catalog.getId(), catalog.getDbOrAnalysisException(dbName).getId(), id);
             if (tableStatistics.isPresent()) {
-                return tableStatistics.get().rowCount;
+                long rowCount = tableStatistics.get().rowCount;
+                LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+                return rowCount;
             }
         } catch (Exception e) {
-            LOG.warn(String.format("Fail to get row count for table %s", name), e);
+            LOG.warn("Fail to get row count for table {}", name, e);
         }
         return 1;
     }
@@ -433,5 +463,140 @@ public class HMSExternalTable extends ExternalTable {
         LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
     }
 
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        switch (dlaType) {
+            case HIVE:
+                return getHiveColumnStats(colName);
+            case ICEBERG:
+                return StatisticsUtil.getIcebergColumnStats(colName, HiveMetaStoreClientHelper.getIcebergTable(this));
+            default:
+                LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<ColumnStatistic> getHiveColumnStats(String colName) {
+        List<ColumnStatisticsObj> tableStats = getHiveTableColumnStats(Lists.newArrayList(colName));
+        if (tableStats == null || tableStats.isEmpty()) {
+            LOG.debug(String.format("No table stats found in Hive metastore for column %s in table %s.",
+                    colName, name));
+            return Optional.empty();
+        }
+
+        Column column = getColumn(colName);
+        if (column == null) {
+            LOG.warn(String.format("No column %s in table %s.", colName, name));
+            return Optional.empty();
+        }
+        Map<String, String> parameters = remoteTable.getParameters();
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
+        double count = parameters.containsKey(NUM_ROWS) ? Double.parseDouble(parameters.get(NUM_ROWS)) : 0;
+        columnStatisticBuilder.setCount(count);
+        // The tableStats length is at most 1.
+        for (ColumnStatisticsObj tableStat : tableStats) {
+            if (!tableStat.isSetStatsData()) {
+                continue;
+            }
+            ColumnStatisticsData data = tableStat.getStatsData();
+            try {
+                setStatData(column, data, columnStatisticBuilder, count);
+            } catch (AnalysisException e) {
+                LOG.debug(e);
+                return Optional.empty();
+            }
+        }
+
+        return Optional.of(columnStatisticBuilder.build());
+    }
+
+    private void setStatData(Column col, ColumnStatisticsData data, ColumnStatisticBuilder builder, double count)
+            throws AnalysisException {
+        long ndv = 0;
+        long nulls = 0;
+        String min = "";
+        String max = "";
+        double colSize = 0;
+        if (!data.isSetStringStats()) {
+            colSize = count * col.getType().getSlotSize();
+        }
+        // Collect ndv, nulls, min and max for different data type.
+        if (data.isSetLongStats()) {
+            LongColumnStatsData longStats = data.getLongStats();
+            ndv = longStats.getNumDVs();
+            nulls = longStats.getNumNulls();
+            min = String.valueOf(longStats.getLowValue());
+            max = String.valueOf(longStats.getHighValue());
+        } else if (data.isSetStringStats()) {
+            StringColumnStatsData stringStats = data.getStringStats();
+            ndv = stringStats.getNumDVs();
+            nulls = stringStats.getNumNulls();
+            double avgColLen = stringStats.getAvgColLen();
+            colSize = Math.round(avgColLen * count);
+        } else if (data.isSetDecimalStats()) {
+            DecimalColumnStatsData decimalStats = data.getDecimalStats();
+            ndv = decimalStats.getNumDVs();
+            nulls = decimalStats.getNumNulls();
+            if (decimalStats.isSetLowValue()) {
+                Decimal lowValue = decimalStats.getLowValue();
+                if (lowValue != null) {
+                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
+                    min = lowDecimal.toString();
+                }
+            }
+            if (decimalStats.isSetHighValue()) {
+                Decimal highValue = decimalStats.getHighValue();
+                if (highValue != null) {
+                    BigDecimal highDecimal =
+                            new BigDecimal(new BigInteger(highValue.getUnscaled()), highValue.getScale());
+                    max = highDecimal.toString();
+                }
+            }
+        } else if (data.isSetDoubleStats()) {
+            DoubleColumnStatsData doubleStats = data.getDoubleStats();
+            ndv = doubleStats.getNumDVs();
+            nulls = doubleStats.getNumNulls();
+            min = String.valueOf(doubleStats.getLowValue());
+            max = String.valueOf(doubleStats.getHighValue());
+        } else if (data.isSetDateStats()) {
+            DateColumnStatsData dateStats = data.getDateStats();
+            ndv = dateStats.getNumDVs();
+            nulls = dateStats.getNumNulls();
+            if (dateStats.isSetLowValue()) {
+                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
+                if (lowValue != null) {
+                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
+                    min = lowDate.toString();
+                }
+            }
+            if (dateStats.isSetHighValue()) {
+                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
+                if (highValue != null) {
+                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
+                    max = highDate.toString();
+                }
+            }
+        } else {
+            LOG.debug(String.format("Not suitable data type for column %s", col.getName()));
+            throw new RuntimeException("Not supported data type.");
+        }
+        builder.setNdv(ndv);
+        builder.setNumNulls(nulls);
+        builder.setDataSize(colSize);
+        builder.setAvgSizeByte(colSize / count);
+        if (!min.equals("")) {
+            builder.setMinValue(StatisticsUtil.convertToDouble(col.getType(), min));
+            builder.setMinExpr(StatisticsUtil.readableValue(col.getType(), min));
+        } else {
+            builder.setMinValue(Double.MIN_VALUE);
+        }
+        if (!max.equals("")) {
+            builder.setMaxValue(StatisticsUtil.convertToDouble(col.getType(), max));
+            builder.setMaxExpr(StatisticsUtil.readableValue(col.getType(), max));
+        } else {
+            builder.setMaxValue(Double.MAX_VALUE);
+        }
+    }
 }
 

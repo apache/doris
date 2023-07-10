@@ -103,7 +103,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public PhysicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalProject<Plan>(projects,
+        return new PhysicalProject<>(projects,
                 groupExpression,
                 getLogicalProperties(),
                 physicalProperties,
@@ -118,8 +118,10 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     }
 
     @Override
-    public PhysicalProject<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalProject<>(projects, Optional.empty(), logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalProject<>(projects, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
@@ -136,12 +138,12 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
      * @return new project
      */
     public PhysicalProject<Plan> withProjectionsAndChild(List<NamedExpression> projections, Plan child) {
-        return new PhysicalProject<Plan>(ImmutableList.copyOf(projections),
+        return new PhysicalProject<>(ImmutableList.copyOf(projections),
                 groupExpression,
                 getLogicalProperties(),
                 physicalProperties,
                 statistics,
                 child
-                );
+        );
     }
 }

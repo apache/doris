@@ -672,13 +672,17 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
 
         {
             Block tmp_block = _join_block;
+
+            // Here make _join_block release the columns' ptr
+            _join_block.set_columns(_join_block.clone_empty_columns());
+
             _add_tuple_is_null_column(&tmp_block);
             {
                 SCOPED_TIMER(_join_filter_timer);
                 RETURN_IF_ERROR(
                         VExprContext::filter_block(_conjuncts, &tmp_block, tmp_block.columns()));
             }
-            RETURN_IF_ERROR(_build_output_block(&tmp_block, block));
+            RETURN_IF_ERROR(_build_output_block(&tmp_block, block, false));
             _reset_tuple_is_null_column();
         }
         _join_block.clear_column_data();

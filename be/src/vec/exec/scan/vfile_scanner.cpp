@@ -61,6 +61,7 @@
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exec/format/table/iceberg_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exec/scan/avro_jni_reader.h"
 #include "vec/exec/scan/hudi_jni_reader.h"
 #include "vec/exec/scan/max_compute_jni_reader.h"
 #include "vec/exec/scan/new_file_scan_node.h"
@@ -155,47 +156,30 @@ Status VFileScanner::prepare(
     return Status::OK();
 }
 
-Status VFileScanner::_split_conjuncts() {
+Status VFileScanner::_process_conjuncts_for_dict_filter() {
     for (auto& conjunct : _conjuncts) {
-        RETURN_IF_ERROR(_split_conjuncts_expr(conjunct, conjunct->root()));
-    }
-    return Status::OK();
-}
-Status VFileScanner::_split_conjuncts_expr(const VExprContextSPtr& context,
-                                           const VExprSPtr& conjunct_expr_root) {
-    static constexpr auto is_leaf = [](const auto& expr) { return !expr->is_and_expr(); };
-    if (conjunct_expr_root) {
-        if (is_leaf(conjunct_expr_root)) {
-            auto impl = conjunct_expr_root->get_impl();
-            // If impl is not null, which means this a conjuncts from runtime filter.
-            auto cur_expr = impl ? impl : conjunct_expr_root;
-            VExprContextSPtr new_ctx = VExprContext::create_shared(cur_expr);
-            context->clone_fn_contexts(new_ctx.get());
-            RETURN_IF_ERROR(new_ctx->prepare(_state, *_default_val_row_desc));
-            RETURN_IF_ERROR(new_ctx->open(_state));
+        auto impl = conjunct->root()->get_impl();
+        // If impl is not null, which means this a conjuncts from runtime filter.
+        auto cur_expr = impl ? impl : conjunct->root();
 
-            std::vector<int> slot_ids;
-            _get_slot_ids(cur_expr.get(), &slot_ids);
-            if (slot_ids.size() == 0) {
-                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
-                return Status::OK();
+        std::vector<int> slot_ids;
+        _get_slot_ids(cur_expr.get(), &slot_ids);
+        if (slot_ids.size() == 0) {
+            _not_single_slot_filter_conjuncts.emplace_back(conjunct);
+            return Status::OK();
+        }
+        bool single_slot = true;
+        for (int i = 1; i < slot_ids.size(); i++) {
+            if (slot_ids[i] != slot_ids[0]) {
+                single_slot = false;
+                break;
             }
-            bool single_slot = true;
-            for (int i = 1; i < slot_ids.size(); i++) {
-                if (slot_ids[i] != slot_ids[0]) {
-                    single_slot = false;
-                    break;
-                }
-            }
-            if (single_slot) {
-                SlotId slot_id = slot_ids[0];
-                _slot_id_to_filter_conjuncts[slot_id].emplace_back(new_ctx);
-            } else {
-                _not_single_slot_filter_conjuncts.emplace_back(new_ctx);
-            }
+        }
+        if (single_slot) {
+            SlotId slot_id = slot_ids[0];
+            _slot_id_to_filter_conjuncts[slot_id].emplace_back(conjunct);
         } else {
-            RETURN_IF_ERROR(_split_conjuncts_expr(context, conjunct_expr_root->children()[0]));
-            RETURN_IF_ERROR(_split_conjuncts_expr(context, conjunct_expr_root->children()[1]));
+            _not_single_slot_filter_conjuncts.emplace_back(conjunct);
         }
     }
     return Status::OK();
@@ -715,6 +699,12 @@ Status VFileScanner::_get_next_reader() {
                     ((NewJsonReader*)(_cur_reader.get()))->init_reader(_col_default_value_ctx);
             break;
         }
+        case TFileFormatType::FORMAT_AVRO: {
+            _cur_reader = AvroJNIReader::create_unique(_state, _profile, _params, _file_slot_descs);
+            init_status = ((AvroJNIReader*)(_cur_reader.get()))
+                                  ->init_fetch_table_reader(_colname_to_value_range);
+            break;
+        }
         default:
             return Status::InternalError("Not supported file format: {}", _params.format_type);
         }
@@ -911,7 +901,7 @@ Status VFileScanner::_init_expr_ctxes() {
 
     // TODO: It should can move to scan node to process.
     if (!_conjuncts.empty()) {
-        _split_conjuncts();
+        _process_conjuncts_for_dict_filter();
     }
     return Status::OK();
 }

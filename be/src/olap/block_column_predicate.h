@@ -81,6 +81,12 @@ public:
         LOG(FATAL) << "should not reach here";
         return true;
     }
+
+    virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const {
+        LOG(FATAL) << "should not reach here";
+        return true;
+    }
+
     virtual bool can_do_bloom_filter() const { return false; }
 
     //evaluate predicate on inverted
@@ -109,6 +115,7 @@ public:
                       bool* flags) const override;
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
+    bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
     void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
 
@@ -178,6 +185,8 @@ public:
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
+
+    bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
 
     bool can_do_bloom_filter() const override {
         for (auto& pred : _block_column_predicate_vec) {

@@ -111,12 +111,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.left(), apply.right());
+                        apply.children());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE, apply.getMarkJoinSlotReference(),
-                        apply.left(), apply.right());
+                        apply.children());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);
     }

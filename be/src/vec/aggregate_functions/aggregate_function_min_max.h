@@ -628,8 +628,9 @@ public:
                                          IColumn& to) const override {
         if constexpr (Data::IsFixedLength) {
             auto& col = assert_cast<ColumnFixedLengthObject&>(to);
-            col.resize(1);
-            *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+            size_t old_size = col.size();
+            col.resize(old_size + 1);
+            *(reinterpret_cast<Data*>(col.get_data().data()) + old_size) = this->data(place);
         } else {
             Base::serialize_without_key_to_column(place, to);
         }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -58,14 +59,27 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
+import javax.annotation.Nullable;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
+
+    private CustomTableResolver customTableResolver;
+
+    public BindRelation() {
+        this(null);
+    }
+
+    public BindRelation(@Nullable CustomTableResolver customTableResolver) {
+        this.customTableResolver = customTableResolver;
+    }
 
     // TODO: cte will be copied to a sub-query with different names but the id of the unbound relation in them
     //  are the same, so we use new relation id when binding relation, and will fix this bug later.
@@ -123,6 +137,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (cascadesContext.getTables() != null) {
             table = cascadesContext.getTableByName(tableName);
         }
+        if (customTableResolver != null) {
+            table = customTableResolver.apply(tableQualifier);
+        }
         if (table == null) {
             // In some cases even if we have already called the "cascadesContext.getTableByName",
             // it also gets the null. So, we just check it in the catalog again for safety.
@@ -136,7 +153,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
-        TableIf table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
+        TableIf table = null;
+        if (customTableResolver != null) {
+            table = customTableResolver.apply(tableQualifier);
+        }
+        if (table == null) {
+            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
+        }
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -182,6 +205,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
+                if (Config.enable_query_hive_views) {
+                    if (((HMSExternalTable) table).isView()
+                                && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
+                        Plan hiveViewPlan = parseAndAnalyzeHiveView(table, cascadesContext);
+                        return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
+                    }
+                }
                 return new LogicalFileScan(RelationUtil.newRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));
             case SCHEMA:
@@ -195,6 +225,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }
+    }
+
+    private Plan parseAndAnalyzeHiveView(TableIf table, CascadesContext cascadesContext) {
+        HMSExternalTable hiveTable = (HMSExternalTable) table;
+        ConnectContext ctx = cascadesContext.getConnectContext();
+        String previousCatalog = ctx.getCurrentCatalog().getName();
+        String previousDb = ctx.getDatabase();
+        ctx.changeDefaultCatalog(hiveTable.getCatalog().getName());
+        Plan hiveViewPlan = parseAndAnalyzeView(hiveTable.getViewText(), cascadesContext);
+        ctx.changeDefaultCatalog(previousCatalog);
+        ctx.setDatabase(previousDb);
+        return hiveViewPlan;
     }
 
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
@@ -225,4 +267,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
     }
+
+    /** CustomTableResolver */
+    public interface CustomTableResolver extends Function<List<String>, TableIf> {}
 }

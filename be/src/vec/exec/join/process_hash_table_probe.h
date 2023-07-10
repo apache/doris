@@ -73,6 +73,9 @@ struct ProcessHashTableProbe {
                                                int right_col_len, UInt8* __restrict null_map_data,
                                                UInt8* __restrict filter_map, Block* output_block);
 
+    void _pre_serialize_key(const ColumnRawPtrs& key_columns, const size_t key_rows,
+                            std::vector<StringRef>& serialized_keys);
+
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
@@ -92,6 +95,10 @@ struct ProcessHashTableProbe {
     ColumnUInt8::Container* _tuple_is_null_left_flags;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_right_flags;
+
+    size_t _serialized_key_buffer_size {0};
+    uint8_t* _serialized_key_buffer;
+    std::unique_ptr<Arena> _serialize_key_arena;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _search_hashtable_timer;

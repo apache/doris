@@ -29,8 +29,9 @@ PhysicalTopN
 ----------------------------PhysicalProject
 ------------------------------filter(s_city IN ('Five Points', 'Centerville', 'Oak Grove', 'Fairview', 'Liberty'))
 --------------------------------PhysicalOlapScan[store]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer_address]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer_address]
 ----------PhysicalDistribute
 ------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = current_addr.ca_address_sk)
 --------------PhysicalProject

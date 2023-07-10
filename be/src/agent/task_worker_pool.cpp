@@ -613,9 +613,10 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_used(root_path_info.is_used);
             request.disks[root_path_info.path] = disk;
         }
-        int num_cores = config::pipeline_executor_size > 0 ? config::pipeline_executor_size
-                                                           : CpuInfo::num_cores();
-        request.__set_num_cores(num_cores);
+        request.__set_num_cores(CpuInfo::num_cores());
+        request.__set_pipeline_executor_size(config::pipeline_executor_size > 0
+                                                     ? config::pipeline_executor_size
+                                                     : CpuInfo::num_cores());
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1214,15 +1215,13 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
             _tasks.pop_front();
         }
         const TCreateTabletReq& create_tablet_req = agent_task_req.create_tablet_req;
-        scoped_refptr<Trace> trace(new Trace);
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
             if (watch.elapsed_time() / 1e9 > config::agent_task_trace_threshold_sec) {
-                LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
+                LOG(WARNING) << "create tablet cost " << watch.elapsed_time() / 1e9;
             }
         });
-        ADOPT_TRACE(trace.get());
         DorisMetrics::instance()->create_tablet_requests_total->increment(1);
         VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
 

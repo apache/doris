@@ -31,7 +31,7 @@ suite("test_sqlserver_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="SA",
                     "password"="Doris123456",
-                    "jdbc_url" = "jdbc:sqlserver://127.0.0.1:${sqlserver_port};DataBaseName=doris_test",
+                    "jdbc_url" = "jdbc:sqlserver://127.0.0.1:${sqlserver_port};encrypt=false;DataBaseName=doris_test",
                     "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar",
                     "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
         );"""
@@ -60,6 +60,7 @@ suite("test_sqlserver_jdbc_catalog", "p0") {
         order_qt_test6  """ select * from test_money order by id; """
         order_qt_test7  """ select * from test_decimal order by id; """
         order_qt_test8  """ select * from test_text order by id; """
+        order_qt_dt  """ select * from DateAndTime; """
 
 
         sql """ drop catalog if exists ${catalog_name} """

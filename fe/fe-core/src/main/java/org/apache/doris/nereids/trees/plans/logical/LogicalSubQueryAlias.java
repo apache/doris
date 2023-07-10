@@ -65,8 +65,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     public LogicalSubQueryAlias(List<String> qualifier, Optional<List<String>> columnAliases,
-                                Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SUBQUERY_ALIAS, groupExpression, logicalProperties, child);
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier is null"));
         this.columnAliases = columnAliases;
@@ -117,8 +117,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     public String toString() {
         if (columnAliases.isPresent()) {
             return Utils.toSqlString("LogicalSubQueryAlias",
-                "qualifier", qualifier,
-                "columnAliases", StringUtils.join(columnAliases.get(), ",")
+                    "qualifier", qualifier,
+                    "columnAliases", StringUtils.join(columnAliases.get(), ",")
             );
         }
         return Utils.toSqlString("LogicalSubQueryAlias",
@@ -166,9 +166,11 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
     }
 
     @Override
-    public LogicalSubQueryAlias<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSubQueryAlias<>(qualifier, columnAliases, Optional.empty(),
-                logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalSubQueryAlias<>(qualifier, columnAliases, groupExpression, logicalProperties,
+                children.get(0));
     }
 
     public CTEId cteId() {

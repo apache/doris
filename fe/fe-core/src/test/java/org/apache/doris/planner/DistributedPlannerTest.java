@@ -52,6 +52,7 @@ public class DistributedPlannerTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setEnableNereidsPlanner(false);
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Env.getCurrentEnv().createDb(createDbStmt);

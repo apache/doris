@@ -21,6 +21,8 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
+import org.apache.doris.common.util.S3Util;
+import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
@@ -31,19 +33,8 @@ import org.apache.http.client.utils.URIBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
-import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
-import software.amazon.awssdk.core.client.config.SdkAdvancedClientOption;
-import software.amazon.awssdk.core.retry.RetryPolicy;
-import software.amazon.awssdk.core.retry.backoff.EqualJitterBackoffStrategy;
 import software.amazon.awssdk.core.sync.RequestBody;
-import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
 import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -61,7 +52,6 @@ import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.File;
 import java.net.URI;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -132,52 +122,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     public S3Client getClient(String bucket) throws UserException {
         if (client == null) {
             URI tmpEndpoint = URI.create(properties.get(S3Properties.ENDPOINT));
-            StaticCredentialsProvider scp;
-            if (!properties.containsKey(S3Properties.SESSION_TOKEN)) {
-                AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                        properties.get(S3Properties.ACCESS_KEY),
-                        properties.get(S3Properties.SECRET_KEY));
-                scp = StaticCredentialsProvider.create(awsBasic);
-            } else {
-                AwsSessionCredentials awsSession = AwsSessionCredentials.create(
-                        properties.get(S3Properties.ACCESS_KEY),
-                        properties.get(S3Properties.SECRET_KEY),
-                        properties.get(S3Properties.SESSION_TOKEN));
-                scp = StaticCredentialsProvider.create(awsSession);
-            }
-            EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
-                    .builder()
-                    .baseDelay(Duration.ofSeconds(1))
-                    .maxBackoffTime(Duration.ofMinutes(1))
-                    .build();
-            // retry 3 time with Equal backoff
-            RetryPolicy retryPolicy = RetryPolicy
-                    .builder()
-                    .numRetries(3)
-                    .backoffStrategy(backoffStrategy)
-                    .build();
-            ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
-                    .builder()
-                    // set retry policy
-                    .retryPolicy(retryPolicy)
-                    // using AwsS3V4Signer
-                    .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
-                    .build();
             URI endpoint = StringUtils.isEmpty(bucket) ? tmpEndpoint :
                     URI.create(new URIBuilder(tmpEndpoint).setHost(bucket + "." + tmpEndpoint.getHost()).toString());
-            client = S3Client.builder()
-                    .httpClient(UrlConnectionHttpClient.create())
-                    .endpointOverride(endpoint)
-                    .credentialsProvider(scp)
-                    .region(Region.of(properties.get(S3Properties.REGION)))
-                    .overrideConfiguration(clientConf)
-                    // disable chunkedEncoding because of bos not supported
-                    // use virtual hosted-style access
-                    .serviceConfiguration(S3Configuration.builder()
-                            .chunkedEncodingEnabled(false)
-                            .pathStyleAccessEnabled(false)
-                            .build())
-                    .build();
+            CloudCredential credential = new CloudCredential();
+            credential.setAccessKey(properties.get(S3Properties.ACCESS_KEY));
+            credential.setSecretKey(properties.get(S3Properties.SECRET_KEY));
+            if (properties.containsKey(S3Properties.SESSION_TOKEN)) {
+                credential.setSessionToken(properties.get(S3Properties.SESSION_TOKEN));
+            }
+            client = S3Util.buildS3Client(endpoint, properties.get(S3Properties.REGION), credential);
         }
         return client;
     }

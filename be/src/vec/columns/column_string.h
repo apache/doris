@@ -150,11 +150,6 @@ public:
         offsets.push_back(new_size);
     }
 
-    void prefetch(const IColumn& src_, size_t n) {
-        const ColumnString& src = assert_cast<const ColumnString&>(src_);
-        __builtin_prefetch(&src.chars[src.offsets[n - 1]], 0, 1);
-    }
-
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
         const size_t size_to_append =
@@ -397,6 +392,18 @@ public:
 
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
+
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
+        size_t string_size = size_at(n);
+        size_t offset = offset_at(n);
+        hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                          string_size, hash);
+    }
+
+    void update_crc_with_value(size_t n, uint64_t& crc) const override {
+        auto data_ref = get_data_at(n);
+        crc = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, crc);
+    }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);

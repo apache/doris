@@ -692,7 +692,8 @@ public class OlapScanNode extends ScanNode {
                 distributionPruner = new HashDistributionPruner(table.getTabletIdsInOrder(),
                         info.getDistributionColumns(),
                         columnFilters,
-                        info.getBucketNum());
+                        info.getBucketNum(),
+                        getSelectedIndexId() == olapTable.getBaseIndexId());
                 return distributionPruner.prune();
             }
             case RANDOM: {
@@ -1229,7 +1230,7 @@ public class OlapScanNode extends ScanNode {
     public int getNumInstances() {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
-        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()) {
+        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()) {
             int parallelInstance = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
             long numBackend = scanRangeLocations.stream().flatMap(rangeLoc -> rangeLoc.getLocations().stream())
                     .map(loc -> loc.backend_id).distinct().count();
@@ -1241,7 +1242,7 @@ public class OlapScanNode extends ScanNode {
     @Override
     public boolean shouldColoAgg(AggregateInfo aggregateInfo) {
         distributionColumnIds.clear();
-        if (ConnectContext.get().getSessionVariable().enablePipelineEngine()
+        if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
                 && ConnectContext.get().getSessionVariable().enableColocateScan()) {
             List<Expr> aggPartitionExprs = aggregateInfo.getInputPartitionExprs();
             List<SlotDescriptor> slots = desc.getSlots();
@@ -1542,6 +1543,8 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
+        distributionColumnIds.clear();
     }
 
     private void computeStatsForNereids() {
@@ -1564,18 +1567,9 @@ public class OlapScanNode extends ScanNode {
     public void updateRequiredSlots(PlanTranslatorContext context,
             Set<SlotId> requiredByProjectSlotIdSet) {
         outputColumnUniqueIds.clear();
-        distributionColumnIds.clear();
-
-        Set<String> distColumnName = getDistributionColumnNames();
-
-        int columnId = 0;
         for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
             if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
                 outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
-                if (distColumnName.contains(slot.getColumn().getName().toLowerCase())) {
-                    distributionColumnIds.add(columnId);
-                }
-                columnId++;
             }
         }
     }

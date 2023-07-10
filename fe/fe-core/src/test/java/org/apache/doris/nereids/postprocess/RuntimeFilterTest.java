@@ -101,9 +101,9 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " inner join (select c_custkey from customer inner join supplier on c_custkey = s_suppkey) b"
                 + " on b.c_custkey = a.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertEquals(1, filters.size());
+        Assertions.assertEquals(2, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("s_suppkey", "c_custkey")));
+                Pair.of("s_suppkey", "c_custkey"), Pair.of("c_custkey", "lo_custkey")));
     }
 
     @Test
@@ -207,10 +207,10 @@ public class RuntimeFilterTest extends SSBTestBase {
                 + " on b.c_custkey = a.lo_custkey) c inner join (select lo_custkey from customer inner join lineorder"
                 + " on c_custkey = lo_custkey) d on c.c_custkey = d.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
-        Assertions.assertEquals(3, filters.size());
+        Assertions.assertEquals(4, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("c_custkey", "lo_custkey"), Pair.of("d_datekey", "lo_orderdate"),
-                Pair.of("lo_custkey", "c_custkey")));
+                Pair.of("lo_custkey", "c_custkey"), Pair.of("lo_custkey", "c_custkey")));
     }
 
     @Test

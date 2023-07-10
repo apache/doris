@@ -152,6 +152,19 @@ public:
         data->serialize_vec(keys, num_rows, max_row_byte_size);
     }
 
+    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
+        auto real_data = data->get_data_at(0);
+        if (real_data.data == nullptr) {
+            hash = HashUtil::xxHash64NullWithSeed(hash);
+        } else {
+            hash = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hash);
+        }
+    }
+
+    void update_crc_with_value(size_t n, uint64_t& crc) const override {
+        get_data_column_ptr()->update_crc_with_value(n, crc);
+    }
+
     void serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
                                      const uint8_t* null_map,
                                      size_t max_row_byte_size) const override {
@@ -165,6 +178,7 @@ public:
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
 
+    // (TODO.Amory) here may not use column_const update hash, and PrimitiveType is not used.
     void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
 
