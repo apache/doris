@@ -39,9 +39,8 @@ public class ModifyStorageMediumTest extends TestWithFeService {
         Env.getCurrentEnv().clear();
     }
 
-    public void envTest() throws Exception {
+    public void modifyStorageMediumTest() throws Exception {
         createDatabase("db1");
-        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
 
         String sql1 = "CREATE TABLE IF NOT EXISTS db1.t1 (pk INT, v1 INT sum) AGGREGATE KEY (pk) "
                 + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1');";
