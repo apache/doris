@@ -134,9 +134,9 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         return Status::OK();
     }
     if (UNLIKELY(_segment_writer == nullptr)) {
-        RETURN_IF_ERROR(_create_segment_writer(&_segment_writer, allocate_segment_id()));
+        RETURN_IF_ERROR(_create_segment_writer(_segment_writer, allocate_segment_id()));
     }
-    return _add_block(block, &_segment_writer);
+    return _add_block(block, _segment_writer);
 }
 
 Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
@@ -445,8 +445,8 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
 }
 
 Status BetaRowsetWriter::_add_rows(const vectorized::Block* block,
-                                   segment_v2::SegmentWriter* segment_writer, size_t row_offset,
-                                   size_t input_row_num) {
+                                   std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
+                                   size_t row_offset, size_t input_row_num) {
     auto s = segment_writer->append_block(block, row_offset, input_row_num);
     if (UNLIKELY(!s.ok())) {
         return Status::Error<WRITER_DATA_WRITE_ERROR>("failed to append block: {}", s.to_string());
@@ -456,23 +456,23 @@ Status BetaRowsetWriter::_add_rows(const vectorized::Block* block,
 }
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
-                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+                                    std::unique_ptr<segment_v2::SegmentWriter>& segment_writer) {
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
 
     do {
-        auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
+        auto max_row_add = segment_writer->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
             RETURN_IF_ERROR(_flush_segment_writer(segment_writer));
             RETURN_IF_ERROR(_create_segment_writer(segment_writer, allocate_segment_id()));
-            max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
+            max_row_add = segment_writer->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        RETURN_IF_ERROR(_add_rows(block, segment_writer->get(), row_offset, input_row_num));
+        RETURN_IF_ERROR(_add_rows(block, segment_writer, row_offset, input_row_num));
         row_offset += input_row_num;
     } while (row_offset < block_row_num);
 
@@ -505,7 +505,7 @@ Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr row
 
 Status BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
-        RETURN_IF_ERROR(_flush_segment_writer(&_segment_writer));
+        RETURN_IF_ERROR(_flush_segment_writer(_segment_writer));
     }
     return Status::OK();
 }
@@ -541,9 +541,9 @@ Status BetaRowsetWriter::_flush_single_block(const vectorized::Block* block, int
                                              int64_t* flush_size, TabletSchemaSPtr flush_schema) {
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     bool no_compression = block->bytes() <= config::segment_compression_threshold_kb * 1024;
-    RETURN_IF_ERROR(_create_segment_writer(&writer, segment_id, no_compression, flush_schema));
-    RETURN_IF_ERROR(_add_rows(block, writer.get(), 0, block->rows()));
-    RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+    RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, flush_schema));
+    RETURN_IF_ERROR(_add_rows(block, writer, 0, block->rows()));
+    RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     return Status::OK();
 }
 
@@ -785,7 +785,7 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                                 int32_t segment_id, bool no_compression,
                                                 TabletSchemaSPtr flush_schema) {
     RETURN_IF_ERROR(_check_segment_number_limit());
@@ -801,17 +801,17 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
     }
 
     const auto& tablet_schema = flush_schema ? flush_schema : _context.tablet_schema;
-    writer->reset(new segment_v2::SegmentWriter(
+    writer.reset(new segment_v2::SegmentWriter(
             file_writer.get(), segment_id, tablet_schema, _context.tablet, _context.data_dir,
             _context.max_rows_per_segment, writer_options, _context.mow_context));
     {
         std::lock_guard<SpinLock> l(_lock);
         _file_writers.push_back(std::move(file_writer));
     }
-    auto s = (*writer)->init();
+    auto s = writer->init();
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
-        writer->reset(nullptr);
+        writer.reset();
         return s;
     }
     return Status::OK();
@@ -830,38 +830,38 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                                int64_t* flush_size) {
-    uint32_t segid = (*writer)->get_segment_id();
-    uint32_t row_num = (*writer)->num_rows_written();
+    uint32_t segid = writer->get_segment_id();
+    uint32_t row_num = writer->num_rows_written();
 
-    if ((*writer)->num_rows_written() == 0) {
+    if (writer->num_rows_written() == 0) {
         return Status::OK();
     }
     uint64_t segment_size;
     uint64_t index_size;
-    Status s = (*writer)->finalize(&segment_size, &index_size);
+    Status s = writer->finalize(&segment_size, &index_size);
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
     VLOG_DEBUG << "tablet_id:" << _context.tablet_id
-               << " flushing filename: " << (*writer)->get_data_dir()->path()
+               << " flushing filename: " << writer->get_data_dir()->path()
                << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment;
 
     KeyBoundsPB key_bounds;
-    Slice min_key = (*writer)->min_encoded_key();
-    Slice max_key = (*writer)->max_encoded_key();
+    Slice min_key = writer->min_encoded_key();
+    Slice max_key = writer->max_encoded_key();
     DCHECK_LE(min_key.compare(max_key), 0);
     key_bounds.set_min_key(min_key.to_string());
     key_bounds.set_max_key(max_key.to_string());
 
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
-    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
+    segstat.data_size = segment_size + writer->get_inverted_index_file_size();
+    segstat.index_size = index_size + writer->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
 
-    writer->reset();
+    writer.reset();
     if (flush_size) {
         *flush_size = segment_size + index_size;
     }
