@@ -149,6 +149,9 @@ private:
                                   TabletSchemaSPtr flush_schema = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
+    Status _flush_single_block(const vectorized::Block* block, int32_t segment_id,
+                               int64_t* flush_size = nullptr,
+                               TabletSchemaSPtr flush_schema = nullptr);
     Status _generate_delete_bitmap(int32_t segment_id);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
 

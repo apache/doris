@@ -523,11 +523,7 @@ Status BetaRowsetWriter::flush_memtable(vectorized::Block* block, int32_t segmen
     }
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
-        std::unique_ptr<segment_v2::SegmentWriter> writer;
-        bool no_compression = block->bytes() <= config::segment_compression_threshold_kb * 1024;
-        RETURN_IF_ERROR(_create_segment_writer(&writer, segment_id, no_compression, flush_schema));
-        RETURN_IF_ERROR(_add_rows(block, writer.get(), 0, block->rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
+        RETURN_IF_ERROR(_flush_single_block(block, segment_id, flush_size, flush_schema));
     }
     RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     RETURN_IF_ERROR(_segcompaction_if_necessary());
@@ -538,12 +534,16 @@ Status BetaRowsetWriter::flush_single_block(const vectorized::Block* block) {
     if (block->rows() == 0) {
         return Status::OK();
     }
+    return _flush_single_block(block, allocate_segment_id());
+}
 
+Status BetaRowsetWriter::_flush_single_block(const vectorized::Block* block, int32_t segment_id,
+                                             int64_t* flush_size, TabletSchemaSPtr flush_schema) {
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     bool no_compression = block->bytes() <= config::segment_compression_threshold_kb * 1024;
-    RETURN_IF_ERROR(_create_segment_writer(&writer, allocate_segment_id(), no_compression));
-    RETURN_IF_ERROR(_add_block(block, &writer));
-    RETURN_IF_ERROR(_flush_segment_writer(&writer));
+    RETURN_IF_ERROR(_create_segment_writer(&writer, segment_id, no_compression, flush_schema));
+    RETURN_IF_ERROR(_add_rows(block, writer.get(), 0, block->rows()));
+    RETURN_IF_ERROR(_flush_segment_writer(&writer, flush_size));
     return Status::OK();
 }
 
