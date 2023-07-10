@@ -184,10 +184,10 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
             double dataSize = childStatistics.computeSize();
-            double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
+            double memLimit = CostCalculator.MEM_LIMIT;
             //if build side is big, avoid use broadcast join
-            double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
-            double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
+            double rowsLimit = CostCalculator.ROWS_LIMIT;
+            double brMemlimit = CostCalculator.BROADCAST_MEM_LIMIT;
             if (dataSize > memLimit * brMemlimit
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);

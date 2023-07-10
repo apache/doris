@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.cost;
 
-import org.apache.doris.qe.ConnectContext;
-
 import com.google.common.base.Preconditions;
 
 /**
@@ -66,11 +64,11 @@ public class CostWeight {
     }
 
     public static CostWeight get() {
-        double cpuWeight = ConnectContext.get().getSessionVariable().getCboCpuWeight();
-        double memWeight = ConnectContext.get().getSessionVariable().getCboMemWeight();
-        double netWeight = ConnectContext.get().getSessionVariable().getCboNetWeight();
+        double cpuWeight = CostCalculator.DEFAULT_CPU_WEIGHT;
+        double memWeight = CostCalculator.DEFAULT_MEM_WEIGHT;
+        double netWeight = CostCalculator.DEFAULT_NET_WEIGHT;
         return new CostWeight(cpuWeight, memWeight, netWeight,
-                ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
+                CostCalculator.PENAL_FACTOR);
     }
 
     //TODO: add it in session variable

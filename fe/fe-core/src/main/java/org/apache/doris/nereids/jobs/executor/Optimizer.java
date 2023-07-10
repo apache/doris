@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
@@ -51,6 +52,7 @@ public class Optimizer {
     public void execute() {
         // init memo
         cascadesContext.toMemo();
+        CostCalculator.init();
         // stats derive
         cascadesContext.pushJob(new DeriveStatsJob(cascadesContext.getMemo().getRoot().getLogicalExpression(),
                 cascadesContext.getCurrentJobContext()));
