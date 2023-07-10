@@ -130,8 +130,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         }
     } else {
         size_t num_columns = _empty_block.columns();
-        MemReuseMutableColumns merged_columns =
-                VectorizedUtils::build_mutable_mem_reuse_columns(output_block, &_empty_block);
+        MutableBlock m_block =
+                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
+        MutableColumns& merged_columns = m_block.mutable_columns();
 
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
