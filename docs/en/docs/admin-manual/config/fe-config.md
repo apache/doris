@@ -2160,7 +2160,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 #### `enable_storage_policy`
 
-Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
+Whether to enable the Storage Policy feature.
 
 Default: false
 
