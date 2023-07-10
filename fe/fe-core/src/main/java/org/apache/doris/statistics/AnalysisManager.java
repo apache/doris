@@ -712,6 +712,9 @@ public class AnalysisManager extends Daemon implements Writable {
         for (String col : cols) {
             Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
         }
+        if (dropStatsStmt.dropTableRowCount()) {
+            StatisticsRepository.dropExternalTableStatistics(tblId);
+        }
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
