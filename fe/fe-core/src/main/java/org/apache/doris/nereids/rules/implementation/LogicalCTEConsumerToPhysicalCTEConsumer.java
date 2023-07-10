@@ -24,15 +24,16 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 /**
  * Implementation rule that convert logical CTE consumer to physical CTE consumer.
  */
-public class LogicalCTEConsumeToPhysicalCTEConsume extends OneImplementationRuleFactory {
+public class LogicalCTEConsumerToPhysicalCTEConsumer extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
         return logicalCTEConsumer().then(cte -> new PhysicalCTEConsumer(
-            cte.getCteId(),
-            cte.getConsumerToProducerOutputMap(),
-            cte.getProducerToConsumerOutputMap(),
-            cte.getLogicalProperties()
-            )
-        ).toRule(RuleType.LOGICAL_CTE_CONSUME_TO_PHYSICAL_CTE_CONSUMER_RULE);
+                        cte.getRelationId(),
+                        cte.getCteId(),
+                        cte.getConsumerToProducerOutputMap(),
+                        cte.getProducerToConsumerOutputMap(),
+                        cte.getLogicalProperties()
+                )
+        ).toRule(RuleType.LOGICAL_CTE_CONSUMER_TO_PHYSICAL_CTE_CONSUMER_RULE);
     }
 }
