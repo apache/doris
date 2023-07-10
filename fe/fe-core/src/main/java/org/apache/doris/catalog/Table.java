@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
@@ -27,6 +28,7 @@ import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -67,10 +69,14 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     public volatile boolean isDropped = false;
 
     private boolean hasCompoundKey = false;
+    @SerializedName(value = "id")
     protected long id;
+    @SerializedName(value = "name")
     protected volatile String name;
     protected volatile String qualifiedDbName;
+    @SerializedName(value = "type")
     protected TableType type;
+    @SerializedName(value = "createTime")
     protected long createTime;
     protected QueryableReentrantReadWriteLock rwLock;
 
@@ -94,6 +100,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
      * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
+    @SerializedName(value = "fullSchema")
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
     /**
@@ -104,6 +111,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     // DO NOT persist this variable.
     protected boolean isTypeRead = false;
     // table(view)'s comment
+    @SerializedName(value = "comment")
     protected String comment = "";
     // sql for creating this table, default is "";
     protected String ddlSql = "";

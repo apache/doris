@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
@@ -114,32 +115,45 @@ public class OlapTable extends Table {
         WAITING_STABLE
     }
 
+    @SerializedName(value = "state")
     private volatile OlapTableState state;
 
     // index id -> index meta
+    @SerializedName("indexIdToMeta")
     private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
     // index name -> index id
+    @SerializedName("indexNameToId")
     private Map<String, Long> indexNameToId = Maps.newHashMap();
 
+    @SerializedName("keysType")
     private KeysType keysType;
+    @SerializedName("partitionInfo")
     private PartitionInfo partitionInfo;
+    @SerializedName("idToPartition")
     private Map<Long, Partition> idToPartition = new HashMap<>();
     private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
+    @SerializedName(value = "distributionInfo")
     private DistributionInfo defaultDistributionInfo;
 
     // all info about temporary partitions are save in "tempPartitions"
+    @SerializedName(value = "tempPartitions")
     private TempPartitions tempPartitions = new TempPartitions();
 
     // bloom filter columns
+    @SerializedName(value = "bfColumns")
+
     private Set<String> bfColumns;
+    @SerializedName(value = "bfFpp")
     private double bfFpp;
+    @SerializedName(value = "colocateGroup")
 
     private String colocateGroup;
 
     private boolean hasSequenceCol;
     private Type sequenceType;
 
+    @SerializedName(value = "indexes")
     private TableIndexes indexes;
 
     // In former implementation, base index id is same as table id.
@@ -148,8 +162,10 @@ public class OlapTable extends Table {
     // So we add this 'baseIndexId' to explicitly specify the base index id,
     // which should be different with table id.
     // The init value is -1, which means there is not partition and index at all.
+    @SerializedName(value = "baseIndexId")
     private long baseIndexId = -1;
 
+    @SerializedName(value = "tableProperty")
     private TableProperty tableProperty;
 
     private AutoIncrementGenerator autoIncrementGenerator;
@@ -1387,6 +1403,15 @@ public class OlapTable extends Table {
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
     }
+
+//    public String toJson() throws IOException {
+//        String json = GsonUtils.GSON.toJson(this);
+//        return json;
+//    }
+//
+//    public static OlapTable fromJson(String json) throws IOException {
+//        return GsonUtils.GSON.fromJson(json, OlapTable.class);
+//    }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
         OlapTable copied = new OlapTable();

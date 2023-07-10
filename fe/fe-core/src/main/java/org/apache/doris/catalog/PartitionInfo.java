@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionDesc;
@@ -53,6 +54,7 @@ import java.util.stream.Collectors;
 public class PartitionInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
 
+    @SerializedName("Type")
     protected PartitionType type;
     // partition columns for list and range partitions
     protected List<Column> partitionColumns = Lists.newArrayList();
@@ -61,14 +63,17 @@ public class PartitionInfo implements Writable {
     // temp partition id -> partition item
     protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
+    @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> storage policy
     protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
+    @SerializedName("IdToReplicaAllocation")
     protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
 
+    @SerializedName("IdToInMemory")
     protected Map<Long, Boolean> idToInMemory;
 
     // partition id -> tablet type
