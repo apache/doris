@@ -35,7 +35,7 @@ import java.util.List;
 
 /** MultiDistinctCount */
 public class MultiDistinctCount extends AggregateFunction
-        implements AlwaysNotNullable, ExplicitlyCastableSignature {
+        implements AlwaysNotNullable, ExplicitlyCastableSignature, MultiDistinction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)

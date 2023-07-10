@@ -60,6 +60,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
@@ -71,9 +72,12 @@ import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -593,5 +597,50 @@ public class StatisticsUtil {
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
         return totalSize / estimatedRowSize;
+    }
+
+    /**
+     * Get Iceberg column statistics.
+     * @param colName
+     * @param table Iceberg table.
+     * @return Optional Column statistic for the given column.
+     */
+    public static Optional<ColumnStatistic> getIcebergColumnStats(String colName, org.apache.iceberg.Table table) {
+        TableScan tableScan = table.newScan().includeColumnStats();
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
+        columnStatisticBuilder.setCount(0);
+        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
+        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setDataSize(0);
+        columnStatisticBuilder.setAvgSizeByte(0);
+        columnStatisticBuilder.setNumNulls(0);
+        for (FileScanTask task : tableScan.planFiles()) {
+            processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+        }
+        if (columnStatisticBuilder.getCount() > 0) {
+            columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
+                    / columnStatisticBuilder.getCount());
+        }
+        return Optional.of(columnStatisticBuilder.build());
+    }
+
+    private static void processDataFile(DataFile dataFile, PartitionSpec partitionSpec,
+                                        String colName, ColumnStatisticBuilder columnStatisticBuilder) {
+        int colId = -1;
+        for (Types.NestedField column : partitionSpec.schema().columns()) {
+            if (column.name().equals(colName)) {
+                colId = column.fieldId();
+                break;
+            }
+        }
+        if (colId == -1) {
+            throw new RuntimeException(String.format("Column %s not exist.", colName));
+        }
+        // Update the data size, count and num of nulls in columnStatisticBuilder.
+        // TODO: Get min max value.
+        columnStatisticBuilder.setDataSize(columnStatisticBuilder.getDataSize() + dataFile.columnSizes().get(colId));
+        columnStatisticBuilder.setCount(columnStatisticBuilder.getCount() + dataFile.recordCount());
+        columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
+                + dataFile.nullValueCounts().get(colId));
     }
 }

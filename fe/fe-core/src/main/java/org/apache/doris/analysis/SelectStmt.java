@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -524,10 +525,6 @@ public class SelectStmt extends QueryStmt {
                     // Analyze the resultExpr before generating a label to ensure enforcement
                     // of expr child and depth limits (toColumn() label may call toSql()).
                     item.getExpr().analyze(analyzer);
-                    // select list output must not be constant because it is not scalar expression.
-                    if (!fromClause.isEmpty()) {
-                        item.getExpr().setIsConstant(false);
-                    }
                     if (!(item.getExpr() instanceof CaseExpr)
                             && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                         throw new AnalysisException("Subquery is not supported in the select list.");
@@ -605,8 +602,8 @@ public class SelectStmt extends QueryStmt {
             }
         }
 
-        whereClauseRewrite();
         if (whereClause != null) {
+            whereClauseRewrite();
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
             }
@@ -855,6 +852,9 @@ public class SelectStmt extends QueryStmt {
             } else {
                 whereClause = new BoolLiteral(true);
             }
+        } else if (!whereClause.getType().isBoolean()) {
+            whereClause = new CastExpr(TypeDef.create(PrimitiveType.BOOLEAN), whereClause);
+            whereClause.setType(Type.BOOLEAN);
         }
     }
 
@@ -1267,6 +1267,9 @@ public class SelectStmt extends QueryStmt {
                 havingClauseAfterAnalyzed = havingClause.substitute(aliasSMap, analyzer, false);
             }
             havingClauseAfterAnalyzed = rewriteQueryExprByMvColumnExpr(havingClauseAfterAnalyzed, analyzer);
+            if (!havingClauseAfterAnalyzed.getType().isBoolean()) {
+                havingClauseAfterAnalyzed = havingClauseAfterAnalyzed.castTo(Type.BOOLEAN);
+            }
             havingClauseAfterAnalyzed.checkReturnsBool("HAVING clause", true);
             if (groupingInfo != null) {
                 groupingInfo.substituteGroupingFn(Arrays.asList(havingClauseAfterAnalyzed), analyzer);

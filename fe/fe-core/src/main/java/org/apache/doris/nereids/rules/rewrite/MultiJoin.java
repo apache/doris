@@ -169,11 +169,6 @@ public class MultiJoin extends AbstractLogicalPlan {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        throw new RuntimeException("multiJoin can't invoke withLogicalProperties");
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         throw new RuntimeException("multiJoin can't invoke withGroupExprLogicalPropChildren");

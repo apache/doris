@@ -16,6 +16,8 @@
 // under the License.
 
 #include "data_type_jsonb_serde.h"
+
+#include <arrow/array/builder_binary.h>
 namespace doris {
 namespace vectorized {
 
@@ -50,6 +52,25 @@ Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                  bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                               arrow::ArrayBuilder* array_builder, int start,
+                                               int end) const {
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    for (size_t string_i = start; string_i < end; ++string_i) {
+        if (null_map && (*null_map)[string_i]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+            continue;
+        }
+        std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
+        std::string json_string =
+                JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
+        checkArrowStatus(builder.Append(json_string.data(), json_string.size()), column.get_name(),
+                         array_builder->type()->name());
+    }
 }
 
 } // namespace vectorized

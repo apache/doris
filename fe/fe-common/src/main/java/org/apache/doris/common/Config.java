@@ -1495,7 +1495,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField
-    public static boolean enable_pipeline_load = true;
+    public static boolean enable_pipeline_load = false;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
@@ -1743,13 +1743,6 @@ public class Config extends ConfigBase {
     public static boolean use_fuzzy_session_variable = false;
 
     /**
-     * Collect external table statistic info by running sql when set to true.
-     * Otherwise, use external catalog metadata.
-     */
-    @ConfField(mutable = true)
-    public static boolean collect_external_table_stats_by_sql = true;
-
-    /**
      * Max num of same name meta informatntion in catalog recycle bin.
      * Default is 3.
      * 0 means do not keep any meta obj with same name.
@@ -1823,7 +1816,7 @@ public class Config extends ConfigBase {
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
     @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_ssl = true;
+    public static boolean enable_ssl = false;
 
     /**
      * If set to ture, ssl connection needs to authenticate client's certificate.

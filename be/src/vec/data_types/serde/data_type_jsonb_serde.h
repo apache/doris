@@ -38,6 +38,9 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override;
 
 private:
     template <bool is_binary_format>

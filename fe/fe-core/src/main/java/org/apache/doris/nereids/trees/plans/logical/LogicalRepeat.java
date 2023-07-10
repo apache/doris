@@ -150,14 +150,9 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public LogicalRepeat<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions, Optional.empty(),
-                logicalProperties, child());
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
         return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
                 children.get(0));
     }

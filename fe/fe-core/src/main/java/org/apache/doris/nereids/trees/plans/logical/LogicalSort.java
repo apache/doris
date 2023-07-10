@@ -132,13 +132,9 @@ public class LogicalSort<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public LogicalSort<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalSort<>(orderKeys, Optional.empty(), logicalProperties, child(), false);
-    }
-
-    @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
         return new LogicalSort<>(orderKeys, groupExpression, logicalProperties, children.get(0),
                 normalized);
     }
