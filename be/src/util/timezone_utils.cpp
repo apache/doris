@@ -29,10 +29,16 @@ namespace doris {
 
 RE2 TimezoneUtils::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 std::unordered_map<std::string, std::string> TimezoneUtils::timezone_names_map_;
+bool TimezoneUtils::inited_ = false;
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 
 void TimezoneUtils::load_timezone_names() {
+    if (inited_) {
+        return;
+    }
+
+    inited_ = true;
     std::string path;
     const char* tzdir = "/usr/share/zoneinfo";
     char* tzdir_env = std::getenv("TZDIR");

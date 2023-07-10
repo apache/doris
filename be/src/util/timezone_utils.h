@@ -23,8 +23,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "util/once.h"
-
 namespace cctz {
 class time_zone;
 } // namespace cctz
@@ -40,6 +38,7 @@ public:
     static const std::string default_time_zone;
 
 private:
+    static bool inited_;
     static std::unordered_map<std::string, std::string> timezone_names_map_;
 
     // RE2 obj is thread safe
