@@ -1056,6 +1056,7 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
         }
         this.runtimeFilterType = 1 << randomInt;
+        /*
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
@@ -1077,6 +1078,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
+        */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
             switch (Config.pull_request_id % 4) {
