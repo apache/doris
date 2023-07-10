@@ -37,7 +37,7 @@ namespace doris {
 class PageCacheHandle;
 
 template <typename TAllocator>
-class PageBase : private TAllocator, LRUCacheValuePolicy {
+class PageBase : private TAllocator, LRUCacheValueBase {
 public:
     PageBase() : _data(nullptr), _size(0), _capacity(0) {}
 

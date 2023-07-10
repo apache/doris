@@ -108,7 +108,7 @@ public:
     // Try to prune the cache if expired.
     Status prune();
 
-    struct CacheValue : public LRUCacheValuePolicy {
+    struct CacheValue : public LRUCacheValueBase {
         Type type;
         // either tablet_schema or schema
         TabletSchemaSPtr tablet_schema = nullptr;

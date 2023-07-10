@@ -24,7 +24,7 @@
 namespace doris {
 
 // Base of the lru cache value.
-struct LRUCacheValuePolicy {
+struct LRUCacheValueBase {
     // Save the last visit time of this cache entry.
     // Use atomic because it may be modified by multi threads.
     std::atomic<int64_t> last_visit_time = 0;
@@ -54,7 +54,7 @@ public:
             const int64_t curtime = UnixMillis();
             int64_t byte_size = 0L;
             auto pred = [this, curtime, &byte_size](const void* value) -> bool {
-                LRUCacheValuePolicy* cache_value = (LRUCacheValuePolicy*)value;
+                LRUCacheValueBase* cache_value = (LRUCacheValueBase*)value;
                 if ((cache_value->last_visit_time + _stale_sweep_time_s * 1000) < curtime) {
                     byte_size += cache_value->size;
                     return true;

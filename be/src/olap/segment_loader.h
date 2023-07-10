@@ -68,7 +68,7 @@ public:
 
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
-    struct CacheValue : public LRUCacheValuePolicy {
+    struct CacheValue : public LRUCacheValueBase {
         std::vector<segment_v2::SegmentSharedPtr> segments;
     };
 
