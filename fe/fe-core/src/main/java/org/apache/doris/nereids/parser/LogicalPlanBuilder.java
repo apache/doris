@@ -1931,6 +1931,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private String parseConstant(ConstantContext context) {
         Object constant = visit(context);
-        return ((Literal) constant).getStringValue();
+        if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
+            return ((Literal) constant).getStringValue();
+        }
+        return context.getText();
     }
 }
