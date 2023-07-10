@@ -222,6 +222,7 @@
             "type": "category",
             "label": "Ecosystem",
             "items": [
+		"ecosystem/ninedata-sql-window",
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
