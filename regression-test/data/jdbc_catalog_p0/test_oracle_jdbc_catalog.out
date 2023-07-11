@@ -67,6 +67,17 @@
 1	10000000
 2	123460000000
 
+-- !filter1 --
+1	1	china 	beijing	alice	abcdefghrjkmnopq
+
+-- !filter2 --
+1	1	china 	beijing	alice	abcdefghrjkmnopq
+2	2	china 	shanghai	bob	abcdefghrjkmnopq
+3	3	Americ	new york	Jerry	abcdefghrjkmnopq
+
+-- !filter3 --
+1	1	china 	beijing	alice	abcdefghrjkmnopq
+
 -- !test_insert1 --
 doris1	18
 
