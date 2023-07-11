@@ -195,7 +195,6 @@ public class AliasFunction extends Function {
         } else {
             throw new AnalysisException("Not supported expr type: " + originFunction);
         }
-        checkOriginalFunction(originFunction);
         Set<String> set = new HashSet<>();
         for (String str : parameters) {
             if (!set.add(str)) {
@@ -308,19 +307,5 @@ public class AliasFunction extends Function {
         return parameters.stream()
                 .map(String::toString)
                 .collect(Collectors.joining(", "));
-    }
-
-    public static void checkOriginalFunction(Expr expr) throws AnalysisException {
-        if (expr instanceof FunctionCallExpr) {
-            Function fn = expr.getBuiltinFunction(((FunctionCallExpr) expr).getFnName().getFunction(),
-                    expr.getChildren().stream().map(Expr::getType).toArray(Type[]::new),
-                    CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null) {
-                throw new AnalysisException("the alias function's original function contains non-builtin function");
-            }
-        }
-        for (Expr child : expr.getChildren()) {
-            checkOriginalFunction(child);
-        }
     }
 }
