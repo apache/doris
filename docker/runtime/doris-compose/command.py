@@ -28,6 +28,7 @@ import sys
 LOG = utils.get_logger()
 
 
+# return for_all, related_nodes, related_node_num
 def get_ids_related_nodes(cluster, fe_ids, be_ids, ignore_not_exists=False):
     if fe_ids is None and be_ids is None:
         return True, None, cluster.get_all_nodes_num()
@@ -55,7 +56,10 @@ def get_ids_related_nodes(cluster, fe_ids, be_ids, ignore_not_exists=False):
     nodes = get_ids_related_nodes_with_type(
         CLUSTER.Node.TYPE_FE, fe_ids) + get_ids_related_nodes_with_type(
             CLUSTER.Node.TYPE_BE, be_ids)
-    return False, nodes, len(nodes)
+
+    related_node_num = len(nodes)
+
+    return len(nodes) == cluster.get_all_nodes_num(), nodes, len(nodes)
 
 
 class Command(object):
@@ -278,11 +282,11 @@ class DownCommand(Command):
                     raise Exception("Unknown node type: {}".format(
                         node.node_type()))
 
+                #utils.exec_docker_compose_command(cluster.get_compose_file(),
+                #                                  "stop",
+                #                                  nodes=[node])
                 utils.exec_docker_compose_command(cluster.get_compose_file(),
-                                                  "stop",
-                                                  nodes=[node])
-                utils.exec_docker_compose_command(cluster.get_compose_file(),
-                                                  "rm", ["-v", "-f"],
+                                                  "rm", ["-s", "-v", "-f"],
                                                   nodes=[node])
                 if args.clean:
                     utils.enable_dir_with_rw_perm(node.get_path())
@@ -300,6 +304,48 @@ class DownCommand(Command):
                 "Down cluster {} succ, related node num {}".format(
                     args.NAME, related_node_num)))
 
+
+class ListNode(object):
+    def __init__(self):
+        self.node_type = ""
+        self.id = 0
+        self.cluster_name = ""
+        self.ip = ""
+        self.status = ""
+        self.container_id = ""
+        self.image = ""
+        self.created = ""
+        self.alive = ""
+        self.is_master = ""
+        self.query_port = ""
+        self.tablet_num = ""
+        self.last_heartbeat = ""
+        self.err_msg = ""
+
+    def info(self):
+        return (self.cluster_name, "{}-{}".format(self.node_type, self.id),
+                self.ip, self.status,
+                self.container_id, self.image, self.created,
+                self.alive, self.is_master, self.query_port,
+                self.tablet_num, self.last_heartbeat,
+                self.err_msg)
+
+    def update_db_info(self, db_mgr):
+        if self.node_type == CLUSTER.Node.TYPE_FE:
+            fe = db_mgr.get_fe(self.id)
+            if fe:
+                self.alive = str(fe.alive).lower()
+                self.is_master = str(fe.is_master).lower()
+                self.query_port = fe.query_port
+                self.last_heartbeat = fe.last_heartbeat
+                self.err_msg = fe.err_msg
+        elif self.node_type == CLUSTER.Node.TYPE_BE:
+            be = db_mgr.get_be(self.id)
+            if be:
+                self.alive = str(be.alive).lower()
+                self.tablet_num = be.tablet_num
+                self.last_heartbeat = be.last_heartbeat
+                self.err_msg = be.err_msg
 
 class ListCommand(Command):
 
@@ -411,58 +457,75 @@ class ListCommand(Command):
                                  "is_master", "query_port", "tablet_num",
                                  "last_heartbeat", "err_msg"))
         table = prettytable.PrettyTable(headers)
-        for name in sorted(clusters.keys()):
-            services = clusters[name]["services"]
-            db_mgr = database.get_db_mgr(name, False)
+
+        for cluster_name in sorted(clusters.keys()):
+            fe_ids = {}
+            be_ids = {}
+            services = clusters[cluster_name]["services"]
+            db_mgr = database.get_db_mgr(cluster_name, False)
+
+            nodes = []
             for service_name, container in services.items():
-                alive = ""
-                is_master = ""
-                query_port = ""
-                last_heartbeat = ""
-                err_msg = ""
-                tablet_num = ""
-
-                create = ""
-                ip = ""
-                image = ""
-                container_id = ""
-                status = ""
-
                 _, node_type, id = utils.parse_service_name(container.name)
+                node = ListNode()
+                node.cluster_name = cluster_name
+                node.node_type = node_type
+                node.id = id
+                node.update_db_info(db_mgr)
+                nodes.append(node)
 
                 if node_type == CLUSTER.Node.TYPE_FE:
-                    fe = db_mgr.get_fe(id)
-                    if fe:
-                        alive = str(fe.alive).lower()
-                        is_master = str(fe.is_master).lower()
-                        query_port = fe.query_port
-                        last_heartbeat = fe.last_heartbeat
-                        err_msg = fe.err_msg
+                    fe_ids[id] = True
                 elif node_type == CLUSTER.Node.TYPE_BE:
-                    be = db_mgr.get_be(id)
-                    if be:
-                        alive = str(be.alive).lower()
-                        tablet_num = be.tablet_num
-                        last_heartbeat = be.last_heartbeat
-                        err_msg = be.err_msg
+                    be_ids[id] = True
 
                 if type(container) == TYPE_COMPOSESERVICE:
-                    ip = container.ip
-                    image = container.image
-                    status = SERVICE_DEAD
+                    node.ip = container.ip
+                    node.image = container.image
+                    node.status = SERVICE_DEAD
                 else:
-                    create = container.attrs.get("Created",
+                    node.created = container.attrs.get("Created",
                                                  "")[:19].replace("T", " ")
-                    ip = list(
+                    node.ip = list(
                         container.attrs["NetworkSettings"]
                         ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]
-                    image = ",".join(container.image.tags)
-                    container_id = container.short_id
-                    status = container.status
+                    node.image = ",".join(container.image.tags)
+                    node.container_id = container.short_id
+                    node.status = container.status
 
-                table.add_row((name, service_name, ip, status, container_id,
-                               image, create, alive, is_master, query_port,
-                               tablet_num, last_heartbeat, err_msg))
+            for id, fe in db_mgr.fe_states.items():
+                if fe_ids.get(id, False):
+                    continue
+                node = ListNode()
+                node.cluster_name = cluster_name
+                node.node_type = CLUSTER.Node.TYPE_FE
+                node.id = id
+                node.status = SERVICE_DEAD
+                node.update_db_info(db_mgr)
+                nodes.append(node)
+            for id, be in db_mgr.be_states.items():
+                if be_ids.get(id, False):
+                    continue
+                node = ListNode()
+                node.cluster_name = cluster_name
+                node.node_type = CLUSTER.Node.TYPE_BE
+                node.id = id
+                node.status = SERVICE_DEAD
+                node.update_db_info(db_mgr)
+                nodes.append(node)
+
+            def get_key(node):
+                key = node.id
+                if node.node_type == CLUSTER.Node.TYPE_FE:
+                    key += 0 * CLUSTER.ID_LIMIT
+                elif node.node_type == CLUSTER.Node.TYPE_BE:
+                    key += 1 * CLUSTER.ID_LIMIT
+                else:
+                    key += 2 * CLUSTER.ID_LIMIT
+                return key
+
+            for node in sorted(nodes, key=get_key):
+                table.add_row(node.info())
 
         print(table)
 
