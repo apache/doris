@@ -601,6 +601,7 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
     // set partial update columns info
     _tablet_schema->set_partial_update_info(table_schema_param->is_partial_update(),
                                             table_schema_param->partial_update_input_columns());
+    _tablet_schema->set_is_strict_mode(table_schema_param->is_strict_mode());
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
