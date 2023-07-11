@@ -197,6 +197,8 @@ public:
 
     std::vector<TUniqueId> fragment_ids;
 
+    std::map<int, TFileScanRangeParams> file_scan_range_params_map;
+
 private:
     ExecEnv* _exec_env;
     vectorized::VecDateTimeValue _start_time;
