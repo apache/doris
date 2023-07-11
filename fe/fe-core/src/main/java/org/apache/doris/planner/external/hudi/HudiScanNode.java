@@ -46,6 +46,7 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
@@ -60,6 +61,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -233,7 +235,19 @@ public class HudiScanNode extends HiveScanNode {
             queryInstant = snapshotInstant.get().getTimestamp();
         }
         // Non partition table will get one dummy partition
-        List<HivePartition> partitions = getPrunedPartitions(hudiClient);
+        UserGroupInformation ugi = HiveMetaStoreClientHelper.getUserGroupInformation(
+                HiveMetaStoreClientHelper.getConfiguration(hmsTable));
+        List<HivePartition> partitions;
+        if (ugi != null) {
+            try {
+                partitions = ugi.doAs(
+                        (PrivilegedExceptionAction<List<HivePartition>>) () -> getPrunedPartitions(hudiClient));
+            } catch (Exception e) {
+                throw new UserException(e);
+            }
+        } else {
+            partitions = getPrunedPartitions(hudiClient);
+        }
         try {
             for (HivePartition partition : partitions) {
                 String globPath;
