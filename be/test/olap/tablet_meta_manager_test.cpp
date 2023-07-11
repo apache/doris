@@ -93,7 +93,7 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     EXPECT_EQ(Status::OK(), s);
     TabletMetaSharedPtr meta_read(new TabletMeta());
     s = TabletMetaManager::get_meta(_data_dir, tablet_id, schema_hash, meta_read);
-    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(), s);
+    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(""), s);
 }
 
 TEST_F(TabletMetaManagerTest, TestLoad) {

@@ -183,7 +183,8 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
-        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
+        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>(
+                "TabletReader not support next_block_with_aggregation");
     }
 
     virtual uint64_t merged_rows() const { return _merged_rows; }

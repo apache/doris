@@ -303,7 +303,8 @@ void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
     } catch (const Exception& e) {
         st = e.to_status();
     } catch (...) {
-        st = Status::Error(ErrorCode::INTERNAL_ERROR);
+        st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                           "_exec_plan_fragment_impl meet unknown error");
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
