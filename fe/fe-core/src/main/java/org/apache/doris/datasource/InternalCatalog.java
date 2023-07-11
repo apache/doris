@@ -2261,7 +2261,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             "Database " + db.getFullName() + " create unpartitioned table " + tableName + " increasing "
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
                 }
-                createPartitionWithIndicesInternal(db.getClusterName(), db.getId(), olapTable.getId(),
+                createPartitionWithIndicesElasticOnStorageMedium(db.getClusterName(), db.getId(), olapTable.getId(),
                         olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
                         partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
@@ -2326,7 +2326,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
 
-                    createPartitionWithIndicesInternal(db.getClusterName(), db.getId(),
+                    createPartitionWithIndicesElasticOnStorageMedium(db.getClusterName(), db.getId(),
                             olapTable.getId(), olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
                             olapTable.getIndexIdToMeta(), partitionDistributionInfo,
                             dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
@@ -2953,8 +2953,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         return new ConcurrentHashMap<>(idToDb);
     }
 
-    private void createPartitionWithIndicesInternal(String clusterName, long dbId, long tableId, long baseIndexId,
-            long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
+    private void createPartitionWithIndicesElasticOnStorageMedium(String clusterName, long dbId, long tableId,
+            long baseIndexId, long partitionId, String partitionName, Map<Long, MaterializedIndexMeta> indexIdToMeta,
             DistributionInfo distributionInfo, TStorageMedium storageMedium, ReplicaAllocation replicaAlloc,
             Long versionInfo, Set<String> bfColumns, double bfFpp, Set<Long> tabletIdSet, List<Index> indexes,
             boolean isInMemory, TStorageFormat storageFormat, TTabletType tabletType, TCompressionType compressionType,
