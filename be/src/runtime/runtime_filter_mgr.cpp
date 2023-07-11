@@ -26,8 +26,6 @@
 #include <gen_cpp/types.pb.h>
 #include <stddef.h>
 
-#include <memory>
-#include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
