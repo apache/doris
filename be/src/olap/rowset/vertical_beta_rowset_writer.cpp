@@ -156,11 +156,6 @@ Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
 Status VerticalBetaRowsetWriter::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    // TODO: just for pass DCHECK now, we should align the meaning
-    // of _num_segment and _next_segment_id with BetaRowsetWriter.
-    // i.e. _next_segment_id means next available segment id,
-    // and _num_segment means num of flushed segments.
-    allocate_segment_id();
     auto path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
