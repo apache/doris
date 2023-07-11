@@ -1097,6 +1097,7 @@ public class StmtExecutor {
                 }
                 // query re-analyze
                 parsedStmt.reset();
+                analyzer.setReAnalyze(true);
                 parsedStmt.analyze(analyzer);
 
                 // Restore the original result types and column labels.

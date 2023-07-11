@@ -1475,6 +1475,9 @@ public class FunctionCallExpr extends Expr {
 
                 // find user defined functions
                 if (fn == null) {
+                    if (analyzer.isReAnalyze()) {
+                        throw new AnalysisException("a UDF in the original function of a alias function");
+                    }
                     fn = findUdf(fnName, analyzer);
                 }
             }
