@@ -1071,7 +1071,7 @@ struct TimeToSecImpl {
     static constexpr auto name = "time_to_sec";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
-        auto res_col = ColumnVector<Int32>::create();
+        auto res_col = ColumnInt32::create();
         const auto& [argument_column, arg_is_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& column_data = assert_cast<const ColumnFloat64&>(*argument_column);
@@ -1089,6 +1089,27 @@ struct TimeToSecImpl {
             }
             block.replace_by_position(result, std::move(res_col));
         }
+        return Status::OK();
+    }
+};
+
+struct SecToTimeImpl {
+    using ReturnType = DataTypeTime;
+    static constexpr auto name = "sec_to_time";
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        auto res_col = ColumnFloat64::create();
+        const auto& [argument_column, arg_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& column_data = assert_cast<const ColumnInt32&>(*argument_column);
+        const size_t rows = arg_const ? 1 : input_rows_count;
+        auto& res_data = res_col->get_data();
+        res_data.resize(rows);
+        for (int i = 0; i < rows; ++i) {
+            res_data[i] = static_cast<double>(column_data.get_element(i));
+        }
+
+        block.replace_by_position(result, std::move(res_col));
         return Status::OK();
     }
 };
