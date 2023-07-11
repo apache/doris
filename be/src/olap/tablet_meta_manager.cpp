@@ -44,19 +44,6 @@ struct DBOptions;
 struct ReadOptions;
 struct WriteOptions;
 } // namespace rocksdb
-
-using rocksdb::DB;
-using rocksdb::DBOptions;
-using rocksdb::ColumnFamilyDescriptor;
-using rocksdb::ColumnFamilyHandle;
-using rocksdb::ColumnFamilyOptions;
-using rocksdb::ReadOptions;
-using rocksdb::WriteOptions;
-using rocksdb::Slice;
-using rocksdb::Iterator;
-using rocksdb::Status;
-using rocksdb::kDefaultColumnFamilyName;
-
 namespace doris {
 using namespace ErrorCode;
 
@@ -72,9 +59,8 @@ Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaH
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s.is<META_KEY_NOT_FOUND>()) {
-        LOG(WARNING) << "tablet_id:" << tablet_id << ", schema_hash:" << schema_hash
-                     << " not found.";
-        return Status::Error<META_KEY_NOT_FOUND>();
+        return Status::Error<META_KEY_NOT_FOUND>("tablet_id:{}, schema_hash:{}, not found.",
+                                                 tablet_id, schema_hash);
     } else if (!s.ok()) {
         LOG(WARNING) << "load tablet_id:" << tablet_id << ", schema_hash:" << schema_hash
                      << " failed.";
@@ -143,8 +129,8 @@ Status TabletMetaManager::traverse_headers(
             LOG(WARNING) << "invalid tablet_meta key:" << key << ", split size:" << parts.size();
             return true;
         }
-        TTabletId tablet_id = std::stol(parts[1].c_str(), nullptr, 10);
-        TSchemaHash schema_hash = std::stol(parts[2].c_str(), nullptr, 10);
+        TTabletId tablet_id = std::stol(parts[1], nullptr, 10);
+        TSchemaHash schema_hash = std::stol(parts[2], nullptr, 10);
         return func(tablet_id, schema_hash, value);
     };
     Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
@@ -164,8 +150,7 @@ Status TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta
     std::string error;
     bool ret = json2pb::JsonToProtoMessage(json_meta, &tablet_meta_pb, &error);
     if (!ret) {
-        LOG(ERROR) << "JSON to protobuf message failed: " << error;
-        return Status::Error<HEADER_LOAD_JSON_HEADER>();
+        return Status::Error<HEADER_LOAD_JSON_HEADER>("JSON to protobuf message failed: {}", error);
     }
 
     std::string meta_binary;

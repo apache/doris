@@ -66,7 +66,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     auto s = _flush_status.load();
     if (s != OK) {
-        return Status::Error(s);
+        return Status::Error(s, "FlushToken meet error");
     }
     int64_t submit_task_time = MonotonicNanos();
     auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time);
@@ -81,7 +81,7 @@ void FlushToken::cancel() {
 Status FlushToken::wait() {
     _flush_token->wait();
     auto s = _flush_status.load();
-    return s == OK ? Status::OK() : Status::Error(s);
+    return s == OK ? Status::OK() : Status::Error(s, "FlushToken meet error");
 }
 
 void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {

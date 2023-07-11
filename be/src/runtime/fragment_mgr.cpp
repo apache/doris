@@ -494,7 +494,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(res.status);
+        rpc_status = Status(Status::create(res.status));
     } catch (TException& e) {
         std::stringstream msg;
         msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();
