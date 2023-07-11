@@ -46,7 +46,8 @@ private:
     using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     using Base = ColumnVector<T>;
 
-    PredicateColumnType(const PredicateColumnType& src) : Base::data(src.data.begin(), src.data.end()) {}
+    PredicateColumnType(const PredicateColumnType& src)
+            : Base::data(src.data.begin(), src.data.end()) {}
 
     uint64_t get_date_at(uint16_t idx) {
         const T val = Base::data[idx];
