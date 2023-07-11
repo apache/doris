@@ -42,27 +42,26 @@ mysql> select bitmap_count(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_fro
 |    2 |
 +------+
 
+mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')));
++--------------------------------------------------------------------------------------------+
+| bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'))) |
++--------------------------------------------------------------------------------------------+
+| 1,2                                                                                        |
++--------------------------------------------------------------------------------------------+
 
-mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt;
-+------+
-| cnt  |
-+------+
-| 1,2  |
-+------+
+mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_empty())) ;
++-------------------------------------------------------------------------------+
+| bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'), bitmap_empty())) |
++-------------------------------------------------------------------------------+
+| 1,2,3                                                                         |
++-------------------------------------------------------------------------------+
 
-mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_empty())) cnt;
-+-------+
-| cnt   |
-+-------+
-| 1,2,3 |
-+-------+
-
-mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),NULL)) cnt;
-+------+
-| cnt  |
-+------+
-| NULL |
-+------+
+mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),NULL));
++---------------------------------------------------------------------+
+| bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'), NULL)) |
++---------------------------------------------------------------------+
+| NULL                                                                |
++---------------------------------------------------------------------+
 ```
 
 ### keywords
