@@ -3519,6 +3519,10 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
     :}
+    | KW_DEFAULT KW_CURRENT_TIMESTAMP LPAREN INTEGER_LITERAL:precision RPAREN
+    {:
+        RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
+    :}
     ;
 
 opt_is_key ::=
