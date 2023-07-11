@@ -86,8 +86,6 @@ suite("test_index_change_5") {
     qt_select5 """ SELECT * FROM ${tableName} t WHERE note MATCH_PHRASE 'electrical engineer' ORDER BY user_id; """
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
-    //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-    String[][] tablets = sql """ show tablets from ${tableName}; """
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_user_id ON ${tableName} """
     sql """ DROP INDEX idx_note ON ${tableName} """
