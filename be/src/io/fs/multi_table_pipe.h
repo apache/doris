@@ -74,6 +74,9 @@ private:
     std::atomic<uint64_t> _unplanned_row_cnt {0}; // trigger plan request when exceed threshold
     std::atomic<uint64_t> _inflight_plan_cnt {0}; // how many plan fragment are executing?
     std::atomic<bool> _consume_finished {false};
+    // note: Use raw pointer here to avoid cycle reference with StreamLoadContext.
+    // Life cycle of MultiTablePipe is under control of StreamLoadContext, which means StreamLoadContext is created
+    // before NultiTablePipe and released after it. It is safe to use raw pointer here.
     StreamLoadContext* _ctx;
     Status _status; // save the first error status of all executing plan fragment
 #ifndef BE_TEST
