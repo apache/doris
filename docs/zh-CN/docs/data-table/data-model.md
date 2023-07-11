@@ -33,7 +33,7 @@ under the License.
 在 Doris 中，数据以表（Table）的形式进行逻辑上的描述。
 一张表包括行（Row）和列（Column）。Row 即用户的一行数据。Column 用于描述一行数据中不同的字段。
 
-Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。Doris的key列是建表语句中指定的列，建表语句中的关键字'unique key'或'aggregate key'或'duplicate key'后面的列就是 Key 列，除了 Key 列剩下的就是 Value a列。
+Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。Doris的key列是建表语句中指定的列，建表语句中的关键字'unique key'或'aggregate key'或'duplicate key'后面的列就是 Key 列，除了 Key 列剩下的就是 Value 列。
 
 Doris 的数据模型主要分为3类:
 
@@ -354,6 +354,9 @@ Unqiue模型的写时合并实现，与聚合模型就是完全不同的两种�
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
+> 注意：
+> 1. 建议使用1.2.4及以上版本，该版本修复了一些bug和稳定性问题
+> 2. 在be.conf中添加配置项：disable_storage_page_cache=false。不添加该配置项可能会对数据导入性能产生较大影响
 
 仍然以上面的表为例，建表语句为
 
@@ -441,10 +444,10 @@ PROPERTIES (
 
 当创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个Duplicate模型的表，并自动指定排序列。
 
-当用户并没有排序需求的时候，可以通过在fe.conf中配置如下参数：
+当用户并没有排序需求的时候，可以通过在表属性中配置：
 
 ```
-experimental_enable_duplicate_without_keys_by_default = true
+"enable_duplicate_without_keys_by_default" = "true"
 ```
 
 然后再创建默认模型的时候，就会不再指定排序列，也不会给该表创建前缀索引，以此减少在导入和存储上额外的开销。
@@ -463,7 +466,8 @@ CREATE TABLE IF NOT EXISTS example_db.example_tbl
 )
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 1",
+"enable_duplicate_without_keys_by_default" = "true"
 );
 
 MySQL > desc example_tbl;
@@ -629,6 +633,6 @@ Duplicate、Aggregate、Unique 模型，都会在建表指定 key 列，然而�
 
 1. Aggregate 模型可以通过预聚合，极大地降低聚合查询时所需扫描的数据量和查询的计算量，非常适合有固定模式的报表类查询场景。但是该模型对 count(*) 查询很不友好。同时因为固定了 Value 列上的聚合方式，在进行其他类型的聚合查询时，需要考虑语意正确性。
 2. Unique 模型针对需要唯一主键约束的场景，可以保证主键唯一性约束。但是无法利用 ROLLUP 等预聚合带来的查询优势。
-   1. 对于聚合查询有较高性能需求的用户，推荐使用自1.2版本加入的写时合并实现。
-   2. Unique 模型仅支持整行更新，如果用户既需要唯一主键约束，又需要更新部分列（例如将多张源表导入到一张 doris 表的情形），则可以考虑使用 Aggregate 模型，同时将非主键列的聚合类型设置为 REPLACE_IF_NOT_NULL。具体的用法可以参考[语法手册](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
+    1. 对于聚合查询有较高性能需求的用户，推荐使用自1.2版本加入的写时合并实现。
+    2. Unique 模型仅支持整行更新，如果用户既需要唯一主键约束，又需要更新部分列（例如将多张源表导入到一张 doris 表的情形），则可以考虑使用 Aggregate 模型，同时将非主键列的聚合类型设置为 REPLACE_IF_NOT_NULL。具体的用法可以参考[语法手册](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 3. Duplicate 适合任意维度的 Ad-hoc 查询。虽然同样无法利用预聚合的特性，但是不受聚合模型的约束，可以发挥列存模型的优势（只读取相关列，而不需要读取所有 Key 列）。

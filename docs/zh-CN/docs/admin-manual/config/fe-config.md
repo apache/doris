@@ -231,7 +231,7 @@ Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请�
 
 是否可以动态配置：true
 
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。
 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 #### `meta_delay_toleration_second`
@@ -388,7 +388,7 @@ Doris FE 通过 mysql 协议查询连接端口
 
 状态:已弃用，不建议使用。
 
-类型:string 
+类型:string
 
 描述:显式配置FE的IP地址，不使用*InetAddress。getByName*获取IP地址。通常在*InetAddress中。getByName*当无法获得预期结果时。只支持IP地址，不支持主机名。
 
@@ -477,7 +477,7 @@ thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该�
 
 默认值：0
 
-thrift 服务器的连接超时和套接字超时配置 
+thrift 服务器的连接超时和套接字超时配置
 
 thrift_client_timeout_ms 的默认值设置为零以防止读取超时
 
@@ -689,8 +689,8 @@ http header size 配置参数
 是否为 Master FE 节点独有的配置项：false
 
 当前支持导出的链路追踪：
-    zipkin：直接将trace导出到zipkin，用于快速开启tracing特性。
-    collector：collector可用于接收和处理traces，支持导出到多种第三方系统
+zipkin：直接将trace导出到zipkin，用于快速开启tracing特性。
+collector：collector可用于接收和处理traces，支持导出到多种第三方系统
 如果启用此配置，您还应该指定 enable_tracing=true 和 trace_export_url。
 
 #### `trace_export_url`
@@ -796,8 +796,8 @@ trace导出到 collector: `http://127.0.0.1:4318/v1/traces`
 用于控制用户表表名大小写是否敏感。
 该配置只能在集群初始化时配置，初始化完成后集群重启和升级时不能修改。
 
-0：表名按指定存储，比较区分大小写。 
-1：表名以小写形式存储，比较不区分大小写。 
+0：表名按指定存储，比较区分大小写。
+1：表名以小写形式存储，比较不区分大小写。
 2：表名按指定存储，但以小写形式进行比较。
 
 #### `table_name_length_limit`
@@ -1005,14 +1005,6 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 - 类型：boolean
 - 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。 当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1) 如果变量为 false，则不发生任何改写。
-
-#### `experimental_enable_duplicate_without_keys_by_default`
-
-默认值：false
-
-是否可以动态配置：true
-
-当配置为true时，如果创建表的时候没有指定Unique、Aggregate或Duplicate时，会默认创建一个没有排序列和前缀索引的Duplicate模型的表。
 
 ### 导入与导出
 
@@ -1478,11 +1470,11 @@ NORMAL 优先级挂起加载作业的并发数。
 是否为 Master FE 节点独有的配置项：true
 
 负载中落后节点的最大等待秒数
-   例如：
-      有 3 个副本 A, B, C 
-      load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，
-      如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，
-      将调用事务管理器提交事务并告诉事务管理器 C 失败。
+例如：
+有 3 个副本 A, B, C
+load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，
+如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，
+将调用事务管理器提交事务并告诉事务管理器 C 失败。
 
 这也用于等待发布任务时
 
@@ -1657,8 +1649,8 @@ sys_log_dir:
 详细模块。 VERBOSE 级别由 log4j DEBUG 级别实现。
 
 例如：
-   sys_log_verbose_modules = org.apache.doris.catalog
-   这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
+sys_log_verbose_modules = org.apache.doris.catalog
+这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
 
 #### `sys_log_roll_interval`
 
@@ -1789,7 +1781,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。 
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的 tablet 会导致整个查询失败，无法查询剩余的健康 tablet。
 
 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的 tablet 替换为空 tablet，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
@@ -1807,9 +1799,9 @@ show data （其他用法：HELP SHOW DATA）
 
 这个配置有三个值：
 
-   * disable ：出现异常会正常报错。
-   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version 
-   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
+* disable ：出现异常会正常报错。
+* ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
+* ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
@@ -2172,7 +2164,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
@@ -2239,8 +2231,8 @@ tablet 状态更新间隔
 创建单个副本的最长等待时间。
 
 例如。
-   如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
-   创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
+如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
+创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
 
 #### `tablet_delete_timeout_second`
 
@@ -2453,17 +2445,17 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 #### `dpp_default_config_str`
 
 默认值：{
-            hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
-        }
+hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
+}
 
 #### `dpp_config_str`
 
 默认值：{
-            palo-dpp : {
-                    hadoop_palo_path : '/dir',
-                    hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
-                }
-        }
+palo-dpp : {
+hadoop_palo_path : '/dir',
+hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
+}
+}
 
 #### `yarn_config_dir`
 
@@ -2575,7 +2567,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为  Master FE  节点独有的配置项：true
 
-这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 
+这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。
 
 并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。
 以后我们会优化 tablet 报告的处理速度

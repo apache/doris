@@ -292,7 +292,6 @@ using DateTime = Int64;
 using DateV2 = UInt32;
 using DateTimeV2 = UInt64;
 
-
 struct Int128I {};
 
 template <typename T>

@@ -1137,7 +1137,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
         }
         *reinterpret_cast<int32_t*>(buf) = (int32_t)value;
         return Status::OK();
-         }
+    }
     static void set_to_max(void* buf) {
         CppType* data = reinterpret_cast<CppType*>(buf);
         *data = 999999999;

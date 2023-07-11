@@ -40,10 +40,6 @@ struct UInt128 {
     UInt128() = default;
     explicit UInt128(const UInt64 low_, const UInt64 high_) : low(low_), high(high_) {}
     explicit UInt128(const UInt64 rhs) : low(rhs), high() {}
-    //    explicit UInt128(const uint128_t rhs) {
-    //        high = static_cast<uint64_t>(rhs >> 64);
-    //        low = static_cast<uint64_t>(rhs);
-    //    }
 
     auto tuple() const { return std::tie(high, low); }
 
