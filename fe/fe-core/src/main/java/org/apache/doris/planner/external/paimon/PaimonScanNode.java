@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import avro.shaded.com.google.common.base.Preconditions;
 import org.apache.paimon.hive.mapred.PaimonInputSplit;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -120,8 +121,16 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
+        PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
+                source.getPaimonTable().rowType());
+        int[] projected = desc.getSlots().stream().mapToInt(
+                slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
+                .toArray();
+        List<Predicate> predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
-        List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.newScan().plan().splits();
+        List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
+                .withProjection(projected)
+                .newScan().plan().splits();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
             PaimonInputSplit inputSplit = new PaimonInputSplit(
                         "tempDir",
@@ -158,7 +167,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return new ArrayList<>(source.getPaimonTable().partitionKeys());
+        //                return new ArrayList<>(source.getPaimonTable().partitionKeys());
+        //Paymon is not aware of partitions and bypasses some existing logic by returning an empty list
+        return new ArrayList<>();
     }
 
     @Override
@@ -175,4 +186,5 @@ public class PaimonScanNode extends FileQueryScanNode {
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return source.getCatalog().getProperties();
     }
+
 }

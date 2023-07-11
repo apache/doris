@@ -29,18 +29,19 @@ import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
-import org.apache.paimon.data.columnar.ColumnarRow;
 import org.apache.paimon.hive.mapred.PaimonInputSplit;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 
@@ -67,7 +68,7 @@ public class PaimonJniScanner extends JniScanner {
         tblName = params.get("table_name");
         String[] requiredFields = params.get("required_fields").split(",");
         String[] types = Arrays.stream(params.get("columns_types").split("#"))
-            .map(s -> s.replaceAll("\\s+", ""))
+            .map(s -> s.replaceAll("\\s+", "").replaceAll("NOTNULL", ""))
             .toArray(String[]::new);
         ids = params.get("columns_id").split(",");
         ColumnType[] columnTypes = new ColumnType[types.length];
@@ -104,6 +105,15 @@ public class PaimonJniScanner extends JniScanner {
         reader = read.createReader(paimonInputSplit.split());
     }
 
+    public void openForTest() throws IOException {
+        getCatalog();
+        ReadBuilder readBuilder = table.newReadBuilder()
+                .withProjection(Arrays.stream(ids).mapToInt(Integer::parseInt).toArray());
+        List<Split> splits = readBuilder.newScan().plan().splits();
+        TableRead read = readBuilder.newRead();
+        reader = read.createReader(splits);
+    }
+
     @Override
     public void close() throws IOException {
         reader.close();
@@ -115,9 +125,9 @@ public class PaimonJniScanner extends JniScanner {
         try {
             RecordReader.RecordIterator<InternalRow> batch;
             while ((batch = reader.readBatch()) != null) {
-                Object record;
+                InternalRow record;
                 while ((record = batch.next()) != null) {
-                    columnValue.setOffsetRow((ColumnarRow) record);
+                    columnValue.setOffsetRow(record);
                     for (int i = 0; i < ids.length; i++) {
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
