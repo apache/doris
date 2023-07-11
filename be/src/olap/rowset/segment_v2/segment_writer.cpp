@@ -52,6 +52,7 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -365,9 +366,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                      num_rows));
     }
 
-    bool has_default = false;
-    std::vector<bool> use_default_flag;
-    use_default_flag.reserve(num_rows);
+    bool has_default_or_nullable = false;
+    std::vector<bool> use_default_or_null_flag;
+    use_default_or_null_flag.reserve(num_rows);
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
@@ -387,11 +388,19 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             auto st = _tablet->lookup_row_key(key, false, specified_rowsets, &loc,
                                               _mow_context->max_version, segment_caches, &rowset);
             if (st.is<NOT_FOUND>()) {
-                if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
-                    return Status::InternalError("partial update key not exist before");
+                if (_tablet_schema->is_strict_mode()) {
+                    return Status::InternalError(
+                            "partial update in strict mode only support updating rows with an "
+                            "existing key!");
                 }
-                has_default = true;
-                use_default_flag.emplace_back(true);
+
+                if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
+                    return Status::InternalError(
+                            "the unmentioned columns should have default value or be nullable for "
+                            "newly inserted rows in non-strict mode partial update");
+                }
+                has_default_or_nullable = true;
+                use_default_or_null_flag.emplace_back(true);
                 continue;
             }
             if (!st.ok()) {
@@ -399,17 +408,18 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 return st;
             }
             // partial update should not contain invisible columns
-            use_default_flag.emplace_back(false);
+            use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
             _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
             _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
     }
-    CHECK(use_default_flag.size() == num_rows);
+    CHECK(use_default_or_null_flag.size() == num_rows);
 
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
-    RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_flag, has_default));
+    RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
+                                         has_default_or_nullable));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -436,8 +446,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 }
 
 Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                           const std::vector<bool>& use_default_flag,
-                                           bool has_default) {
+                                           const std::vector<bool>& use_default_or_null_flag,
+                                           bool has_default_or_nullable) {
     // create old value columns
     auto old_value_block = _tablet_schema->create_missing_columns_block();
     std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
@@ -480,24 +490,35 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
-    if (has_default) {
+    if (has_default_or_nullable) {
         for (auto i = 0; i < cids_missing.size(); ++i) {
-            auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
-            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                      default_value.size());
-            old_value_block.get_by_position(i).type->from_string(
-                    rb, mutable_default_value_columns[i].get());
+            const auto& column = _tablet_schema->column(cids_missing[i]);
+            if (column.has_default_value()) {
+                auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
+                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                          default_value.size());
+                old_value_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get());
+            }
         }
     }
 
-    // fill all missing value from mutable_old_columns, need consider default value
-    for (auto idx = 0; idx < use_default_flag.size(); idx++) {
-        if (use_default_flag[idx]) {
-            // use default value
+    // fill all missing value from mutable_old_columns, need to consider default value and null value
+    for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+        if (use_default_or_null_flag[idx]) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
-                CHECK(_tablet_schema->column(cids_missing[i]).has_default_value());
-                mutable_full_columns[cids_missing[i]]->insert_from(
-                        *mutable_default_value_columns[i].get(), 0);
+                // if the column has default value, fiil it with default value
+                // otherwise, if the column is nullable, fill it with null value
+                const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
+                CHECK(tablet_column.has_default_value() || tablet_column.is_nullable());
+                if (tablet_column.has_default_value()) {
+                    mutable_full_columns[cids_missing[i]]->insert_from(
+                            *mutable_default_value_columns[i].get(), 0);
+                } else {
+                    auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
+                            mutable_full_columns[cids_missing[i]].get());
+                    nullable_column->insert_null_elements(1);
+                }
             }
             continue;
         }
