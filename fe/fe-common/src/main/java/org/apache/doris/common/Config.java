@@ -361,9 +361,9 @@ public class Config extends ConfigBase {
             "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
-    @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 10KB。",
-            "The maximum HTTP header size of Jetty, in bytes, the default value is 10KB."})
-    public static int jetty_server_max_http_header_size = 10240;
+    @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 1MB。",
+            "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
+    public static int jetty_server_max_http_header_size = 1048576;
 
     @ConfField(description = {"是否禁用 mini load，默认禁用",
             "Whether to disable mini load, disabled by default"})
