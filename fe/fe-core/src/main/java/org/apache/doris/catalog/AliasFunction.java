@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -156,7 +155,7 @@ public class AliasFunction extends Function {
         this.parameters = parameters;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (parameters.size() != getArgs().length) {
             throw new AnalysisException(
                     "Alias function [" + functionName() + "] args number is not equal to parameters number");
