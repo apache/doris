@@ -35,30 +35,36 @@ under the License.
 ### example
 
 ```
+mysql> select bitmap_count(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt;
++------+
+| cnt  |
++------+
+|    2 |
++------+
+
+
 mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'))) cnt;
 +------+
 | cnt  |
 +------+
 | 1,2  |
 +------+
-```
-```
-mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,6,7'),bitmap_from_string('1,4,5'))) cnt;
+
+mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_empty())) cnt;
++-------+
+| cnt   |
++-------+
+| 1,2,3 |
++-------+
+
+mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,2,3'),NULL)) cnt;
 +------+
 | cnt  |
 +------+
-| 6,7  |
-+------+
-```
-```
-mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,3,5'),bitmap_from_string('1,4,5'))) cnt;
-+------+
-| cnt  |
-+------+
-| 3    |
+| NULL |
 +------+
 ```
 
 ### keywords
 
-    BITMAP_AND_NOT,BITMAP_TO_STRING,BITMAP
+    BITMAP_AND_NOT,BITMAP
