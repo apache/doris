@@ -23,12 +23,13 @@ import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
-import com.google.common.base.Preconditions;
+
+import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
-import com.esotericsoftware.reflectasm.MethodAccess;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -37,6 +38,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 
 /**
@@ -52,6 +54,7 @@ public class UdafExecutor extends BaseExecutor {
     private Class retClass;
     private int addIndex;
     private MethodAccess methodAccess;
+
     /**
      * Constructor to create an object.
      */
@@ -75,10 +78,12 @@ public class UdafExecutor extends BaseExecutor {
 
     public Object[] convertArrayArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
-        return convertArrayArg(argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr);
+        return convertArrayArg(argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr, nestedNullMapAddr,
+                dataAddr, strOffsetAddr);
     }
 
-    public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset, Object[] column) throws UdfRuntimeException {
+    public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset, Object[] column)
+            throws UdfRuntimeException {
         if (isSinglePlace) {
             addBatchSingle(rowStart, rowEnd, placeAddr, column);
         } else {
@@ -112,8 +117,16 @@ public class UdafExecutor extends BaseExecutor {
         }
     }
 
-    public void addBatchPlaces(int rowStart, int rowEnd, long placeAddr, int offset, Object[] column) throws UdfRuntimeException {
+    public void addBatchPlaces(int rowStart, int rowEnd, long placeAddr, int offset, Object[] column)
+            throws UdfRuntimeException {
         try {
+            Preconditions.checkState(column != null, "column != null");
+            Preconditions.checkState(udf != null, "udf != null");
+            Preconditions.checkState(stateObjMap != null, "stateObjMap != null");
+            Preconditions.checkState(methodAccess != null, "methodAccess != null");
+            Preconditions.checkState(argTypes != null, "argTypes != null");
+            Preconditions.checkState(argTypes.length == column.length, "argTypes.length != " + argTypes.length + " " + column.length);
+            Preconditions.checkState(rowEnd > rowStart, "rowStart rowEnd " + rowStart + " " + rowEnd );
             Object[][] inputs = (Object[][]) column;
             ArrayList<Object> placeState = new ArrayList<>(rowEnd - rowStart);
             for (int row = rowStart; row < rowEnd; ++row) {
@@ -138,10 +151,11 @@ public class UdafExecutor extends BaseExecutor {
                 methodAccess.invoke(udf, addIndex, inputArgs);
             }
         } catch (Exception e) {
-            LOG.warn("invoke add function meet some error: " + e.getCause().toString());
+            LOG.warn("invoke add function meet some error: " + Arrays.toString(e.getStackTrace()));
             throw new UdfRuntimeException("UDAF failed to addBatchPlaces: ", e);
         }
     }
+
     /**
      * invoke add function, add row in loop [rowStart, rowEnd).
      */
@@ -300,10 +314,10 @@ public class UdafExecutor extends BaseExecutor {
     protected long getCurrentOutputOffset(long row, boolean isArrayType) {
         if (isArrayType) {
             return Integer.toUnsignedLong(
-                UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * (row - 1)));
+                    UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * (row - 1)));
         } else {
             return Integer.toUnsignedLong(
-                UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * (row - 1)));
+                    UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * (row - 1)));
         }
     }
 
