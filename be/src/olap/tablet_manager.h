@@ -78,7 +78,8 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet();
+    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
+                                                        [](Tablet* t) { return t->is_used(); });
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();
