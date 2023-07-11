@@ -150,9 +150,6 @@ public:
             // convert argument column data into java type
             jobjectArray arr_obj = nullptr;
             if (data_col->is_numeric() || data_col->is_column_decimal()) {
-                LOG(INFO) << arg_idx << " " << arg_column_nullable << " " << row_num_start << " "
-                          << row_num_end << " " << nullmap_address << " "
-                          << reinterpret_cast<int64_t>(data_col->get_raw_data().data) << " " << 0;
                 arr_obj = (jobjectArray)env->CallObjectMethod(
                         executor_obj, executor_convert_basic_argument_id, arg_idx,
                         arg_column_nullable, row_num_start, row_num_end, nullmap_address,

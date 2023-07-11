@@ -70,7 +70,6 @@ public class UdafExecutor extends BaseExecutor {
 
     public Object[] convertBasicArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
             long columnAddr, long strOffsetAddr) {
-        LOG.info(argIdx + " " + isNullable + " " + rowStart + " " + rowEnd +" " + nullMapAddr + " " + columnAddr + " " + strOffsetAddr);
         return convertBasicArg(false, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, columnAddr, strOffsetAddr);
     }
 

@@ -1025,8 +1025,7 @@ public abstract class BaseExecutor {
     }
 
     public Object[] convertBasicArg(boolean isUdf, int argIdx, boolean isNullable, int rowStart, int rowEnd,
-            long nullMapAddr,
-            long columnAddr, long strOffsetAddr) {
+            long nullMapAddr, long columnAddr, long strOffsetAddr) {
         switch (argTypes[argIdx]) {
             case BOOLEAN:
                 return UdfConvert.convertBooleanArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
