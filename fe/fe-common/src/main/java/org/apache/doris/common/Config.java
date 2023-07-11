@@ -488,7 +488,7 @@ public class Config extends ConfigBase {
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     @ConfField(description = {"Spark DPP 程序的版本", "Default spark dpp version"})
-    public static String spark_dpp_version = "1.0.0";
+    public static String spark_dpp_version = "1.2-SNAPSHOT";
 
     @ConfField(mutable = true, masterOnly = true, description = {"Spark load 的默认超时时间，单位是秒。",
             "Default timeout for spark load job, in seconds."})
