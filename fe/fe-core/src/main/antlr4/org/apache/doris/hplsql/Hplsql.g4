@@ -720,11 +720,16 @@ rollback_stmt :         // ROLLBACK statement
        T_ROLLBACK T_WORK?
      ;
      
-set_session_option :          
-       set_current_schema_option
+set_session_option :
+       set_doris_session_option
+     | set_current_schema_option
      | set_mssql_session_option
      | set_teradata_session_option
      ;
+
+set_doris_session_option :
+       (T_GLOBAL | T_LOCAL | T_SESSION)? ident T_EQUAL ident
+      ;
 
 set_current_schema_option :          
        ((T_CURRENT? T_SCHEMA) | T_CURRENT_SCHEMA) T_EQUAL? expr

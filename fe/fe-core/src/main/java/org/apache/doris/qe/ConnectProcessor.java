@@ -118,10 +118,6 @@ public class ConnectProcessor {
         this.ctx = context;
     }
 
-    private static boolean isNull(byte[] bitmap, int position) {
-        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
-    }
-
     // COM_INIT_DB: change current database of this session.
     private void handleInitDb() {
         String fullDbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
@@ -201,6 +197,10 @@ public class ConnectProcessor {
         LOG.debug("debug packet {}", printB.toString().substring(0, 200));
     }
 
+    private static boolean isNull(byte[] bitmap, int position) {
+        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
+    }
+
     // process COM_EXECUTE, parse binary row data
     // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
     private void handleExecute() {
@@ -271,7 +271,7 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-            Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
+                    Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         origStmt = origStmt.replace("\n", " ");
         // slow query
         long endTime = System.currentTimeMillis();
@@ -471,8 +471,6 @@ public class ConnectProcessor {
                 handleQueryException(throwable, auditStmt, executor.getParsedStmt(),
                         executor.getQueryStatisticsForAuditLog());
                 throw throwable;
-                // execute failed, skip remaining stmts
-                break;
             } finally {
                 executor.addProfileToSpan();
             }
@@ -483,7 +481,7 @@ public class ConnectProcessor {
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     private void handleQueryException(Throwable throwable, String origStmt,
-            StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+                                      StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         if (ctx.getMinidump() != null) {
             MinidumpUtils.saveMinidumpString(ctx.getMinidump(), DebugUtil.printId(ctx.queryId()));
         }

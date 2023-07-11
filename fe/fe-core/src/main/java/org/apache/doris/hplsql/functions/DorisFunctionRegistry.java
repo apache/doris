@@ -167,7 +167,7 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
         trace(ctx, "CREATE FUNCTION " + name);
         saveInCache(name, ctx);
-        saveStoredProc(name, Exec.getFormattedText(ctx));
+        saveStoredProc(name, Exec.getFormattedText(ctx), ctx.T_REPLACE() != null);
     }
 
     @Override
@@ -179,13 +179,13 @@ public class DorisFunctionRegistry implements FunctionRegistry {
         }
         trace(ctx, "CREATE PROCEDURE " + name);
         saveInCache(name, ctx);
-        saveStoredProc(name, Exec.getFormattedText(ctx));
+        saveStoredProc(name, Exec.getFormattedText(ctx),  ctx.T_REPLACE() != null);
     }
 
-    private void saveStoredProc(String name, String source) {
+    private void saveStoredProc(String name, String source, boolean isForce) {
         client.addStoredProcedure(name, ConnectContext.get().getCurrentCatalog().getName(),
                 ConnectContext.get().getDatabase(),
-                ConnectContext.get().getQualifiedUser(), source);
+                ConnectContext.get().getQualifiedUser(), source, isForce);
     }
 
     private void saveInCache(String name, ParserRuleContext procCtx) {

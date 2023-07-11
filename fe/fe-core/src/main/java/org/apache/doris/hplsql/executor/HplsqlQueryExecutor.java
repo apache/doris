@@ -36,7 +36,7 @@ public class HplsqlQueryExecutor {
 
     public HplsqlQueryExecutor(ConnectProcessor processor) {
         result = new HplsqlResult(processor);
-        exec = new Exec(new Conf(), result, new DorisQueryExecutor(processor), result);
+        exec = new Exec(new Conf(), result, new DorisQueryExecutor(), result);
         exec.init();
     }
 

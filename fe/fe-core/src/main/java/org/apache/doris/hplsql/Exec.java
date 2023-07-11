@@ -1030,7 +1030,7 @@ public class Exec extends org.apache.doris.hplsql.HplsqlBaseVisitor<Integer> imp
             if (sig.type == Signal.Type.VALIDATION) {
                 error(((HplValidationException) sig.exception).getCtx(), sig.exception.getMessage());
             } else if (sig.type == Signal.Type.SQLEXCEPTION) {
-                console.printError("Unhandled exception in HPL/SQL");
+                console.printError("Unhandled exception in HPL/SQL. " + ExceptionUtils.getStackTrace(sig.exception));
             } else if (sig.type == Signal.Type.UNSUPPORTED_OPERATION) {
                 console.printError(sig.value == null ? "Unsupported operation" : sig.value);
             } else if (sig.exception != null) {
@@ -1090,7 +1090,7 @@ public class Exec extends org.apache.doris.hplsql.HplsqlBaseVisitor<Integer> imp
         }
         Integer rc = visitChildren(ctx);
         if (ctx != lastStmt) {
-            printExceptions();
+            // printExceptions();
             resultListener.onFinalize();
             console.flushConsole();
         }
@@ -1628,6 +1628,25 @@ public class Exec extends org.apache.doris.hplsql.HplsqlBaseVisitor<Integer> imp
             e.printStackTrace();
         }
         return null;
+    }
+
+    @Override
+    public Integer visitSet_doris_session_option(
+            org.apache.doris.hplsql.HplsqlParser.Set_doris_session_optionContext ctx) {
+        StringBuilder sql = new StringBuilder("set ");
+        for (int i = 0; i < ctx.getChildCount(); i++) {
+            sql.append(ctx.getChild(i).getText()).append(" ");
+        }
+        QueryResult query = queryExecutor.executeQuery(sql.toString(), ctx);
+        if (query.error()) {
+            exec.signal(query);
+            return 1;
+        }
+        exec.setSqlSuccess();
+        if (trace) {
+            trace(ctx, sql.toString());
+        }
+        return 0;
     }
 
     /**

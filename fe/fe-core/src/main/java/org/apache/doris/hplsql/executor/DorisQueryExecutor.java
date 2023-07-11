@@ -32,18 +32,18 @@ import java.util.Collections;
 import java.util.List;
 
 public class DorisQueryExecutor implements QueryExecutor {
-
-    private ConnectProcessor processor;
-
-    public DorisQueryExecutor(ConnectProcessor processor) {
-        this.processor = processor;
+    public DorisQueryExecutor() {
     }
 
     @Override
     public QueryResult executeQuery(String sql, ParserRuleContext ctx) {
         try {
+            // A cursor may correspond to a query, and if the user opens multiple cursors, need to save multiple
+            // query states, so here each query constructs a ConnectProcessor and the ConnectContext shares some data.
+            ConnectContext context = ConnectContext.get().createContext();
+            ConnectProcessor processor = new ConnectProcessor(context);
             processor.executeQuery(sql);
-            StmtExecutor executor = ConnectContext.get().getExecutor();
+            StmtExecutor executor = context.getExecutor();
             return new QueryResult(new DorisRowResult(executor.getCoord(), executor.getColumns(),
                     executor.getReturnTypes()), () -> metadata(executor), null);
         } catch (Exception e) {

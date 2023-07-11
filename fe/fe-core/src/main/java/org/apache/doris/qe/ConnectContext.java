@@ -272,6 +272,17 @@ public class ConnectContext {
         }
     }
 
+    public ConnectContext createContext() {
+        ConnectContext context = new ConnectContext();
+        context.setSessionVariable(sessionVariable);
+        context.setEnv(env);
+        context.setCluster(clusterName);
+        context.setDatabase(currentDb);
+        context.setQualifiedUser(qualifiedUser);
+        context.setCurrentUserIdentity(currentUserIdentity);
+        return context;
+    }
+
     public boolean isTxnModel() {
         return txnEntry != null && txnEntry.isTxnModel();
     }

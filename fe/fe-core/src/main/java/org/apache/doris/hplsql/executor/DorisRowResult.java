@@ -46,6 +46,8 @@ public class DorisRowResult implements RowResult {
 
     private boolean isLazyLoading;
 
+    private boolean eof;
+
     private Object[] current;
 
     public DorisRowResult(Coordinator coord, List<String> columnNames, List<Type> dorisTypes) {
@@ -54,16 +56,21 @@ public class DorisRowResult implements RowResult {
         this.dorisTypes = dorisTypes;
         this.current = new Object[columnNames.size()];
         this.isLazyLoading = false;
+        this.eof = false;
     }
 
     @Override
     public boolean next() {
+        if (eof) {
+            return false;
+        }
         try {
             if (batch == null || batch.getBatch() == null
                     || index == batch.getBatch().getRowsSize() - 1) {
                 batch = coord.getNext();
                 index = 0;
                 if (batch.isEos()) {
+                    eof = true;
                     return false;
                 }
             } else {
@@ -74,6 +81,43 @@ public class DorisRowResult implements RowResult {
             throw new QueryException(e);
         }
         return true;
+    }
+
+    @Override
+    public void close() {
+
+    }
+
+    @Override
+    public <T> T get(int columnIndex, Class<T> type) {
+        if (isLazyLoading) {
+            convertToJavaType(batch.getBatch().getRows().get(index));
+            isLazyLoading = false;
+        }
+        if (current[columnIndex] == null) {
+            return null;
+        }
+        if (type.isInstance(current[columnIndex])) {
+            return (T) current[columnIndex];
+        } else {
+            if (current[columnIndex] instanceof Number) {
+                if (type.equals(Long.class)) {
+                    return type.cast(((Number) current[columnIndex]).longValue());
+                } else if (type.equals(Integer.class)) {
+                    return type.cast(((Number) current[columnIndex]).intValue());
+                } else if (type.equals(Short.class)) {
+                    return type.cast(((Number) current[columnIndex]).shortValue());
+                } else if (type.equals(Byte.class)) {
+                    return type.cast(((Number) current[columnIndex]).byteValue());
+                }
+            }
+            throw new ClassCastException(current[columnIndex].getClass() + " cannot be casted to " + type);
+        }
+    }
+
+    @Override
+    public ByteBuffer getMysqlRow() {
+        return batch.getBatch().getRows().get(index);
     }
 
     private void convertToJavaType(ByteBuffer buffer) {
@@ -126,42 +170,5 @@ public class DorisRowResult implements RowResult {
             default:
                 return value;
         }
-    }
-
-    @Override
-    public void close() {
-
-    }
-
-    @Override
-    public <T> T get(int columnIndex, Class<T> type) {
-        if (isLazyLoading) {
-            convertToJavaType(batch.getBatch().getRows().get(index));
-            isLazyLoading = false;
-        }
-        if (current[columnIndex] == null) {
-            return null;
-        }
-        if (type.isInstance(current[columnIndex])) {
-            return (T) current[columnIndex];
-        } else {
-            if (current[columnIndex] instanceof Number) {
-                if (type.equals(Long.class)) {
-                    return type.cast(((Number) current[columnIndex]).longValue());
-                } else if (type.equals(Integer.class)) {
-                    return type.cast(((Number) current[columnIndex]).intValue());
-                } else if (type.equals(Short.class)) {
-                    return type.cast(((Number) current[columnIndex]).shortValue());
-                } else if (type.equals(Byte.class)) {
-                    return type.cast(((Number) current[columnIndex]).byteValue());
-                }
-            }
-            throw new ClassCastException(current[columnIndex].getClass() + " cannot be casted to " + type);
-        }
-    }
-
-    @Override
-    public ByteBuffer getMysqlRow() {
-        return batch.getBatch().getRows().get(index);
     }
 }

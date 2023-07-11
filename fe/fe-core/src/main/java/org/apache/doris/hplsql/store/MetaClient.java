@@ -38,21 +38,17 @@ import org.apache.thrift.TException;
 import java.util.Objects;
 
 public class MetaClient {
-    @FunctionalInterface
-    public interface BiFunction<T, U, R> {
-        R apply(T t, U u) throws Exception;
-    }
-
     public MetaClient() {
     }
 
-    public void addStoredProcedure(String name, String catalogName, String dbName, String ownerName, String source) {
+    public void addStoredProcedure(String name, String catalogName, String dbName, String ownerName, String source,
+            boolean isForce) {
         checkPriv();
         if (Env.getCurrentEnv().isMaster()) {
             Env.getCurrentEnv().getHplsqlManager()
-                    .addStoredProcedure(new StoredProcedure(name, catalogName, dbName, ownerName, source), false);
+                    .addStoredProcedure(new StoredProcedure(name, catalogName, dbName, ownerName, source), isForce);
         } else {
-            addStoredProcedureThrift(name, catalogName, dbName, ownerName, source);
+            addStoredProcedureThrift(name, catalogName, dbName, ownerName, source, isForce);
         }
     }
 
@@ -95,16 +91,16 @@ public class MetaClient {
     }
 
     protected void addStoredProcedureThrift(String name, String catalogName, String dbName, String ownerName,
-            String source) {
+            String source, boolean isForce) {
         TStoredProcedure tStoredProcedure = new TStoredProcedure().setName(name).setCatalogName(catalogName)
                 .setDbName(dbName).setOwnerName(ownerName).setSource(source);
         TAddStoredProcedureRequest tAddStoredProcedureRequest = new TAddStoredProcedureRequest()
                 .setStoredProcedure(tStoredProcedure);
+        tAddStoredProcedureRequest.setIsForce(isForce);
 
         try {
-            sendUpdateRequest(tAddStoredProcedureRequest, (request, client) -> {
-                return client.addStoredProcedure(request).getStatus();
-            });
+            sendUpdateRequest(tAddStoredProcedureRequest,
+                    (request, client) -> client.addStoredProcedure(request).getStatus());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -115,9 +111,8 @@ public class MetaClient {
         TStoredProcedureRequest tStoredProcedureRequest = new TStoredProcedureRequest().setStoredKey(tStoredKey);
 
         try {
-            sendUpdateRequest(tStoredProcedureRequest, (request, client) -> {
-                return client.dropStoredProcedure(request).getStatus();
-            });
+            sendUpdateRequest(tStoredProcedureRequest,
+                    (request, client) -> client.dropStoredProcedure(request).getStatus());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -131,9 +126,8 @@ public class MetaClient {
                 .setHplsqlPackage(tHplsqlPackage);
 
         try {
-            sendUpdateRequest(tAddHplsqlPackageRequest, (request, client) -> {
-                return client.addHplsqlPackage(request).getStatus();
-            });
+            sendUpdateRequest(tAddHplsqlPackageRequest,
+                    (request, client) -> client.addHplsqlPackage(request).getStatus());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -144,9 +138,8 @@ public class MetaClient {
         THplsqlPackageRequest tHplsqlPackageRequest = new THplsqlPackageRequest().setStoredKey(tStoredKey);
 
         try {
-            sendUpdateRequest(tHplsqlPackageRequest, (request, client) -> {
-                return client.dropHplsqlPackage(request).getStatus();
-            });
+            sendUpdateRequest(tHplsqlPackageRequest,
+                    (request, client) -> client.dropHplsqlPackage(request).getStatus());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -196,5 +189,10 @@ public class MetaClient {
         }
         throw new Exception(
                 "Access fe error, code:" + status.getStatusCode().name() + ", mgs:" + status.getErrorMsgs());
+    }
+
+    @FunctionalInterface
+    public interface BiFunction<T, U, R> {
+        R apply(T t, U u) throws Exception;
     }
 }
