@@ -3256,7 +3256,7 @@ Status Tablet::commit_phase_update_delete_bitmap(
 Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                     RowsetWriter* rowset_writer) {
     std::vector<RowsetSharedPtr> published_rowsets;
-    std::map<Version, RowsetSharedPtr> tmp_version_map;
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> tmp_version_map;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
@@ -3289,8 +3289,6 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
         std::vector<segment_v2::SegmentSharedPtr> segments;
         _load_rowset_segments(published_rowset, &segments);
         delete_bitmap->clear();
-        LOG(INFO) << "[Full compaction published rowsets]"
-                  << "[" << it.first.first << "-" << it.first.second << "]";
 
         OlapStopWatch watch;
         RETURN_IF_ERROR(calc_delete_bitmap(published_rowset, segments, specified_rowsets,
@@ -3299,7 +3297,7 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
                                             [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
                                                 return sum += s->num_rows();
                                             });
-        LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << tablet_id()
+        LOG(INFO) << "[Full compaction phase1] construct delete bitmap tablet: " << tablet_id()
                   << ", published rowset version: [" << published_rowset->version().first << "-"
                   << published_rowset->version().second << "]"
                   << ", full compaction rowset version: [" << rowset->version().first << "-"
@@ -3320,8 +3318,6 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
         if (it.first.first > max_version) {
             _load_rowset_segments(published_rowset, &segments);
             delete_bitmap->clear();
-            LOG(INFO) << "[Full compaction published rowsets]"
-                      << "[" << it.first.first << "-" << it.first.second << "]";
 
             OlapStopWatch watch;
             RETURN_IF_ERROR(calc_delete_bitmap(published_rowset, segments, specified_rowsets,
@@ -3331,7 +3327,7 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
                                     [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
                                         return sum += s->num_rows();
                                     });
-            LOG(INFO) << "[Full compaction] construct delete bitmap tablet: " << tablet_id()
+            LOG(INFO) << "[Full compaction phase2] construct delete bitmap tablet: " << tablet_id()
                       << ", published rowset version: [" << published_rowset->version().first << "-"
                       << published_rowset->version().second << "]"
                       << ", full compaction rowset version: [" << rowset->version().first << "-"
