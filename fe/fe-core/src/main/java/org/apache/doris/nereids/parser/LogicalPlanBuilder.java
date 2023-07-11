@@ -236,6 +236,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
@@ -1749,7 +1750,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public ColumnDef visitColumnDef(ColumnDefContext ctx) {
-        /*String colName = ctx.colName.getText();
+        String colName = ctx.colName.getText();
         DataType colType = visitColType(ctx.colType());
         boolean isKey = ctx.KEY() != null;
         boolean isNotNull = ctx.NOT() != null;
@@ -1758,8 +1759,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.DEFAULT() != null) {
             if (ctx.defaultValue != null) {
                 defaultValue = Optional.of(((Literal) visit(ctx.defaultValue)));
+            } else if (ctx.CURRENT_TIMESTAMP() != null) {
+                defaultValue = Optional.of(new Now());
             }
-        }*/
+        }
         return new ColumnDef();
     }
 
@@ -1779,6 +1782,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public IndexDef visitIndexDef(IndexDefContext ctx) {
+        String indexName = ctx.indexName.getText();
+        List<String> indexCols = visitIdentifierList(ctx.cols);
+        boolean isUseBitmap = ctx.USING() != null;
+        String comment = ((Literal) visit(ctx.comment)).getStringValue();
         return new IndexDef();
     }
 
@@ -1798,8 +1805,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Object visitConstantSeq(ConstantSeqContext ctx) {
-        return super.visitConstantSeq(ctx);
+    public List<Expression> visitConstantSeq(ConstantSeqContext ctx) {
+        return ctx.constant().stream().map(constant -> ((Literal) visit(constant))).collect(Collectors.toList());
     }
 
     @Override
@@ -1809,6 +1816,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public RollupDef visitRollupDef(RollupDefContext ctx) {
+        String rollupName = ctx.rollupName.getText();
+        List<String> rollupCols = visitIdentifierList(ctx.rollupCols);
         return new RollupDef();
     }
 
