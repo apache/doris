@@ -1763,7 +1763,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(new Now());
             }
         }
-        return new ColumnDef();
+        String comment = ((Literal) visit(ctx.comment)).getStringValue();
+        return new ColumnDef(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
     }
 
     @Override
@@ -1786,7 +1787,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> indexCols = visitIdentifierList(ctx.cols);
         boolean isUseBitmap = ctx.USING() != null;
         String comment = ((Literal) visit(ctx.comment)).getStringValue();
-        return new IndexDef();
+        return new IndexDef(indexName, indexCols, isUseBitmap, comment);
     }
 
     @Override
@@ -1818,7 +1819,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public RollupDef visitRollupDef(RollupDefContext ctx) {
         String rollupName = ctx.rollupName.getText();
         List<String> rollupCols = visitIdentifierList(ctx.rollupCols);
-        return new RollupDef();
+        return new RollupDef(rollupName, rollupCols);
     }
 
     @Override

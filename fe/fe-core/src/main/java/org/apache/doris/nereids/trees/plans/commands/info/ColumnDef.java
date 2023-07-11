@@ -17,8 +17,34 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.DataType;
+
+import java.util.Optional;
+
 /**
  * column definition
  */
 public class ColumnDef {
+    private final String name;
+    private final DataType type;
+    private final boolean isKey;
+    private final String aggType;
+    private final boolean isNull;
+    private final Optional<Expression> defaultValue;
+    private final String comment;
+
+    /**
+     * constructor
+     */
+    public ColumnDef(String name, DataType type, boolean isKey, String aggType, boolean isNull,
+            Optional<Expression> defaultValue, String comment) {
+        this.name = name;
+        this.type = type;
+        this.isKey = isKey;
+        this.aggType = aggType;
+        this.isNull = isNull;
+        this.defaultValue = defaultValue;
+        this.comment = comment;
+    }
 }
