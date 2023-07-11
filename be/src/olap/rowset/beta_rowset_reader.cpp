@@ -282,7 +282,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context,
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     if (_empty) {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
 
     do {

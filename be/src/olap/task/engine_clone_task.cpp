@@ -117,7 +117,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet != nullptr) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
-            return Status::Error<TRY_LOCK_FAILED>();
+            return Status::Error<TRY_LOCK_FAILED>(
+                    "EngineCloneTask::_do_clone meet try lock failed");
         }
         if (tablet->replica_id() < _clone_req.replica_id) {
             // `tablet` may be a dropped replica in FE, e.g:
@@ -372,7 +373,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
                 client->make_snapshot(result, request);
             }));
     if (result.status.status_code != TStatusCode::OK) {
-        return Status(result.status);
+        return Status::create(result.status);
     }
 
     if (!result.__isset.snapshot_path) {
@@ -399,7 +400,7 @@ Status EngineCloneTask::_release_snapshot(const std::string& ip, int port,
             ip, port, [&snapshot_path, &result](BackendServiceConnection& client) {
                 client->release_snapshot(result, snapshot_path);
             }));
-    return Status(result.status);
+    return Status::create(result.status);
 }
 
 Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& remote_url_prefix,

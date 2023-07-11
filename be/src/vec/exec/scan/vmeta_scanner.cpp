@@ -239,7 +239,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
             },
             time_out));
 
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
         return status;

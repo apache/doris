@@ -146,9 +146,8 @@ Status DeltaWriter::init() {
     TabletManager* tablet_mgr = _storage_engine->tablet_manager();
     _tablet = tablet_mgr->get_tablet(_req.tablet_id);
     if (_tablet == nullptr) {
-        LOG(WARNING) << "fail to find tablet. tablet_id=" << _req.tablet_id
-                     << ", schema_hash=" << _req.schema_hash;
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>("fail to find tablet. tablet_id={}, schema_hash={}",
+                                              _req.tablet_id, _req.schema_hash);
     }
 
     // get rowset ids snapshot
@@ -166,18 +165,16 @@ Status DeltaWriter::init() {
         StorageEngine::instance()->submit_compaction_task(
                 _tablet, CompactionType::CUMULATIVE_COMPACTION, true);
         if (_tablet->version_count() > config::max_tablet_version_num) {
-            LOG(WARNING) << "failed to init delta writer. version count: "
-                         << _tablet->version_count()
-                         << ", exceed limit: " << config::max_tablet_version_num
-                         << ". tablet: " << _tablet->full_name();
-            return Status::Error<TOO_MANY_VERSION>();
+            return Status::Error<TOO_MANY_VERSION>(
+                    "failed to init delta writer. version count: {}, exceed limit: {}, tablet: {}",
+                    _tablet->version_count(), config::max_tablet_version_num, _tablet->full_name());
         }
     }
 
     {
         std::shared_lock base_migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
         if (!base_migration_rlock.owns_lock()) {
-            return Status::Error<TRY_LOCK_FAILED>();
+            return Status::Error<TRY_LOCK_FAILED>("get lock failed");
         }
         std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
         RETURN_IF_ERROR(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
@@ -236,9 +233,9 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
 
     if (_is_closed) {
-        LOG(WARNING) << "write block after closed tablet_id=" << _req.tablet_id
-                     << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
-        return Status::Error<ALREADY_CLOSED>();
+        return Status::Error<ALREADY_CLOSED>(
+                "write block after closed tablet_id={}, load_id={}-{}, txn_id={}", _req.tablet_id,
+                _req.load_id.hi(), _req.load_id.lo(), _req.txn_id);
     }
 
     if (is_append) {
@@ -412,8 +409,7 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
     if (_cur_rowset == nullptr) {
-        LOG(WARNING) << "fail to build rowset";
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");
     }
 
     if (_tablet->enable_unique_key_merge_on_write()) {

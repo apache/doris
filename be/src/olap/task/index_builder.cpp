@@ -80,13 +80,12 @@ Status IndexBuilder::update_inverted_index_info() {
                 if (exist_index && exist_index->index_id() != index.index_id()) {
                     // maybe there are concurrent drop index request did not obtain the lock,
                     // so return error, to wait the drop index request finished.
-                    LOG(WARNING) << "column: " << column_uid << " has a exist inverted index"
-                                 << ", but the index id not equal request's index id, "
-                                 << ", exist index id: " << exist_index->index_id()
-                                 << ", request's index id: " << index.index_id();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_BUILD_WAITTING>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_BUILD_WAITTING>(
+                            "column: {} has a exist inverted index, but the index id not equal "
+                            "request's index id, , exist index id: {}, request's index id: {}",
+                            column_uid, exist_index->index_id(), index.index_id());
                 }
-                output_rs_tablet_schema->append_index(std::move(index));
+                output_rs_tablet_schema->append_index(index);
             }
         }
         // construct input rowset reader
@@ -104,7 +103,7 @@ Status IndexBuilder::update_inverted_index_info() {
         context.fs = input_rs_reader->rowset()->rowset_meta()->fs();
         Status status = _tablet->create_rowset_writer(context, &output_rs_writer);
         if (!status.ok()) {
-            return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>();
+            return Status::Error<ErrorCode::ROWSET_BUILDER_INIT>(status.to_string());
         }
         RETURN_IF_ERROR(input_rowset->link_files_to(_tablet->tablet_path(),
                                                     output_rs_writer->rowset_id(), 0,
@@ -175,8 +174,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                             field.get(), &inverted_index_builder, segment_filename, segment_dir,
                             index_meta, fs));
                 } catch (const std::exception& e) {
-                    LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "CLuceneError occured: {}", e.what());
                 }
 
                 if (inverted_index_builder) {
@@ -218,8 +217,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 // write inverted index data
                 if (_write_inverted_index_data(output_rowset_schema, iter->data_id(),
                                                block.get()) != Status::OK()) {
-                    LOG(WARNING) << "failed to write block.";
-                    return Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>();
+                    return Status::Error<ErrorCode::SCHEMA_CHANGE_INFO_INVALID>(
+                            "failed to write block.");
                 }
                 block->clear_column_data();
             }
@@ -231,8 +230,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         _inverted_index_builders[writer_sign]->finish();
                     }
                 } catch (const std::exception& e) {
-                    LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "CLuceneError occured: {}", e.what());
                 }
             }
 
@@ -320,8 +319,8 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
             offset += step;
         } while (offset < num_rows);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
     }
 
     return Status::OK();
@@ -341,8 +340,8 @@ Status IndexBuilder::_add_data(const std::string& column_name,
                     column_name, *ptr, num_rows));
         }
     } catch (const std::exception& e) {
-        LOG(WARNING) << "CLuceneError occured: " << e.what();
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occured: {}",
+                                                                      e.what());
     }
 
     return Status::OK();
@@ -395,14 +394,13 @@ Status IndexBuilder::do_build_inverted_index() {
     std::unique_lock<std::mutex> build_inverted_index_lock(_tablet->get_build_inverted_index_lock(),
                                                            std::try_to_lock);
     if (!build_inverted_index_lock.owns_lock()) {
-        LOG(WARNING) << "failed to obtain build inverted index lock. "
-                     << "tablet=" << _tablet->tablet_id();
-        return Status::Error<ErrorCode::TRY_LOCK_FAILED>();
+        return Status::Error<ErrorCode::TRY_LOCK_FAILED>(
+                "failed to obtain build inverted index lock. tablet={}", _tablet->tablet_id());
     }
 
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<ErrorCode::BE_CLONE_OCCURRED>();
+        return Status::Error<ErrorCode::BE_CLONE_OCCURRED>("get_clone_occurred failed");
     }
 
     _input_rowsets =

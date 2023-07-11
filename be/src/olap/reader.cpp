@@ -346,9 +346,9 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else {
-        LOG(WARNING) << "fail to init return columns. [reader_type=" << int(read_params.reader_type)
-                     << " return_columns_size=" << read_params.return_columns.size() << "]";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>(
+                "fail to init return columns. reader_type={}, return_columns_size={}",
+                int(read_params.reader_type), read_params.return_columns.size());
     }
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
@@ -370,11 +370,10 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 
     size_t scan_key_size = read_params.start_key.front().size();
     if (scan_key_size > _tablet_schema->num_columns()) {
-        LOG(WARNING)
-                << "Input param are invalid. Column count is bigger than num_columns of schema. "
-                << "column_count=" << scan_key_size
-                << ", schema.num_columns=" << _tablet_schema->num_columns();
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>(
+                "Input param are invalid. Column count is bigger than num_columns of schema. "
+                "column_count={}, schema.num_columns={}",
+                scan_key_size, _tablet_schema->num_columns());
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -384,10 +383,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
-            LOG(WARNING) << "The start_key.at(" << i
-                         << ").size == " << read_params.start_key[i].size() << ", not equals the "
-                         << scan_key_size;
-            return Status::Error<INVALID_ARGUMENT>();
+            return Status::Error<INVALID_ARGUMENT>(
+                    "The start_key.at({}).size={}, not equals the scan_key_size={}", i,
+                    read_params.start_key[i].size(), scan_key_size);
         }
 
         Status res = _keys_param.start_keys[i].init_scan_key(
@@ -408,9 +406,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     std::vector<RowCursor>(end_key_size).swap(_keys_param.end_keys);
     for (size_t i = 0; i < end_key_size; ++i) {
         if (read_params.end_key[i].size() != scan_key_size) {
-            LOG(WARNING) << "The end_key.at(" << i << ").size == " << read_params.end_key[i].size()
-                         << ", not equals the " << scan_key_size;
-            return Status::Error<INVALID_ARGUMENT>();
+            return Status::Error<INVALID_ARGUMENT>(
+                    "The end_key.at({}).size={}, not equals the scan_key_size={}", i,
+                    read_params.end_key[i].size(), scan_key_size);
         }
 
         Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
@@ -450,7 +448,11 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             LOG(WARNING) << "read_orderby_key_num_prefix_columns != _orderby_key_columns.size "
                          << read_params.read_orderby_key_num_prefix_columns << " vs. "
                          << _orderby_key_columns.size();
-            return Status::Error<ErrorCode::INTERNAL_ERROR>();
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "read_orderby_key_num_prefix_columns != _orderby_key_columns.size, "
+                    "read_params.read_orderby_key_num_prefix_columns={}, "
+                    "_orderby_key_columns.size()={}",
+                    read_params.read_orderby_key_num_prefix_columns, _orderby_key_columns.size());
         }
     }
 

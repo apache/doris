@@ -834,9 +834,8 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     // 4. move tablet to trash
     VLOG_NOTICE << "move file to trash. " << tablet_path << " -> " << trash_tablet_path;
     if (rename(tablet_path.c_str(), trash_tablet_path.c_str()) < 0) {
-        LOG(WARNING) << "move file to trash failed. [file=" << tablet_path << " target='"
-                     << trash_tablet_path << "' err='" << Errno::str() << "']";
-        return Status::Error<OS_ERROR>();
+        return Status::Error<OS_ERROR>("move file to trash failed. file={}, target={}, err={}",
+                                       tablet_path, trash_tablet_path.native(), Errno::str());
     }
 
     // 5. check parent dir of source file, delete it when empty
