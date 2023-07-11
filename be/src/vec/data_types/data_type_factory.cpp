@@ -34,6 +34,8 @@
 #include <ostream>
 
 #include "common/consts.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "data_type_time.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
@@ -223,7 +225,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         return std::make_shared<vectorized::DataTypeObject>("json", true);
     case INVALID_TYPE:
     default:
-        DCHECK(false) << "invalid PrimitiveType:" << (int)col_desc.type;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "invalid PrimitiveType: {}", (int)col_desc.type);
         break;
     }
 

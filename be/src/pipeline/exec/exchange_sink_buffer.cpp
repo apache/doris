@@ -189,7 +189,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
             set_rpc_time(id, start_rpc_time, result.receive_time());
-            Status s = Status(result.status());
+            Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
             } else if (!s.ok()) {
@@ -233,7 +233,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
             set_rpc_time(id, start_rpc_time, result.receive_time());
-            Status s = Status(result.status());
+            Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
             } else if (!s.ok()) {

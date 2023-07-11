@@ -356,9 +356,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << ", output_version=" << _output_version;
-        return Status::Error<ROWSET_BUILDER_INIT>();
+        return Status::Error<ROWSET_BUILDER_INIT>("rowset writer build failed. output_version: {}",
+                                                  _output_version.to_string());
     }
 
     COUNTER_UPDATE(_output_rowset_data_size_counter, _output_rowset->data_disk_size());
@@ -677,12 +676,11 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
     for (size_t i = 1; i < rowsets.size(); ++i) {
         RowsetSharedPtr rowset = rowsets[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
-            LOG(WARNING) << "There are missed versions among rowsets. "
-                         << "prev_rowset version=" << prev_rowset->start_version() << "-"
-                         << prev_rowset->end_version()
-                         << ", rowset version=" << rowset->start_version() << "-"
-                         << rowset->end_version();
-            return Status::Error<CUMULATIVE_MISS_VERSION>();
+            return Status::Error<CUMULATIVE_MISS_VERSION>(
+                    "There are missed versions among rowsets. prev_rowset version={}-{}, rowset "
+                    "version={}-{}",
+                    prev_rowset->start_version(), prev_rowset->end_version(),
+                    rowset->start_version(), rowset->end_version());
         }
         prev_rowset = rowset;
     }
@@ -693,12 +691,11 @@ Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& 
 Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
-        LOG(WARNING) << "row_num does not match between cumulative input and output! "
-                     << "tablet=" << _tablet->full_name() << ", input_row_num=" << _input_row_num
-                     << ", merged_row_num=" << stats.merged_rows
-                     << ", filtered_row_num=" << stats.filtered_rows
-                     << ", output_row_num=" << _output_rowset->num_rows();
-        return Status::Error<CHECK_LINES_ERROR>();
+        return Status::Error<CHECK_LINES_ERROR>(
+                "row_num does not match between cumulative input and output! tablet={}, "
+                "input_row_num={}, merged_row_num={}, filtered_row_num={}, output_row_num={}",
+                _tablet->full_name(), _input_row_num, stats.merged_rows, stats.filtered_rows,
+                _output_rowset->num_rows());
     }
     return Status::OK();
 }
