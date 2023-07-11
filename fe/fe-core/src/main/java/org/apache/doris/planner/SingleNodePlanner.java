@@ -1812,7 +1812,20 @@ public class SingleNodePlanner {
         for (Expr e : viewPredicates) {
             e.setIsOnClauseConjunct(false);
         }
-        inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
+        QueryStmt queryStmt = inlineViewRef.getQueryStmt();
+        if (queryStmt instanceof SetOperationStmt) {
+            // registerConjuncts for every set operand
+            SetOperationStmt setOperationStmt = (SetOperationStmt) queryStmt;
+            for (SetOperationStmt.SetOperand setOperand : setOperationStmt.getOperands()) {
+                inlineViewRef.getAnalyzer().registerConjuncts(
+                        Expr.substituteList(viewPredicates, setOperand.getSmap(),
+                                inlineViewRef.getAnalyzer(), false),
+                        inlineViewRef.getAllTupleIds());
+            }
+        } else {
+            inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates,
+                    inlineViewRef.getAllTupleIds());
+        }
 
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
