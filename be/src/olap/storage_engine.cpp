@@ -68,6 +68,7 @@
 #include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -616,8 +617,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_cache() {
-    SegmentLoader::instance()->prune();
-    SchemaCache::instance()->prune();
+    CacheManager::instance()->for_each_cache_prune_stale();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
