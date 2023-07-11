@@ -371,9 +371,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         // we do String->Date here. then castBinaryOp() only do Scale(x)->Scale(y).
         // TODO: check whether Decimal need this also.
         if (getChild(0).getType().isDateType() && getChild(1).getType().isStringType()) {
-            ScalarType toType = (ScalarType) getChild(0).getType();
+            ScalarType toType = ((ScalarType) getChild(0).getType()).clone();
             toType.setScalarScale(-1);
-            castChild(getChild(0).getType(), 1);
+            castChild(toType, 1);
         }
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {

@@ -684,7 +684,7 @@ public class DateLiteral extends LiteralExpr {
         int scale = ((ScalarType) type).getScalarScale();
         // increase scale
         if (scale < newScale) {
-            microsecond *= Math.pow(10, newScale - ((ScalarType) type).getScalarScale());
+            microsecond *= Math.pow(10, newScale - scale);
             type = ScalarType.createDatetimeV2Type(newScale);
             return;
         }
@@ -693,11 +693,11 @@ public class DateLiteral extends LiteralExpr {
         }
         // decrease scale
         String msString = String.format("%0" + String.valueOf(scale) + "d", microsecond);
-        String[] ms = msString.split("\\.");
-        microsecond = Integer.parseInt(ms[0]) + (ms[1].length() > 0 && ms[1].charAt(0) >= '5' ? 1 : 0);
-        int maxMs = (int) Math.pow(10, ((ScalarType) type).getScalarScale()) - 1;
+        microsecond = Integer.parseInt(msString.substring(0, newScale))
+                + (allOfChar(msString.substring(newScale), '0') ? 0 : 1);
+        int maxMs = (int) Math.pow(10, newScale) - 1;
         if (microsecond > maxMs) {
-            microsecond %= microsecond + 1;
+            microsecond -= maxMs + 1;
             DateLiteral result = this.plusSeconds(1);
             this.second = result.second;
             this.minute = result.minute;
@@ -711,11 +711,13 @@ public class DateLiteral extends LiteralExpr {
 
     public void roundFloor(int newScale) {
         Preconditions.checkArgument(type.isDatetimeV2());
-        if (((ScalarType) type).getScalarScale() < newScale) {
-            microsecond *= Math.pow(10, newScale - ((ScalarType) type).getScalarScale());
-        }
-        while (microsecond > 0 && String.valueOf(microsecond).length() > newScale) {
-            microsecond /= 10;
+        int scale = ((ScalarType) type).getScalarScale();
+        // increase scale
+        if (scale < newScale) {
+            microsecond *= Math.pow(10, newScale - scale);
+        } else if (scale > newScale) { // decrease scale
+            Preconditions.checkArgument(String.valueOf(microsecond).length() <= scale);
+            microsecond /= (int) Math.pow(10, scale - newScale);
         }
         type = ScalarType.createDatetimeV2Type(newScale);
     }
@@ -1175,8 +1177,9 @@ public class DateLiteral extends LiteralExpr {
         return second;
     }
 
+    // stay width of MAX_MICROSECOND_WIDTH
     public long getMicrosecond() {
-        return microsecond;
+        return microsecond * (int) Math.pow(10, MAX_MICROSECOND_WIDTH - ((ScalarType) type).getScalarScale());
     }
 
     // TODO: check if they can be replace by int
@@ -1879,5 +1882,14 @@ public class DateLiteral extends LiteralExpr {
             len--;
         }
         return arg.substring(0, len);
+    }
+
+    public static boolean allOfChar(String arg, char ch) {
+        for (char now : arg.toCharArray()) {
+            if (now != ch) {
+                return false;
+            }
+        }
+        return true;
     }
 }

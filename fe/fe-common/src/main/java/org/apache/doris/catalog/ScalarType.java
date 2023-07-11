@@ -284,6 +284,19 @@ public class ScalarType extends Type {
         }
     }
 
+    @Override
+    public ScalarType clone() {
+        ScalarType rtn = new ScalarType(this.type);
+        rtn.byteSize = byteSize;
+        rtn.len = len;
+        rtn.precision = precision;
+        rtn.scale = scale;
+        rtn.precisionStr = precisionStr;
+        rtn.scaleStr = scaleStr;
+        rtn.lenStr = lenStr;
+        return rtn;
+    }
+
     public static ScalarType createCharType(int len) {
         ScalarType type = new ScalarType(PrimitiveType.CHAR);
         type.len = len;
