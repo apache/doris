@@ -36,6 +36,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/uint24.h"
@@ -130,7 +131,7 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
-class ColumnVector final : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
+class ColumnVector : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
     static_assert(!IsDecimalNumber<T>);
 
 private:
@@ -145,7 +146,7 @@ public:
     using Container = PaddedPODArray<value_type>;
 
 private:
-    ColumnVector() {}
+    ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
@@ -154,23 +155,9 @@ private:
     ColumnVector(std::initializer_list<T> il) : data {il} {}
 
     void insert_res_column(const uint16_t* sel, size_t sel_size,
-                           vectorized::ColumnVector<T>* res_ptr) {
-        auto& res_data = res_ptr->data;
-        DCHECK(res_data.empty());
-        res_data.resize(sel_size);
-        for (size_t i = 0; i < sel_size; i++) {
-            res_data[i] = T(data[sel[i]]);
-        }
-    }
+                           vectorized::ColumnVector<T>* res_ptr);
 
-    void insert_many_default_type(const char* data_ptr, size_t num) {
-        auto old_size = data.size();
-        data.resize(old_size + num);
-        T* input_val_ptr = (T*)data_ptr;
-        for (int i = 0; i < num; i++) {
-            data[old_size + i] = input_val_ptr[i];
-        }
-    }
+    void insert_many_default_type(const char* data_ptr, size_t num);
 
 public:
     bool is_numeric() const override { return IsNumber<T>; }
@@ -196,20 +183,7 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
-    void insert_date_column(const char* data_ptr, size_t num) {
-        data.reserve(data.size() + num);
-        size_t input_value_size = sizeof(uint24_t);
-
-        for (int i = 0; i < num; i++) {
-            uint64_t val = 0;
-            memcpy((char*)(&val), data_ptr, input_value_size);
-            data_ptr += input_value_size;
-
-            VecDateTimeValue date;
-            date.set_olap_date(val);
-            data.push_back_without_reserve(unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
-        }
-    }
+    void insert_date_column(const char* data_ptr, size_t num);
 
     void insert_datetime_column(const char* data_ptr, size_t num) {
         data.reserve(data.size() + num);
@@ -307,8 +281,6 @@ public:
 
     size_t allocated_bytes() const override { return data.allocated_bytes(); }
 
-    void protect() override { data.protect(); }
-
     void insert_value(const T value) { data.push_back(value); }
 
     /// This method implemented in header because it could be possibly devirtualized.
@@ -328,7 +300,13 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    Field operator[](size_t n) const override { return data[n]; }
+    Field operator[](size_t n) const override {
+        if constexpr (TypeId<T>::value != TypeIndex::Invalid) {
+            return data[n];
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+        }
+    }
 
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
 
@@ -338,11 +316,29 @@ public:
 
     void clear() override { data.clear(); }
 
-    UInt64 get_uint(size_t n) const override { return UInt64(data[n]); }
+    UInt64 get_uint(size_t n) const override {
+        if constexpr (IsNumber<T>) {
+            return UInt64(data[n]);
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+        }
+    }
 
-    bool get_bool(size_t n) const override { return bool(data[n]); }
+    bool get_bool(size_t n) const override {
+        if constexpr (IsNumber<T>) {
+            return bool(data[n]);
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+        }
+    }
 
-    Int64 get_int(size_t n) const override { return Int64(data[n]); }
+    Int64 get_int(size_t n) const override {
+        if constexpr (IsNumber<T>) {
+            return Int64(data[n]);
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+        }
+    }
 
     // For example, during create column_const(1, uint8), will use NearestFieldType
     // to cast a uint8 to int64, so that the Field is int64, but the column is created
@@ -351,7 +347,11 @@ public:
     // insert method, should use NearestFieldType<T> to get the Field and get it actual
     // uint8 value and then insert into column.
     void insert(const Field& x) override {
-        data.push_back(doris::vectorized::get<NearestFieldType<T>>(x));
+        if constexpr (TypeId<T>::value != TypeIndex::Invalid) {
+            data.push_back(doris::vectorized::get<NearestFieldType<T>>(x));
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+        }
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;

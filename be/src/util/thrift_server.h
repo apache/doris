@@ -139,7 +139,7 @@ private:
 
     // Map of active session keys to shared_ptr containing that key; when a key is
     // removed it is automatically freed.
-    typedef std::unordered_map<SessionKey*, std::shared_ptr<SessionKey>> SessionKeySet;
+    using SessionKeySet = std::unordered_map<SessionKey*, std::shared_ptr<SessionKey>>;
     SessionKeySet _session_keys;
 
     // Helper class which monitors starting servers. Needs access to internal members, and

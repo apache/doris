@@ -165,7 +165,6 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
 
     void update_xxHash_with_value(size_t n, uint64_t& hash) const override;
     void update_crc_with_value(size_t n, uint64_t& crc) const override;

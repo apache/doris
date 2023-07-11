@@ -173,7 +173,6 @@ public:
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    void protect() override;
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
                    int count_sz = -1) const override;

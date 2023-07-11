@@ -361,12 +361,6 @@ size_t ColumnStruct::allocated_bytes() const {
     return res;
 }
 
-void ColumnStruct::protect() {
-    for (auto& column : columns) {
-        column->protect();
-    }
-}
-
 void ColumnStruct::get_extremes(Field& min, Field& max) const {
     const size_t tuple_size = columns.size();
 

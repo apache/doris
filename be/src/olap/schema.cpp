@@ -135,90 +135,89 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     vectorized::IColumn::MutablePtr ptr = nullptr;
     switch (field.type()) {
     case FieldType::OLAP_FIELD_TYPE_BOOL:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_BOOLEAN>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_BOOLEAN>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_TINYINT:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_TINYINT>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_TINYINT>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_SMALLINT:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_SMALLINT>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_SMALLINT>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_INT:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_INT>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_INT>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_FLOAT>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_FLOAT>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DOUBLE:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DOUBLE>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DOUBLE>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_BIGINT:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_BIGINT>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_BIGINT>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_LARGEINT:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_LARGEINT>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_LARGEINT>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATE:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DATE>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DATE>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DATEV2>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DATEV2>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIMEV2>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DATETIMEV2>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DATETIME>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DATETIME>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_STRING:
         if (config::enable_low_cardinality_optimize && reader_type == ReaderType::READER_QUERY) {
-            ptr = doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(
-                    field.type());
+            ptr = vectorized::ColumnDictionary<vectorized::Int32>::create(field.type());
         } else {
-            ptr = doris::vectorized::PredicateColumnType<TYPE_STRING>::create();
+            ptr = vectorized::PredicateColumnType<TYPE_STRING>::create();
         }
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMALV2>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DECIMALV2>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL32>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DECIMAL32>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL64:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL64>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DECIMAL64>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I:
-        ptr = doris::vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
+        ptr = vectorized::PredicateColumnType<TYPE_DECIMAL128I>::create();
         break;
     case FieldType::OLAP_FIELD_TYPE_ARRAY:
-        ptr = doris::vectorized::ColumnArray::create(
+        ptr = vectorized::ColumnArray::create(
                 get_predicate_column_ptr(*field.get_sub_field(0), reader_type),
-                doris::vectorized::ColumnArray::ColumnOffsets::create());
+                vectorized::ColumnArray::ColumnOffsets::create());
         break;
     case FieldType::OLAP_FIELD_TYPE_STRUCT: {
         size_t field_size = field.get_sub_field_count();
-        doris::vectorized::MutableColumns columns(field_size);
+        vectorized::MutableColumns columns(field_size);
         for (size_t i = 0; i < field_size; i++) {
             columns[i] = get_predicate_column_ptr(*field.get_sub_field(i), reader_type);
         }
-        ptr = doris::vectorized::ColumnStruct::create(std::move(columns));
+        ptr = vectorized::ColumnStruct::create(std::move(columns));
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_MAP:
-        ptr = doris::vectorized::ColumnMap::create(
+        ptr = vectorized::ColumnMap::create(
                 get_predicate_column_ptr(*field.get_sub_field(0), reader_type),
                 get_predicate_column_ptr(*field.get_sub_field(1), reader_type),
-                doris::vectorized::ColumnArray::ColumnOffsets::create());
+                vectorized::ColumnArray::ColumnOffsets::create());
         break;
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << int(field.type());
     }
 
     if (field.is_nullable()) {
-        return doris::vectorized::ColumnNullable::create(std::move(ptr),
-                                                         doris::vectorized::ColumnUInt8::create());
+        return vectorized::ColumnNullable::create(std::move(ptr),
+                                                  vectorized::ColumnUInt8::create());
     }
     return ptr;
 }

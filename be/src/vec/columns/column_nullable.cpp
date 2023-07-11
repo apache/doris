@@ -465,12 +465,6 @@ size_t ColumnNullable::byte_size() const {
 size_t ColumnNullable::allocated_bytes() const {
     return get_nested_column().allocated_bytes() + get_null_map_column().allocated_bytes();
 }
-
-void ColumnNullable::protect() {
-    get_nested_column().protect();
-    get_null_map_column().protect();
-}
-
 namespace {
 
 /// The following function implements a slightly more general version

@@ -27,6 +27,7 @@
 #include <ostream>
 #include <string>
 
+#include "olap/decimal12.h"
 #include "util/hash_util.hpp"
 #include "util/simd/bits.h"
 #include "vec/columns/column_impl.h"
@@ -314,39 +315,55 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 
 template <typename T>
 const char* ColumnVector<T>::get_family_name() const {
-    return TypeName<T>::get();
+    if constexpr (TypeId<T>::value != TypeIndex::Invalid) {
+        return TypeName<T>::get();
+    } else {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+    }
 }
 
 template <typename T>
 MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
-    auto res = this->create();
-    if constexpr (std::is_same_v<T, vectorized::Int64>) {
-        res->copy_date_types(*this);
+    if constexpr (TypeId<T>::value == TypeIndex::Invalid) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+    } else {
+        auto res = this->create();
+        if constexpr (std::is_same_v<T, vectorized::Int64>) {
+            res->copy_date_types(*this);
+        }
+
+        if (size > 0) {
+            auto& new_col = assert_cast<Self&>(*res);
+            new_col.data.resize(size);
+
+            size_t count = std::min(this->size(), size);
+            memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
+
+            if (size > count)
+                memset(static_cast<void*>(&new_col.data[count]), static_cast<int>(value_type()),
+                       (size - count) * sizeof(value_type));
+        }
+
+        return res;
     }
-
-    if (size > 0) {
-        auto& new_col = assert_cast<Self&>(*res);
-        new_col.data.resize(size);
-
-        size_t count = std::min(this->size(), size);
-        memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
-
-        if (size > count)
-            memset(static_cast<void*>(&new_col.data[count]), static_cast<int>(value_type()),
-                   (size - count) * sizeof(value_type));
-    }
-
-    return res;
 }
 
 template <typename T>
 UInt64 ColumnVector<T>::get64(size_t n) const {
-    return ext::bit_cast<UInt64>(data[n]);
+    if constexpr (TypeId<T>::value == TypeIndex::Invalid) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+    } else {
+        return ext::bit_cast<UInt64>(data[n]);
+    }
 }
 
 template <typename T>
 Float64 ColumnVector<T>::get_float64(size_t n) const {
-    return static_cast<Float64>(data[n]);
+    if constexpr (TypeId<T>::value == TypeIndex::Invalid) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+    } else {
+        return static_cast<Float64>(data[n]);
+    }
 }
 
 template <typename T>
@@ -562,48 +579,93 @@ void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, ICol
 
 template <typename T>
 void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
-    size_t size = data.size();
+    if constexpr (TypeId<T>::value == TypeIndex::Invalid) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+    } else {
+        size_t size = data.size();
 
-    if (size == 0) {
-        min = T(0);
-        max = T(0);
-        return;
-    }
+        if (size == 0) {
+            min = T(0);
+            max = T(0);
+            return;
+        }
 
-    bool has_value = false;
+        bool has_value = false;
 
-    /** Skip all NaNs in extremes calculation.
+        /** Skip all NaNs in extremes calculation.
         * If all values are NaNs, then return NaN.
         * NOTE: There exist many different NaNs.
         * Different NaN could be returned: not bit-exact value as one of NaNs from column.
         */
 
-    T cur_min = nan_or_zero<T>();
-    T cur_max = nan_or_zero<T>();
+        T cur_min = nan_or_zero<T>();
+        T cur_max = nan_or_zero<T>();
 
-    for (const T x : data) {
-        if (is_nan(x)) continue;
+        for (const T x : data) {
+            if (is_nan(x)) continue;
 
-        if (!has_value) {
-            cur_min = x;
-            cur_max = x;
-            has_value = true;
-            continue;
+            if (!has_value) {
+                cur_min = x;
+                cur_max = x;
+                has_value = true;
+                continue;
+            }
+
+            if (x < cur_min)
+                cur_min = x;
+            else if (x > cur_max)
+                cur_max = x;
         }
 
-        if (x < cur_min)
-            cur_min = x;
-        else if (x > cur_max)
-            cur_max = x;
+        min = NearestFieldType<T>(cur_min);
+        max = NearestFieldType<T>(cur_max);
     }
-
-    min = NearestFieldType<T>(cur_min);
-    max = NearestFieldType<T>(cur_max);
 }
 
 template <typename T>
 ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
+}
+
+template <typename T>
+void ColumnVector<T>::insert_date_column(const char* data_ptr, size_t num) {
+    if constexpr (TypeId<T>::value == TypeIndex::Invalid) {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type");
+    } else {
+        data.reserve(data.size() + num);
+        size_t input_value_size = sizeof(uint24_t);
+
+        for (int i = 0; i < num; i++) {
+            uint64_t val = 0;
+            memcpy((char*)(&val), data_ptr, input_value_size);
+            data_ptr += input_value_size;
+
+            VecDateTimeValue date;
+            date.set_olap_date(val);
+            data.push_back_without_reserve(unaligned_load<Int64>(reinterpret_cast<char*>(&date)));
+        }
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::insert_res_column(const uint16_t* sel, size_t sel_size,
+                                        vectorized::ColumnVector<T>* res_ptr) {
+    auto& res_data = res_ptr->data;
+    DCHECK(res_data.empty());
+    res_data.resize(sel_size);
+    for (size_t i = 0; i < sel_size; i++) {
+        res_data[i] = T(data[sel[i]]);
+    }
+}
+
+template <typename T>
+void ColumnVector<T>::insert_many_default_type(const char* data_ptr, size_t num) {
+    auto old_size = data.size();
+    data.resize(old_size + num);
+    T* input_val_ptr = (T*)data_ptr;
+    for (int i = 0; i < num; i++) {
+        data[old_size + i] = input_val_ptr[i];
+    }
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.
@@ -619,4 +681,7 @@ template class ColumnVector<Int64>;
 template class ColumnVector<Int128>;
 template class ColumnVector<Float32>;
 template class ColumnVector<Float64>;
+template class ColumnVector<bool>;
+template class ColumnVector<decimal12_t>;
+template class ColumnVector<StringRef>;
 } // namespace doris::vectorized

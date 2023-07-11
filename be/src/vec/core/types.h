@@ -33,6 +33,7 @@ namespace doris {
 
 class BitmapValue;
 class HyperLogLog;
+struct StringRef;
 struct decimal12_t;
 struct uint24_t;
 
@@ -92,7 +93,8 @@ enum class TypeIndex {
     VARIANT = 41,
     QuantileState = 42,
     Time = 43,
-    AggState
+    AggState = 44,
+    Invalid = 45
 };
 
 struct Consted {
@@ -264,6 +266,18 @@ struct TypeId<Float64> {
 template <>
 struct TypeId<String> {
     static constexpr const TypeIndex value = TypeIndex::String;
+};
+template <>
+struct TypeId<StringRef> {
+    static constexpr const TypeIndex value = TypeIndex::Invalid;
+};
+template <>
+struct TypeId<bool> {
+    static constexpr const TypeIndex value = TypeIndex::Invalid;
+};
+template <>
+struct TypeId<decimal12_t> {
+    static constexpr const TypeIndex value = TypeIndex::Invalid;
 };
 
 /// Not a data type in database, defined just for convenience.
@@ -703,6 +717,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "AggState";
     case TypeIndex::Time:
         return "Time";
+    case TypeIndex::Invalid:
+        return "Invalid";
     }
 
     __builtin_unreachable();
