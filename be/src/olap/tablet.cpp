@@ -479,14 +479,15 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
         for (auto& rs : to_delete) {
             auto find_rs = _rs_version_map.find(rs->version());
             if (find_rs == _rs_version_map.end()) {
-                LOG(WARNING) << "try to delete not exist version " << rs->version() << " from "
-                             << full_name();
-                return Status::Error<DELETE_VERSION_ERROR>();
+                return Status::Error<DELETE_VERSION_ERROR>(
+                        "try to delete not exist version {} from {}", rs->version().to_string(),
+                        full_name());
             } else if (find_rs->second->rowset_id() != rs->rowset_id()) {
-                LOG(WARNING) << "try to delete version " << rs->version() << " from " << full_name()
-                             << ", but rowset id changed, delete rowset id is " << rs->rowset_id()
-                             << ", exists rowsetid is" << find_rs->second->rowset_id();
-                return Status::Error<DELETE_VERSION_ERROR>();
+                return Status::Error<DELETE_VERSION_ERROR>(
+                        "try to delete version {} from {}, but rowset id changed, delete rowset id "
+                        "is {}, exists rowsetid is {}",
+                        rs->version().to_string(), full_name(), rs->rowset_id().to_string(),
+                        find_rs->second->rowset_id().to_string());
             }
         }
     }
@@ -840,7 +841,7 @@ Status Tablet::capture_consistent_versions(const Version& spec_version,
                 LOG(WARNING) << "tablet:" << full_name()
                              << ", version already has been merged. spec_version: " << spec_version;
             }
-            status = Status::Error<VERSION_ALREADY_MERGED>();
+            status = Status::Error<VERSION_ALREADY_MERGED>("missed_versions is empty");
         } else {
             if (version_path != nullptr) {
                 LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
@@ -914,9 +915,9 @@ Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& 
         } while (false);
 
         if (!is_find) {
-            LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()
-                         << ", version='" << version;
-            return Status::Error<CAPTURE_ROWSET_ERROR>();
+            return Status::Error<CAPTURE_ROWSET_ERROR>(
+                    "fail to find Rowset for version. tablet={}, version={}", full_name(),
+                    version.to_string());
         }
     }
     return Status::OK();
@@ -941,17 +942,17 @@ Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
 
             it = _stale_rs_version_map.find(version);
             if (it == _stale_rs_version_map.end()) {
-                LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet="
-                             << full_name() << ", version='" << version.first << "-"
-                             << version.second;
-                return Status::Error<CAPTURE_ROWSET_READER_ERROR>();
+                return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
+                        "fail to find Rowset in stale_rs_version for version. tablet={}, "
+                        "version={}-{}",
+                        full_name(), version.first, version.second);
             }
         }
         RowsetReaderSharedPtr rs_reader;
         auto res = it->second->create_reader(&rs_reader);
         if (!res.ok()) {
-            LOG(WARNING) << "failed to create reader for rowset:" << it->second->rowset_id();
-            return Status::Error<CAPTURE_ROWSET_READER_ERROR>();
+            return Status::Error<CAPTURE_ROWSET_READER_ERROR>(
+                    "failed to create reader for rowset:{}", it->second->rowset_id().to_string());
         }
         rs_readers->push_back(std::move(rs_reader));
     }
@@ -1258,7 +1259,8 @@ Status Tablet::_contains_version(const Version& version) {
             CHECK(it.second != nullptr) << "there exist a version=" << it.first
                                         << " contains the input rs with version=" << version
                                         << ", but the related rs is null";
-            return Status::Error<PUSH_VERSION_ALREADY_EXIST>();
+            return Status::Error<PUSH_VERSION_ALREADY_EXIST>("Tablet push duplicate version {}",
+                                                             version.to_string());
         }
     }
 
@@ -1849,8 +1851,8 @@ void Tablet::reset_compaction(CompactionType compaction_type) {
 Status Tablet::create_initial_rowset(const int64_t req_version) {
     Status res = Status::OK();
     if (req_version < 1) {
-        LOG(WARNING) << "init version of tablet should at least 1. req.ver=" << req_version;
-        return Status::Error<CE_CMD_PARAMS_ERROR>();
+        return Status::Error<CE_CMD_PARAMS_ERROR>(
+                "init version of tablet should at least 1. req.ver={}", req_version);
     }
     Version version(0, req_version);
     RowsetSharedPtr new_rowset;
@@ -2114,7 +2116,9 @@ bool Tablet::update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replic
         LOG(INFO) << "try cooldown_conf_lock failed, tablet_id=" << tablet_id();
         return false;
     }
-    if (cooldown_term <= _cooldown_term) return false;
+    if (cooldown_term <= _cooldown_term) {
+        return false;
+    }
     LOG(INFO) << "update cooldown conf. tablet_id=" << tablet_id()
               << " cooldown_replica_id: " << _cooldown_replica_id << " -> " << cooldown_replica_id
               << ", cooldown_term: " << _cooldown_term << " -> " << cooldown_term;
@@ -3005,7 +3009,7 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
     token->wait();
     auto code = calc_status.load();
     if (code != ErrorCode::OK) {
-        return Status::Error(code);
+        return Status::Error(code, "Tablet::calc_delete_bitmap meet error");
     }
     for (auto seg_delete_bitmap : seg_delete_bitmaps) {
         delete_bitmap->merge(*seg_delete_bitmap);
@@ -3308,7 +3312,7 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
         uint64_t start_version, uint64_t end_version, std::set<RowLocation>* missed_rows,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
-        DeleteBitmap* output_rowset_delete_bitmap) {
+        const DeleteBitmap& input_delete_bitmap, DeleteBitmap* output_rowset_delete_bitmap) {
     RowLocation src;
     RowLocation dst;
     for (auto& rowset : input_rowsets) {
@@ -3316,9 +3320,8 @@ void Tablet::calc_compaction_output_rowset_delete_bitmap(
         for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
-            _tablet_meta->delete_bitmap().subset({rowset->rowset_id(), seg_id, start_version},
-                                                 {rowset->rowset_id(), seg_id, end_version},
-                                                 &subset_map);
+            input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
+                                       {rowset->rowset_id(), seg_id, end_version}, &subset_map);
             // traverse all versions and convert rowid
             for (auto iter = subset_map.delete_bitmap.begin();
                  iter != subset_map.delete_bitmap.end(); ++iter) {
@@ -3498,7 +3501,7 @@ bool Tablet::is_enable_binlog() {
 }
 
 void Tablet::set_binlog_config(BinlogConfig binlog_config) {
-    tablet_meta()->set_binlog_config(std::move(binlog_config));
+    tablet_meta()->set_binlog_config(binlog_config);
 }
 
 void Tablet::gc_binlogs(int64_t version) {
@@ -3545,7 +3548,7 @@ void Tablet::gc_binlogs(int64_t version) {
             rowset_id = binlog_meta_entry_pb.rowset_id_v2();
         } else {
             // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
-            auto pos = key.rfind("_");
+            auto pos = key.rfind('_');
             if (pos == std::string::npos) {
                 LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
                 return false;

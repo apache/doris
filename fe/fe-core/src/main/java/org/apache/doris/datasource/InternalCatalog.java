@@ -1230,8 +1230,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
                     DefaultValue defaultValue;
                     if (column.getDefaultValueExprDef() != null) {
-                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                        if (column.getDefaultValueExprDef().getPrecision() != null) {
+                            defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                                column.getDefaultValueExprDef().getExprName(),
+                                column.getDefaultValueExprDef().getPrecision());
+                        } else {
+                            defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
                                 column.getDefaultValueExprDef().getExprName());
+                        }
                     } else {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }
