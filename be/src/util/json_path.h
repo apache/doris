@@ -31,22 +31,20 @@
   attached to WL#7909.
 */
 
-#include <assert.h>
-#include <stddef.h>
+/*
+ * this file is copied from 
+ * https://github.com/mysql/mysql-server/blob/8.0/sql-common/json_path.h
+ * and modified by Doris
+*/
+
+#include <cassert>
+#include <cstddef>
 #include <algorithm>
 #include <functional>
 #include <new>
 #include <string>
 #include <utility>
-
-#include "my_alloc.h"  // MEM_ROOT
-                       // assert
-#include "my_inttypes.h"
-#include "my_sys.h"
-#include "prealloced_array.h"  // Prealloced_array
-#include "sql-common/json_error_handler.h"
-
-class String;
+#include <vector>
 
 /** The type of a Json_path_leg. */
 enum enum_json_path_leg_type {
@@ -235,7 +233,7 @@ class Json_path_leg final {
   const std::string &get_member_name() const { return m_member_name; }
 
   /** Turn into a human-readable string. */
-  bool to_string(String *buf) const;
+  std::string to_string() const;
 
   /**
     Is this path leg an auto-wrapping array accessor?
@@ -291,7 +289,7 @@ class Json_path_leg final {
   Array_range get_array_range(size_t array_length) const;
 };
 
-using Json_path_leg_pointers = Prealloced_array<const Json_path_leg *, 8>;
+using Json_path_leg_pointers = std::vector<const Json_path_leg *>;
 using Json_path_iterator = Json_path_leg_pointers::const_iterator;
 
 /**
@@ -302,8 +300,6 @@ class Json_seekable_path {
  protected:
   /** An array of pointers to the legs of the JSON path. */
   Json_path_leg_pointers m_path_legs;
-
-  explicit Json_seekable_path(PSI_memory_key key);
 
  public:
   /** Return the number of legs in this searchable path */
@@ -354,56 +350,9 @@ class Json_seekable_path {
       last ::= "last"
 */
 class Json_path final : public Json_seekable_path {
- private:
-  /**
-    A MEM_ROOT in which the Json_path_leg objects pointed to by
-    #Json_seekable_path::m_path_legs are allocated.
-  */
-  MEM_ROOT m_mem_root;
-  /**
-    Key used to instrument memory usage.
-  */
-  PSI_memory_key m_psi_key;
-
  public:
-  explicit Json_path(PSI_memory_key key);
-
   ~Json_path() {
     for (const auto ptr : m_path_legs) ptr->~Json_path_leg();
-  }
-
-  /** Move constructor. */
-  Json_path(Json_path &&other)
-      : Json_seekable_path(other.m_psi_key),
-        m_mem_root(std::move(other.m_mem_root)),
-        m_psi_key(other.m_psi_key) {
-    // Move the contents of m_path_legs from other into this.
-    m_path_legs = std::move(other.m_path_legs);
-
-    /*
-      Must also make sure that other.m_path_legs is empty, so that we
-      don't end up destroying the same objects twice; once from this's
-      destructor and once from other's destructor.
-
-      Move-constructing a vector would usually leave "other" empty,
-      but it is not guaranteed. Furthermore, m_path_legs is a
-      Prealloced_array, not a std::vector, so often moving will mean
-      copying from one prealloced area to another instead of simply
-      swapping pointers to the backing array. (And at the time of
-      writing Prealloced_array doesn't even have a move-assignment
-      operator, so the above assignment will always copy and leave
-      "other" unchanged.)
-    */
-    other.m_path_legs.clear();
-  }
-
-  /** Move assignment. */
-  Json_path &operator=(Json_path &&other) {
-    if (&other != this) {
-      this->~Json_path();
-      new (this) Json_path(std::move(other));
-    }
-    return *this;
   }
 
   /**
@@ -412,8 +361,9 @@ class Json_path final : public Json_seekable_path {
     @return false on success, true on error
   */
   bool append(const Json_path_leg &leg) {
-    auto ptr = new (&m_mem_root) Json_path_leg(leg);
-    return ptr == nullptr || m_path_legs.push_back(ptr);
+    auto ptr = new Json_path_leg(leg);
+    m_path_legs.push_back(ptr);
+    return false;
   }
 
   /**
@@ -423,8 +373,6 @@ class Json_path final : public Json_seekable_path {
     // Destruct all the Json_path_leg objects, and clear the pointers to them.
     for (const auto ptr : m_path_legs) ptr->~Json_path_leg();
     m_path_legs.clear();
-    // Mark the memory as ready for reuse.
-    m_mem_root.ClearForReuse();
   }
 
   /**
@@ -437,30 +385,7 @@ class Json_path final : public Json_seekable_path {
   bool can_match_many() const;
 
   /** Turn into a human-readable string. */
-  bool to_string(String *buf) const;
-};
-
-/**
-  A lightweight path expression. This exists so that paths can be cloned
-  from the path legs of other paths without allocating heap memory
-  to copy those legs into. This class does not own the memory of the
-  Json_path_leg objects pointed to by #Json_seekable_path::m_path_legs, it
-  just points to Json_path_leg objects that belong to a Json_path instance.
-*/
-class Json_path_clone final : public Json_seekable_path {
- public:
-  explicit Json_path_clone(PSI_memory_key key) : Json_seekable_path(key) {}
-  /**
-    Add a path leg to the end of this cloned path.
-    @param[in] leg the leg to add
-    @return false on success, true on error
-  */
-  bool append(const Json_path_leg *leg) { return m_path_legs.push_back(leg); }
-
-  /**
-    Resets this to an empty path with no legs.
-  */
-  void clear() { m_path_legs.clear(); }
+  std::string to_string() const;
 };
 
 /**
@@ -476,28 +401,9 @@ class Json_path_clone final : public Json_seekable_path {
    @param[in] path_expression The string form of the path expression.
    @param[out] path The Json_path object to be initialized.
    @param[out] bad_index If null is returned, the parsing failed around here.
-   @param[in] depth_handler Pointer to a function that should handle error
-                            occurred when depth is exceeded.
    @return false on success, true on error
 */
 bool parse_path(size_t path_length, const char *path_expression,
-                Json_path *path, size_t *bad_index,
-                const JsonDocumentDepthHandler &depth_handler);
+                Json_path *path, size_t *bad_index);
 
-/**
-  A helper function that uses the above one as workhorse. Entry point for
-  for JSON_TABLE (Table_function_json class) and Json_path_cache. Raises an
-  error if the path expression is syntactically incorrect. Raises an
-  error if the path expression contains wildcard tokens but is not
-  supposed to. Otherwise updates the supplied Json_path object with
-  the parsed path.
-
-  @param[in]  path_value       A String to be interpreted as a path.
-  @param[in]  forbid_wildcards True if the path shouldn't contain * or **
-  @param[out] json_path        The object that will hold the parsed path
-
-  @returns false on success (valid path or NULL), true on error
-*/
-bool parse_path(const String &path_value, bool forbid_wildcards,
-                Json_path *json_path);
 #endif /* SQL_JSON_PATH_INCLUDED */

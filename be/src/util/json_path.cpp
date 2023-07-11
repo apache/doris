@@ -28,27 +28,23 @@
   attached to WL#7909.
 */
 
+/*
+ * this file is copied from 
+ * https://github.com/mysql/mysql-server/blob/8.0/sql-common/json_path.cc
+ * and modified by Doris
+*/
+
 #include "json_path.h"
 
-#include "my_rapidjson_size_t.h"  // IWYU pragma: keep
-
-#include <assert.h>
-#include <rapidjson/encodings.h>
-#include <rapidjson/memorystream.h>  // rapidjson::MemoryStream
+#include <cassert>
+#include <cstdlib>
 #include <stddef.h>
 #include <algorithm>  // any_of
 #include <memory>     // unique_ptr
 #include <string>
 
-#include "m_ctype.h"
-#include "m_string.h"
-
-#include "my_inttypes.h"
-#include "sql-common/json_dom.h"
-#include "sql/psi_memory_key.h"  // key_memory_JSON
-#include "sql/sql_const.h"       // STRING_BUFFER_USUAL_SIZE
-#include "sql_string.h"          // String
-#include "template_utils.h"      // down_cast
+#define PATH_BUF_SIZE 80
+#define PATH_LEG_BUF_SIZE 16
 
 namespace {
 
@@ -65,59 +61,67 @@ class Stream;
 
 }  // namespace
 
-static bool is_ecmascript_identifier(const std::string &name);
-static bool is_digit(unsigned codepoint);
-static bool is_whitespace(char);
-
 static bool parse_path(Stream *, Json_path *);
 static bool parse_path_leg(Stream *, Json_path *);
 static bool parse_ellipsis_leg(Stream *, Json_path *);
 static bool parse_array_leg(Stream *, Json_path *);
 static bool parse_member_leg(Stream *, Json_path *);
 
-static bool append_array_index(String *buf, size_t index, bool from_end) {
-  if (!from_end) return buf->append_ulonglong(index);
+static void append_array_index(std::string* buf, const size_t index, bool from_end) {
+  if (!from_end) {
+    buf->append(std::to_string(index));
+    return;
+  }
 
-  bool ret = buf->append(STRING_WITH_LEN(LAST));
-  if (index > 0) ret |= buf->append(MINUS) || buf->append_ulonglong(index);
-  return ret;
+  buf->append(LAST, strlen(LAST));
+  if (index > 0) { 
+    *buf += MINUS;
+    buf->append(std::to_string(index));
+  }
 }
 
 // Json_path_leg
 
-bool Json_path_leg::to_string(String *buf) const {
+std::string Json_path_leg::to_string() const {
+  std::string buf;
+  buf.reserve(PATH_LEG_BUF_SIZE);
+
   switch (m_leg_type) {
     case jpl_member:
-      return buf->append(BEGIN_MEMBER) ||
-             (is_ecmascript_identifier(m_member_name)
-                  ? buf->append(m_member_name.data(), m_member_name.length())
-                  : double_quote(m_member_name.data(), m_member_name.length(),
-                                 buf));
+      buf += BEGIN_MEMBER;
+      buf += "\"";
+      buf.append(m_member_name.data(), m_member_name.length());
+      buf += "\"";
+
     case jpl_array_cell:
-      return buf->append(BEGIN_ARRAY) ||
-             append_array_index(buf, m_first_array_index,
-                                m_first_array_index_from_end) ||
-             buf->append(END_ARRAY);
+      buf += BEGIN_ARRAY;
+      append_array_index(&buf, m_first_array_index, m_first_array_index_from_end);
+      buf += END_ARRAY;
+
     case jpl_array_range:
-      return buf->append(BEGIN_ARRAY) ||
-             append_array_index(buf, m_first_array_index,
-                                m_first_array_index_from_end) ||
-             buf->append(STRING_WITH_LEN(" to ")) ||
-             append_array_index(buf, m_last_array_index,
-                                m_last_array_index_from_end) ||
-             buf->append(END_ARRAY);
+      buf += BEGIN_ARRAY;
+      append_array_index(&buf, m_first_array_index, m_first_array_index_from_end);
+      buf.append(" to ");
+      append_array_index(&buf, m_last_array_index, m_last_array_index_from_end);
+      buf += END_ARRAY;
+
     case jpl_member_wildcard:
-      return buf->append(BEGIN_MEMBER) || buf->append(WILDCARD);
+      buf += BEGIN_MEMBER;
+      buf += WILDCARD;
+
     case jpl_array_cell_wildcard:
-      return buf->append(BEGIN_ARRAY) || buf->append(WILDCARD) ||
-             buf->append(END_ARRAY);
+      buf += BEGIN_ARRAY;
+      buf += WILDCARD;
+      buf += END_ARRAY;
+
     case jpl_ellipsis:
-      return buf->append(WILDCARD) || buf->append(WILDCARD);
+      buf += WILDCARD;
+      buf += WILDCARD;
   }
 
   // Unknown leg type.
   assert(false); /* purecov: inspected */
-  return true;   /* purecov: inspected */
+  return buf;    /* purecov: inspected */
 }
 
 bool Json_path_leg::is_autowrap() const {
@@ -159,20 +163,17 @@ Json_path_leg::Array_range Json_path_leg::get_array_range(
   return {begin, end};
 }
 
-Json_seekable_path::Json_seekable_path(PSI_memory_key key) : m_path_legs(key) {}
-
 // Json_path
-Json_path::Json_path(PSI_memory_key key)
-    : Json_seekable_path(key), m_mem_root(key, 256), m_psi_key(key) {}
+std::string Json_path::to_string() const {
+  std::string buf;
+  buf.reserve(PATH_BUF_SIZE);
 
-bool Json_path::to_string(String *buf) const {
-  if (buf->append(SCOPE)) return true;
-
+  buf += SCOPE;
   for (const Json_path_leg *leg : *this) {
-    if (leg->to_string(buf)) return true;
+    buf += leg->to_string();
   }
 
-  return false;
+  return buf;
 }
 
 bool Json_path::can_match_many() const {
@@ -232,7 +233,7 @@ class Stream {
   /// Moves the position to the next non-whitespace character.
   void skip_whitespace() {
     m_position = std::find_if_not(m_position, m_end,
-                                  [](char c) { return is_whitespace(c); });
+                                  [](char c) { return std::iswspace(c); });
   }
 
   /// Moves the position n bytes forward.
@@ -253,10 +254,9 @@ class Stream {
 
 /** Top level parsing factory method */
 bool parse_path(size_t path_length, const char *path_expression,
-                Json_path *path, size_t *bad_index,
-                const JsonDocumentDepthHandler &depth_handler) {
+                Json_path *path, size_t *bad_index) {
   Stream stream(path_expression, path_length);
-  if (parse_path(&stream, path, depth_handler)) {
+  if (parse_path(&stream, path)) {
     *bad_index = stream.position() - path_expression;
     return true;
   }
@@ -265,23 +265,15 @@ bool parse_path(size_t path_length, const char *path_expression,
   return false;
 }
 
-/// Is this a whitespace character?
-static inline bool is_whitespace(char ch) {
-  return my_isspace(&my_charset_utf8mb4_bin, ch);
-}
-
 /**
    Fills in a Json_path from a path expression.
 
    @param[in,out] stream The stream to read the path expression from.
    @param[in,out] path The Json_path object to fill.
-   @param[in] depth_handler Pointer to a function that should handle error
-                            occurred when depth is exceeded.
 
    @return true on error, false on success
 */
-static bool parse_path(Stream *stream, Json_path *path,
-                       const JsonDocumentDepthHandler &depth_handler) {
+static bool parse_path(Stream *stream, Json_path *path) {
   path->clear();
 
   // the first non-whitespace character must be $
@@ -291,7 +283,7 @@ static bool parse_path(Stream *stream, Json_path *path,
   // now add the legs
   stream->skip_whitespace();
   while (!stream->exhausted()) {
-    if (parse_path_leg(stream, path, depth_handler)) return true;
+    if (parse_path_leg(stream, path)) return true;
     stream->skip_whitespace();
   }
 
@@ -308,18 +300,15 @@ static bool parse_path(Stream *stream, Json_path *path,
 
    @param[in,out] stream The stream to read the path expression from.
    @param[in,out] path The Json_path object to fill.
-   @param[in] depth_handler Pointer to a function that should handle error
-                            occurred when depth is exceeded.
 
    @return true on error, false on success
 */
-static bool parse_path_leg(Stream *stream, Json_path *path,
-                           const JsonDocumentDepthHandler &depth_handler) {
+static bool parse_path_leg(Stream *stream, Json_path *path) {
   switch (stream->peek()) {
     case BEGIN_ARRAY:
       return parse_array_leg(stream, path);
     case BEGIN_MEMBER:
-      return parse_member_leg(stream, path, depth_handler);
+      return parse_member_leg(stream, path);
     case WILDCARD:
       return parse_ellipsis_leg(stream, path);
     default:
@@ -374,8 +363,7 @@ static bool parse_ellipsis_leg(Stream *stream, Json_path *path) {
 
   @return true on error, false on success
 */
-static bool parse_array_index(Stream *stream, uint32 *array_index,
-                              bool *from_end) {
+static bool parse_array_index(Stream *stream, size_t *array_index, bool *from_end) {
   *from_end = false;
 
   // Do we have the "last" token?
@@ -397,20 +385,15 @@ static bool parse_array_index(Stream *stream, uint32 *array_index,
     }
   }
 
-  if (stream->exhausted() || !is_digit(stream->peek())) {
+  if (stream->exhausted() || !std::isdigit(stream->peek())) {
     return true;
   }
 
-  const char *endp;
-  int err;
-  ulonglong idx = my_strntoull(&my_charset_utf8mb4_bin, stream->position(),
-                               stream->remaining(), 10, &endp, &err);
-  if (err != 0 || idx > UINT_MAX32) {
-    return true;
-  }
+  char* endp;
+  const size_t idx = strtoull(stream->position(), &endp, 10);
 
   stream->skip(endp - stream->position());
-  *array_index = static_cast<uint32>(idx);
+  *array_index = idx;
   return false;
 }
 
@@ -440,7 +423,7 @@ static bool parse_array_leg(Stream *stream, Json_path *path) {
       the single index of a jpl_array_cell path leg, or the start
       index of a jpl_array_range path leg.
     */
-    uint32 cell_index1;
+    size_t cell_index1;
     bool from_end1;
     if (parse_array_index(stream, &cell_index1, &from_end1)) return true;
 
@@ -449,13 +432,13 @@ static bool parse_array_leg(Stream *stream, Json_path *path) {
 
     // Is this a range, <arrayIndex> to <arrayIndex>?
     const char *const pos = stream->position();
-    if (stream->remaining() > 3 && is_whitespace(pos[-1]) && pos[0] == 't' &&
-        pos[1] == 'o' && is_whitespace(pos[2])) {
+    if (stream->remaining() > 3 && std::iswspace(pos[-1]) && pos[0] == 't' &&
+        pos[1] == 'o' && std::iswspace(pos[2])) {
       // A range. Skip over the "to" token and any whitespace.
       stream->skip(3);
       stream->skip_whitespace();
 
-      uint32 cell_index2;
+      size_t cell_index2;
       bool from_end2;
       if (parse_array_index(stream, &cell_index2, &from_end2)) return true;
 
@@ -532,37 +515,10 @@ static const char *find_end_of_member_name(const char *start, const char *end) {
     or [ or . or * or end-of-string.
   */
   const auto is_terminator = [](const char c) {
-    return is_whitespace(c) || c == BEGIN_ARRAY || c == BEGIN_MEMBER ||
+    return std::iswspace(c) || c == BEGIN_ARRAY || c == BEGIN_MEMBER ||
            c == WILDCARD;
   };
   return std::find_if(str, end, is_terminator);
-}
-
-/**
-  Parse a quoted member name using the rapidjson parser, so that we
-  get the name without the enclosing quotes and with any escape
-  sequences replaced with the actual characters.
-
-  It is the caller's responsibility to destroy the returned
-  Json_string when it's done with it.
-
-  @param str the input string
-  @param len the length of the input string
-  @param depth_handler Pointer to a function that should handle error
-                       occurred when depth is exceeded.
-  @return a Json_string that represents the member name, or NULL if
-  the input string is not a valid name
-*/
-static std::unique_ptr<Json_string> parse_name_with_rapidjson(
-    const char *str, size_t len,
-    const JsonDocumentDepthHandler &depth_handler) {
-  Json_dom_ptr dom = Json_dom::parse(
-      str, len, [](const char *, size_t) {}, depth_handler);
-
-  if (dom == nullptr || dom->json_type() != enum_json_type::J_STRING)
-    return nullptr;
-
-  return std::unique_ptr<Json_string>(down_cast<Json_string *>(dom.release()));
 }
 
 /**
@@ -570,13 +526,10 @@ static std::unique_ptr<Json_string> parse_name_with_rapidjson(
 
    @param[in,out] stream The stream to read the path expression from.
    @param[in,out] path The Json_path object to fill.
-   @param[in] depth_handler Pointer to a function that should handle error
-                            occurred when depth is exceeded.
 
    @return true on error, false on success
 */
-static bool parse_member_leg(Stream *stream, Json_path *path,
-                             const JsonDocumentDepthHandler &depth_handler) {
+static bool parse_member_leg(Stream *stream, Json_path *path) {
   // advance past the .
   assert(stream->peek() == BEGIN_MEMBER);
   stream->skip(1);
@@ -596,167 +549,19 @@ static bool parse_member_leg(Stream *stream, Json_path *path,
     const bool was_quoted = (*key_start == DOUBLE_QUOTE);
     stream->skip(key_end - key_start);
 
-    std::unique_ptr<Json_string> jstr;
-
+    const size_t key_len = key_end - key_start;
+    std::string member_name(key_start, key_len);
     if (was_quoted) {
-      /*
-        Send the quoted name through the parser to unquote and
-        unescape it.
-      */
-      jstr = parse_name_with_rapidjson(key_start, key_end - key_start,
-                                       depth_handler);
+        member_name = member_name.substr(1, key_len - 1);
     } else {
-      /*
-        An unquoted name may contain escape sequences. Wrap it in
-        double quotes and send it through the JSON parser to unescape
-        it.
-      */
-      StringBuffer<STRING_BUFFER_USUAL_SIZE> strbuff(&my_charset_utf8mb4_bin);
-      if (strbuff.append(DOUBLE_QUOTE) ||
-          strbuff.append(key_start, key_end - key_start) ||
-          strbuff.append(DOUBLE_QUOTE))
-        return true; /* purecov: inspected */
-      jstr = parse_name_with_rapidjson(strbuff.ptr(), strbuff.length(),
-                                       depth_handler);
+      // warning: we do not allow unquoted member name currently.
+      return true;
     }
 
-    if (jstr == nullptr) return true;
-
-    // unquoted names must be valid ECMAScript identifiers
-    if (!was_quoted && !is_ecmascript_identifier(jstr->value())) return true;
-
     // Looking good.
-    if (path->append(Json_path_leg(jstr->value())))
+    if (path->append(Json_path_leg(member_name)))
       return true; /* purecov: inspected */
   }
 
   return false;
-}
-
-/**
-   Return true if the character is a unicode combining mark.
-
-   @param codepoint A unicode codepoint.
-
-   @return True if the codepoint is a unicode combining mark.
-*/
-static inline bool unicode_combining_mark(unsigned codepoint) {
-  return ((0x300 <= codepoint) && (codepoint <= 0x36F));
-}
-
-/**
-   Return true if the codepoint is a Unicode letter.
-
-   This was the best
-   recommendation from the old-timers about how to answer this question.
-   But as you can see from the need to call unicode_combining_mark(),
-   my_isalpha() isn't good enough. It probably has many other defects.
-
-   FIXME
-*/
-static bool is_letter(unsigned codepoint) {
-  /*
-    The Unicode combining mark \u036F passes the my_isalpha() test.
-    That doesn't inspire much confidence in the correctness
-    of my_isalpha().
-   */
-  if (unicode_combining_mark(codepoint)) {
-    return false;
-  }
-  return my_isalpha(&my_charset_utf8mb4_bin, codepoint);
-}
-
-/**
-   Return true if the codepoint is a Unicode digit.
-
-   This was the best
-   recommendation from the old-times about how to answer this question.
-*/
-static bool is_digit(unsigned codepoint) {
-  return my_isdigit(&my_charset_utf8mb4_bin, codepoint);
-}
-
-/**
-   Return true if the codepoint is Unicode connector punctuation.
-*/
-static bool is_connector_punctuation(unsigned codepoint) {
-  switch (codepoint) {
-    case 0x5F:    // low line
-    case 0x203F:  // undertie
-    case 0x2040:  // character tie
-    case 0x2054:  // inverted undertie
-    case 0xFE33:  // presentation form for vertical low line
-    case 0xFE34:  // presentation form for vertical wavy low line
-    case 0xFE4D:  // dashed low line
-    case 0xFE4E:  // centerline low line
-    case 0xFE4F:  // wavy low line
-    case 0xFF3F:  // fullwidth low line
-    {
-      return true;
-    }
-    default: {
-      return false;
-    }
-  }
-}
-
-/**
-   Returns true if the name is a valid ECMAScript identifier.
-
-   The name
-   must be a sequence of UTF8-encoded bytes. All escape sequences
-   have been replaced with UTF8-encoded bytes.
-
-   @param[in] name        name to check
-
-   @return True if the name is a valid ECMAScript identifier. False otherwise.
-*/
-static bool is_ecmascript_identifier(const std::string &name) {
-  // An empty string is not a valid identifier.
-  if (name.empty()) return false;
-
-  /*
-    At this point, The unicode escape sequences have already
-    been replaced with the corresponding UTF-8 bytes. Now we apply
-    the rules here: https://es5.github.io/x7.html#x7.6
-  */
-  rapidjson::MemoryStream input_stream(name.data(), name.length());
-  unsigned codepoint;
-
-  while (input_stream.Tell() < name.length()) {
-    bool first_codepoint = (input_stream.Tell() == 0);
-    if (!rapidjson::UTF8<char>::Decode(input_stream, &codepoint)) return false;
-
-    // a unicode letter
-    if (is_letter(codepoint)) continue;
-    // $ is ok
-    if (codepoint == 0x24) continue;
-    // _ is ok
-    if (codepoint == 0x5F) continue;
-
-    /*
-      the first character must be one of the above.
-      more possibilities are available for subsequent characters.
-    */
-
-    if (first_codepoint) {
-      return false;
-    } else {
-      // unicode combining mark
-      if (unicode_combining_mark(codepoint)) continue;
-
-      // a unicode digit
-      if (is_digit(codepoint)) continue;
-      if (is_connector_punctuation(codepoint)) continue;
-      // <ZWNJ>
-      if (codepoint == 0x200C) continue;
-      // <ZWJ>
-      if (codepoint == 0x200D) continue;
-    }
-
-    // nope
-    return false;
-  }
-
-  return true;
 }

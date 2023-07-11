@@ -48,6 +48,7 @@
 #else
 #include "util/jsonb_parser.h"
 #endif
+#include "util/json_path.h"
 #include "util/jsonb_document.h"
 #include "util/string_parser.hpp"
 #include "util/string_util.h"
@@ -68,7 +69,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_json_search.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
