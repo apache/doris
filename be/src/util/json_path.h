@@ -37,14 +37,18 @@
  * and modified by Doris
 */
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <algorithm>
 #include <functional>
 #include <new>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "glog/logging.h"
+
+namespace doris {
 
 /** The type of a Json_path_leg. */
 enum enum_json_path_leg_type {
@@ -250,6 +254,19 @@ class Json_path_leg final {
   bool is_autowrap() const;
 
   /**
+    Return true if this path leg contains the other path leg.
+
+    @param other the other path leg.
+    @retval true  if this path leg contains the other path leg.
+    @retval false otherwise.
+  */
+  bool contains(const Json_path_leg &other) const;
+
+  size_t get_first_array_index() const { return m_first_array_index; }
+
+  size_t get_last_array_index() const { return m_last_array_index; }
+
+  /**
     Get the first array cell pointed to by an array range, or the
     array cell pointed to by an array cell index.
 
@@ -313,6 +330,12 @@ class Json_seekable_path {
 
   /** Get a pointer to the last path leg. The path must not be empty. */
   const Json_path_leg *last_leg() const { return m_path_legs.back(); }
+
+  /** Return the leg at the index index */
+  const Json_path_leg* operator[](const size_t index) const {
+    DCHECK_LE(index, m_path_legs.size());
+    return m_path_legs[index];
+  }
 };
 
 /**
@@ -351,6 +374,23 @@ class Json_seekable_path {
 */
 class Json_path final : public Json_seekable_path {
  public:
+  Json_path() = default;
+
+  // move constructor.
+  Json_path(Json_path &&other) {
+    m_path_legs = std::move(other.m_path_legs);
+    other.m_path_legs.clear();
+  }
+
+  // move assignment.
+  Json_path &operator=(Json_path &&other) {
+    if (&other != this) {
+      this->~Json_path();
+      new (this) Json_path(std::move(other));
+    }
+    return *this;
+  }
+
   ~Json_path() {
     for (const auto ptr : m_path_legs) ptr->~Json_path_leg();
   }
@@ -364,6 +404,13 @@ class Json_path final : public Json_seekable_path {
     auto ptr = new Json_path_leg(leg);
     m_path_legs.push_back(ptr);
     return false;
+  }
+
+  void pop_back() {
+    DCHECK(!m_path_legs.empty()) << "Calling pop_back on an empty json path object";
+    auto ptr = m_path_legs.back();
+    delete ptr;
+    m_path_legs.pop_back();
   }
 
   /**
@@ -383,6 +430,14 @@ class Json_path final : public Json_seekable_path {
     @retval false  otherwise
   */
   bool can_match_many() const;
+
+  /**
+    Return true if this path contains the other path.
+
+    @retval true   if this path contains the other path.
+    @retval false  otherwise
+  */
+  bool contains(const Json_path &other) const;
 
   /** Turn into a human-readable string. */
   std::string to_string() const;
@@ -405,5 +460,7 @@ class Json_path final : public Json_seekable_path {
 */
 bool parse_path(size_t path_length, const char *path_expression,
                 Json_path *path, size_t *bad_index);
+
+} // namespace doris
 
 #endif /* SQL_JSON_PATH_INCLUDED */

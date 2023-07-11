@@ -38,13 +38,14 @@
 
 #include <cassert>
 #include <cstdlib>
-#include <stddef.h>
+#include <cstddef>
 #include <algorithm>  // any_of
-#include <memory>     // unique_ptr
 #include <string>
 
 #define PATH_BUF_SIZE 80
 #define PATH_LEG_BUF_SIZE 16
+
+namespace doris {
 
 namespace {
 
@@ -147,6 +148,51 @@ bool Json_path_leg::is_autowrap() const {
   }
 }
 
+bool Json_path_leg::contains(const Json_path_leg& other) const {
+  switch (this->get_type()) {
+  case jpl_member: {
+      if (other.get_type() == jpl_member && this->get_member_name() == other.get_member_name()) {
+          return true;
+      }
+  } break;
+  case jpl_array_cell: {
+      if (other.get_type() == jpl_array_cell &&
+          this->get_first_array_index() == other.get_first_array_index()) {
+          return true;
+      }
+  } break;
+  case jpl_array_range: {
+      if (other.get_type() == jpl_array_cell &&
+          other.get_first_array_index() >= this->get_first_array_index() &&
+          other.get_first_array_index() <= this->get_last_array_index()) {
+          return true;
+      } else if (other.get_type() == jpl_array_range &&
+                 other.get_first_array_index() >= this->get_first_array_index() &&
+                 other.get_last_array_index() <= this->get_last_array_index()) {
+          return true;
+      }
+  } break;
+  case jpl_member_wildcard: {
+      if (other.get_type() == jpl_member || other.get_type() == jpl_member_wildcard) {
+          return true;
+      }
+  };
+  case jpl_array_cell_wildcard: {
+      if (other.get_type() == jpl_array_cell || other.get_type() == jpl_array_range) {
+          return true;
+      }
+  } break;
+  case jpl_ellipsis: {
+      return true;
+  } break;
+  default:
+      // unknown leg type.
+      assert(false && "Unknown leg type");
+  }
+
+  return false;
+}
+
 Json_path_leg::Array_range Json_path_leg::get_array_range(
     size_t array_length) const {
   if (m_leg_type == jpl_array_cell_wildcard) return {0, array_length};
@@ -188,6 +234,28 @@ bool Json_path::can_match_many() const {
         return false;
     }
   });
+}
+
+bool Json_path::contains(const Json_path& other) const {
+  // a strictly longer path cannot contain a shorter path.
+  const size_t my_path_len = this->leg_count();
+  const size_t other_path_len = other.leg_count();
+  if (my_path_len > other_path_len) {
+    return false;
+  }
+
+  for (size_t i = 0; i < my_path_len; ++i) {
+    const Json_path_leg* my_leg = (*this)[i];
+    const Json_path_leg* other_leg = other[i];
+    if (my_leg->get_type() == jpl_ellipsis) {
+          return true;
+    }
+    if (!my_leg->contains(*other_leg)) {
+          return false;
+    }
+  }
+
+  return true;
 }
 
 // Json_path parsing
@@ -565,3 +633,5 @@ static bool parse_member_leg(Stream *stream, Json_path *path) {
 
   return false;
 }
+
+} // namespace doris

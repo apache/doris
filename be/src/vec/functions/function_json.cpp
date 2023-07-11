@@ -35,6 +35,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -1142,14 +1143,77 @@ class FunctionJsonSearch : public IFunction {
             const auto& [col_unpacked, col_is_const] = unpack_if_const(arg_col);
             const auto col = make_nullable(col_unpacked);
             col_nullable = check_and_get_column<ColumnNullable>(col);
+            // FIXME(niebayes): Is it necessary to do null checking?
             col_str = check_and_get_column<ColumnString>(col_nullable->get_nested_column());
             is_const = col_is_const;
         }
     };
 
-    bool check_path(const std::string_view& path) {
-        Stream path_stream(path.data(), path.length());
-        return JsonbPath::parsePath(&stream);
+    // TODO(niebayes):
+    // (1) remove escaped chars in the search_str using the provided escape_char.
+    // (2) match the str and the search_str using dynamic programming which considers the wildcard chars.
+    bool matched(const std::string_view& str, const std::string_view& search_str,
+                 const char& escape_char) {
+        return str == search_str;
+    }
+
+    bool any_path_contains(const std::vector<Json_path>& paths, Json_path* cur_path) {
+        // if no paths are given, we assume there exists a '$' path which contains all other paths.
+        if (paths.empty()) {
+            return true;
+        }
+
+        for (const Json_path& path : paths) {
+            if (path.contains(*cur_path)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool find_matches(const SimdJSONParser::Element& element, const bool& one_match,
+                      const std::string_view& search_str, const char& escape_char,
+                      const std::vector<Json_path>& paths, Json_path* cur_path,
+                      std::unordered_set<std::string>* matches) {
+        if (element.isString()) {
+            const std::string_view str = element.getString();
+            if (matched(str, search_str, escape_char) && any_path_contains(paths, cur_path)) {
+                matches->insert(cur_path->to_string());
+                return true;
+            }
+
+        } else if (element.isArray()) {
+            const SimdJSONParser::Array& array = element.getArray();
+            for (size_t i = 0; i < array.size(); ++i) {
+                const SimdJSONParser::Element& child_element = array[i];
+                // construct an array cell path leg.
+                cur_path->append(Json_path_leg(i));
+                if (find_matches(child_element, one_match, search_str, escape_char, paths, cur_path,
+                                 matches) &&
+                    one_match) {
+                    return true;
+                }
+                cur_path->pop_back();
+            }
+
+        } else if (element.isObject()) {
+            const SimdJSONParser::Object& object = element.getObject();
+            for (size_t i = 0; i < object.size(); ++i) {
+                const SimdJSONParser::KeyValuePair& item = object[i];
+                const std::string_view& key = item.first;
+                const SimdJSONParser::Element& child_element = item.second;
+                // construct an object member path leg.
+                cur_path->append(Json_path_leg(key.data(), key.length()));
+                if (find_matches(child_element, one_match, search_str, escape_char, paths, cur_path,
+                                 matches) &&
+                    one_match) {
+                    return true;
+                }
+                cur_path->pop_back();
+            }
+        }
+
+        return false;
     }
 
     std::string make_result_str(const std::unordered_set<std::string>& matches) {
@@ -1229,6 +1293,39 @@ public:
     //     '['
     // rightBracket:
     //     ']'
+
+    // this function is staged as the following:
+    // (1) validate args: If invalid, returns Status::InvalidArgument error.
+    //      json_doc arg is invalid json doc.
+    //      one_or_all arg is not 'one' nor 'all'.
+    //      search_str arg is not a valid string (not necessary, since the frontend already filters this out).
+    //      escape_char is not empty nor a constant char.
+    //      any path arg is not valid.
+    //          here, we don't check if a path exists in the json doc, we only check it's a valid path expression.
+    // (2) check arg nullity:
+    //      if json_doc, one_or_all, or any path arg is null, returns null.
+    //      if search_str is not found in the json doc, returns null.
+    //      if no paths exist in the json doc, returns null.
+    // (3) prepare default args:
+    //      if escape_char arg is null or missing, it's set to '\'.
+    //      if path arg is missing, there always exists a path '$'.
+    // (4) perform searching:
+    //      maintain a hash map to store path expressions corresponding to the matches.
+    //          this is used to deduplicate matches.
+    //      maintain a path_legs var which is a vector and initially contains a '$' character.
+    //      if the json element at the current depth is an array or an object, dive into it by
+    //      calling the searching function recursively. The cur_path var is updated accordingly.
+    //          if it's an array, append an array path leg to the cur_path var.
+    //          if it's an object, append an object path leg to the cur_path var.
+    //      otherwise, we match the search_str to each json element of type string.
+    //              the matching is performed while taking into account the wildcards: % and _.
+    //              the matching is performed while taking into accound the escape_char.
+    //          for each match, we further check if its path is within any path args.
+    //              the within-ness is checked as such:
+    //                  when parsing path args, each path arg will be split into a sequence of path legs.
+    //                  when performing searching,
+    //      if the one_or_all arg is 'one' and we've found a match, stop the searching immediately.
+    //      if the one_or_all arg is 'all', stop the searching until the json_doc is exhausted.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         // the json_doc, one_or_all, and search_str must be given.
@@ -1237,41 +1334,8 @@ public:
             return Status::InvalidArgument("too few arguments for function {}", name);
         }
 
-        auto result_col = ColumnString::create(input_rows_count);
+        auto result_col = ColumnString::create();
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
-
-        // how this function is implemented:
-        // (1) validate args. If invalid, returns Status::InvalidArgument error.
-        //      json_doc arg is invalid json doc.
-        //      one_or_all arg is not 'one' nor 'all'.
-        //      search_str arg is not a valid string (not necessary, since the frontend already filters this out).
-        //      escape_char is not empty nor a constant char.
-        //      any path arg is not valid.
-        //          here, we don't check if a path exists in the json doc, we only check it's a valid path expression.
-        // (2) check arg nullity:
-        //      if json_doc, one_or_all, or any path arg is null, returns null.
-        //      if search_str is not found in the json doc, returns null.
-        //      if no paths exist in the json doc, returns null.
-        // (3) prepare default args:
-        //      if escape_char arg is null or missing, the escape_char is set to '\'.
-        //      if path arg is missing, there exists a path '$'.
-        // (4) perform searching:
-        //      maintain a hash set to store path expressions corresponding to the matches.
-        //          this is used to deduplicate matches.
-        //      maintain a path_legs var which is a vector and initially contains a '$' character.
-        //      if the json element at the current depth is an array or an object, dive into it by
-        //      calling the searching function recursively. The cur_path var is updated accordingly.
-        //          if it's an array, append an array path leg to the cur_path var.
-        //          if it's an object, append an object path leg to the cur_path var.
-        //      otherwise, we match the search_str to each json element of type string.
-        //              the matching is performed while taking into account the wildcards: % and _.
-        //              the matching is performed while taking into accound the escape_char.
-        //          for each match, we further check if its path is within any path args.
-        //              the within-ness is checked as such:
-        //                  when parsing path args, each path arg will be split into a sequence of path legs.
-        //                  when performing searching,
-        //      if the one_or_all arg is 'one' and we've found a match, stop the searching immediately.
-        //      if the one_or_all arg is 'all', stop the searching until the json_doc is exhausted.
 
         std::vector<Argument> args;
         for (const auto& arg_num : arguments) {
@@ -1283,55 +1347,56 @@ public:
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             // an error occurs if the json_doc argument is not a valid json document.
-            const std::string_view json_doc_str = args[0].col_str->get_data_at(i).to_string_view();
-            if (parser.parse(json_doc_str, root_element)) {
+            const std::string_view json_doc = args[0].col_str->get_data_at(i).to_string_view();
+            if (!parser.parse(json_doc, root_element)) {
                 return Status::InvalidArgument(
-                        "the json_doc argument {} is not a valid json document", json_doc_str);
+                        "the json_doc argument {} is not a valid json document", json_doc);
             }
 
             // an error occurs if the one_or_all argument is not 'one' nor 'all'.
-            const std::string_view one_or_all_str =
-                    args[1].col_str->get_data_at(i).to_string_view();
-            if (one_or_all_str != "one" && one_or_all_str != "all") {
+            const std::string_view one_or_all = args[1].col_str->get_data_at(i).to_string_view();
+            if (one_or_all != "one" && one_or_all != "all") {
                 return Status::InvalidArgument("the one_or_all argument {} is not 'one' not 'all'",
-                                               one_or_all_str);
+                                               one_or_all);
             }
 
             // an error occurs if the escape_char argument is not empty nor an empty constant char.
             if (args.size() > 3) {
-                const std::string_view escape_char_str =
+                const std::string_view escape_char =
                         args[3].col_str->get_data_at(i).to_string_view();
 
                 if (!args[3].is_const) {
                     return Status::InvalidArgument(
                             "the escape_char argument {} is not a constant expression",
-                            escape_char_str);
+                            escape_char);
                 }
 
-                if (escape_char_str.size() > 1) {
+                if (escape_char.size() > 1) {
                     return Status::InvalidArgument(
                             "the escape_char argument {} is not empty nor a single character",
-                            escape_char_str);
+                            escape_char);
                 }
             }
 
             // an error occurs if any path argument is not a valid path expression.
-            for (size_t pi = 4; pi < args.size(); ++pi) {
-                if (!args[pi].col_nullable->is_null_at(pi)) {
-                    const std::string_view path_str =
-                            args[pi].col_str->get_data_at(i).to_string_view();
-                    if (!check_path(path_str)) {
-                        return Status::InvalidArgument("found an invalid path argument: {}",
-                                                       path_str);
-                    }
-                }
-            }
-
+            std::vector<Json_path> paths;
             bool has_null_path_arg = false;
             for (size_t pi = 4; pi < args.size(); ++pi) {
-                if (args[pi].col_nullable->is_null_at(pi)) {
+                if (!args[pi].col_nullable->is_null_at(pi)) {
+                    const std::string_view path_expr =
+                            args[pi].col_str->get_data_at(i).to_string_view();
+                    Json_path path;
+                    size_t bad_index;
+                    if (parse_path(path_expr.length(), path_expr.data(), &path, &bad_index)) {
+                        return Status::InvalidArgument(
+                                "found an invalid path argument {} which fails the parsing at "
+                                "position {}",
+                                path_expr, bad_index);
+                    }
+                    paths.push_back(std::move(path));
+
+                } else {
                     has_null_path_arg = true;
-                    break;
                 }
             }
 
@@ -1342,6 +1407,8 @@ public:
                 continue;
             }
 
+            const std::string_view search_str = args[2].col_str->get_data_at(i).to_string_view();
+
             // if the escape_char argument is given and it's not null, set the escape_char explicitly.
             // otherwise, the escape_char is the '\' character by default.
             char escape_char = '\\';
@@ -1351,11 +1418,22 @@ public:
                 escape_char = escape_char_str.front();
             }
 
-            // returns NULL if the search_str is not found in the document.
-            // TODO: solved with json_contains.
+            // maintain a hashset to deduplicate matches.
+            std::unordered_set<std::string> matches;
+            Json_path cur_path;
+            if (find_matches(root_element, one_or_all == "one", search_str, escape_char, paths,
+                             &cur_path, &matches)) {
+                // returns NULL if the search_str is not found in the document.
+                result_null_map->get_data()[i] = 1;
+                continue;
+            }
 
-            // returns NULL if no path exists within the document.
-            // TODO: solved with json_contains_path.
+            // TODO(niebayes): returns NULL if no path exists within the document.
+            // solution (1): solved with json_contains_path.
+            // solution (2): collect all existing paths and check if the any existing path is contained by any given path arg.
+
+            const std::string result_str = make_result_str(matches);
+            result_col->insert(result_str);
         }
 
         auto result_col_nullable =
