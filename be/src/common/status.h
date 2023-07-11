@@ -357,8 +357,8 @@ public:
         }
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
-            LOG(WARNING) << "meet error status: " << status;
             status._err_msg->_stack = get_stack_trace();
+            LOG(WARNING) << "meet error status: " << status;
         }
 #endif
         return status;
