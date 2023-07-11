@@ -42,6 +42,13 @@ mysql> select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt;
 |    0 |
 +------+
 
+mysql> select bitmap_to_string(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt;
++------+
+| cnt  |
++------+
+|      |
++------+
+
 mysql> select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt;
 +------+
 | cnt  |
