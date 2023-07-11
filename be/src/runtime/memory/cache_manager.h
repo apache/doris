@@ -46,12 +46,12 @@ public:
         }
     }
 
-    int64_t for_each_cahce_prune_stale_wrap(std::function<void(CachePolicy* cache_policy)> func,
+    int64_t for_each_cache_prune_stale_wrap(std::function<void(CachePolicy* cache_policy)> func,
                                             RuntimeProfile* profile = nullptr);
 
-    int64_t for_each_cahce_prune_stale(RuntimeProfile* profile = nullptr);
+    int64_t for_each_cache_prune_stale(RuntimeProfile* profile = nullptr);
 
-    int64_t for_each_cahce_prune_all(RuntimeProfile* profile = nullptr);
+    int64_t for_each_cache_prune_all(RuntimeProfile* profile = nullptr);
 
 private:
     static inline CacheManager* _s_instance = nullptr;

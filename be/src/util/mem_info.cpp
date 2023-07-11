@@ -124,7 +124,7 @@ bool MemInfo::process_minor_gc() {
                                  freed_mem, watch.elapsed_time() / 1000, ss.str());
     }};
 
-    freed_mem += CacheManager::instance()->for_each_cahce_prune_stale(profile.get());
+    freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
     je_purge_all_arena_dirty_pages();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
@@ -173,7 +173,7 @@ bool MemInfo::process_full_gc() {
                                  freed_mem, watch.elapsed_time() / 1000, ss.str());
     }};
 
-    freed_mem += CacheManager::instance()->for_each_cahce_prune_all(profile.get());
+    freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
     je_purge_all_arena_dirty_pages();
     if (freed_mem > _s_process_full_gc_size) {
         return true;

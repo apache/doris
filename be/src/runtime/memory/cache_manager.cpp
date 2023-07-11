@@ -22,7 +22,7 @@
 
 namespace doris {
 
-int64_t CacheManager::for_each_cahce_prune_stale_wrap(
+int64_t CacheManager::for_each_cache_prune_stale_wrap(
         std::function<void(CachePolicy* cache_policy)> func, RuntimeProfile* profile) {
     int64_t freed_size = 0;
     std::lock_guard<std::mutex> l(_caches_lock);
@@ -36,13 +36,13 @@ int64_t CacheManager::for_each_cahce_prune_stale_wrap(
     return freed_size;
 }
 
-int64_t CacheManager::for_each_cahce_prune_stale(RuntimeProfile* profile) {
-    return for_each_cahce_prune_stale_wrap(
+int64_t CacheManager::for_each_cache_prune_stale(RuntimeProfile* profile) {
+    return for_each_cache_prune_stale_wrap(
             [](CachePolicy* cache_policy) { cache_policy->prune_stale(); }, profile);
 }
 
-int64_t CacheManager::for_each_cahce_prune_all(RuntimeProfile* profile) {
-    return for_each_cahce_prune_stale_wrap(
+int64_t CacheManager::for_each_cache_prune_all(RuntimeProfile* profile) {
+    return for_each_cache_prune_stale_wrap(
             [](CachePolicy* cache_policy) { cache_policy->prune_all(); }, profile);
 }
 
