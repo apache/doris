@@ -26,15 +26,18 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -87,8 +90,20 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
         DateTimeV2Type rightType = right.getDataType();
         if (leftType.getScale() < rightType.getScale()) {
             int toScale = leftType.getScale();
-            if (comparisonPredicate instanceof EqualTo
-                    || comparisonPredicate instanceof NullSafeEqual) {
+            if (comparisonPredicate instanceof EqualTo) {
+                long originValue = right.getMicroSecond();
+                right = right.roundCeiling(toScale);
+                if (right.getMicroSecond() == originValue) {
+                    return comparisonPredicate.withChildren(left, right);
+                } else {
+                    if (left.nullable()) {
+                        return new If(new IsNull(left), new NullLiteral(left.getDataType()),
+                                BooleanLiteral.of(false));
+                    } else {
+                        return BooleanLiteral.of(false);
+                    }
+                }
+            } else if (comparisonPredicate instanceof NullSafeEqual) {
                 long originValue = right.getMicroSecond();
                 right = right.roundCeiling(toScale);
                 if (right.getMicroSecond() == originValue) {
@@ -191,27 +206,33 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
             if (((DecimalV3Type) left.getDataType())
                     .getScale() < ((DecimalV3Type) literal.getDataType()).getScale()) {
                 int toScale = ((DecimalV3Type) left.getDataType()).getScale();
-                try {
-
-                    if (comparisonPredicate instanceof EqualTo
-                            || comparisonPredicate instanceof NullSafeEqual) {
-                        BigDecimal originValue = literal.getValue();
-                        literal = literal.roundCeiling();
-                        if (literal.getValue().equals(originValue.setScale(toScale))) {
-                            return comparisonPredicate.withChildren(left, literal);
+                if (comparisonPredicate instanceof EqualTo) {
+                    try {
+                        BigDecimal newValue = literal.getValue().setScale(toScale);
+                        return comparisonPredicate.withChildren(left,
+                                new DecimalV3Literal(newValue));
+                    } catch (ArithmeticException e) {
+                        if (left.nullable()) {
+                            return new If(new IsNull(left), new NullLiteral(left.getDataType()),
+                                    BooleanLiteral.of(false));
                         } else {
                             return BooleanLiteral.of(false);
                         }
-                    } else if (comparisonPredicate instanceof GreaterThan
-                            || comparisonPredicate instanceof LessThanEqual) {
-                        return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
-                    } else if (comparisonPredicate instanceof LessThan
-                            || comparisonPredicate instanceof GreaterThanEqual) {
-                        return comparisonPredicate.withChildren(left,
-                                literal.roundCeiling(toScale));
                     }
-                } catch (ArithmeticException e) {
-                    return BooleanLiteral.of(false);
+                } else if (comparisonPredicate instanceof NullSafeEqual) {
+                    try {
+                        BigDecimal newValue = literal.getValue().setScale(toScale);
+                        return comparisonPredicate.withChildren(left,
+                                new DecimalV3Literal(newValue));
+                    } catch (ArithmeticException e) {
+                        return BooleanLiteral.of(false);
+                    }
+                } else if (comparisonPredicate instanceof GreaterThan
+                        || comparisonPredicate instanceof LessThanEqual) {
+                    return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
+                } else if (comparisonPredicate instanceof LessThan
+                        || comparisonPredicate instanceof GreaterThanEqual) {
+                    return comparisonPredicate.withChildren(left, literal.roundCeiling(toScale));
                 }
             }
         }
