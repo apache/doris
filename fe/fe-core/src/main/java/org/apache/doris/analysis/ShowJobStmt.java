@@ -58,10 +58,14 @@ public class ShowJobStmt extends ShowStmt {
     private boolean includeHistory = false;
     private String pattern; // optional
 
-    public ShowJobStmt(LabelName labelName, boolean includeHistory, String pattern) {
+/*    public ShowJobStmt(LabelName labelName, boolean includeHistory, String pattern) {
         this.labelName = labelName;
         this.includeHistory = includeHistory;
         this.pattern = pattern;
+    }*/
+
+    public ShowJobStmt() {
+        this.labelName = null;
     }
 
     public String getDbFullName() {

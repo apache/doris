@@ -260,6 +260,7 @@ terminal String
     KW_AUTO_INCREMENT,
     KW_AS,
     KW_ASC,
+    KW_AT,
     KW_AUTHORS,
     KW_BACKEND,
     KW_BACKENDS,
@@ -342,6 +343,7 @@ terminal String
     KW_DISTRIBUTED,
     KW_DISTRIBUTION,
     KW_DIV,
+    KW_DO,
     KW_DOUBLE,
     KW_DROP,
     KW_DROPP,
@@ -352,11 +354,14 @@ terminal String
     KW_ENCRYPTKEY,
     KW_ENCRYPTKEYS,
     KW_END,
+    KW_ENDS,
     KW_ENGINE,
     KW_ENGINES,
     KW_ENTER,
     KW_ERRORS,
+    KW_EVENT,
     KW_EVENTS,
+    KW_EVERY,
     KW_EXCEPT,
     KW_EXCLUDE,
     KW_EXISTS,
@@ -547,16 +552,11 @@ terminal String
     KW_ROLLBACK,
     KW_ROLLUP,
     KW_ROUTINE,
-    KW_EVENT,
-    KW_EVERY,
-    KW_AT,
-    KW_SCHEDULER,
-    KW_STARTS,
-    KW_ENDS,    
     KW_ROW,
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
+    KW_SCHEDULER,    
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -575,6 +575,7 @@ terminal String
     KW_SPLIT,
     KW_SQL_BLOCK_RULE,
     KW_START,
+    KW_STARTS,    
     KW_STATS,
     KW_STATUS,
     KW_STOP,
@@ -802,8 +803,9 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
-nonterminal String starts;
-nonterminal String ends;
+nonterminal String opt_event_starts;
+nonterminal String opt_event_ends;
+nonterminal String event_do;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -2630,52 +2632,68 @@ resource_desc ::=
     :}                                                                               
     ; 
 create_event_stmt ::=
-    KW_CREATE KW_EVENT job_label:jobLabel
-    KW_ON KW_SCHEDULER
-    KW_AT STRING_LITERAL:at_time
-    | KW_EVERY KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit starts:starts ends:ends
-    opt_comment:comment
+     KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit opt_event_starts:startsTime opt_event_ends:endsTime event_do:executeSql opt_comment:comment
+    
+    {:
+        CreateJobStmt stmt = new CreateJobStmt();
+        RESULT = stmt;
+    :}
+    | KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:at_time event_do:executeSql  opt_comment:comment
     {:
         CreateJobStmt stmt = new CreateJobStmt();
         RESULT = stmt;
     :}
     ;                           
- starts ::= KW_STARTS STRING_LITERAL:start_time {: /* 规约操作 */ :}
-            ;
+ opt_event_starts ::= 
+     {:
+         RESULT = null;
+     :}
+     | KW_STARTS STRING_LITERAL:startTime 
+     {: 
+        RESULT = startTime;    
+     :}
+     ;
  
- ends ::= KW_ENDS STRING_LITERAL:ends_time {: /* 规约操作 */ :}
-          ;  
-
-show_event_stmt ::=
-    KW_SHOW KW_EVENT
+ opt_event_ends ::= 
+     {:
+         RESULT = null;
+     :}    
+     | KW_ENDS STRING_LITERAL:endTime 
+     {:  
+          RESULT = endTime;  
+     :}
+     ; 
+ event_do ::=
+     KW_DO STRING_LITERAL:sqlString
+     {:
+        RESULT = sqlString;
+     :}
+     ;         
+resume_event_stmt ::=
+    KW_RESUME KW_EVENT job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt();
+        RESULT = new ResumeJobStmt();
     :}
+    ;    
+show_event_stmt ::=
+    KW_SHOW  KW_SCHEDULER  KW_JOB KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
+    :}    
     ;
 pause_event_stmt ::=
-    KW_PAUSE KW_EVENT job_label:jobLabel
+    KW_PAUSE KW_STARTS KW_JOB  KW_FOR job_label:jobLabel
     {:
         RESULT = new PauseJobStmt(jobLabel);
     :}
     ;
-resume_event_stmt ::=
-    KW_RESUME KW_EVENT job_label:jobLabel
-    {:
-        RESULT = new ResumeJobStmt(jobLabel);
-    :}
-    ;    
+
 stop_event_stmt ::=
     KW_STOP KW_EVENT job_label:jobLabel
     {:
         RESULT = new StopJobStmt(jobLabel);
     :}
-    ;
-show_event_stmt ::=
-    KW_SHOW KW_EVENT
-    {:
-        RESULT = new ShowJobStmt();
-    :}
-    ;                     
+    ;                   
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -7401,6 +7419,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DISTINCTPCSA:id
     {: RESULT = id; :}
+    | KW_DO:id
+    {: RESULT = id; :}
     | KW_BUCKETS:id
     {: RESULT = id; :}
     | KW_FAST:id
@@ -7577,7 +7597,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}
-    | KW_ROLLUP:id
+    | KW_SCHEDULER:id
     {: RESULT = id; :}
     | KW_SCHEMA:id
     {: RESULT = id; :}
@@ -7669,15 +7689,15 @@ keyword ::=
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
-    | KW_ROUTINE:id
-    {: RESULT = id; :}
     | KW_EVENT:id
+    {: RESULT = id; :}
+    | KW_ROUTINE:id
     {: RESULT = id; :}
     | KW_EVERY:id   
     {: RESULT = id; :}
     | KW_AT:id         
     {: RESULT = id; :}
-    | KW_SCHEDULER:id    
+    | KW_ROLLUP:id    
     {: RESULT = id; :}
     | KW_STARTS:id     
     {: RESULT = id; :}

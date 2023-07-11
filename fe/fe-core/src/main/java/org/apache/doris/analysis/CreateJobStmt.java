@@ -40,7 +40,12 @@ public class CreateJobStmt extends DdlStmt {
     @Getter
     private Job job;
 
-    public CreateJobStmt() {
+    public CreateJobStmt(LabelName labelName, String onceJobStartTimestamp, Integer interval, String intervalTimeUnit,String startsTimeStamp, String endsTimeStamp, String doStmt) {
+       if(StringUtils.isBlank(onceJobStartTimestamp)) {
+           job=new Job();
+          // job
+       }
+        
     }
 
 /*
