@@ -177,6 +177,7 @@ TEST(VTimestampFunctionsTest, second_test) {
 
 TEST(VTimestampFunctionsTest, from_unix_test) {
     std::string func_name = "from_unixtime";
+    TimezoneUtils::load_timezone_names();
 
     InputTypeSet input_types = {TypeIndex::Int32};
 
@@ -538,6 +539,7 @@ TEST(VTimestampFunctionsTest, makedate_test) {
 }
 
 TEST(VTimestampFunctionsTest, convert_tz_test) {
+    TimezoneUtils::load_timezone_names();
     std::string func_name = "convert_tz";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String, TypeIndex::String};
@@ -1677,6 +1679,7 @@ TEST(VTimestampFunctionsTest, seconds_sub_v2_test) {
 }
 
 TEST(VTimestampFunctionsTest, convert_tz_v2_test) {
+    TimezoneUtils::load_timezone_names();
     std::string func_name = "convert_tz";
 
     InputTypeSet input_types = {TypeIndex::DateTimeV2, TypeIndex::String, TypeIndex::String};
