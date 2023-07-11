@@ -432,6 +432,10 @@ Status VNodeChannel::open_wait() {
                         _tablets_received_rows.emplace_back(tablet.tablet_id(),
                                                             tablet.received_rows());
                     }
+                    if (tablet.has_num_rows_filtered()) {
+                        _state->update_num_rows_filtered_in_strict_mode_partial_update(
+                                tablet.num_rows_filtered());
+                    }
                     VLOG_CRITICAL << "master replica commit info: tabletId=" << tablet.tablet_id()
                                   << ", backendId=" << _node_id
                                   << ", master node id: " << this->node_id()
@@ -1448,8 +1452,10 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
             COUNTER_SET(_input_rows_counter, _number_input_rows);
             COUNTER_SET(_output_rows_counter, _number_output_rows);
-            COUNTER_SET(_filtered_rows_counter, _block_convertor->num_filtered_rows() +
-                                                        _tablet_finder->num_filtered_rows());
+            COUNTER_SET(_filtered_rows_counter,
+                        _block_convertor->num_filtered_rows() +
+                                _tablet_finder->num_filtered_rows() +
+                                state->num_rows_filtered_in_strict_mode_partial_update());
             COUNTER_SET(_send_data_timer, _send_data_ns);
             COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
             COUNTER_SET(_filter_timer, _filter_ns);
@@ -1469,8 +1475,9 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
             int64_t num_rows_load_total = _number_input_rows + state->num_rows_load_filtered() +
                                           state->num_rows_load_unselected();
             state->set_num_rows_load_total(num_rows_load_total);
-            state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
-                                                 _tablet_finder->num_filtered_rows());
+            state->update_num_rows_load_filtered(
+                    _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() +
+                    state->num_rows_filtered_in_strict_mode_partial_update());
             state->update_num_rows_load_unselected(
                     _tablet_finder->num_immutable_partition_filtered_rows());
 
