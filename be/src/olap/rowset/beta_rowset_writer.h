@@ -36,6 +36,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/delta_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -95,6 +96,8 @@ public:
     Version version() override { return _context.version; }
 
     int64_t num_rows() const override { return _raw_num_rows_written; }
+
+    int64_t num_rows_filtered() const override { return _num_rows_filtered; }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
@@ -201,6 +204,8 @@ protected:
         KeyBoundsPB key_bounds;
     };
     std::map<uint32_t, Statistics> _segid_statistics_map;
+    std::atomic<int64_t> _num_rows_filtered;
+
     std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;

@@ -46,6 +46,7 @@
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
+#include "olap/utils.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
@@ -376,6 +377,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
+
+    int64_t num_rows_filtered = 0;
     {
         for (size_t pos = row_pos; pos < num_rows; pos++) {
             std::string key = _full_encode_keys(key_columns, pos);
@@ -389,9 +392,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                               _mow_context->max_version, segment_caches, &rowset);
             if (st.is<NOT_FOUND>()) {
                 if (_tablet_schema->is_strict_mode()) {
-                    return Status::InternalError(
-                            "partial update in strict mode only support updating rows with an "
-                            "existing key!");
+                    ++num_rows_filtered;
+                    // delete the invalid newly inserted row
+                    _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
+                                                     pos);
                 }
 
                 if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
@@ -440,6 +444,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                      num_rows));
     }
 
+    _num_rows_filtered += num_rows_filtered;
     _num_rows_written += num_rows;
     _olap_data_convertor->clear_source_content();
     return Status::OK();
