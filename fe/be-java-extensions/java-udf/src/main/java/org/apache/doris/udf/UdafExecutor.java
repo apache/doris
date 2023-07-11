@@ -23,11 +23,12 @@ import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
-
+import com.google.common.base.Preconditions;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
+import com.esotericsoftware.reflectasm.MethodAccess;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -49,7 +50,8 @@ public class UdafExecutor extends BaseExecutor {
     private HashMap<String, Method> allMethods;
     private HashMap<Long, Object> stateObjMap;
     private Class retClass;
-
+    private int addIndex;
+    private MethodAccess methodAccess;
     /**
      * Constructor to create an object.
      */
@@ -66,6 +68,81 @@ public class UdafExecutor extends BaseExecutor {
         super.close();
     }
 
+    public Object[] convertBasicArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
+            long columnAddr, long strOffsetAddr) {
+        LOG.info(argIdx + " " + isNullable + " " + rowStart + " " + rowEnd +" " + nullMapAddr + " " + columnAddr + " " + strOffsetAddr);
+        return convertBasicArg(false, argIdx, isNullable, rowStart, rowEnd, nullMapAddr, columnAddr, strOffsetAddr);
+    }
+
+    public Object[] convertArrayArguments(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        return convertArrayArg(argIdx, isNullable, rowStart, rowEnd, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr, strOffsetAddr);
+    }
+
+    public void addBatch(boolean isSinglePlace, int rowStart, int rowEnd, long placeAddr, int offset, Object[] column) throws UdfRuntimeException {
+        if (isSinglePlace) {
+            addBatchSingle(rowStart, rowEnd, placeAddr, column);
+        } else {
+            addBatchPlaces(rowStart, rowEnd, placeAddr, offset, column);
+        }
+    }
+
+    public void addBatchSingle(int rowStart, int rowEnd, long placeAddr, Object[] column) throws UdfRuntimeException {
+        try {
+            Long curPlace = placeAddr;
+            Object[] inputArgs = new Object[argTypes.length + 1];
+            Object state = stateObjMap.get(curPlace);
+            if (state != null) {
+                inputArgs[0] = state;
+            } else {
+                Object newState = createAggState();
+                stateObjMap.put(curPlace, newState);
+                inputArgs[0] = newState;
+            }
+
+            Object[][] inputs = (Object[][]) column;
+            for (int i = 0; i < (rowEnd - rowStart); ++i) {
+                for (int j = 0; j < column.length; ++j) {
+                    inputArgs[j + 1] = inputs[j][i];
+                }
+                methodAccess.invoke(udf, addIndex, inputArgs);
+            }
+        } catch (Exception e) {
+            LOG.warn("invoke add function meet some error: " + e.getCause().toString());
+            throw new UdfRuntimeException("UDAF failed to addBatchSingle: ", e);
+        }
+    }
+
+    public void addBatchPlaces(int rowStart, int rowEnd, long placeAddr, int offset, Object[] column) throws UdfRuntimeException {
+        try {
+            Object[][] inputs = (Object[][]) column;
+            ArrayList<Object> placeState = new ArrayList<>(rowEnd - rowStart);
+            for (int row = rowStart; row < rowEnd; ++row) {
+                Long curPlace = UdfUtils.UNSAFE.getLong(null, placeAddr + (8L * row)) + offset;
+                Object state = stateObjMap.get(curPlace);
+                if (state != null) {
+                    placeState.add(state);
+                } else {
+                    Object newState = createAggState();
+                    stateObjMap.put(curPlace, newState);
+                    placeState.add(newState);
+                }
+            }
+            //spilt into two for loop
+
+            Object[] inputArgs = new Object[argTypes.length + 1];
+            for (int row = 0; row < (rowEnd - rowStart); ++row) {
+                inputArgs[0] = placeState.get(row);
+                for (int j = 0; j < column.length; ++j) {
+                    inputArgs[j + 1] = inputs[j][row];
+                }
+                methodAccess.invoke(udf, addIndex, inputArgs);
+            }
+        } catch (Exception e) {
+            LOG.warn("invoke add function meet some error: " + e.getCause().toString());
+            throw new UdfRuntimeException("UDAF failed to addBatchPlaces: ", e);
+        }
+    }
     /**
      * invoke add function, add row in loop [rowStart, rowEnd).
      */
@@ -251,6 +328,7 @@ public class UdafExecutor extends BaseExecutor {
                 loader = ClassLoader.getSystemClassLoader();
             }
             Class<?> c = Class.forName(className, true, loader);
+            methodAccess = MethodAccess.get(c);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getDeclaredMethods();
@@ -281,7 +359,7 @@ public class UdafExecutor extends BaseExecutor {
                     }
                     case UDAF_ADD_FUNCTION: {
                         allMethods.put(methods[idx].getName(), methods[idx]);
-
+                        addIndex = methodAccess.getIndex(UDAF_ADD_FUNCTION);
                         argClass = methods[idx].getParameterTypes();
                         if (argClass.length != parameterTypes.length + 1) {
                             LOG.debug("add function parameterTypes length not equal " + argClass.length + " "
