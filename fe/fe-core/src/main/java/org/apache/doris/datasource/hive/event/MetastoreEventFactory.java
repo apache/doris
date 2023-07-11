@@ -83,6 +83,15 @@ public class MetastoreEventFactory implements EventFactory {
     /**
      * Merge events to reduce the cost time on event processing, currently mainly handles MetastoreTableEvent
      * because merge MetastoreTableEvent is simple and cost-effective.
+     * For example, consider there are some events as following:
+     *
+     *    event1: alter table db1.t1 add partition p1;
+     *    event2: alter table db1.t1 drop partition p2;
+     *    event3: alter table db1.t2 add partition p3;
+     *    event4: alter table db2.t3 rename to t4;
+     *    event5: drop table db1.t1;
+     *
+     * Only `event3 event4 event5` will be reserved and other events will be skipped.
      * */
     public List<MetastoreEvent> createBatchEvents(String catalogName, List<MetastoreEvent> events) {
         List<MetastoreEvent> eventsCopy = Lists.newArrayList(events);

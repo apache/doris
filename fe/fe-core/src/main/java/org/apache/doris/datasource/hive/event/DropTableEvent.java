@@ -63,6 +63,11 @@ public class DropTableEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willCreateOrDropTable() {
+        return true;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
@@ -75,12 +80,8 @@ public class DropTableEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent that) {
-        if (!isSameTable(that)) {
-            return false;
-        }
-        if (that instanceof AlterTableEvent) {
-            return !((AlterTableEvent) that).isRename();
-        }
-        return true;
+        // `that` event must not be a rename table event
+        // so merge all events which belong to this table before is ok
+        return isSameTable(that);
     }
 }

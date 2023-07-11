@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 /**
  * MetastoreEvent for ADD_PARTITION event type
  */
-public class DropPartitionEvent extends MetastoreTableEvent {
+public class DropPartitionEvent extends MetastorePartitionEvent {
     private final Table hmsTbl;
     private final List<String> partitionNames;
 

@@ -37,7 +37,7 @@ public class InsertEvent extends MetastoreTableEvent {
 
     // for test
     public InsertEvent(long eventId, String catalogName, String dbName,
-                          String tblName) {
+                       String tblName) {
         super(eventId, catalogName, dbName, tblName);
         this.hmsTbl = null;
     }
@@ -59,6 +59,11 @@ public class InsertEvent extends MetastoreTableEvent {
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event, String catalogName) {
         return Lists.newArrayList(new InsertEvent(event, catalogName));
+    }
+
+    @Override
+    protected boolean willCreateOrDropTable() {
+        return false;
     }
 
     @Override
@@ -85,9 +90,9 @@ public class InsertEvent extends MetastoreTableEvent {
         if (!isSameTable(that)) {
             return false;
         }
-        if (that instanceof AlterTableEvent) {
-            return !((AlterTableEvent) that).isRename() && !((AlterTableEvent) that).isView();
-        }
-        return !(that instanceof DropTableEvent) && !(that instanceof CreateTableEvent);
+
+        // that event must be a MetastoreTableEvent event
+        // otherwise `isSameTable` will return false
+        return !((MetastoreTableEvent) that).willCreateOrDropTable();
     }
 }

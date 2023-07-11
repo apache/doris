@@ -62,6 +62,11 @@ public class CreateTableEvent extends MetastoreTableEvent {
     }
 
     @Override
+    protected boolean willCreateOrDropTable() {
+        return true;
+    }
+
+    @Override
     protected void process() throws MetastoreNotificationException {
         try {
             infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);

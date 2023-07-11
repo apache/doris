@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 /**
  * MetastoreEvent for ALTER_PARTITION event type
  */
-public class AlterPartitionEvent extends MetastoreTableEvent {
+public class AlterPartitionEvent extends MetastorePartitionEvent {
     private final Table hmsTbl;
     private final org.apache.hadoop.hive.metastore.api.Partition partitionAfter;
     private final org.apache.hadoop.hive.metastore.api.Partition partitionBefore;
@@ -110,8 +110,8 @@ public class AlterPartitionEvent extends MetastoreTableEvent {
 
     @Override
     protected boolean canBeBatched(MetastoreEvent event) {
-        return event instanceof AlterPartitionEvent
-                    && isSameTable(event)
+        return isSameTable(event)
+                    && event instanceof AlterPartitionEvent
                     && Objects.equals(partitionBefore, ((AlterPartitionEvent) event).partitionBefore)
                     && Objects.equals(partitionAfter, ((AlterPartitionEvent) event).partitionAfter);
     }

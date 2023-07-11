@@ -59,8 +59,13 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
         }
         TableKey thisKey = getTableKey();
         TableKey thatKey = ((MetastoreTableEvent) that).getTableKey();
-        return thisKey.hashCode() == thatKey.hashCode() && Objects.equals(thisKey, thatKey);
+        return Objects.equals(thisKey, thatKey);
     }
+
+    /**
+     * Returns if the process of this event will create or drop this table.
+     */
+    abstract protected boolean willCreateOrDropTable();
 
     public TableKey getTableKey() {
         return new TableKey(catalogName, dbName, tblName);
