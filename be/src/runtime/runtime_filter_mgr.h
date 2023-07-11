@@ -147,7 +147,6 @@ public:
         IRuntimeFilter* filter;
         std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
-        int arrive_count;
     };
 
 public:

@@ -215,7 +215,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     std::shared_ptr<RuntimeFilterCntlVal> cntVal = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cntVal
-    cntVal->arrive_count = 0;
     cntVal->producer_size = producer_size;
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->target_info = *target_info;
@@ -238,7 +237,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     std::shared_ptr<RuntimeFilterCntlVal> cntVal = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cntVal
-    cntVal->arrive_count = 0;
     cntVal->producer_size = producer_size;
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->targetv2_info = *targetv2_info;
@@ -333,18 +331,12 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     cntVal = iter->second.first;
     {
         std::lock_guard<SpinLock> l(*iter->second.second);
-        if (auto bf = cntVal->filter->get_bloomfilter()) {
-            if (cntVal->arrive_count > 0) {
-                RETURN_IF_ERROR(bf->init_with_fixed_length());
-            }
-        }
         MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, &params, pool, holder.getHandle()));
         RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
         cntVal->arrive_id.insert(UniqueId(request->fragment_id()));
-        cntVal->arrive_count++;
         merged_size = cntVal->arrive_id.size();
         // TODO: avoid log when we had acquired a lock
         VLOG_ROW << "merge size:" << merged_size << ":" << cntVal->producer_size;
