@@ -51,6 +51,7 @@
 #include "util/arrow/row_batch.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
+#include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
@@ -77,7 +78,6 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
-#include "util/string_parser.hpp"
 
 namespace doris::vectorized {
 
@@ -164,9 +164,11 @@ void serialize_and_deserialize_arrow_test() {
             type_desc.scale = 2;
             tslot.__set_slotType(type_desc.to_thrift());
             {
-                vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal<Decimal32 >>(type_desc.precision, type_desc.scale);
+                vectorized::DataTypePtr decimal_data_type =
+                        std::make_shared<DataTypeDecimal<Decimal32>>(type_desc.precision,
+                                                                     type_desc.scale);
                 auto decimal_column = decimal_data_type->create_column();
-                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int32 >>*)
+                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int32>>*)
                                       decimal_column.get())
                                      ->get_data();
                 for (int i = 0; i < row_num; ++i) {
@@ -176,10 +178,12 @@ void serialize_and_deserialize_arrow_test() {
                     }
                     Int32 val;
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    i % 2 == 0 ? val = StringParser::string_to_decimal<__int128>("1234567.56", 11, type_desc.precision, type_desc.scale,
-                                                                              &result)
-                               : val = StringParser::string_to_decimal<__int128>("-1234567.56", 12, type_desc.precision, type_desc.scale,
-                                                                               &result);
+                    i % 2 == 0 ? val = StringParser::string_to_decimal<__int128>(
+                                         "1234567.56", 11, type_desc.precision, type_desc.scale,
+                                         &result)
+                               : val = StringParser::string_to_decimal<__int128>(
+                                         "-1234567.56", 12, type_desc.precision, type_desc.scale,
+                                         &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
                     data.push_back(val);
                 }
@@ -194,7 +198,9 @@ void serialize_and_deserialize_arrow_test() {
             type_desc.scale = 6;
             tslot.__set_slotType(type_desc.to_thrift());
             {
-                vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal<Decimal64>>(type_desc.precision, type_desc.scale);
+                vectorized::DataTypePtr decimal_data_type =
+                        std::make_shared<DataTypeDecimal<Decimal64>>(type_desc.precision,
+                                                                     type_desc.scale);
                 auto decimal_column = decimal_data_type->create_column();
                 auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int64>>*)
                                       decimal_column.get())
@@ -206,9 +212,11 @@ void serialize_and_deserialize_arrow_test() {
                     }
                     Int64 val;
                     StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-                    std::string decimal_string = i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
-                    val = StringParser::string_to_decimal<__int128>(decimal_string.c_str(), decimal_string.size(), type_desc.precision, type_desc.scale,
-                                                                                &result);
+                    std::string decimal_string =
+                            i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
+                    val = StringParser::string_to_decimal<__int128>(
+                            decimal_string.c_str(), decimal_string.size(), type_desc.precision,
+                            type_desc.scale, &result);
                     EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
                     data.push_back(val);
                 }
