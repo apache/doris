@@ -112,7 +112,7 @@ public class ColumnDef {
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 
         public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
-            if (precision > 6 || precision < 0) {
+            if (precision > ScalarType.MAX_DATETIMEV2_SCALE || precision < 0) {
                 throw new IllegalArgumentException("column's default value current_timestamp"
                             + " precision must be between 0 and 6");
             }
