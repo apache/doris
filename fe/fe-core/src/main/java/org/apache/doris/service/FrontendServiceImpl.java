@@ -64,6 +64,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -71,6 +72,8 @@ import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -164,6 +167,7 @@ import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableQueryStats;
 import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
+import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
@@ -2669,5 +2673,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    @Override
+    public TStatus updateStatsCache(TUpdateFollowerStatsCacheRequest request) throws TException {
+        StatisticsCacheKey key = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
+        ColumnStatistic columnStatistic = GsonUtils.GSON.fromJson(request.colStats, ColumnStatistic.class);
+        Env.getCurrentEnv().getStatisticsCache().putCache(key, columnStatistic);
+        return new TStatus(TStatusCode.OK);
     }
 }

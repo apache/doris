@@ -148,12 +148,12 @@ public class StatisticsUtil {
                 .collect(Collectors.toList());
     }
 
-    public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
+    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
             throws Exception {
         if (CollectionUtils.isEmpty(resultBatches)) {
-            return Collections.emptyList();
+            return null;
         }
-        return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
+        return ColumnStatistic.fromResultRow(resultBatches);
     }
 
     public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches)
