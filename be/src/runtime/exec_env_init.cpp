@@ -118,6 +118,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
+    TimezoneUtils::load_timezone_names();
+
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
             .set_max_threads(config::send_batch_thread_pool_thread_num)
