@@ -64,4 +64,4 @@ mysql> select bitmap_to_string(bitmap_and_not(bitmap_from_string('1,3,5'),bitmap
 
 ### keywords
 
-    BITMAP_AND_NOT,BITMAP,BITMAP_TO_STRING
+    BITMAP_AND_NOT,BITMAP_TO_STRING,BITMAP
