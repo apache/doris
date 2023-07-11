@@ -100,6 +100,17 @@ public class OdbcScanNode extends ScanNode {
                 return filter;
             }
         }
+        if (tableType.equals(TOdbcTableType.CLICKHOUSE && expr.contains(DateLiteral.class)
+                && (expr instanceof BinaryPredicate)) {
+            ArrayList<Expr> children = expr.getChildren();
+            if (children.get(1).isConstant() && (children.get(1).getType().isDate()) || children
+                    .get(1).getType().isDateV2()) {
+                String filter = children.get(0).toSql();
+                filter += ((BinaryPredicate) expr).getOp().toString();
+                filter += "date '" + children.get(1).getStringValue() + "'";
+                return filter;
+            }
+        }
 
         return expr.toMySql();
     }
