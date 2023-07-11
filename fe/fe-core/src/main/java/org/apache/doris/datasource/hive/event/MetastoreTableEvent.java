@@ -65,7 +65,7 @@ public abstract class MetastoreTableEvent extends MetastoreEvent {
     /**
      * Returns if the process of this event will create or drop this table.
      */
-    abstract protected boolean willCreateOrDropTable();
+    protected abstract boolean willCreateOrDropTable();
 
     public TableKey getTableKey() {
         return new TableKey(catalogName, dbName, tblName);
