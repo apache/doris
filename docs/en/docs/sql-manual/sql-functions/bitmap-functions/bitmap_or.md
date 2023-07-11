@@ -56,28 +56,28 @@ mysql> select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt;
 |    2 |
 +------+
 
-MySQL> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2)));
+mysql> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2)));
 +---------------------------------------------------------+
 | bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2))) |
 +---------------------------------------------------------+
 | 1,2                                                     |
 +---------------------------------------------------------+
 
-MySQL> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL));
+mysql> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL));
 +--------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) |
 +--------------------------------------------------------------------------------------------+
 | NULL                                                                                       |
 +--------------------------------------------------------------------------------------------+
 
-MySQL> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2),to_bitmap(10),to_bitmap(0),bitmap_empty()));
+mysql> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2),to_bitmap(10),to_bitmap(0),bitmap_empty()));
 +------------------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), bitmap_empty())) |
 +------------------------------------------------------------------------------------------------------+
 | 0,1,2,10                                                                                             |
 +------------------------------------------------------------------------------------------------------+
 
-MySQL> select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) ;
+mysql> select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) ;
 +--------------------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) |
 +--------------------------------------------------------------------------------------------------------+
