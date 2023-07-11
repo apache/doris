@@ -2164,7 +2164,7 @@ tablet 状态更新间隔
 
 #### `enable_storage_policy`
 
-是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。该功能仍在开发中，不排除后续后功能修改或重构。仅建议测试环境使用。
+是否开启 Storage Policy 功能。该功能用户冷热数据分离功能。
 
 默认值：false。即不开启
 
