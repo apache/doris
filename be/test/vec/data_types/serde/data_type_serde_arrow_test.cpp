@@ -77,6 +77,8 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
+#include "util/string_parser.hpp"
+
 namespace doris::vectorized {
 
 template <bool is_scalar>
@@ -84,12 +86,16 @@ void serialize_and_deserialize_arrow_test() {
     vectorized::Block block;
     std::vector<std::tuple<std::string, FieldType, int, PrimitiveType, bool>> cols;
     if constexpr (is_scalar) {
-        cols = {{"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
+        cols = {
+                {"k1", FieldType::OLAP_FIELD_TYPE_INT, 1, TYPE_INT, false},
                 {"k7", FieldType::OLAP_FIELD_TYPE_INT, 7, TYPE_INT, true},
                 {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
                 {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
                 {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
-                {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false}};
+                {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
+                {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
+                {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
+        };
     } else {
         cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
                 {"m", FieldType::OLAP_FIELD_TYPE_MAP, 8, TYPE_MAP, true},
@@ -151,6 +157,64 @@ void serialize_and_deserialize_arrow_test() {
                 vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
                                                                 col_name);
                 block.insert(std::move(type_and_name));
+            }
+            break;
+        case TYPE_DECIMAL32:
+            type_desc.precision = 9;
+            type_desc.scale = 2;
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal<Decimal32 >>(type_desc.precision, type_desc.scale);
+                auto decimal_column = decimal_data_type->create_column();
+                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int32 >>*)
+                                      decimal_column.get())
+                                     ->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    if (i == 0) {
+                        data.push_back(Int32(0));
+                        continue;
+                    }
+                    Int32 val;
+                    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                    i % 2 == 0 ? val = StringParser::string_to_decimal<__int128>("1234567.56", 11, type_desc.precision, type_desc.scale,
+                                                                              &result)
+                               : val = StringParser::string_to_decimal<__int128>("-1234567.56", 12, type_desc.precision, type_desc.scale,
+                                                                               &result);
+                    EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
+                    data.push_back(val);
+                }
+
+                vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                                decimal_data_type, col_name);
+                block.insert(type_and_name);
+            }
+            break;
+        case TYPE_DECIMAL64:
+            type_desc.precision = 18;
+            type_desc.scale = 6;
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal<Decimal64>>(type_desc.precision, type_desc.scale);
+                auto decimal_column = decimal_data_type->create_column();
+                auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int64>>*)
+                                      decimal_column.get())
+                                     ->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    if (i == 0) {
+                        data.push_back(Int64(0));
+                        continue;
+                    }
+                    Int64 val;
+                    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                    std::string decimal_string = i % 2 == 0 ? "-123456789012.123456" : "123456789012.123456";
+                    val = StringParser::string_to_decimal<__int128>(decimal_string.c_str(), decimal_string.size(), type_desc.precision, type_desc.scale,
+                                                                                &result);
+                    EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
+                    data.push_back(val);
+                }
+                vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                                decimal_data_type, col_name);
+                block.insert(type_and_name);
             }
             break;
         case TYPE_DECIMAL128I:
@@ -362,7 +426,7 @@ void serialize_and_deserialize_arrow_test() {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    std::cout << "block structure: " << block.dump_structure() << std::endl;
+    std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
     convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
