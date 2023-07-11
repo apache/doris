@@ -177,6 +177,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
 
+* `have_query_cache`
+
+  Used for compatibility with MySQL clients. No practical effect.
+
 * `default_order_by_limit`
 
   Used to control the default number of items returned after OrderBy. The default value is -1, and the maximum number of records after the query is returned by default, and the upper limit is the MAX_VALUE of the long data type.
