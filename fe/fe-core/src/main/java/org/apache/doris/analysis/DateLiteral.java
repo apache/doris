@@ -499,15 +499,24 @@ public class DateLiteral extends LiteralExpr {
                 minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
                 second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
                 // because of shortcut below, we have to get microsecond of Datetime.
-                int scalar = ((ScalarType) type).getScalarScale();
+                int scale = ((ScalarType) type).getScalarScale();
                 int width = s.length() - count;
 
-                String msString = s.substring(count, s.length()).substring(0, Math.min(scalar, width));
-                microsecond = msString.length() > 0 ? Integer.parseInt(msString) : 0; // no rounding
-                // microsecond value should keep in length of its scalar. For example,
-                // In 4-width: .001 saved as 10, .100 saved as 1000
-                if (width < scalar) {
-                    microsecond *= (int) Math.pow(10, scalar - width);
+                // scale = -1 for depend on Literal
+                if (scale == -1) {
+                    String msString = s.substring(count, s.length()).substring(0,
+                            Math.min(MAX_MICROSECOND_WIDTH, width));
+                    msString = trimString(msString, '0');
+                    microsecond = msString.length() > 0 ? Integer.parseInt(msString) : 0; // no rounding
+                    ((ScalarType) type).setScalarScale(msString.length());
+                } else {
+                    String msString = s.substring(count, s.length()).substring(0, Math.min(scale, width));
+                    microsecond = msString.length() > 0 ? Integer.parseInt(msString) : 0; // no rounding
+                    // microsecond value should keep in length of its scalar. For example,
+                    // In 4-width: .001 saved as 10, .100 saved as 1000
+                    if (width < scale) {
+                        microsecond *= (int) Math.pow(10, scale - width);
+                    }
                 }
             }
 
@@ -1862,5 +1871,13 @@ public class DateLiteral extends LiteralExpr {
             }
             return;
         }
+    }
+
+    public static String trimString(String arg, char ch) {
+        int len = arg.length();
+        while (len > 0 && arg.charAt(len - 1) == ch) {
+            len--;
+        }
+        return arg.substring(0, len);
     }
 }

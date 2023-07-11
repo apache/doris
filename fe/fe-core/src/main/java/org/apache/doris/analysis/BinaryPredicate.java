@@ -328,15 +328,21 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
-    private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
-        if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
+    private Type dateV2ComparisonResultType(Expr expr0, Expr expr1) {
+        ScalarType t0 = (ScalarType) expr0.getType();
+        ScalarType t1 = (ScalarType) expr1.getType();
+        if (!t0.isDatetimeV2() && !t1.isDatetimeV2()) {
             return Type.DATEV2;
-        } else if (t1.isDatetimeV2() && t2.isDatetimeV2()) {
-            return ScalarType.createDatetimeV2Type(Math.max(t1.getScalarScale(), t2.getScalarScale()));
-        } else if (t1.isDatetimeV2()) {
-            return t1;
+        } else if (t0.isDatetimeV2() && t1.isDatetimeV2()) {
+            // SlotRef of column should not cast, which would make extra CastExpr
+            if (expr0 instanceof SlotRef) {
+                return t0;
+            }
+            return ScalarType.createDatetimeV2Type(Math.max(t0.getScalarScale(), t1.getScalarScale()));
+        } else if (t0.isDatetimeV2()) {
+            return t0;
         } else {
-            return t2;
+            return t1;
         }
     }
 
@@ -361,12 +367,20 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
+        // we need to get right result scale. So convert right first.
+        // we do String->Date here. then castBinaryOp() only do Scale(x)->Scale(y).
+        // TODO: check whether Decimal need this also.
+        if (getChild(0).getType().isDateType() && getChild(1).getType().isStringType()) {
+            ScalarType toType = (ScalarType) getChild(0).getType();
+            toType.setScalarScale(-1);
+            castChild(getChild(0).getType(), 1);
+        }
+
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
             if (getChild(0).getType().isDatetimeV2() && getChild(1).getType().isDatetimeV2()) {
                 Preconditions.checkArgument(getChild(0).getType() instanceof ScalarType
                         && getChild(1).getType() instanceof ScalarType);
-                return dateV2ComparisonResultType((ScalarType) getChild(0).getType(),
-                        (ScalarType) getChild(1).getType());
+                return dateV2ComparisonResultType(getChild(0), getChild(1));
             } else if (getChild(0).getType().isDatetimeV2()) {
                 return getChild(0).getType();
             } else if (getChild(1).getType().isDatetimeV2()) {
