@@ -282,26 +282,24 @@ public class UdfConvert {
         String[] argument = new String[rowsEnd - rowsStart];
         Preconditions.checkState(UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (0 - 1)) == 0,
                 "offsetsAddr[-1] should be 0;");
-
+        final int totalLen = UdfUtils.UNSAFE.getInt(null, offsetsAddr + (rowsEnd - 1) * 4L);
+        byte[] bytes = new byte[totalLen];
+        UdfUtils.copyMemory(null, charsAddr, bytes, UdfUtils.BYTE_ARRAY_OFFSET, totalLen);
         if (isNullable) {
             for (int row = rowsStart; row < rowsEnd; ++row) {
                 if (UdfUtils.UNSAFE.getByte(nullMapAddr + row) == 0) {
-                    int offset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + row * 4L);
-                    int numBytes = offset - UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
-                    long base = charsAddr + offset - numBytes;
-                    byte[] bytes = new byte[numBytes];
-                    UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
-                    argument[row - rowsStart] = new String(bytes, StandardCharsets.UTF_8);
+                    int prevOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
+                    int currOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + row * 4L);
+                    argument[row - rowsStart] = new String(bytes, prevOffset, currOffset - prevOffset,
+                            StandardCharsets.UTF_8);
                 } // else is the current row is null
             }
         } else {
             for (int row = rowsStart; row < rowsEnd; ++row) {
-                int offset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + row * 4L);
-                int numBytes = offset - UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
-                long base = charsAddr + offset - numBytes;
-                byte[] bytes = new byte[numBytes];
-                UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
-                argument[row - rowsStart] = new String(bytes, StandardCharsets.UTF_8);
+                int prevOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * (row - 1));
+                int currOffset = UdfUtils.UNSAFE.getInt(null, offsetsAddr + 4L * row);
+                argument[row - rowsStart] = new String(bytes, prevOffset, currOffset - prevOffset,
+                        StandardCharsets.UTF_8);
             }
         }
         return argument;
