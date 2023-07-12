@@ -44,7 +44,7 @@ FullCompaction::~FullCompaction() {}
 
 Status FullCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("Full compaction init failed");
     }
 
     std::unique_lock<std::mutex> full_lock(_tablet->get_full_compaction_lock());
@@ -67,7 +67,7 @@ Status FullCompaction::execute_compact_impl() {
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED>();
+        return Status::Error<BE_CLONE_OCCURRED>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -94,13 +94,13 @@ Status FullCompaction::pick_rowsets_to_compact() {
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
     RETURN_IF_ERROR(check_all_version(_input_rowsets));
     if (_input_rowsets.size() <= 1) {
-        return Status::Error<FULL_NO_SUITABLE_VERSION>();
+        return Status::Error<FULL_NO_SUITABLE_VERSION>("There is no suitable version");
     }
 
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
         // the tablet is with rowset: [0-1], [2-y]
         // and [0-1] has no data. in this situation, no need to do full compaction.
-        return Status::Error<FULL_NO_SUITABLE_VERSION>();
+        return Status::Error<FULL_NO_SUITABLE_VERSION>("There is no suitable version");
     }
 
     return Status::OK();
