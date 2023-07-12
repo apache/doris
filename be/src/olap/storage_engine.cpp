@@ -911,6 +911,7 @@ void StorageEngine::start_delete_unused_rowset() {
                     unused_rowsets_copy[it->first] = it->second;
                 }
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                evict_querying_rowset(it->second->rowset_id());
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
@@ -1055,17 +1056,10 @@ Status StorageEngine::execute_task(EngineTask* task) {
 }
 
 // check whether any unused rowsets's id equal to rowset_id
-bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id,
-                                                      RowsetSharedPtr* rs) {
+bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     std::lock_guard<std::mutex> lock(_gc_mutex);
     auto search = _unused_rowsets.find(rowset_id.to_string());
-    if (search != _unused_rowsets.end()) {
-        if (rs) {
-            *rs = search->second;
-        }
-        return true;
-    }
-    return false;
+    return search != _unused_rowsets.end();
 }
 
 void StorageEngine::create_cumulative_compaction(
@@ -1177,6 +1171,25 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
     root.Accept(writer);
     *result = std::string(strbuf.GetString());
     return Status::OK();
+}
+
+void StorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    _querying_rowsets.emplace(rs->rowset_id(), rs);
+}
+
+RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    auto it = _querying_rowsets.find(rs_id);
+    if (it != _querying_rowsets.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void StorageEngine::evict_querying_rowset(RowsetId rs_id) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    _querying_rowsets.erase(rs_id);
 }
 
 } // namespace doris

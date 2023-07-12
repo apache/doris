@@ -436,7 +436,7 @@ Status IndexBuilder::do_build_inverted_index() {
 Status IndexBuilder::modify_rowsets(const Merger::Statistics* stats) {
     for (auto rowset_ptr : _output_rowsets) {
         auto rowset_id = rowset_ptr->rowset_id();
-        if (StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id, nullptr)) {
+        if (StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
             DCHECK(false) << "output rowset: " << rowset_id.to_string() << " in unused rowsets";
         }
     }
