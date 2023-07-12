@@ -247,6 +247,8 @@ private:
 
     void _clean_unused_rowset_metas();
 
+    void _clean_unused_delete_bitmap();
+
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                      const int32_t expire);
 
