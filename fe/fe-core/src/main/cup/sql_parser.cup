@@ -2632,15 +2632,14 @@ resource_desc ::=
     :}                                                                               
     ; 
 create_event_stmt ::=
-     KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY KW_INTERVAL INTEGER_LITERAL:time_interval ident:time_unit opt_event_starts:startsTime opt_event_ends:endsTime event_do:executeSql opt_comment:comment
-    
+     KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_event_starts:startsTime opt_event_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt();
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
-    | KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:at_time event_do:executeSql  opt_comment:comment
+    | KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt();
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}
     ;                           
@@ -2672,24 +2671,28 @@ create_event_stmt ::=
 resume_event_stmt ::=
     KW_RESUME KW_EVENT job_label:jobLabel
     {:
-        RESULT = new ResumeJobStmt();
+        RESULT = new ResumeJobStmt(jobLabel);
     :}
     ;    
 show_event_stmt ::=
-    KW_SHOW  KW_SCHEDULER  KW_JOB KW_FOR job_label:jobLabel
+    KW_SHOW KW_EVENT
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, false, null);
+        RESULT = new ShowJobStmt(null,null);
+    :}
+    | KW_SHOW  KW_EVENT KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobStmt(jobLabel,null);
     :}    
     ;
 pause_event_stmt ::=
-    KW_PAUSE KW_STARTS KW_JOB  KW_FOR job_label:jobLabel
+    KW_PAUSE KW_EVENT KW_FOR job_label:jobLabel
     {:
         RESULT = new PauseJobStmt(jobLabel);
     :}
     ;
 
 stop_event_stmt ::=
-    KW_STOP KW_EVENT job_label:jobLabel
+    KW_STOP KW_EVENT KW_FOR job_label:jobLabel
     {:
         RESULT = new StopJobStmt(jobLabel);
     :}

@@ -17,41 +17,56 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
-// RESUME SYNC JOB statement used to resume sync job.
-//
-// syntax:
-//      RESUME SYNC JOB [db.]jobName
+import com.google.common.base.Strings;
+
 public class ResumeJobStmt extends DdlStmt {
 
-    private JobName jobName;
+    private final LabelName labelName;
 
-    public ResumeJobStmt() {
-        this.jobName = null;
+    private String db;
+
+    public ResumeJobStmt(LabelName labelName) {
+        this.labelName = labelName;
     }
 
-    public String getJobName() {
-        return jobName.getName();
+    public boolean isAll() {
+        return labelName == null;
+    }
+
+    public String getName() {
+        return labelName.getLabelName();
     }
 
     public String getDbFullName() {
-        return jobName.getDbName();
+        return db;
     }
-
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        jobName.analyze(analyzer);
+        checkAuth();
+        if (labelName != null) {
+            labelName.analyze(analyzer);
+            db = labelName.getDbName();
+        } else {
+            if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), analyzer.getDefaultDb());
+        }
     }
 
-    @Override
-    public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("RESUME JOB ");
-        stringBuilder.append(jobName.toSql());
-        return stringBuilder.toString();
+    private void checkAuth() throws AnalysisException {
+        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
+        if (!userIdentity.isRootUser()) {
+            throw new AnalysisException("only root user can operate");
+        }
     }
 }

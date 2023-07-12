@@ -17,6 +17,7 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.constants.SystemJob;
 import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
@@ -79,7 +80,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
             log.info("Event job is null, eventJobId: {}", jobId);
             return;
         }
-        if (!job.isRunning()) {
+        if (!job.isRunning() && !job.getJobStatus().equals(JobStatus.WAITING_FINISH)) {
             log.info("Event job is not running, eventJobId: {}", jobId);
             return;
         }
@@ -88,7 +89,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
             // TODO: We should record the result of the event task.
             //Object result = job.getExecutor().execute();
             job.getExecutor().execute(job);
-            job.setLatestCompleteExecuteTimestamp(System.currentTimeMillis());
+            job.setLatestCompleteExecuteTimeMs(System.currentTimeMillis());
             if (job.isCycleJob()) {
                 updateJobStatusIfPastEndTime(job);
             } else {
@@ -96,7 +97,7 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
                 job.finish();
             }
         } catch (Exception e) {
-            log.error("Event job execute failed, jobId: {}", jobId, e);
+            log.warn("Event job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
             job.pause(e.getMessage());
         }
     }

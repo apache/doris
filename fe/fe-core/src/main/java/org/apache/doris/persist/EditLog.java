@@ -79,6 +79,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -635,6 +636,16 @@ public class EditLog {
                 case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                     RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
                     Env.getCurrentEnv().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
+                    break;
+                }
+                case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                    Job job = (Job) journal.getData();
+                    Env.getCurrentEnv().getAsyncJobManager().replayCreateJob(job);
+                    break;
+                }
+                case OperationType.OP_UPDATE_SCHEDULER_JOB: {
+                    Job job = (Job) journal.getData();
+                    Env.getCurrentEnv().getAsyncJobManager().replayUpdateJob(job);
                     break;
                 }
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
@@ -1515,6 +1526,14 @@ public class EditLog {
 
     public void logCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         logEdit(OperationType.OP_CREATE_ROUTINE_LOAD_JOB, routineLoadJob);
+    }
+
+    public void logCreateJob(Job job) {
+        logEdit(OperationType.OP_CREATE_SCHEDULER_JOB, job);
+    }
+
+    public void logUpdateJob(Job job) {
+        logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
     public void logOpRoutineLoadJob(RoutineLoadOperation routineLoadOperation) {

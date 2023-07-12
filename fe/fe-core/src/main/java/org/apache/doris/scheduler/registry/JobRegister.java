@@ -17,8 +17,9 @@
 
 package org.apache.doris.scheduler.registry;
 
-import org.apache.doris.analysis.CreateJobStmt;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.Job;
 
@@ -35,12 +36,12 @@ public interface JobRegister {
     /**
      * Register a job
      *
-     * @param name        job name,it's not unique
-     * @param intervalMs  job interval, unit: ms
-     * @param executor    job executor @See {@link JobExecutor}
+     * @param name       job name,it's not unique
+     * @param intervalMs job interval, unit: ms
+     * @param executor   job executor @See {@link JobExecutor}
      * @return event job id
      */
-    Long registerJob(String name, Long intervalMs, JobExecutor executor);
+    Long registerJob(String name, Long intervalMs, JobExecutor executor) throws DdlException;
 
     /**
      * Register a job
@@ -53,7 +54,7 @@ public interface JobRegister {
      * @param executor       event job executor @See {@link JobExecutor}
      * @return job id
      */
-    Long registerJob(String name, Long intervalMs, Long startTimeStamp, JobExecutor executor);
+    Long registerJob(String name, Long intervalMs, Long startTimeStamp, JobExecutor executor) throws DdlException;
 
 
     /**
@@ -72,7 +73,7 @@ public interface JobRegister {
      * @return event job id
      */
     Long registerJob(String name, Long intervalMs, Long startTimeStamp, Long endTimeStamp,
-                          JobExecutor executor);
+                     JobExecutor executor) throws DdlException;
 
     /**
      * if job is running, pause it
@@ -80,14 +81,13 @@ public interface JobRegister {
      * we can resume it by {@link #resumeJob(Long)}
      *
      * @param jodId job id
-     *                if jobId not exist, return false
-     * @return true if pause success, false if pause failed
+     *              if jobId not exist, return false
      */
-    Boolean pauseJob(Long jodId);
-    
-    Boolean pauseJob(String dbName, String jobName,boolean isAll);
-    
-    Boolean resumeJob(String dbName, String jobName,boolean isAll);
+    void pauseJob(Long jodId);
+
+    void pauseJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException;
+
+    void resumeJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException;
 
     /**
      * if job is running, stop it
@@ -96,21 +96,21 @@ public interface JobRegister {
      * we will delete stopped event job
      *
      * @param jobId event job id
-     * @return true if stop success, false if stop failed
      */
-    Boolean stopJob(Long jobId);
+    void stopJob(Long jobId);
+
+    void stopJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException;
 
     /**
      * if job is paused, resume it
      *
      * @param jobId job id
-     * @return true if resume success, false if resume failed
      */
-    Boolean resumeJob(Long jobId);
-    
-    Long registerJob(Job job);
-    
-    List<Job> getJobs(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher);
+    void resumeJob(Long jobId);
+
+    Long registerJob(Job job) throws DdlException;
+
+    List<Job> getJobs(String dbFullName, String jobName, JobCategory jobCategory, PatternMatcher matcher);
 
     /**
      * close job scheduler register

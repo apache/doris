@@ -19,12 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
-/*
-  Stop routine load job by name
-
-  syntax:
-      STOP ROUTINE LOAD [database.]name
+/**
+ * syntax:
+ * STOP JOB FOR [database.]name
+ * only run job can be stopped, and stopped job can't be resumed
  */
 public class StopJobStmt extends DdlStmt {
 
@@ -43,8 +43,16 @@ public class StopJobStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        checkAuth();
         labelName.analyze(analyzer);
+    }
+
+    private void checkAuth() throws AnalysisException {
+        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
+        if (!userIdentity.isRootUser()) {
+            throw new AnalysisException("only root user can operate");
+        }
     }
 }

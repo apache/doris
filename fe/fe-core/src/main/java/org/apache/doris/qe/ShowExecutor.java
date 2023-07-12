@@ -189,6 +189,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -425,6 +426,8 @@ public class ShowExecutor {
             handleShowBuildIndexStmt();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
+        } else if (stmt instanceof ShowJobStmt) {
+            handleShowJob();
         } else {
             handleEmtpy();
         }
@@ -1379,8 +1382,8 @@ public class ShowExecutor {
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
     }
-    
-    private void handleShowJob()throws AnalysisException{
+
+    private void handleShowJob() throws AnalysisException {
         ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         // if job exists
@@ -1391,7 +1394,7 @@ public class ShowExecutor {
                     CaseSensibility.JOB.getCaseSensibility());
         }
         jobList = Env.getCurrentEnv().getJobRegister()
-                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), showJobStmt.isIncludeHistory(),
+                .getJobs(showJobStmt.getDbFullName(), showJobStmt.getName(), JobCategory.SQL,
                         matcher);
 
         if (jobList.isEmpty()) {
@@ -2569,7 +2572,7 @@ public class ShowExecutor {
     public void handleShowCatalogs() throws AnalysisException {
         ShowCatalogStmt showStmt = (ShowCatalogStmt) stmt;
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCatalogs(showStmt, ctx.getCurrentCatalog() != null
-            ? ctx.getCurrentCatalog().getName() : null);
+                ? ctx.getCurrentCatalog().getName() : null);
     }
 
     // Show create catalog
@@ -2776,13 +2779,13 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
-    private void  handleShowBuildIndexStmt() throws AnalysisException {
+    private void handleShowBuildIndexStmt() throws AnalysisException {
         ShowBuildIndexStmt showStmt = (ShowBuildIndexStmt) stmt;
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
         // List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResult().getRows();
         List<List<String>> rows = ((BuildIndexProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+                showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 

@@ -17,8 +17,9 @@
 
 package org.apache.doris.scheduler;
 
-import org.apache.doris.analysis.CreateJobStmt;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.executor.JobExecutor;
 import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
@@ -41,61 +42,66 @@ public class AsyncJobRegister implements JobRegister {
 
     private final AsyncJobManager asyncJobManager;
 
-    public AsyncJobRegister() {
-        this.asyncJobManager = new AsyncJobManager();
+    public AsyncJobRegister(AsyncJobManager asyncJobManager) {
+        this.asyncJobManager = asyncJobManager;
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, JobExecutor executor) {
+    public Long registerJob(String name, Long intervalMs, JobExecutor executor) throws DdlException {
         return this.registerJob(name, intervalMs, null, null, executor);
     }
 
     @Override
-    public Long registerJob(String name, Long intervalMs, Long startTimeMs, JobExecutor executor) {
+    public Long registerJob(String name, Long intervalMs, Long startTimeMs, JobExecutor executor) throws DdlException {
         return this.registerJob(name, intervalMs, startTimeMs, null, executor);
     }
 
     @Override
     public Long registerJob(String name, Long intervalMs, Long startTimeMs, Long endTimeStamp,
-                                 JobExecutor executor) {
+                            JobExecutor executor) throws DdlException {
 
         Job job = new Job(name, intervalMs, startTimeMs, endTimeStamp, executor);
         return asyncJobManager.registerJob(job);
     }
 
     @Override
-    public Long registerJob(Job job) {
+    public Long registerJob(Job job) throws DdlException {
         return asyncJobManager.registerJob(job);
     }
 
     @Override
-    public Boolean pauseJob(Long jobId) {
-        return asyncJobManager.pauseJob(jobId);
+    public void pauseJob(Long jobId) {
+        asyncJobManager.pauseJob(jobId);
     }
 
     @Override
-    public Boolean pauseJob(String dbName, String jobName, boolean isAll) {
-        return null;
+    public void pauseJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
+        asyncJobManager.pauseJob(dbName, jobName, jobCategory);
     }
 
     @Override
-    public Boolean resumeJob(String dbName, String jobName, boolean isAll) {
-        return null;
+    public void resumeJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
+        asyncJobManager.resumeJob(dbName, jobName, jobCategory);
     }
 
     @Override
-    public Boolean stopJob(Long jobId) {
-        return asyncJobManager.stopJob(jobId);
+    public void stopJob(Long jobId) {
+        asyncJobManager.stopJob(jobId);
     }
 
     @Override
-    public Boolean resumeJob(Long jobId) {
-        return asyncJobManager.resumeJob(jobId);
+    public void stopJob(String dbName, String jobName, JobCategory jobCategory) throws DdlException {
+        asyncJobManager.stopJob(dbName, jobName, jobCategory);
     }
 
     @Override
-    public List<Job> getJobs(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher) {
-        return null;
+    public void resumeJob(Long jobId) {
+        asyncJobManager.resumeJob(jobId);
+    }
+
+    @Override
+    public List<Job> getJobs(String dbFullName, String jobName, JobCategory jobCategory, PatternMatcher matcher) {
+        return asyncJobManager.queryJob(dbFullName, jobName, jobCategory, matcher);
     }
 
     @Override

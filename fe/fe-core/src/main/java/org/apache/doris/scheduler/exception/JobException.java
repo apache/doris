@@ -15,27 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler;
-
-import org.apache.doris.scheduler.registry.JobRegister;
-
-import java.util.concurrent.atomic.AtomicReference;
+package org.apache.doris.scheduler.exception;
 
 /**
- * This class provides a factory for creating instances of {@link JobRegister}.
- * The factory ensures that only one instance of the client is created in a lazy manner.
+ * This class represents a job exception that can be thrown when a job is executed.
  */
-public class JobRegisterFactory {
-    private static final AtomicReference<JobRegister> INSTANCE = new AtomicReference<>();
+public class JobException extends Exception {
+    public JobException(String message) {
+        super(message);
+    }
 
-    public static JobRegister getInstance() {
-        JobRegister instance = INSTANCE.get();
-        if (instance == null) {
-            instance = new AsyncJobRegister();
-            if (!INSTANCE.compareAndSet(null, instance)) {
-                instance = INSTANCE.get();
-            }
-        }
-        return instance;
+    public JobException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
+    public JobException(Throwable cause) {
+        super(cause);
     }
 }

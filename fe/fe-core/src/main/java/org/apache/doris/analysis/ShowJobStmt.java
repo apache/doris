@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -26,10 +24,21 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
+/**
+ * SHOW EVENT [FOR JobName]
+ * eg: show event
+ *     return all job in connection db
+ * eg: show event for test
+ *     return job named test in connection db
+ */
 public class ShowJobStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -46,26 +55,19 @@ public class ShowJobStmt extends ShowStmt {
                     .add("Starts")
                     .add("Ends")
                     .add("Status")
-                    .add("ReasonOfStateChanged")
-                    .add("ErrorLogUrls")
-                    .add("OtherMsg")
+                    .add("LastExecuteFinishTime")
+                    .add("ErrorMsg")
                     .add("Comment")
                     .build();
 
     private final LabelName labelName;
     private String dbFullName; // optional
     private String name; // optional
-    private boolean includeHistory = false;
     private String pattern; // optional
 
-/*    public ShowJobStmt(LabelName labelName, boolean includeHistory, String pattern) {
+    public ShowJobStmt(LabelName labelName, String pattern) {
         this.labelName = labelName;
-        this.includeHistory = includeHistory;
         this.pattern = pattern;
-    }*/
-
-    public ShowJobStmt() {
-        this.labelName = null;
     }
 
     public String getDbFullName() {
@@ -76,10 +78,6 @@ public class ShowJobStmt extends ShowStmt {
         return name;
     }
 
-    public boolean isIncludeHistory() {
-        return includeHistory;
-    }
-
     public String getPattern() {
         return pattern;
     }
@@ -87,7 +85,15 @@ public class ShowJobStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        checkAuth();
         checkLabelName(analyzer);
+    }
+
+    private void checkAuth() throws AnalysisException {
+        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
+        if (!userIdentity.isRootUser()) {
+            throw new AnalysisException("only root user can operate");
+        }
     }
 
     private void checkLabelName(Analyzer analyzer) throws AnalysisException {

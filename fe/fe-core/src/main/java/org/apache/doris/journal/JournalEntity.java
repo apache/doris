@@ -117,6 +117,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.scheduler.job.Job;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -514,6 +515,13 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB:
             case OperationType.OP_REMOVE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadOperation.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_SCHEDULER_JOB:
+            case OperationType.OP_CREATE_SCHEDULER_JOB: {
+                Job job = Job.readFields(in);
+                data = job;
                 isRead = true;
                 break;
             }

@@ -310,6 +310,10 @@ public class OperationType {
 
     public static final short OP_BARRIER = 436;
 
+    public static final short OP_CREATE_SCHEDULER_JOB = 450;
+
+    public static final short OP_UPDATE_SCHEDULER_JOB = 451;
+
 
     /**
      * Get opcode name by op code.
