@@ -58,6 +58,8 @@ struct RowNumberData {
 class WindowFunctionRowNumber final
         : public IAggregateFunctionDataHelper<RowNumberData, WindowFunctionRowNumber> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     WindowFunctionRowNumber(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
@@ -96,6 +98,8 @@ struct RankData {
 
 class WindowFunctionRank final : public IAggregateFunctionDataHelper<RankData, WindowFunctionRank> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     WindowFunctionRank(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
@@ -140,6 +144,8 @@ struct DenseRankData {
 class WindowFunctionDenseRank final
         : public IAggregateFunctionDataHelper<DenseRankData, WindowFunctionDenseRank> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     WindowFunctionDenseRank(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
@@ -182,6 +188,8 @@ struct NTileData {
 class WindowFunctionNTile final
         : public IAggregateFunctionDataHelper<NTileData, WindowFunctionNTile> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     WindowFunctionNTile(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
@@ -389,6 +397,8 @@ template <typename Data>
 class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     WindowFunctionData(const DataTypes& argument_types)
             : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types),
               _argument_type(argument_types[0]) {}

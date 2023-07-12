@@ -171,6 +171,8 @@ class AggregateFunctionHistogram final
         : public IAggregateFunctionDataHelper<
                   Data, AggregateFunctionHistogram<Data, T, has_input_param>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     using ColVecType = ColumnVectorOrDecimal<T>;
 
     AggregateFunctionHistogram() = default;

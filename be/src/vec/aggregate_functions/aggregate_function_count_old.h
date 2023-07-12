@@ -62,6 +62,8 @@ class AggregateFunctionCountOld final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountDataOld,
                                               AggregateFunctionCountOld> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
+
     AggregateFunctionCountOld(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
@@ -151,6 +153,8 @@ class AggregateFunctionCountNotNullUnaryOld final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountDataOld,
                                               AggregateFunctionCountNotNullUnaryOld> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionCountNotNullUnaryOld(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 

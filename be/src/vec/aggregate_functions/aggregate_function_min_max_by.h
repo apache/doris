@@ -97,6 +97,8 @@ private:
     DataTypePtr& key_type;
 
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionsMinMaxBy(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>(
                       {arguments[0], arguments[1]}),

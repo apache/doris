@@ -509,6 +509,8 @@ private:
     using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>;
 
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
+
     AggregateFunctionsSingleValue(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>(arguments),
               type(this->argument_types[0]) {

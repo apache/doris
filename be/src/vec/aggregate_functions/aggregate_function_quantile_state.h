@@ -104,6 +104,8 @@ class AggregateFunctionQuantileStateOp final
                   AggregateFunctionQuantileStateData<Op, InternalType>,
                   AggregateFunctionQuantileStateOp<arg_is_nullable, Op, InternalType>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     using ResultDataType = QuantileState<InternalType>;
     using ColVecType = ColumnQuantileState<InternalType>;
     using ColVecResult = ColumnQuantileState<InternalType>;

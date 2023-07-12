@@ -333,6 +333,8 @@ template <typename Impl>
 class AggFunctionOrthBitmapFunc final
         : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     String get_name() const override { return Impl::name; }
 
     AggFunctionOrthBitmapFunc(const DataTypes& argument_types_)

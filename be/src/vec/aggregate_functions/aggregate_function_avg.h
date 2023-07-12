@@ -107,6 +107,8 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
+
     using ResultType = DisposeDecimal<T, Float64>;
     using ResultDataType =
             std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,

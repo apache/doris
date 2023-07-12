@@ -590,6 +590,8 @@ class AggregateFunctionSequenceBase
         : public IAggregateFunctionDataHelper<
                   AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>, Derived> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionSequenceBase(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<
                       AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,

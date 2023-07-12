@@ -110,6 +110,8 @@ template <typename T, typename Data>
 class AggregateFunctionUniq final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     using KeyType = std::conditional_t<std::is_same_v<T, String>, UInt128, T>;
     AggregateFunctionUniq(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionUniq<T, Data>>(argument_types_) {}
@@ -195,8 +197,8 @@ public:
         }
     }
 
-    void deserialize_and_merge(AggregateDataPtr __restrict place, BufferReadable& buf,
-                               Arena* arena) const override {
+    void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
+                               BufferReadable& buf, Arena* arena) const override {
         auto& set = this->data(place).set;
         UInt64 size;
         read_var_uint(size, buf);
@@ -212,7 +214,17 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
-        deserialize_and_merge(place, buf, arena);
+        auto& set = this->data(place).set;
+        UInt64 size;
+        read_var_uint(size, buf);
+
+        set.rehash(size + set.size());
+
+        for (size_t i = 0; i < size; ++i) {
+            KeyType ref;
+            read_pod_binary(ref, buf);
+            set.insert(ref);
+        }
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {

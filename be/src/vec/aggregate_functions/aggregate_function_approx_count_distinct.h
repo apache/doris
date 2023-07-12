@@ -86,6 +86,8 @@ class AggregateFunctionApproxCountDistinct final
                   AggregateFunctionApproxCountDistinctData,
                   AggregateFunctionApproxCountDistinct<ColumnDataType>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     String get_name() const override { return "approx_count_distinct"; }
 
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)

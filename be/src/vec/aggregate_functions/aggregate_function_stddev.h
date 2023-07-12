@@ -281,6 +281,8 @@ class AggregateFunctionSampVariance
         : public IAggregateFunctionDataHelper<
                   Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>>(

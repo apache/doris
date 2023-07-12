@@ -62,6 +62,8 @@ template <typename T, typename TResult, typename Data>
 class AggregateFunctionOldSum final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionOldSum<T, TResult, Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     using ResultDataType = std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<TResult>,
                                               DataTypeNumber<TResult>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;

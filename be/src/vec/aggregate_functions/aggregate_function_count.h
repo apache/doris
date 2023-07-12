@@ -58,6 +58,8 @@ struct AggregateFunctionCountData {
 class AggregateFunctionCount final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
+
     AggregateFunctionCount(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 
@@ -171,6 +173,8 @@ class AggregateFunctionCountNotNullUnary final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData,
                                               AggregateFunctionCountNotNullUnary> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = true;
+
     AggregateFunctionCountNotNullUnary(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}
 

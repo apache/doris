@@ -296,6 +296,8 @@ class AggregateFunctionCollect
     static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
 
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionCollect(const DataTypes& argument_types,
                              UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>>(

@@ -283,6 +283,8 @@ class AggregateFunctionTopNBase
         : public IAggregateFunctionDataHelper<AggregateFunctionTopNData<T>,
                                               AggregateFunctionTopNBase<Impl, T>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionTopNBase(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionTopNData<T>,
                                            AggregateFunctionTopNBase<Impl, T>>(argument_types_) {}

@@ -90,6 +90,8 @@ class AggregateFunctionAvgWeight final
         : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<T>,
                                               AggregateFunctionAvgWeight<T>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
 
     AggregateFunctionAvgWeight(const DataTypes& argument_types_)

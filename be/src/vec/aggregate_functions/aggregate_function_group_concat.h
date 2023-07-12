@@ -116,6 +116,8 @@ class AggregateFunctionGroupConcat final
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
                                               AggregateFunctionGroupConcat<Impl>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionGroupConcat(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
                                            AggregateFunctionGroupConcat<Impl>>(argument_types_) {}

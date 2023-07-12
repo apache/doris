@@ -104,6 +104,8 @@ template <typename T, typename Data>
 class AggregateFunctionBitwise final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionBitwise(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(
                       argument_types_) {}

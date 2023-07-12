@@ -336,6 +336,8 @@ public:
 class AggregateRpcUdaf final
         : public IAggregateFunctionDataHelper<AggregateRpcUdafData, AggregateRpcUdaf> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateRpcUdaf(const TFunction& fn, const DataTypes& argument_types,
                      const DataTypePtr& return_type)
             : IAggregateFunctionDataHelper(argument_types), _fn(fn), _return_type(return_type) {}

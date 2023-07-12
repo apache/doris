@@ -192,6 +192,8 @@ template <typename Data>
 class ReaderFunctionData final
         : public IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     ReaderFunctionData(const DataTypes& argument_types)
             : IAggregateFunctionDataHelper<Data, ReaderFunctionData<Data>>(argument_types),
               _argument_type(argument_types[0]) {}

@@ -252,6 +252,8 @@ class AggregateFunctionWindowFunnel
                   WindowFunnelState<DateValueType, NativeType>,
                   AggregateFunctionWindowFunnel<DateValueType, NativeType>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       WindowFunnelState<DateValueType, NativeType>,

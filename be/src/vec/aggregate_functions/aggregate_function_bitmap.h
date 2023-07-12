@@ -151,6 +151,8 @@ class AggregateFunctionBitmapOp final
         : public IAggregateFunctionDataHelper<AggregateFunctionBitmapData<Op>,
                                               AggregateFunctionBitmapOp<Op>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnBitmap;
@@ -211,6 +213,8 @@ class AggregateFunctionBitmapCount final
                   AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>,
                   AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     // using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnVector<Int64>;
     using AggFunctionData = AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>;

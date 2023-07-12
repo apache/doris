@@ -109,6 +109,8 @@ template <typename Data>
 class AggregateFunctionHLLUnion
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>> {
 public:
+    static constexpr auto USE_FIXED_LENGTH_SERIALIZATION_OPT = false;
+
     AggregateFunctionHLLUnion(const DataTypes& argument_types)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionHLLUnion<Data>>(argument_types) {}
 
