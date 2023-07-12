@@ -98,7 +98,8 @@ private:
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 
-    static constexpr size_t BUFFER_UNIT_SIZE = 4096;
+    static constexpr size_t BUFFER_UNIT_SIZE = 4096 * 32;
+    static constexpr size_t BUFFER_RESERVED_SIZE = 50;
 };
 
 } // namespace doris::vectorized
