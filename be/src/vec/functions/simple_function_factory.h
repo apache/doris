@@ -271,6 +271,7 @@ public:
             register_function_width_bucket(instance);
             register_function_match(instance);
             register_function_ip(instance);
+            register_function_tokenize(instance);
         });
         return instance;
     }
