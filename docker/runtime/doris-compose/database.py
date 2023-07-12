@@ -105,7 +105,12 @@ class DBManager(object):
         if id not in self.be_states:
             self._load_be_states()
         if id in self.be_states:
-            old_tablet_num = self.be_states[id].tablet_num
+            be = self.be_states[id]
+            old_tablet_num = be.tablet_num
+            if not be.alive:
+                raise Exception("Decommission be {} with id {} fail " \
+                        "cause it's not alive, maybe you should specific --drop-force " \
+                        " to dropp it from db".format(be_endpoint, id))
         try:
             self._exec_query(
                 "ALTER SYSTEM DECOMMISSION BACKEND '{}'".format(be_endpoint))
@@ -150,10 +155,8 @@ class DBManager(object):
                 alive_master_fe_port = query_port
         self.fe_states = fe_states
         if alive_master_fe_port and alive_master_fe_port != self.query_port:
-            self.conn = pymysql.connect(user="root",
-                                        host="127.0.0.1",
-                                        port=alive_master_fe_port)
             self.query_port = alive_master_fe_port
+            self._reset_conn()
 
     def _load_be_states(self):
         be_states = {}
@@ -181,8 +184,12 @@ class DBManager(object):
             return
         if self.query_port <= 0:
             raise Exception("Not set query_port")
+        self._reset_conn()
+
+    def _reset_conn(self):
         self.conn = pymysql.connect(user="root",
                                     host="127.0.0.1",
+                                    read_timeout = 10,
                                     port=self.query_port)
 
 

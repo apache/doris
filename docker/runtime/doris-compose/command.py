@@ -306,6 +306,7 @@ class DownCommand(Command):
 
 
 class ListNode(object):
+
     def __init__(self):
         self.node_type = ""
         self.id = 0
@@ -324,11 +325,9 @@ class ListNode(object):
 
     def info(self):
         return (self.cluster_name, "{}-{}".format(self.node_type, self.id),
-                self.ip, self.status,
-                self.container_id, self.image, self.created,
-                self.alive, self.is_master, self.query_port,
-                self.tablet_num, self.last_heartbeat,
-                self.err_msg)
+                self.ip, self.status, self.container_id, self.image,
+                self.created, self.alive, self.is_master, self.query_port,
+                self.tablet_num, self.last_heartbeat, self.err_msg)
 
     def update_db_info(self, db_mgr):
         if self.node_type == CLUSTER.Node.TYPE_FE:
@@ -346,6 +345,7 @@ class ListNode(object):
                 self.tablet_num = be.tablet_num
                 self.last_heartbeat = be.last_heartbeat
                 self.err_msg = be.err_msg
+
 
 class ListCommand(Command):
 
@@ -485,7 +485,8 @@ class ListCommand(Command):
                     node.status = SERVICE_DEAD
                 else:
                     node.created = container.attrs.get("Created",
-                                                 "")[:19].replace("T", " ")
+                                                       "")[:19].replace(
+                                                           "T", " ")
                     node.ip = list(
                         container.attrs["NetworkSettings"]
                         ["Networks"].values())[0]["IPAMConfig"]["IPv4Address"]

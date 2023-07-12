@@ -229,9 +229,6 @@ class Node(object):
     def docker_ports(self):
         raise Exception("No implemented")
 
-    def docker_volumns(self):
-        raise Exception("No implemented")
-
     def compose(self):
         return {
             "cap_add": ["SYS_PTRACE"],
