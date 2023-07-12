@@ -21,6 +21,8 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.jobs.Job;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.jobs.scheduler.JobScheduler;
 import org.apache.doris.nereids.jobs.scheduler.JobStack;
 import org.apache.doris.nereids.jobs.scheduler.ScheduleContext;
 import org.apache.doris.nereids.jobs.scheduler.SimpleJobScheduler;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -45,6 +48,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -55,6 +59,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +70,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
@@ -103,6 +110,9 @@ public class CascadesContext implements ScheduleContext {
     private Map<CTEId, Set<Expression>> cteIdToProjects = new HashMap<>();
     private Map<Integer, Set<Expression>> consumerIdToFilters = new HashMap<>();
     private Map<CTEId, Set<Integer>> cteIdToConsumerUnderProjects = new HashMap<>();
+
+    // Used to update consumer's stats
+    private Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
 
     public CascadesContext(Plan plan, Memo memo, StatementContext statementContext,
             PhysicalProperties requestProperties) {
@@ -578,5 +588,26 @@ public class CascadesContext implements ScheduleContext {
     public boolean couldPruneColumnOnProducer(CTEId cteId) {
         Set<Integer> consumerIds = this.cteIdToConsumerUnderProjects.get(cteId);
         return consumerIds.size() == this.cteIdToConsumers.get(cteId).size();
+    }
+
+    public void addCTEConsumerGroup(CTEId cteId, Group g, Map<Slot, Slot> producerSlotToConsumerSlot) {
+        List<Pair<Map<Slot, Slot>, Group>> consumerGroups =
+                this.cteIdToConsumerGroup.computeIfAbsent(cteId, k -> new ArrayList<>());
+        consumerGroups.add(Pair.of(producerSlotToConsumerSlot, g));
+    }
+
+    /**
+     * Update CTE consumer group as producer's stats update
+     */
+    public void updateConsumerStats(CTEId cteId, Statistics statistics) {
+        List<Pair<Map<Slot, Slot>, Group>> consumerGroups = this.cteIdToConsumerGroup.get(cteId);
+        for (Pair<Map<Slot, Slot>, Group> p : consumerGroups) {
+            Map<Slot, Slot> producerSlotToConsumerSlot = p.first;
+            Statistics updatedConsumerStats = new Statistics(statistics);
+            for (Entry<Expression, ColumnStatistic> entry : statistics.columnStatistics().entrySet()) {
+                updatedConsumerStats.addColumnStats(producerSlotToConsumerSlot.get(entry.getKey()), entry.getValue());
+            }
+            p.value().setStatistics(updatedConsumerStats);
+        }
     }
 }
