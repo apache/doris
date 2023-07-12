@@ -112,8 +112,8 @@ public abstract class HudiPartitionProcessor {
             List<String> partitionValues = new ArrayList<>(partitionFragments.length);
             for (int i = 0; i < partitionFragments.length; i++) {
                 String prefix = partitionColumns.get(i) + "=";
-                if (partitionFragments[0].startsWith(prefix)) {
-                    partitionValues.add(partitionFragments[0].substring(prefix.length()));
+                if (partitionFragments[i].startsWith(prefix)) {
+                    partitionValues.add(partitionFragments[i].substring(prefix.length()));
                 } else {
                     partitionValues.add(partitionFragments[i]);
                 }

@@ -43,12 +43,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 @Data
 public class TablePartitionValues {
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
 
+    private final ReadWriteLock readWriteLock;
+    private long lastUpdateTimestamp;
     private long nextPartitionId;
     private final Map<Long, PartitionItem> idToPartitionItem;
     private final Map<String, Long> partitionNameToIdMap;
@@ -64,6 +69,8 @@ public class TablePartitionValues {
     private Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap;
 
     public TablePartitionValues() {
+        readWriteLock = new ReentrantReadWriteLock();
+        lastUpdateTimestamp = 0;
         nextPartitionId = 0;
         idToPartitionItem = new HashMap<>();
         partitionNameToIdMap = new HashMap<>();
@@ -148,7 +155,23 @@ public class TablePartitionValues {
         addPartitionItems(remainingPartitionNames, remainingPartitionItems, types);
     }
 
-    public void cleanPartitions() {
+    public long getLastUpdateTimestamp() {
+        return lastUpdateTimestamp;
+    }
+
+    public void setLastUpdateTimestamp(long lastUpdateTimestamp) {
+        this.lastUpdateTimestamp = lastUpdateTimestamp;
+    }
+
+    public Lock readLock() {
+        return readWriteLock.readLock();
+    }
+
+    public Lock writeLock() {
+        return readWriteLock.writeLock();
+    }
+
+    private void cleanPartitions() {
         nextPartitionId = 0;
         idToPartitionItem.clear();
         partitionNameToIdMap.clear();

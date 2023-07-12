@@ -155,27 +155,33 @@ public class HudiScanNode extends HiveScanNode {
             TablePartitionValues partitionValues = processor.getPartitionValues(hmsTable, metaClient);
             if (partitionValues != null) {
                 // 2. prune partitions by expr
-                Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-                this.totalPartitionNum = idToPartitionItem.size();
-                ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                        hmsTable.getPartitionColumns(), columnNameToRange,
-                        partitionValues.getUidToPartitionRange(),
-                        partitionValues.getRangeToId(),
-                        partitionValues.getSingleColumnRangeMap(),
-                        true);
-                Collection<Long> filteredPartitionIds = pruner.prune();
-                this.readPartitionNum = filteredPartitionIds.size();
-                // 3. get partitions from cache
-                String dbName = hmsTable.getDbName();
-                String tblName = hmsTable.getName();
-                String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
-                String basePath = metaClient.getBasePathV2().toString();
-                Map<Long, String> partitionIdToNameMap = partitionValues.getPartitionIdToNameMap();
-                Map<Long, List<String>> partitionValuesMap = partitionValues.getPartitionValuesMap();
-                return filteredPartitionIds.stream().map(id -> {
-                    String path = basePath + "/" + partitionIdToNameMap.get(id);
-                    return new HivePartition(dbName, tblName, false, inputFormat, path, partitionValuesMap.get(id));
-                }).collect(Collectors.toList());
+                partitionValues.readLock().lock();
+                try {
+                    Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
+                    this.totalPartitionNum = idToPartitionItem.size();
+                    ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
+                            hmsTable.getPartitionColumns(), columnNameToRange,
+                            partitionValues.getUidToPartitionRange(),
+                            partitionValues.getRangeToId(),
+                            partitionValues.getSingleColumnRangeMap(),
+                            true);
+                    Collection<Long> filteredPartitionIds = pruner.prune();
+                    this.readPartitionNum = filteredPartitionIds.size();
+                    // 3. get partitions from cache
+                    String dbName = hmsTable.getDbName();
+                    String tblName = hmsTable.getName();
+                    String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
+                    String basePath = metaClient.getBasePathV2().toString();
+                    Map<Long, String> partitionIdToNameMap = partitionValues.getPartitionIdToNameMap();
+                    Map<Long, List<String>> partitionValuesMap = partitionValues.getPartitionValuesMap();
+                    return filteredPartitionIds.stream().map(id -> {
+                        String path = basePath + "/" + partitionIdToNameMap.get(id);
+                        return new HivePartition(
+                                dbName, tblName, false, inputFormat, path, partitionValuesMap.get(id));
+                    }).collect(Collectors.toList());
+                } finally {
+                    partitionValues.readLock().unlock();
+                }
             }
         }
         // unpartitioned table, create a dummy partition to save location and inputformat,
@@ -313,6 +319,6 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum, inputSplitsNum);
+                + String.format("%hudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum, inputSplitsNum);
     }
 }
