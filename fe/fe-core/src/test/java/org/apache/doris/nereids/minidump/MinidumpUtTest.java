@@ -1,7 +1,3 @@
-package org.apache.doris.nereids.minidump;
-
-import org.junit.jupiter.api.Test;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,12 +15,27 @@ import org.junit.jupiter.api.Test;
 // specific language governing permissions and limitations
 // under the License.
 
+package org.apache.doris.nereids.minidump;
+
 import org.json.JSONObject;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
 
 class MinidumpUtTest {
+
     @Test
     public void testMinidumpUt() {
-        Minidump minidump = MinidumpUtils.loadMinidumpInputs("/home/wangwu/doris/fe/log/minidump/c9bf82b70ce34c28-8d281e31412f3ee6.json");
+        Minidump minidump = null;
+        String filePath = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
+        String directory = filePath.substring(0, filePath.indexOf("/target/test-classes"));
+        String currentMinidumpPath = "/src/test/java/org/apache/doris/nereids/minidump/MinidumpUtTestData.json";
+        try {
+            minidump = MinidumpUtils.jsonMinidumpLoad(directory + currentMinidumpPath);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        MinidumpUtils.setConnectContext(minidump);
         JSONObject resultPlan = MinidumpUtils.executeSql("select * from t1 where l1 = 1");
         assert (minidump != null);
         assert (resultPlan != null);

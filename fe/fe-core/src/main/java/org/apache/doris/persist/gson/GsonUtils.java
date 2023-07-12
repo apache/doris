@@ -20,7 +20,30 @@ package org.apache.doris.persist.gson;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJobV2;
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.EsResource;
+import org.apache.doris.catalog.HMSResource;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.JdbcResource;
+import org.apache.doris.catalog.ListPartitionInfo;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.OdbcCatalogResource;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.catalog.SparkResource;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -210,10 +233,11 @@ public class GsonUtils {
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
-    private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
-            PartitionInfo.class, "clazz").registerSubtype(ListPartitionInfo.class, ListPartitionInfo.class.getSimpleName())
-        .registerSubtype(RangePartitionInfo.class, RangePartitionInfo.class.getSimpleName())
-        .registerSubtype(SinglePartitionInfo.class, SinglePartitionInfo.class.getSimpleName());
+    private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
+            = RuntimeTypeAdapterFactory.of(PartitionInfo.class, "clazz")
+            .registerSubtype(ListPartitionInfo.class, ListPartitionInfo.class.getSimpleName())
+            .registerSubtype(RangePartitionInfo.class, RangePartitionInfo.class.getSimpleName())
+            .registerSubtype(SinglePartitionInfo.class, SinglePartitionInfo.class.getSimpleName());
 
     // runtime adapter for class "HeartbeatResponse"
     private static RuntimeTypeAdapterFactory<HeartbeatResponse> hbResponseTypeAdapterFactory

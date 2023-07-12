@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Analyzer;
@@ -73,6 +72,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1403,15 +1403,6 @@ public class OlapTable extends Table {
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
     }
-
-//    public String toJson() throws IOException {
-//        String json = GsonUtils.GSON.toJson(this);
-//        return json;
-//    }
-//
-//    public static OlapTable fromJson(String json) throws IOException {
-//        return GsonUtils.GSON.fromJson(json, OlapTable.class);
-//    }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
         OlapTable copied = new OlapTable();

@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionDesc;
@@ -34,6 +33,7 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

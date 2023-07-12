@@ -18,7 +18,7 @@
 
 set -eo pipefail
 
-curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+cur_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 if [[ "$(uname -s)" == 'Darwin' ]] && command -v brew &>/dev/null; then
     PATH="$(brew --prefix)/opt/gnu-getopt/bin:${PATH}"
@@ -36,6 +36,7 @@ OPTS="$(getopt \
 
 eval set -- "${OPTS}"
 
+DUMP_FILE_DIR=''
 OPT_VERSION=''
 while true; do
     case "$1" in
@@ -59,7 +60,7 @@ while true; do
 done
 
 DORIS_HOME="$(
-    cd "${curdir}/.."
+    cd "${cur_dir}/.."
     pwd
 )"
 export DORIS_HOME
@@ -73,14 +74,14 @@ export JAVA_OPTS="-Xmx1024m"
 export LOG_DIR="${DORIS_HOME}/minidump"
 
 while read -r line; do
-    envline="$(echo "${line}" |
+    env_line="$(echo "${line}" |
         sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
         sed 's/^[[:blank:]]*//g' |
         grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
         true)"
-    envline="$(eval "echo ${envline}")"
-    if [[ "${envline}" == *"="* ]]; then
-        eval 'export "${envline}"'
+    env_line="$(eval "echo ${env_line}")"
+    if [[ "${env_line}" == *"="* ]]; then
+        eval 'export "${env_line}"'
     fi
 done <"${DORIS_HOME}/minidump/minidump.conf"
 
@@ -164,13 +165,12 @@ export CLASSPATH="${CLASSPATH}:${DORIS_HOME}/lib:${DORIS_HOME}/conf"
 date >>"${LOG_DIR}/minidump.out"
 query_id_head="|QueryId="
 sql_head="|Sql="
-for dir in "${DUMP_FILE_DIR}"/*; do
-
-    if [[ -d "${dir}" ]]; then # Check if the path is a directory
-        query_id=${dir: -33}
-        temp_file=${LOG_DIR}/temp
-        ${JAVA} "${final_java_opt}" -Xmx2g org.apache.doris.nereids.minidump.Minidump "${dir}" "${OPT_VERSION}" "$@" > "${temp_file}"        result=$(cat "${temp_file}")
-        echo "${query_id_head} ${query_id} ${sql_head} ${result}" | tee >>"${LOG_DIR}/minidump.out"
-    fi
+# shellcheck disable=SC2045
+for path in $(ls "${DUMP_FILE_DIR}"); do
+    query_id=${path:0:33}
+    temp_file=${LOG_DIR}/temp
+    "${JAVA}" ${final_java_opt:+${final_java_opt}} -Xmx2g org.apache.doris.nereids.minidump.Minidump "${DUMP_FILE_DIR}/${path}" "${OPT_VERSION}" "$@" >"${temp_file}"
+    result=$(cat "${temp_file}")
+    echo "${query_id_head} ${query_id} ${sql_head} ${result}" | tee >>"${LOG_DIR}/minidump.out"
 done
 date >>"${LOG_DIR}/minidump.out"

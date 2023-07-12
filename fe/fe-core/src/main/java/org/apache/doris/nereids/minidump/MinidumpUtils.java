@@ -17,7 +17,13 @@
 
 package org.apache.doris.nereids.minidump;
 
-import org.apache.doris.catalog.*;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -40,11 +46,8 @@ import org.apache.doris.statistics.Histogram;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -76,15 +79,13 @@ public class MinidumpUtils {
     }
 
     /**
-     *
+     * deserialize of tables using gson, we need to get table type first
      */
     private static List<Table> dserializeTables(JSONArray tablesJson) {
         List<Table> tables = new ArrayList<>();
         for (int i = 0; i < tablesJson.length(); i++) {
             JSONObject tableJson = (JSONObject) tablesJson.get(i);
             Table newTable;
-            String tablename = OlapTable.class.getSimpleName();
-            assert(tablename != null);
             switch ((String) tableJson.get("TableType")) {
                 case "OLAP":
                     String tableJsonValue = tableJson.get("TableValue").toString();
@@ -98,6 +99,50 @@ public class MinidumpUtils {
         }
         return tables;
     }
+
+    /**
+     * Load minidump to memory using string
+     */
+    public static Minidump jsonMinidumpLoadFromString(String inputString) throws IOException {
+        // Parse the JSON string back into a JSON object
+        JSONObject inputJSON = new JSONObject(inputString);
+        SessionVariable newSessionVariable = new SessionVariable();
+        newSessionVariable.readFromJson(inputJSON.getString("SessionVariable"));
+        String sql = inputJSON.getString("Sql");
+
+        JSONArray tablesJson = (JSONArray) inputJSON.get("Tables");
+        List<Table> tables = dserializeTables(tablesJson);
+
+        String colocateTableIndexJson = inputJSON.get("ColocateTableIndex").toString();
+        ColocateTableIndex newColocateTableIndex
+                = GsonUtils.GSON.fromJson(colocateTableIndexJson, ColocateTableIndex.class);
+
+        JSONArray columnStats = (JSONArray) inputJSON.get("ColumnStatistics");
+        Map<String, ColumnStatistic> columnStatisticMap = new HashMap<>();
+        for (int i = 0; i < columnStats.length(); i++) {
+            JSONObject oneColumnStat = (JSONObject) columnStats.get(i);
+            String colName = oneColumnStat.keys().next();
+            String colStat = oneColumnStat.getString(colName);
+            ColumnStatistic columnStatistic = ColumnStatistic.fromJson(colStat);
+            columnStatisticMap.put(colName, columnStatistic);
+        }
+        JSONArray histogramJsonArray = (JSONArray) inputJSON.get("Histogram");
+        Map<String, Histogram> histogramMap = new HashMap<>();
+        for (int i = 0; i < histogramJsonArray.length(); i++) {
+            JSONObject histogramJson = (JSONObject) histogramJsonArray.get(i);
+            String colName = histogramJson.keys().next();
+            String colHistogram = histogramJson.getString(colName);
+            Histogram histogram = Histogram.deserializeFromJson(colHistogram);
+            histogramMap.put(colName, histogram);
+        }
+        String parsedPlanJson = inputJSON.getString("ParsedPlan");
+        String resultPlanJson = inputJSON.getString("ResultPlan");
+        String dbName = inputJSON.getString("DbName");
+
+        return new Minidump(sql, newSessionVariable, parsedPlanJson, resultPlanJson,
+            tables, dbName, columnStatisticMap, histogramMap, newColocateTableIndex);
+    }
+
     /**
      * Loading of minidump file
      */
@@ -110,48 +155,36 @@ public class MinidumpUtils {
                 sb.append((char) ch);
             }
             String inputString = sb.toString();
-            // Parse the JSON string back into a JSON object
-            JSONObject inputJSON = new JSONObject(inputString);
-            SessionVariable newSessionVariable = new SessionVariable();
-            newSessionVariable.readFromJson(inputJSON.getString("SessionVariable"));
-            String sql = inputJSON.getString("Sql");
-
-            JSONArray tablesJson = (JSONArray) inputJSON.get("Tables");
-            List<Table> tables = dserializeTables(tablesJson);
-
-            String colocateTableIndexJson = inputJSON.get("ColocateTableIndex").toString();
-            ColocateTableIndex newColocateTableIndex = GsonUtils.GSON.fromJson(colocateTableIndexJson, ColocateTableIndex.class);
-
-            JSONArray columnStats = (JSONArray) inputJSON.get("ColumnStatistics");
-            Map<String, ColumnStatistic> columnStatisticMap = new HashMap<>();
-            for (int i = 0; i < columnStats.length(); i++) {
-                JSONObject oneColumnStat = (JSONObject) columnStats.get(i);
-                String colName = oneColumnStat.keys().next();
-                String colStat = oneColumnStat.getString(colName);
-                ColumnStatistic columnStatistic = ColumnStatistic.fromJson(colStat);
-                columnStatisticMap.put(colName, columnStatistic);
-            }
-            JSONArray histogramJsonArray = (JSONArray) inputJSON.get("Histogram");
-            Map<String, Histogram> histogramMap = new HashMap<>();
-            for (int i = 0; i < histogramJsonArray.length(); i++) {
-                JSONObject histogramJson = (JSONObject) histogramJsonArray.get(i);
-                String colName = histogramJson.keys().next();
-                String colHistogram = histogramJson.getString(colName);
-                Histogram histogram = Histogram.deserializeFromJson(colHistogram);
-                histogramMap.put(colName, histogram);
-            }
-            String parsedPlanJson = inputJSON.getString("ParsedPlan");
-            String resultPlanJson = inputJSON.getString("ResultPlan");
-            String dbName = inputJSON.getString("DbName");
-
-            return new Minidump(sql, newSessionVariable, parsedPlanJson, resultPlanJson,
-                    tables, dbName, columnStatisticMap, histogramMap, newColocateTableIndex);
+            return jsonMinidumpLoadFromString(inputString);
         } catch (IOException e) {
             e.printStackTrace();
         }
         return null;
     }
 
+    /**
+     * Setting connectContext using minidump parameters
+     * @param minidump minidump in memory
+     */
+    public static void setConnectContext(Minidump minidump) {
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.getTotalColumnStatisticMap().putAll(minidump.getTotalColumnStatisticMap());
+        connectContext.getTotalHistogramMap().putAll(minidump.getTotalHistogramMap());
+        connectContext.setThreadLocalInfo();
+        Env.getCurrentEnv().setColocateTableIndex(minidump.getColocateTableIndex());
+        connectContext.setSessionVariable(minidump.getSessionVariable());
+        connectContext.setTables(minidump.getTables());
+        connectContext.setDatabase(minidump.getDbName());
+        connectContext.getSessionVariable().setEnableMinidump(false);
+        connectContext.getSessionVariable().setPlanNereidsDump(true);
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
+    }
+
+    /**
+     * Loading minidump messages from file to memory
+     * @param minidumpPath path of minidump file
+     * @return minidump messages in memory
+     */
     public static Minidump loadMinidumpInputs(String minidumpPath) {
         Minidump minidump = null;
         try {
@@ -159,23 +192,18 @@ public class MinidumpUtils {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setSessionVariable(minidump.getSessionVariable());
-        connectContext.setTables(minidump.getTables());
-        connectContext.getSessionVariable().setEnableMinidump(false);
-        connectContext.setDatabase(minidump.getDbName());
-        connectContext.getSessionVariable().setPlanNereidsDump(true);
-        connectContext.getSessionVariable().enableNereidsTimeout = false;
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
-        connectContext.getSessionVariable().setEnableNereidsTrace(false);
-        connectContext.getSessionVariable().setNereidsTraceEventMode("all");
-        connectContext.getTotalColumnStatisticMap().putAll(minidump.getTotalColumnStatisticMap());
-        connectContext.getTotalHistogramMap().putAll(minidump.getTotalHistogramMap());
-        connectContext.setThreadLocalInfo();
-        Env.getCurrentEnv().setColocateTableIndex(minidump.getColocateTableIndex());
+        setConnectContext(minidump);
+
+        ConnectContext.get().getSessionVariable().setEnableNereidsTrace(false);
+        ConnectContext.get().getSessionVariable().setNereidsTraceEventMode("all");
         return minidump;
     }
 
+    /**
+     * Executing sql with minidump and return jsontype result for more use of unit test
+     * @param sql original sql clause
+     * @return JSONObject of result plan
+     */
     public static JSONObject executeSql(String sql) {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan parsed = nereidsParser.parseSingle(sql);
@@ -183,7 +211,7 @@ public class MinidumpUtils {
             parsed = ((ExplainCommand) parsed).getLogicalPlan();
         }
         NereidsPlanner nereidsPlanner = new NereidsPlanner(
-            new StatementContext(ConnectContext.get(), new OriginStatement(sql, 0)));
+                new StatementContext(ConnectContext.get(), new OriginStatement(sql, 0)));
         nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         return ((AbstractPlan) nereidsPlanner.getOptimizedPlan()).toJson();
     }
@@ -197,10 +225,9 @@ public class MinidumpUtils {
             String tableValues = GsonUtils.GSON.toJson(table);
             JSONObject oneTableJson = new JSONObject();
             oneTableJson.put("TableType", table.getType());
+            oneTableJson.put("TableName", table.getName());
             JSONObject jsonTableValues = new JSONObject(tableValues);
             oneTableJson.put("TableValue", jsonTableValues);
-            TableIf temp = GsonUtils.GSON.fromJson(tableValues, OlapTable.class);
-            assert(temp != null);
             tablesJson.put(oneTableJson);
         }
         return tablesJson;
