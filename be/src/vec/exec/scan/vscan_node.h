@@ -141,8 +141,6 @@ public:
 
     Status close(RuntimeState* state) override;
 
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
-
     // Clone current _conjuncts to conjuncts, if exists.
     Status clone_conjunct_ctxs(VExprContextSPtrs& conjuncts);
 
@@ -296,7 +294,6 @@ protected:
     // "_colname_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
-    bool _need_agg_finalize = true;
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;

@@ -98,7 +98,6 @@ public:
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
         bool aggregation = false;
-        bool need_agg_finalize = true;
         // for compaction, schema_change, check_sum: we don't use page cache
         // for query and config::disable_storage_page_cache is false, we use page cache
         bool use_page_cache = false;
@@ -266,7 +265,6 @@ protected:
 
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
-    bool _need_agg_finalize = true;
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
     bool _filter_delete = false;
