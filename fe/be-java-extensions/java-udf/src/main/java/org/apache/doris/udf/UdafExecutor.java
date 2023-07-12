@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
