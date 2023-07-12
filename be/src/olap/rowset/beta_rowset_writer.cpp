@@ -611,24 +611,28 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         }
     }
     Status status;
-    status = wait_flying_segcompaction();
-    if (!status.ok()) {
-        LOG(WARNING) << "segcompaction failed when build new rowset 1st wait, res=" << status;
-        return nullptr;
-    }
-    status = _segcompaction_ramaining_if_necessary();
-    if (!status.ok()) {
-        LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
-        return nullptr;
-    }
-    status = wait_flying_segcompaction();
-    if (!status.ok()) {
-        LOG(WARNING) << "segcompaction failed when build new rowset 2nd wait, res=" << status;
-        return nullptr;
-    }
+    // if _segment_start_id is not zero, that means it's a transient rowset writer for
+    // MoW partial update, don't need to do segment compaction.
+    if (_segment_start_id == 0) {
+        status = wait_flying_segcompaction();
+        if (!status.ok()) {
+            LOG(WARNING) << "segcompaction failed when build new rowset 1st wait, res=" << status;
+            return nullptr;
+        }
+        status = _segcompaction_ramaining_if_necessary();
+        if (!status.ok()) {
+            LOG(WARNING) << "segcompaction failed when build new rowset, res=" << status;
+            return nullptr;
+        }
+        status = wait_flying_segcompaction();
+        if (!status.ok()) {
+            LOG(WARNING) << "segcompaction failed when build new rowset 2nd wait, res=" << status;
+            return nullptr;
+        }
 
-    if (_segcompaction_worker.get_file_writer()) {
-        _segcompaction_worker.get_file_writer()->close();
+        if (_segcompaction_worker.get_file_writer()) {
+            _segcompaction_worker.get_file_writer()->close();
+        }
     }
     // When building a rowset, we must ensure that the current _segment_writer has been
     // flushed, that is, the current _segment_writer is nullptr
