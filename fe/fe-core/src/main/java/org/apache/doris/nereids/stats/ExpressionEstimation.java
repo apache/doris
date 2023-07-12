@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -142,6 +143,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return columnStat.build();
     }
 
+    @Override
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
         ColumnStatistic stats = context.findColumnStatistics(cast);
         if (stats != null) {
@@ -155,17 +157,20 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
         if (colStats.minExpr instanceof StringLiteral && targetType.isDateLikeType()) {
             ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-            if (colStats.minExpr != null) {
+            if (colStats.minExpr != null && colStats.maxExpr != null) {
                 String strMin = colStats.minExpr.getStringValue();
-                DateLiteral dateMinLiteral = new DateLiteral(strMin);
-                long min = dateMinLiteral.getValue();
-                builder.setMinValue(min);
-            }
-            if (colStats.maxExpr != null) {
-                String strMax = colStats.maxExpr.getStringValue();
-                DateLiteral dateMaxLiteral = new DateLiteral(strMax);
-                long max = dateMaxLiteral.getValue();
-                builder.setMaxValue(max);
+                try {
+                    DateLiteral dateMinLiteral = new DateLiteral(strMin);
+                    long min = dateMinLiteral.getValue();
+                    builder.setMinValue(min);
+
+                    String strMax = colStats.maxExpr.getStringValue();
+                    DateLiteral dateMaxLiteral = new DateLiteral(strMax);
+                    long max = dateMaxLiteral.getValue();
+                    builder.setMaxValue(max);
+                } catch (AnalysisException e) {
+                    // ignore exception. do not convert min max
+                }
             }
             return builder.build();
         }
