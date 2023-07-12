@@ -62,18 +62,14 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
     if (s.is<META_KEY_NOT_FOUND>()) {
-        std::string error_msg = "rowset id:" + key + " not found.";
-        LOG(WARNING) << error_msg;
-        return Status::Error<META_KEY_NOT_FOUND>();
+        return Status::Error<META_KEY_NOT_FOUND>("rowset id: {} not found.", key);
     } else if (!s.ok()) {
-        std::string error_msg = "load rowset id:" + key + " failed.";
-        LOG(WARNING) << error_msg;
-        return Status::Error<IO_ERROR>();
+        return Status::Error<IO_ERROR>("load rowset id: {} failed.", key);
     }
     bool ret = rowset_meta->init(value);
     if (!ret) {
-        std::string error_msg = "parse rowset meta failed. rowset id:" + key;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("parse rowset meta failed. rowset id: {}",
+                                                       key);
     }
     return Status::OK();
 }
@@ -88,8 +84,8 @@ Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_
     }
     bool ret = rowset_meta_ptr->json_rowset_meta(json_rowset_meta);
     if (!ret) {
-        std::string error_msg = "get json rowset meta failed. rowset id:" + rowset_id.to_string();
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("get json rowset meta failed. rowset id:{}",
+                                                       rowset_id.to_string());
     }
     return Status::OK();
 }
@@ -108,8 +104,8 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
             fmt::format("{}{}_{}", ROWSET_PREFIX, tablet_uid.to_string(), rowset_id.to_string());
     std::string value;
     if (!rowset_meta_pb.SerializeToString(&value)) {
-        LOG(WARNING) << "serialize rowset pb failed. rowset id:" << key;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("serialize rowset pb failed. rowset id:{}",
+                                                       key);
     }
 
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
@@ -123,8 +119,8 @@ Status RowsetMetaManager::_save_with_binlog(OlapMeta* meta, TabletUid tablet_uid
             fmt::format("{}{}_{}", ROWSET_PREFIX, tablet_uid.to_string(), rowset_id.to_string());
     std::string rowset_value;
     if (!rowset_meta_pb.SerializeToString(&rowset_value)) {
-        LOG(WARNING) << "serialize rowset pb failed. rowset id:" << rowset_key;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("serialize rowset pb failed. rowset id:{}",
+                                                       rowset_key);
     }
 
     // create binlog write data
@@ -133,9 +129,8 @@ Status RowsetMetaManager::_save_with_binlog(OlapMeta* meta, TabletUid tablet_uid
     // version is formatted to 20 bytes to avoid the problem of sorting, version is lower, timestamp is lower
     // binlog key is not supported for cumulative rowset
     if (rowset_meta_pb.start_version() != rowset_meta_pb.end_version()) {
-        LOG(WARNING) << "binlog key is not supported for cumulative rowset. rowset id:"
-                     << rowset_key;
-        return Status::Error<ROWSET_BINLOG_NOT_ONLY_ONE_VERSION>();
+        return Status::Error<ROWSET_BINLOG_NOT_ONLY_ONE_VERSION>(
+                "binlog key is not supported for cumulative rowset. rowset id:{}", rowset_key);
     }
     auto version = rowset_meta_pb.start_version();
     std::string binlog_meta_key = make_binlog_meta_key(tablet_uid, version, rowset_id);
@@ -149,8 +144,8 @@ Status RowsetMetaManager::_save_with_binlog(OlapMeta* meta, TabletUid tablet_uid
     binlog_meta_entry_pb.set_rowset_id_v2(rowset_meta_pb.rowset_id_v2());
     std::string binlog_meta_value;
     if (!binlog_meta_entry_pb.SerializeToString(&binlog_meta_value)) {
-        LOG(WARNING) << "serialize binlog pb failed. rowset id:" << binlog_meta_key;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("serialize binlog pb failed. rowset id:{}",
+                                                       binlog_meta_key);
     }
 
     // create batch entries
@@ -181,7 +176,7 @@ std::vector<std::string> RowsetMetaManager::get_binlog_filenames(OlapMeta* meta,
             LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
             return false;
         }
-        if (auto pos = key.rfind("_"); pos == std::string::npos) {
+        if (auto pos = key.rfind('_'); pos == std::string::npos) {
             LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
             return false;
         } else {
@@ -235,7 +230,7 @@ std::pair<std::string, int64_t> RowsetMetaManager::get_binlog_info(
                                                      const std::string& value) -> bool {
         VLOG_DEBUG << fmt::format("key:{}, value:{}", key, value);
         // key is 'binglog_meta_6943f1585fe834b5-e542c2b83a21d0b7_00000000000000000069_020000000000000135449d7cd7eadfe672aa0f928fa99593', extract last part '020000000000000135449d7cd7eadfe672aa0f928fa99593'
-        auto pos = key.rfind("_");
+        auto pos = key.rfind('_');
         if (pos == std::string::npos) {
             LOG(WARNING) << fmt::format("invalid binlog meta key:{}", key);
             return false;
@@ -325,9 +320,7 @@ Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
     RowsetMeta rowset_meta;
     bool ret = rowset_meta.init_from_json(json_rowset_meta);
     if (!ret) {
-        std::string error_msg = "parse json rowset meta failed.";
-        LOG(WARNING) << error_msg;
-        return Status::Error<SERIALIZE_PROTOBUF_ERROR>();
+        return Status::Error<SERIALIZE_PROTOBUF_ERROR>("parse json rowset meta failed.");
     }
     RowsetId rowset_id = rowset_meta.rowset_id();
     TabletUid tablet_uid = rowset_meta.tablet_uid();

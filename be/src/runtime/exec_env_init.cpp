@@ -55,6 +55,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -117,6 +118,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
+
+    TimezoneUtils::load_timezone_names();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -226,6 +229,8 @@ Status ExecEnv::_init_mem_env() {
     }
 
     // 3. init storage page cache
+    CacheManager::create_global_instance();
+
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
                                       MemInfo::physical_mem(), &is_percent);
@@ -306,7 +311,7 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;

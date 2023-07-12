@@ -169,7 +169,7 @@ Status MultiTablePipe::request_and_exec_plans() {
             }));
     _ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
 
-    Status plan_status(_ctx->multi_table_put_result.status);
+    Status plan_status(Status::create(_ctx->multi_table_put_result.status));
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << _ctx->brief();
         return plan_status;

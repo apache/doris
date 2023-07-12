@@ -196,15 +196,17 @@ void ColumnStruct::update_hashes_with_value(std::vector<SipHash>& hashes,
     SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
-void ColumnStruct::update_xxHash_with_value(size_t n, uint64_t& hash) const {
+void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                            const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_xxHash_with_value(n, hash);
+        column->update_xxHash_with_value(start, end, hash, nullptr);
     }
 }
 
-void ColumnStruct::update_crc_with_value(size_t n, uint64_t& crc) const {
+void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                         const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_crc_with_value(n, crc);
+        column->update_crc_with_value(start, end, hash, nullptr);
     }
 }
 

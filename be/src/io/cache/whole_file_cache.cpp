@@ -59,9 +59,9 @@ Status WholeFileCache::read_at_impl(size_t offset, Slice result, size_t* bytes_r
             _cache_file_reader->read_at(offset, result, bytes_read, io_ctx),
             fmt::format("Read local cache file failed: {}", _cache_file_reader->path().native()));
     if (*bytes_read != result.size) {
-        LOG(ERROR) << "read cache file failed: " << _cache_file_reader->path().native()
-                   << ", bytes read: " << bytes_read << " vs required size: " << result.size;
-        return Status::Error<OS_ERROR>();
+        return Status::Error<OS_ERROR>(
+                "read cache file failed: {}, bytes read: {} vs required size: {}",
+                _cache_file_reader->path().native(), *bytes_read, result.size);
     }
     update_last_match_time();
     return Status::OK();

@@ -51,10 +51,6 @@
 #include "olap/olap_common.h"
 #include "util/string_parser.hpp"
 
-using std::string;
-using std::set;
-using std::vector;
-
 namespace doris {
 using namespace ErrorCode;
 
@@ -408,18 +404,16 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
     return localCrc;
 }
 
-Status gen_timestamp_string(string* out_string) {
+Status gen_timestamp_string(std::string* out_string) {
     time_t now = time(nullptr);
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
-        LOG(WARNING) << "fail to localtime_r time. [time=" << now << "]";
-        return Status::Error<OS_ERROR>();
+        return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
     char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
-        LOG(WARNING) << "fail to strftime time. [time=" << now << "]";
-        return Status::Error<OS_ERROR>();
+        return Status::Error<OS_ERROR>("fail to strftime time. time={}", now);
     }
 
     *out_string = time_suffix;
@@ -430,22 +424,18 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
     return *left - *right;
 }
 
-Status read_write_test_file(const string& test_file_path) {
+Status read_write_test_file(const std::string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
-            LOG(WARNING) << "fail to delete test file. "
-                         << "path=" << test_file_path << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::Error<IO_ERROR>();
+            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
+                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     } else {
         if (errno != ENOENT) {
             char errmsg[64];
-            LOG(WARNING) << "fail to access test file. "
-                         << "path=" << test_file_path << ", errno=" << errno
-                         << ", err=" << strerror_r(errno, errmsg, 64);
-            return Status::Error<IO_ERROR>();
+            return Status::Error<IO_ERROR>("fail to access test file. path={}, errno={}, err={}",
+                                           test_file_path, errno, strerror_r(errno, errmsg, 64));
         }
     }
 
@@ -454,13 +444,13 @@ Status read_write_test_file(const string& test_file_path) {
     char* write_test_buff = nullptr;
     char* read_test_buff = nullptr;
     if (posix_memalign((void**)&write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "fail to allocate write buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("fail to allocate write buffer memory. size={}",
+                                               TEST_FILE_BUF_SIZE);
     }
     std::unique_ptr<char, decltype(&std::free)> write_buff(write_test_buff, &std::free);
     if (posix_memalign((void**)&read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "fail to allocate read buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("fail to allocate read buffer memory. size={}",
+                                               TEST_FILE_BUF_SIZE);
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
@@ -481,21 +471,20 @@ Status read_write_test_file(const string& test_file_path) {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader->read_at(0, {read_buff.get(), TEST_FILE_BUF_SIZE}, &bytes_read));
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
-        LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = "
-                     << test_file_path << "]";
-        return Status::Error<TEST_FILE_ERROR>();
+        return Status::Error<TEST_FILE_ERROR>(
+                "the test file write_buf and read_buf not equal, file_name={}.", test_file_path);
     }
     // delete file
     return io::global_local_filesystem()->delete_file(test_file_path);
 }
 
-Status check_datapath_rw(const string& path) {
+Status check_datapath_rw(const std::string& path) {
     bool exists = true;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(path, &exists));
     if (!exists) {
         return Status::IOError("path does not exist: {}", path);
     }
-    string file_path = path + "/.read_write_test_file";
+    std::string file_path = path + "/.read_write_test_file";
     return read_write_test_file(file_path);
 }
 
@@ -553,7 +542,7 @@ bool valid_signed_number<int128_t>(const std::string& value_str) {
     }
 }
 
-bool valid_decimal(const string& value_str, const uint32_t precision, const uint32_t frac) {
+bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac) {
     const char* decimal_pattern = "-?\\d+(.\\d+)?";
     std::regex e(decimal_pattern);
     std::smatch what;
@@ -570,7 +559,7 @@ bool valid_decimal(const string& value_str, const uint32_t precision, const uint
     size_t integer_len = 0;
     size_t fractional_len = 0;
     size_t point_pos = value_str.find('.');
-    if (point_pos == string::npos) {
+    if (point_pos == std::string::npos) {
         integer_len = number_length;
         fractional_len = 0;
     } else {
@@ -585,7 +574,7 @@ bool valid_decimal(const string& value_str, const uint32_t precision, const uint
     }
 }
 
-bool valid_datetime(const string& value_str, const uint32_t scale) {
+bool valid_datetime(const std::string& value_str, const uint32_t scale) {
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
             "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2})([.]*((?:\\d){0,6})))?";

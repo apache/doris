@@ -315,7 +315,7 @@ protected:
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();
         brpc::Join(call_id);
-        receiver_status_ = _closure->result.status();
+        receiver_status_ = Status::create(_closure->result.status());
         if (cntl->Failed()) {
             std::string err = fmt::format(
                     "failed to send brpc batch, error={}, error_text={}, client: {}, "
