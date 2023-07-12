@@ -37,7 +37,7 @@ namespace doris::vectorized {
                      size_t result, size_t /*input_rows_count*/) {
          DCHECK_EQ(arguments.size(), 2);
 
-         const auto& [src_column, left_const] =
+         /*const auto& [src_column, left_const] =
                  unpack_if_const(block.get_by_position(arguments[0]).column);
          const auto& [right_column, right_const] =
                  unpack_if_const(block.get_by_position(arguments[1]).column);
@@ -55,7 +55,7 @@ namespace doris::vectorized {
          NullMapType* dest_nested_null_map = nullptr;
          ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
          dest_nested_column = dest_nullable_col->get_nested_column_ptr();
-         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
+         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();*/
 
          /*if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
              if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {

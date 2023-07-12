@@ -32,6 +32,7 @@
 #include "vec/data_types/data_type_array.h"
 #include "vec/columns/column_array.h"
 #include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
 
 namespace doris {
 namespace vectorized {
