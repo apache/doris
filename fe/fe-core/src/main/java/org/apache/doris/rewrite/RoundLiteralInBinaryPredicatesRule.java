@@ -26,7 +26,9 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import java.math.BigDecimal;
@@ -66,7 +68,7 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                                 // but current fold constant rule can't handle such complex expr with null literal
                                 // so we use a trick way like this:
                                 Expr newExpr = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                                        new IsNullPredicate(expr0, false), new BoolLiteral(false));
+                                        new IsNullPredicate(expr0, false), NullLiteral.create(Type.BOOLEAN));
                                 return op == Operator.EQ ? newExpr
                                         : new CompoundPredicate(CompoundPredicate.Operator.NOT,
                                                 newExpr, null);
@@ -124,7 +126,7 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                             // but current fold constant rule can't handle such complex expr with null literal
                             // so we use a trick way like this:
                             Expr newExpr = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                                    new IsNullPredicate(expr0, false), new BoolLiteral(false));
+                                    new IsNullPredicate(expr0, false), NullLiteral.create(Type.BOOLEAN));
                             return op == Operator.EQ ? newExpr
                                     : new CompoundPredicate(CompoundPredicate.Operator.NOT, newExpr,
                                             null);
