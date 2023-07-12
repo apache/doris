@@ -683,7 +683,8 @@ void DataDir::perform_path_gc_by_rowsetid() {
                 TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->check_rowset_id(rowset_id) &&
-                        !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
+                        !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id,
+                                                                                      nullptr)) {
                         _process_garbage_path(path);
                     }
                 }

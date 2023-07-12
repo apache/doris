@@ -144,7 +144,7 @@ public:
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
 
-    bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
+    bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id, RowsetSharedPtr* rs);
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); }
 

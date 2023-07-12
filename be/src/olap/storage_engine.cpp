@@ -903,7 +903,10 @@ void StorageEngine::start_delete_unused_rowset() {
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-            if (it->second.use_count() == 1 && it->second->need_delete_file()) {
+            uint64_t now = UnixSeconds();
+            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+                // We delay the GC time of this rowset since it's maybe still needed, see #20732
+                now > it->second->delayed_expired_timestamp()) {
                 if (it->second->is_local()) {
                     unused_rowsets_copy[it->first] = it->second;
                 }
@@ -1052,10 +1055,17 @@ Status StorageEngine::execute_task(EngineTask* task) {
 }
 
 // check whether any unused rowsets's id equal to rowset_id
-bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
+bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id,
+                                                      RowsetSharedPtr* rs) {
     std::lock_guard<std::mutex> lock(_gc_mutex);
     auto search = _unused_rowsets.find(rowset_id.to_string());
-    return search != _unused_rowsets.end();
+    if (search != _unused_rowsets.end()) {
+        if (rs) {
+            *rs = search->second;
+        }
+        return true;
+    }
+    return false;
 }
 
 void StorageEngine::create_cumulative_compaction(
