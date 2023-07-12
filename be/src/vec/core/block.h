@@ -413,34 +413,26 @@ private:
 
     using IndexByName = phmap::flat_hash_map<String, size_t>;
     IndexByName index_by_name;
-    Block* _output_block = nullptr;
 
 public:
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);
     }
     MutableBlock() = default;
-    ~MutableBlock() {
-        if (_output_block) {
-            _output_block->swap(this->to_block());
-        }
-    };
 
     MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
                  bool igore_trivial_slot = false);
 
-    MutableBlock(Block* block, Block* output_block = nullptr)
+    MutableBlock(Block* block)
             : _columns(block->mutate_columns()),
               _data_types(block->get_data_types()),
-              _names(block->get_names()),
-              _output_block(output_block) {
+              _names(block->get_names()) {
         initialize_index_by_name();
     }
-    MutableBlock(Block&& block, Block* output_block = nullptr)
+    MutableBlock(Block&& block)
             : _columns(block.mutate_columns()),
               _data_types(block.get_data_types()),
-              _names(block.get_names()),
-              _output_block(output_block) {
+              _names(block.get_names()) {
         initialize_index_by_name();
     }
 
@@ -448,7 +440,6 @@ public:
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
         _names = std::move(m_block._names);
-        std::swap(_output_block, m_block._output_block);
         initialize_index_by_name();
     }
 
