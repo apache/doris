@@ -191,7 +191,7 @@ public class StringLiteral extends LiteralExpr {
 
     public boolean canRepresentByDateV2(Type targetType) {
         try {
-            Preconditions.checkArgument(targetType.isDateV2());
+            Preconditions.checkArgument(targetType.isDateType());
             DateLiteral val = new DateLiteral(value, targetType);
             return val.getHour() == 0 && val.getMinute() == 0 && val.getSecond() == 0 && val.getMicrosecond() == 0;
         } catch (AnalysisException e) {

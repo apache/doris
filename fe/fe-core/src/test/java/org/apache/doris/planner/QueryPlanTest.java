@@ -1714,28 +1714,27 @@ public class QueryPlanTest extends TestWithFeService {
         // invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString
-                        .contains("Incorrect datetime value: '2020-10-32' in expression: `day` = '2020-10-32'"));
+        Assert.assertTrue(explainString.contains("`day` is not legal Datelike Literal"));
         //invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = '20201032'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: '20201032' in expression: `day` = '20201032'"));
+        Assert.assertTrue(explainString.contains("`day` is not legal Datelike Literal"));
         //invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 20201032";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: 20201032 in expression: `day` = 20201032"));
+        Assert.assertTrue(explainString.contains("`day` is not legal Datelike Literal"));
         //invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 'hello'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `day` = 'hello'"));
+        Assert.assertTrue(explainString.contains("`day` is not legal Datelike Literal"));
         //invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 2020-10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `day` = 1980"));
+        Assert.assertTrue(explainString.contains("`day` is not legal Datelike Literal"));
         //invalid date
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where day = 10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `day` = -20"));
+        Assert.assertTrue(explainString.contains("`day` is not legal Datelike Literal"));
         //valid datetime
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-30 12:12:30'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
@@ -1768,31 +1767,39 @@ public class QueryPlanTest extends TestWithFeService {
         //invalid datetime
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-32'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `date` = '2020-10-32'"));
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
         //invalid datetime
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 'hello'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `date` = 'hello'"));
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
         //invalid datetime
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 2020-10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `date` = 1980"));
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
         //invalid datetime
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = 10-30";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `date` = -20"));
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
         //invalid datetime
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '2020-10-12 12:23:76'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-12 12:23:76' in expression: `date` = '2020-10-12 12:23:76'"));
-
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
+        // not support for ambiguous
         sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '1604031150'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
 
-        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '1604031150000'";
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '160403115000'";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
+        // length out of range
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '1604031150000'";
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
+        // not support point for compact number
+        sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ day from tbl_int_date where date = '160403115000.1'";
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("`date` is not legal Datelike Literal"));
 
         String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ count(*) from test.baseall where k11 > to_date(now())";
         explainString = getSQLPlanOrErrorMsg(queryStr);

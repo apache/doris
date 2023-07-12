@@ -1607,9 +1607,13 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         Type t1 = getChild(0).getType();
         Type t2 = getChild(1).getType();
         // add operand casts
-        Preconditions.checkState(compatibleType.isValid());
+        Preconditions.checkState(compatibleType.isScalarType() && compatibleType.isValid());
         if (t1.getPrimitiveType() != compatibleType.getPrimitiveType()) {
-            castChild(compatibleType, 0);
+            ScalarType toType = ((ScalarType) compatibleType).clone();
+            if (toType.isDatetimeV2()) { // going here means t1 is not dtv2, so use 0 scale.
+                toType.setScalarScale(0);
+            }
+            castChild((Type) toType, 0);
         }
         if (t2.getPrimitiveType() != compatibleType.getPrimitiveType()) {
             castChild(compatibleType, 1);

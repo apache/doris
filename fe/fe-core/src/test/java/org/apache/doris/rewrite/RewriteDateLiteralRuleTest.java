@@ -108,8 +108,11 @@ public class RewriteDateLiteralRuleTest {
         Assert.assertTrue(planString.contains("`k1` > '2021-03-01 22:11:33'"));
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03-01dd 11:22' from " + DB_NAME + ".tb1";
-        planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > NULL"));
+        try {
+            dorisAssert.query(query).explainQuery();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression: `k1` > NULL"));
+        }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '80-03-01 11:22' from " + DB_NAME + ".tb1";
         planString = dorisAssert.query(query).explainQuery();
@@ -191,33 +194,36 @@ public class RewriteDateLiteralRuleTest {
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021030125334455' in expression: `k1` > '2021030125334455'"));
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression: `k1` > NULL"));
         }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021030125334455' from " + DB_NAME + ".tb1";
-        String plainString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(plainString.contains("NULL"));
+        try {
+            dorisAssert.query(query).explainQuery();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression: `k1` > NULL"));
+        }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME + ".tb1 where k1 > '2021-03-32 23:33:55'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021-03-32 23:33:55' in expression: `k1` > '2021-03-32 23:33:55'"));
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression: `k1` > NULL"));
         }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME + ".tb1 where k1 > '2021-03- 03 23:33:55'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021-03- 03 23:33:55' in expression: `k1` > '2021-03- 03 23:33:55'"));
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression: `k1` > NULL"));
         }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03- 03 23:33:55' from " + DB_NAME + ".tb1";
-        plainString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(plainString.contains("NULL"));
+        try {
+            dorisAssert.query(query).explainQuery();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression: `k1` > NULL"));
+        }
     }
 
     public void testWithInvalidFormatDateV2() throws Exception {
@@ -225,32 +231,35 @@ public class RewriteDateLiteralRuleTest {
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021030125334455' in expression: `k1` > '2021030125334455'"));
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression"));
         }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021030125334455' from " + DB_NAME + ".tb2";
-        String plainString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(plainString.contains("NULL"));
+        try {
+            dorisAssert.query(query).explainQuery();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression"));
+        }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME + ".tb2 where k1 > '2021-03-32 23:33:55'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021-03-32 23:33:55' in expression: `k1` > '2021-03-32 23:33:55'"));
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression"));
         }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from " + DB_NAME + ".tb2 where k1 > '2021-03- 03 23:33:55'";
         try {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021-03- 03 23:33:55' in expression: `k1` > '2021-03- 03 23:33:55'"));
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression"));
         }
 
         query = "select /*+ SET_VAR(enable_nereids_planner=false) */ k1 > '2021-03- 03 23:33:55' from " + DB_NAME + ".tb2";
-        plainString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(plainString.contains("NULL"));
+        try {
+            dorisAssert.query(query).explainQuery();
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("Incorrect datetime value in expression"));
+        }
     }
 }

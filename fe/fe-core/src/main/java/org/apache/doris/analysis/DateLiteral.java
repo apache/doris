@@ -367,7 +367,8 @@ public class DateLiteral extends LiteralExpr {
      * 
      * @throws AnalysisException if s can't be analysis.
      */
-    private void init(String s, Type type) throws AnalysisException {
+    private void init(String s, Type argType) throws AnalysisException {
+        ScalarType type = ((ScalarType) argType).clone(); // we may set it's scale
         try {
             Preconditions.checkArgument(type.isDateType());
             TemporalAccessor dateTime = null;
@@ -376,6 +377,12 @@ public class DateLiteral extends LiteralExpr {
             if (!s.contains("-")) {
                 // handle format like 20210106, but should not handle 2021-1-6
                 int index = 0;
+
+                // not same with MySQL, but reasonable.
+                if (allOfDigit(s) && (s.length() == 6 || s.length() == 12)) {
+                    s = "20" + s;
+                }
+
                 for (DateTimeFormatter formatter : formatterList) {
                     try {
                         dateTime = formatter.parse(s);
@@ -499,7 +506,7 @@ public class DateLiteral extends LiteralExpr {
                 minute = getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR, 0);
                 second = getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE, 0);
                 // because of shortcut below, we have to get microsecond of Datetime.
-                int scale = ((ScalarType) type).getScalarScale();
+                int scale = type.getScalarScale();
                 int width = s.length() - count;
 
                 // scale = -1 for depend on Literal
@@ -508,7 +515,7 @@ public class DateLiteral extends LiteralExpr {
                             Math.min(MAX_MICROSECOND_WIDTH, width));
                     msString = trimString(msString, '0');
                     microsecond = msString.length() > 0 ? Integer.parseInt(msString) : 0; // no rounding
-                    ((ScalarType) type).setScalarScale(msString.length());
+                    type.setScalarScale(msString.length());
                 } else {
                     String msString = s.substring(count, s.length()).substring(0, Math.min(scale, width));
                     microsecond = msString.length() > 0 ? Integer.parseInt(msString) : 0; // no rounding
@@ -691,7 +698,23 @@ public class DateLiteral extends LiteralExpr {
         if (scale == newScale) {
             return;
         }
+
         // decrease scale
+        if (newScale == 0) {
+            if (microsecond != 0) {
+                microsecond = 0;
+                DateLiteral result = this.plusSeconds(1);
+                this.second = result.second;
+                this.minute = result.minute;
+                this.hour = result.hour;
+                this.day = result.day;
+                this.month = result.month;
+                this.year = result.year;
+            }
+            type = ScalarType.createDatetimeV2Type(newScale);
+            return;
+        }
+
         String msString = String.format("%0" + String.valueOf(scale) + "d", microsecond);
         microsecond = Integer.parseInt(msString.substring(0, newScale))
                 + (allOfChar(msString.substring(newScale), '0') ? 0 : 1);
@@ -1887,6 +1910,15 @@ public class DateLiteral extends LiteralExpr {
     public static boolean allOfChar(String arg, char ch) {
         for (char now : arg.toCharArray()) {
             if (now != ch) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static boolean allOfDigit(String arg) {
+        for (char now : arg.toCharArray()) {
+            if (now < '0' || now > '9') {
                 return false;
             }
         }

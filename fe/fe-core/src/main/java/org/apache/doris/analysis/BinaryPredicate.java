@@ -368,9 +368,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         // we need to get right result scale. So convert right first.
-        // we do String->Date here. then castBinaryOp() only do Scale(x)->Scale(y).
+        // we do String->DatetimeV2 here. then castBinaryOp() only do
+        // Scale(x)->Scale(y).
         // TODO: check whether Decimal need this also.
-        if (getChild(0).getType().isDateType() && getChild(1).getType().isStringType()) {
+        if (getChild(0).getType().isDatetimeV2() && getChild(1).getType().isStringType()
+                && getChild(1) instanceof StringLiteral) {
             ScalarType toType = ((ScalarType) getChild(0).getType()).clone();
             toType.setScalarScale(-1);
             castChild(toType, 1);
@@ -393,17 +395,17 @@ public class BinaryPredicate extends Predicate implements Writable {
                 return getChild(1).getType();
             } else if (getChild(0).getType().isDateV2()
                     && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(1)).canRepresentByDateV2(Type.DATEV2)) {
+                if (((StringLiteral) getChild(1)).canRepresentByDateV2(ScalarType.createDatetimeV2Type(-1))) {
                     return Type.DATEV2;
                 } else {
-                    return Type.DATETIMEV2;
+                    return ScalarType.createDatetimeV2Type(-1);
                 }
             } else if (getChild(1).getType().isDateV2()
                     && (getChild(0).getType().isStringType() && getChild(0) instanceof StringLiteral)) {
-                if (((StringLiteral) getChild(0)).canRepresentByDateV2(Type.DATEV2)) {
+                if (((StringLiteral) getChild(0)).canRepresentByDateV2(ScalarType.createDatetimeV2Type(-1))) {
                     return Type.DATEV2;
                 } else {
-                    return Type.DATETIMEV2;
+                    return ScalarType.createDatetimeV2Type(-1);
                 }
             } else if (getChild(0).getType().isDatetimeV2()
                     && (getChild(1).getType().isStringType() && getChild(1) instanceof StringLiteral)) {
