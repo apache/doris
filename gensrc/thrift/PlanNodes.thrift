@@ -290,14 +290,12 @@ struct TIcebergFileDesc {
 }
 
 struct TPaimonFileDesc {
-    1: optional binary paimon_split
-    2: optional string paimon_column_ids
-    3: optional string paimon_column_types
-    4: optional string paimon_column_names
-    5: optional string db_name
-    6: optional string table_name
-    7: optional string length_byte
-    8: optional map<string, string> paimon_options
+    1: optional string paimon_split
+    2: optional string paimon_column_names
+    3: optional string db_name
+    4: optional string table_name
+    5: optional string paimon_predicate
+    6: optional map<string, string> paimon_options
 }
 
 
