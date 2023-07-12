@@ -398,11 +398,6 @@ Status IndexBuilder::do_build_inverted_index() {
                 "failed to obtain build inverted index lock. tablet={}", _tablet->tablet_id());
     }
 
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<ErrorCode::BE_CLONE_OCCURRED>("get_clone_occurred failed");
-    }
-
     _input_rowsets =
             _tablet->pick_candidate_rowsets_to_build_inverted_index(_alter_index_ids, _is_drop_op);
     if (_input_rowsets.empty()) {
