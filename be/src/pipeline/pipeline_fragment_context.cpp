@@ -274,7 +274,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
 
-    _root_plan->try_do_aggregate_serde_improve();
     // set scan range in ScanNode
     for (int i = 0; i < scan_nodes.size(); ++i) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
