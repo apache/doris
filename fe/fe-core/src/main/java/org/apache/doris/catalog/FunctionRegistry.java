@@ -124,7 +124,11 @@ public class FunctionRegistry {
         if (ConnectContext.get() != null) {
             dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
                     dbName == null ? ConnectContext.get().getDatabase() : dbName);
-            scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
+            if (dbName == null) {
+                scopes = ImmutableList.of(GLOBAL_FUNCTION);
+            } else {
+                scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
+            }
         }
 
         synchronized (name2UdfBuilders) {
