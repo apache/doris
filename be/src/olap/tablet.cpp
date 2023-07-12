@@ -3255,7 +3255,6 @@ Status Tablet::commit_phase_update_delete_bitmap(
 
 Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                     RowsetWriter* rowset_writer) {
-    std::vector<RowsetSharedPtr> published_rowsets;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> tmp_version_map;
     DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
 
@@ -3267,9 +3266,7 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
         return Status::OK();
     }
 
-    std::vector<RowsetSharedPtr> specified_rowsets(1, rowset);
     int64_t max_version = 0;
-
     {
         std::lock_guard<std::mutex> rowset_update_lock(get_rowset_update_lock());
         std::lock_guard<std::shared_mutex> header_lock(get_header_lock());
@@ -3286,27 +3283,8 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
     for (const auto& it : tmp_version_map) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        _load_rowset_segments(published_rowset, &segments);
-        delete_bitmap->clear();
-
-        OlapStopWatch watch;
-        RETURN_IF_ERROR(calc_delete_bitmap(published_rowset, segments, specified_rowsets,
-                                           delete_bitmap, cur_version, rowset_writer));
-        size_t total_rows = std::accumulate(segments.begin(), segments.end(), 0,
-                                            [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
-                                                return sum += s->num_rows();
-                                            });
-        LOG(INFO) << "[Full compaction phase1] construct delete bitmap tablet: " << tablet_id()
-                  << ", published rowset version: [" << published_rowset->version().first << "-"
-                  << published_rowset->version().second << "]"
-                  << ", full compaction rowset version: [" << rowset->version().first << "-"
-                  << rowset->version().second << "]"
-                  << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
-
-        for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
-            _tablet_meta->delete_bitmap().merge({std::get<0>(k), std::get<1>(k), cur_version}, v);
-        }
+        RETURN_IF_ERROR(_full_compaction_calc_delete_bitmap(published_rowset, rowset, cur_version,
+                                                            rowset_writer));
     }
 
     std::lock_guard<std::mutex> rowset_update_lock(get_rowset_update_lock());
@@ -3314,32 +3292,39 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
     for (const auto& it : _rs_version_map) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
-        std::vector<segment_v2::SegmentSharedPtr> segments;
         if (it.first.first > max_version) {
-            _load_rowset_segments(published_rowset, &segments);
-            delete_bitmap->clear();
-
-            OlapStopWatch watch;
-            RETURN_IF_ERROR(calc_delete_bitmap(published_rowset, segments, specified_rowsets,
-                                               delete_bitmap, cur_version, rowset_writer));
-            size_t total_rows =
-                    std::accumulate(segments.begin(), segments.end(), 0,
-                                    [](size_t sum, const segment_v2::SegmentSharedPtr& s) {
-                                        return sum += s->num_rows();
-                                    });
-            LOG(INFO) << "[Full compaction phase2] construct delete bitmap tablet: " << tablet_id()
-                      << ", published rowset version: [" << published_rowset->version().first << "-"
-                      << published_rowset->version().second << "]"
-                      << ", full compaction rowset version: [" << rowset->version().first << "-"
-                      << rowset->version().second << "]"
-                      << ", cost: " << watch.get_elapse_time_us()
-                      << "(us), total rows: " << total_rows;
-
-            for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
-                _tablet_meta->delete_bitmap().merge({std::get<0>(k), std::get<1>(k), cur_version},
-                                                    v);
-            }
+            RETURN_IF_ERROR(_full_compaction_calc_delete_bitmap(published_rowset, rowset,
+                                                                cur_version, rowset_writer));
         }
+    }
+
+    return Status::OK();
+}
+
+Status Tablet::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr& published_rowset,
+                                                   const RowsetSharedPtr& rowset,
+                                                   const int64_t& cur_version,
+                                                   RowsetWriter* rowset_writer) {
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    _load_rowset_segments(published_rowset, &segments);
+    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
+    std::vector<RowsetSharedPtr> specified_rowsets(1, rowset);
+
+    OlapStopWatch watch;
+    RETURN_IF_ERROR(calc_delete_bitmap(published_rowset, segments, specified_rowsets, delete_bitmap,
+                                       cur_version, rowset_writer));
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    VLOG_DEBUG << "[Full compaction phase2] construct delete bitmap tablet: " << tablet_id()
+               << ", published rowset version: [" << published_rowset->version().first << "-"
+               << published_rowset->version().second << "]"
+               << ", full compaction rowset version: [" << rowset->version().first << "-"
+               << rowset->version().second << "]"
+               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+
+    for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
+        _tablet_meta->delete_bitmap().merge({std::get<0>(k), std::get<1>(k), cur_version}, v);
     }
 
     return Status::OK();
