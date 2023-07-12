@@ -319,6 +319,6 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%hudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum, inputSplitsNum);
+                + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum, inputSplitsNum);
     }
 }
