@@ -67,7 +67,7 @@ mysql> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(1
 +--------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), NULL)) |
 +--------------------------------------------------------------------------------------------+
-| NULL                                                                                       |
+| 0,1,2,10                                                                                   |
 +--------------------------------------------------------------------------------------------+
 
 mysql> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2), to_bitmap(10), to_bitmap(0), bitmap_empty()));
