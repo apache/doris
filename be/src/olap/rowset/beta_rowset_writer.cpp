@@ -738,12 +738,12 @@ RowsetSharedPtr BetaRowsetWriter::_build_tmp() {
     return rowset;
 }
 
-Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr* file_writer) {
+Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr& file_writer) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
-    Status st = fs->create_file(path, file_writer);
+    Status st = fs->create_file(path, &file_writer);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
         return st;
@@ -753,7 +753,7 @@ Status BetaRowsetWriter::_create_file_writer(std::string path, io::FileWriterPtr
     return Status::OK();
 }
 
-Status BetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterPtr* file_writer) {
+Status BetaRowsetWriter::create_file_writer(uint32_t segment_id, io::FileWriterPtr& file_writer) {
     std::string path;
     path = BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, segment_id);
     return _create_file_writer(path, file_writer);
@@ -765,7 +765,7 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.rowset_dir,
                                                                    _context.rowset_id, begin, end);
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(_create_file_writer(path, &file_writer));
+    RETURN_IF_ERROR(_create_file_writer(path, file_writer));
 
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
@@ -790,7 +790,7 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
                                                 TabletSchemaSPtr flush_schema) {
     RETURN_IF_ERROR(_check_segment_number_limit());
     io::FileWriterPtr file_writer;
-    RETURN_IF_ERROR(create_file_writer(segment_id, &file_writer));
+    RETURN_IF_ERROR(create_file_writer(segment_id, file_writer));
 
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;

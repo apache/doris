@@ -84,7 +84,7 @@ public:
 
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr* writer);
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer);
 
     void add_segment(uint32_t segid, SegmentStatistics& segstat);
 
@@ -143,7 +143,7 @@ private:
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>& writer);
 
-    Status _create_file_writer(std::string path, io::FileWriterPtr* file_writer);
+    Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     Status _check_segment_number_limit();
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false,
