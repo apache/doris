@@ -178,6 +178,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
@@ -725,6 +726,17 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
+
+    public int getMaxJoinNumBushyTree() {
+        return maxJoinNumBushyTree;
+    }
+
+    public void setMaxJoinNumBushyTree(int maxJoinNumBushyTree) {
+        this.maxJoinNumBushyTree = maxJoinNumBushyTree;
+    }
+
+    @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
+    private int maxJoinNumBushyTree = 5;
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = false;
