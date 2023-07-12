@@ -1,6 +1,6 @@
 ---
 {
-    "title": "doris future project",
+    "title": "join doris community",
     "language": "en"
 }
 
