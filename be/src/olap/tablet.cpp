@@ -3281,8 +3281,8 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
 
     int64_t max_version = 0;
     {
-        std::lock_guard<std::mutex> rowset_update_lock(get_rowset_update_lock());
-        std::lock_guard<std::shared_mutex> header_lock(get_header_lock());
+        std::lock_guard rowset_update_lock(get_rowset_update_lock());
+        std::lock_guard header_lock(get_header_lock());
         for (const auto& it : _rs_version_map) {
             if (it.first.first > rowset->version().second) {
                 tmp_version_map[it.first] = it.second;
@@ -3300,8 +3300,8 @@ Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowse
                                                             rowset_writer));
     }
 
-    std::lock_guard<std::mutex> rowset_update_lock(get_rowset_update_lock());
-    std::lock_guard<std::shared_mutex> header_lock(get_header_lock());
+    std::lock_guard rowset_update_lock(get_rowset_update_lock());
+    std::lock_guard header_lock(get_header_lock());
     for (const auto& it : _rs_version_map) {
         const int64_t& cur_version = it.first.first;
         const RowsetSharedPtr& published_rowset = it.second;
