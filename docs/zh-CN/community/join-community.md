@@ -33,7 +33,7 @@ Apache Doris 开源社区是一个温暖可爱的地方，拥有来自世界各�
 
 
 
-## 🙌 更多贡献者加入我们
+## 🙌 更多开发者加入我们
 
 [![Monthly Active Contributors](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/fe6aa24cc0b74680a4dbd4e049379ab8~tplv-k3u1fbpfcp-zoom-1.image)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity\&repo=apache/doris)
 
