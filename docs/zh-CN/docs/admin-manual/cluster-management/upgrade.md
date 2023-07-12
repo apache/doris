@@ -281,7 +281,7 @@ admin set frontend config("disable_tablet_scheduler" = "true");
    cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
    ```
 
-4. 启动该 BE 节点
+4. 启动该 FE 节点
 
    ```shell
    sh ${DORIS_OLD_HOME}/fe/bin/start_fe.sh --daemon

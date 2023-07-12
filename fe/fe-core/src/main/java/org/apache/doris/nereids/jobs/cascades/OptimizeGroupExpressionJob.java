@@ -61,6 +61,8 @@ public class OptimizeGroupExpressionJob extends Job {
         boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
+        int joinNumBushyTree = context.getCascadesContext().getConnectContext()
+                .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
             return Collections.emptyList();
         } else if (isDpHyp) {
@@ -71,7 +73,7 @@ public class OptimizeGroupExpressionJob extends Job {
             }
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
-        } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= 5) {
+        } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= joinNumBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else {
             return getRuleSet().getZigZagTreeJoinReorder();

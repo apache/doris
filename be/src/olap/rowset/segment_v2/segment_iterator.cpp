@@ -753,7 +753,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res;
+                         << ", error msg: " << res.to_string();
             return res;
         }
 

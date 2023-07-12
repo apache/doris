@@ -58,7 +58,7 @@ github:
           - Build Documents
           - BE UT (Clang)
           - ShellCheck
-          - clickbench (benchmark)
+          - clickbench-new (clickbench)
           - BE UT (macOS)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)

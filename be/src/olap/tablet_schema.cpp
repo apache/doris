@@ -727,8 +727,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
             if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
                 _missing_cids.emplace_back(i);
                 auto tablet_column = column(i);
-                if (!tablet_column.has_default_value()) {
-                    _allow_key_not_exist_in_partial_update = false;
+                if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+                    _can_insert_new_rows_in_partial_update = false;
                 }
             } else {
                 _update_cids.emplace_back(i);
@@ -1081,8 +1081,8 @@ void TabletSchema::set_partial_update_info(bool is_partial_update,
         if (_partial_update_input_columns.count(_cols[i].name()) == 0) {
             _missing_cids.emplace_back(i);
             auto tablet_column = column(i);
-            if (!tablet_column.has_default_value()) {
-                _allow_key_not_exist_in_partial_update = false;
+            if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
+                _can_insert_new_rows_in_partial_update = false;
             }
         } else {
             _update_cids.emplace_back(i);

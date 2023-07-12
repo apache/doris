@@ -134,6 +134,9 @@ public class JdbcScanNode extends ExternalScanNode {
         for (Expr p : conjunctsList) {
             if (shouldPushDownConjunct(jdbcType, p)) {
                 String filter = conjunctExprToString(jdbcType, p);
+                if (filter.equals("TRUE")) {
+                    filter = "1 = 1";
+                }
                 filters.add(filter);
                 conjuncts.remove(p);
             }

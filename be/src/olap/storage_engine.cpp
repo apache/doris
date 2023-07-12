@@ -42,6 +42,7 @@
 #include <random>
 #include <set>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 #include "agent/task_worker_pool.h"
@@ -64,8 +65,10 @@
 #include "olap/single_replica_compaction.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -78,23 +81,13 @@
 #include "util/trace.h"
 #include "util/uid_util.h"
 
-using apache::thrift::ThriftDebugString;
-using std::filesystem::canonical;
 using std::filesystem::directory_iterator;
 using std::filesystem::path;
-using std::filesystem::recursive_directory_iterator;
-using std::back_inserter;
-using std::copy;
-using std::inserter;
-using std::list;
 using std::map;
-using std::nothrow;
-using std::pair;
 using std::set;
 using std::string;
 using std::stringstream;
 using std::vector;
-using strings::Substitute;
 
 namespace doris {
 using namespace ErrorCode;
@@ -624,8 +617,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_cache() {
-    SegmentLoader::instance()->prune();
-    SchemaCache::instance()->prune();
+    CacheManager::instance()->for_each_cache_prune_stale();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
@@ -655,8 +647,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     tm local_tm_now;
     local_tm_now.tm_isdst = 0;
     if (localtime_r(&now, &local_tm_now) == nullptr) {
-        LOG(WARNING) << "fail to localtime_r time. time=" << now;
-        return Status::Error<OS_ERROR>();
+        return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
@@ -700,6 +691,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
+
+    // cleand unused delete bitmap for deleted tablet
+    _clean_unused_delete_bitmap();
 
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
@@ -776,6 +770,31 @@ void StorageEngine::_clean_unused_rowset_metas() {
     }
 }
 
+void StorageEngine::_clean_unused_delete_bitmap() {
+    std::unordered_set<int64_t> removed_tablets;
+    auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
+                                                             const std::string& val) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            if (removed_tablets.insert(tablet_id).second) {
+                LOG(INFO) << "clean ununsed delete bitmap for deleted tablet, tablet_id: "
+                          << tablet_id;
+            }
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(), clean_delete_bitmap_func);
+        for (auto id : removed_tablets) {
+            TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX);
+        }
+        LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
+                  << ", deleted tablets size: " << removed_tablets.size();
+        removed_tablets.clear();
+    }
+}
+
 void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
     for (auto [tablet_id, version] : gc_tablet_infos) {
         LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
@@ -831,8 +850,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             tm local_tm_create;
             local_tm_create.tm_isdst = 0;
             if (strptime(str_time.c_str(), "%Y%m%d%H%M%S", &local_tm_create) == nullptr) {
-                LOG(WARNING) << "fail to strptime time. [time=" << str_time << "]";
-                res = Status::Error<OS_ERROR>();
+                res = Status::Error<OS_ERROR>("fail to strptime time. time={}", str_time);
                 continue;
             }
 
@@ -857,8 +875,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root;
-        res = Status::Error<IO_ERROR>();
+        res = Status::Error<IO_ERROR>("Exception occur when scan directory. path_desc={}",
+                                      scan_root);
     }
 
     return res;
@@ -933,8 +951,8 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
     std::vector<DataDir*> stores;
     stores = get_stores_for_create_tablet(request.storage_medium);
     if (stores.empty()) {
-        LOG(WARNING) << "there is no available disk that can be used to create tablet.";
-        return Status::Error<CE_CMD_PARAMS_ERROR>();
+        return Status::Error<CE_CMD_PARAMS_ERROR>(
+                "there is no available disk that can be used to create tablet.");
     }
     return _tablet_manager->create_tablet(request, stores);
 }
@@ -944,14 +962,14 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
-        LOG(WARNING) << "invalid output parameter which is null pointer.";
-        return Status::Error<CE_CMD_PARAMS_ERROR>();
+        return Status::Error<CE_CMD_PARAMS_ERROR>(
+                "invalid output parameter which is null pointer.");
     }
 
     auto stores = get_stores_for_create_tablet(storage_medium);
     if (stores.empty()) {
-        LOG(WARNING) << "no available disk can be used to create tablet.";
-        return Status::Error<NO_AVAILABLE_ROOT_PATH>();
+        return Status::Error<NO_AVAILABLE_ROOT_PATH>(
+                "no available disk can be used to create tablet.");
     }
 
     Status res = Status::OK();
@@ -985,12 +1003,10 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
                     std::filesystem::path(shard_path).parent_path().parent_path().string();
             store = get_store(store_path);
             if (store == nullptr) {
-                LOG(WARNING) << "invalid shard path, path=" << shard_path;
-                return Status::Error<INVALID_ROOT_PATH>();
+                return Status::Error<INVALID_ROOT_PATH>("invalid shard path, path={}", shard_path);
             }
         } catch (...) {
-            LOG(WARNING) << "invalid shard path, path=" << shard_path;
-            return Status::Error<INVALID_ROOT_PATH>();
+            return Status::Error<INVALID_ROOT_PATH>("invalid shard path, path={}", shard_path);
         }
     }
 
