@@ -92,8 +92,6 @@ suite("test_index_change_2") {
     qt_select5 """ SELECT * FROM ${tableName} t WHERE note MATCH_PHRASE 'electrical engineer' ORDER BY user_id; """
     qt_select6 """ SELECT * FROM ${tableName} t WHERE note MATCH 'engineer Developer' AND city match_all 'Shanghai China' ORDER BY user_id; """
 
-    //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
-    String[][] tablets = sql """ show tablets from ${tableName}; """
     // create inverted index idx_city
     sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED PROPERTIES("parser"="english") """
 
