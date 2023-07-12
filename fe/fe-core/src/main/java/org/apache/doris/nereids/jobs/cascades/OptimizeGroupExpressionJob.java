@@ -62,7 +62,7 @@ public class OptimizeGroupExpressionJob extends Job {
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
         int joinNumBushyTree = context.getCascadesContext().getConnectContext()
-            .getSessionVariable().getMaxJoinNumBushyTree();
+                .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
             return Collections.emptyList();
         } else if (isDpHyp) {
