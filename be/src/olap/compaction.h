@@ -93,6 +93,7 @@ protected:
     void build_basic_info();
 
     void init_profile(const std::string& label);
+    bool check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
 protected:
     // the root tracker for this compaction
