@@ -287,8 +287,8 @@ public class ExportJob implements Writable {
 
     private String genHeader(Map<String, String> properties) {
         String header = "";
-        if (properties.containsKey("format")) {
-            String headerType = properties.get("format");
+        if (properties.containsKey("csv_format")) {
+            String headerType = properties.get("csv_format");
             if (headerType.equals(FeConstants.csv_with_names)) {
                 header = genNames();
             } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
