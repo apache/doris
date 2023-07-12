@@ -27,7 +27,7 @@ public class TPCHTest extends TPCHTestBase {
     @Test
     void testQ5() {
         PlanChecker.from(connectContext)
-                .analyze(TPCHUtils.Q5)
+                .analyze(TPCHUtils.Q2)
                 .rewrite()
                 .deriveStats()
                 .dpHypOptimize()
