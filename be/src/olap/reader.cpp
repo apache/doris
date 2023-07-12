@@ -255,7 +255,6 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
 
     _direct_mode = read_params.direct_mode;
     _aggregation = read_params.aggregation;
-    _need_agg_finalize = read_params.need_agg_finalize;
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;

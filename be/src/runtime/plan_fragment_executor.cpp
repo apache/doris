@@ -182,8 +182,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     VLOG_CRITICAL << "scan_nodes.size()=" << scan_nodes.size();
     VLOG_CRITICAL << "params.per_node_scan_ranges.size()=" << params.per_node_scan_ranges.size();
 
-    _plan->try_do_aggregate_serde_improve();
-
     for (int i = 0; i < scan_nodes.size(); ++i) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
         ExecNode* node = scan_nodes[i];
