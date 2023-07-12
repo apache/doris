@@ -301,6 +301,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             _tablet->set_last_cumu_compaction_success_time(now);
         } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
+        } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+            _tablet->set_last_full_compaction_success_time(now);
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
         LOG(INFO) << "succeed to do ordered data " << compaction_name()
@@ -451,6 +453,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(now);
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        _tablet->set_last_full_compaction_success_time(now);
     }
 
     int64_t current_max_version;
