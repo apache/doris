@@ -184,6 +184,9 @@ public class HudiUtils {
     public static String formatQueryInstant(String queryInstant) throws ParseException {
         int instantLength = queryInstant.length();
         if (instantLength == 19 || instantLength == 23) { // for yyyy-MM-dd HH:mm:ss[.SSS]
+            if (instantLength == 19) {
+                queryInstant += ".000";
+            }
             return HoodieInstantTimeGenerator.getInstantForDateString(queryInstant);
         } else if (instantLength == HoodieInstantTimeGenerator.SECS_INSTANT_ID_LENGTH
                 || instantLength == HoodieInstantTimeGenerator.MILLIS_INSTANT_ID_LENGTH) { // for yyyyMMddHHmmss[SSS]
@@ -193,7 +196,8 @@ public class HudiUtils {
             return HoodieActiveTimeline.formatDate(defaultDateFormat.parse(queryInstant));
         } else {
             throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
-                    + ", Supported time format are: 'yyyy-MM-dd: HH:mm:ss.SSS' or 'yyyy-MM-dd' or 'yyyyMMddHHmmssSSS'");
+                    + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
+                    + "or 'yyyy-MM-dd' or 'yyyyMMddHHmmss[SSS]'");
         }
     }
 }

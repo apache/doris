@@ -59,7 +59,7 @@ public class HudiPartitionMgr {
         }
     }
 
-    public void cleanDataBasePartitions(long catalogId, String dbName) {
+    public void cleanDatabasePartitions(long catalogId, String dbName) {
         HudiPartitionProcessor processor = partitionProcessors.get(catalogId);
         if (processor != null) {
             processor.cleanDatabasePartitions(dbName);

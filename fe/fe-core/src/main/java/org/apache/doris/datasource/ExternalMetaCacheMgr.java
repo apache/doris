@@ -122,7 +122,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateDbCache(dbName);
         }
-        hudiPartitionMgr.cleanDataBasePartitions(catalogId, dbName);
+        hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
         LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
     }
 
