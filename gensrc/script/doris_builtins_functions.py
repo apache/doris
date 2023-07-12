@@ -1935,6 +1935,10 @@ visible_functions = {
         [['rlike'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], ''],
         [['regexp'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], '']
     ],
+    # tokenizer functions
+    "Tokenize": [
+        [['Tokenize'], 'ARRAY_VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE']
+    ],
 
     "UUID": [
         [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE']

@@ -95,6 +95,7 @@ void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
 void register_function_hex_variadic(SimpleFunctionFactory& factory);
 void register_function_match(SimpleFunctionFactory& factory);
+void register_function_tokenize(SimpleFunctionFactory& factory);
 
 void register_function_url(SimpleFunctionFactory& factory);
 void register_function_ip(SimpleFunctionFactory& factory);
