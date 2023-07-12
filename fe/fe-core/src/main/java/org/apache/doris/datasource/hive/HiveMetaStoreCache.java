@@ -701,7 +701,7 @@ public class HiveMetaStoreCache {
                 return dummyKey.equals(((FileCacheKey) obj).dummyKey);
             }
             return location.equals(((FileCacheKey) obj).location)
-                && partitionValues.equals(((FileCacheKey) obj).partitionValues);
+                && Objects.equals(partitionValues, ((FileCacheKey) obj).partitionValues);
         }
 
         @Override

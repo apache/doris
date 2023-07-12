@@ -258,6 +258,19 @@ public class HiveScanProvider extends HMSTableScanProvider {
         List<String> partitionKeys = getPathPartitionKeys();
         List<Column> columns = hmsTable.getBaseSchema(false);
         context.params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
+        updateRequiredSlots(context);
+        return context;
+    }
+
+    public void updateRequiredSlots(ParamCreateContext context) throws UserException {
+        updateRequiredSlots(context, null);
+    }
+
+    public void updateRequiredSlots(ParamCreateContext context, List<String> partitionKeys) throws UserException {
+        context.params.unsetRequiredSlots();
+        if (partitionKeys == null) {
+            partitionKeys = getPathPartitionKeys();
+        }
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
                 continue;
@@ -268,8 +281,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
             slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
             context.params.addToRequiredSlots(slotInfo);
         }
-        return context;
     }
+
 
     @Override
     public TFileAttributes getFileAttributes() throws UserException {
