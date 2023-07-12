@@ -228,7 +228,6 @@ Status OlapMeta::put(rocksdb::WriteBatch* batch) {
     }
 
     if (!s.ok()) {
-        LOG(WARNING) << "rocks db put batch failed, reason:" << s.ToString();
         return Status::Error<META_PUT_ERROR>("rocks db put failed, reason: {}", s.ToString());
     }
     return Status::OK();
