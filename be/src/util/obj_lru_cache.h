@@ -24,6 +24,7 @@ namespace doris {
 // A common object cache depends on an Sharded LRU Cache.
 // It has a certain capacity, which determin how many objects it can cache.
 // Caller must hold a CacheHandle instance when visiting the cached object.
+// TODO shouble add gc prune
 class ObjLRUCache {
 public:
     struct ObjKey {
