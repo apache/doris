@@ -587,7 +587,8 @@ private:
                                                const int64_t& cur_version,
                                                RowsetWriter* rowset_writer);
 
-            public : static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
+public:
+    static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
     TimestampedVersionTracker _timestamped_version_tracker;

@@ -3256,7 +3256,6 @@ Status Tablet::commit_phase_update_delete_bitmap(
 Status Tablet::full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                     RowsetWriter* rowset_writer) {
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> tmp_version_map;
-    DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_meta->tablet_id());
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet_state() == TABLET_NOTREADY &&
@@ -3316,7 +3315,7 @@ Status Tablet::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr& publis
     size_t total_rows = std::accumulate(
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
-    VLOG_DEBUG << "[Full compaction phase2] construct delete bitmap tablet: " << tablet_id()
+    VLOG_DEBUG << "[Full compaction] construct delete bitmap tablet: " << tablet_id()
                << ", published rowset version: [" << published_rowset->version().first << "-"
                << published_rowset->version().second << "]"
                << ", full compaction rowset version: [" << rowset->version().first << "-"
