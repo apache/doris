@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner.external.paimon;
 
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
@@ -31,7 +30,6 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
-import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
@@ -42,20 +40,20 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import avro.shaded.com.google.common.base.Preconditions;
-import org.apache.paimon.hive.mapred.PaimonInputSplit;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.AbstractFileStoreTable;
-import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
-import org.apache.paimon.types.DataField;
+import org.apache.paimon.utils.InstantiationUtil;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
     private static PaimonSource source = null;
+    private static List<Predicate> predicates;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
@@ -66,51 +64,39 @@ public class PaimonScanNode extends FileQueryScanNode {
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table.isView()) {
             throw new AnalysisException(
-                String.format("Querying external view '%s.%s' is not supported", table.getDbName(), table.getName()));
+                    String.format("Querying external view '%s.%s' is not supported", table.getDbName(),
+                            table.getName()));
         }
         computeColumnFilter();
         initBackendPolicy();
         source = new PaimonSource((PaimonExternalTable) table, desc, columnNameToRange);
         Preconditions.checkNotNull(source);
         initSchemaParams();
+        PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
+                source.getPaimonTable().rowType());
+        predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
+    }
+
+    private static final Base64.Encoder BASE64_ENCODER =
+            java.util.Base64.getUrlEncoder().withoutPadding();
+
+    public static <T> String encodeObjectToString(T t) {
+        try {
+            byte[] bytes = InstantiationUtil.serializeObject(t);
+            return new String(BASE64_ENCODER.encode(bytes), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public static void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();
-        fileDesc.setPaimonSplit(paimonSplit.getSerializableSplit());
-        fileDesc.setLengthByte(Integer.toString(paimonSplit.getSerializableSplit().length));
-        //Paimon columnNames,columnTypes,columnIds that need to be transported into JNI
-        StringBuilder columnNamesBuilder = new StringBuilder();
-        StringBuilder columnTypesBuilder = new StringBuilder();
-        StringBuilder columnIdsBuilder = new StringBuilder();
-        Map<String, Integer> paimonFieldsId = new HashMap<>();
-        Map<String, String> paimonFieldsName = new HashMap<>();
-        for (DataField field : ((AbstractFileStoreTable) source.getPaimonTable()).schema().fields()) {
-            paimonFieldsId.put(field.name(), field.id());
-            paimonFieldsName.put(field.name(), field.type().toString());
-        }
-        boolean isFirst = true;
-        for (SlotDescriptor slot : source.getDesc().getSlots()) {
-            // for example
-            // select a,b,c,d,e,f,g from paimon;
-            // columnNamesBuilder: a,b,c,d,e,f,g
-            // columnIdsBuilder: 0,1,2,3,4,5,6
-            // columnTypesBuilder: INT#STRING#BOOLEAN#BIGINT#FLOAT#DOUBLE#DECIMAL(10, 0)
-            if (!isFirst) {
-                columnNamesBuilder.append(",");
-                columnTypesBuilder.append("#");
-                columnIdsBuilder.append(",");
-            }
-            columnNamesBuilder.append(slot.getColumn().getName());
-            columnTypesBuilder.append(paimonFieldsName.get(slot.getColumn().getName()));
-            columnIdsBuilder.append(paimonFieldsId.get(slot.getColumn().getName()));
-            isFirst = false;
-        }
-        fileDesc.setPaimonColumnIds(columnIdsBuilder.toString());
-        fileDesc.setPaimonColumnNames(columnNamesBuilder.toString());
-        fileDesc.setPaimonColumnTypes(columnTypesBuilder.toString());
+        fileDesc.setPaimonSplit(encodeObjectToString(paimonSplit.getSplit()));
+        fileDesc.setPaimonPredicate(encodeObjectToString(predicates));
+        fileDesc.setPaimonColumnNames(source.getDesc().getSlots().stream().map(slot -> slot.getColumn().getName())
+                .collect(Collectors.joining(",")));
         fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
         fileDesc.setPaimonOptions(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap());
         fileDesc.setTableName(source.getTargetTable().getName());
@@ -121,24 +107,15 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     public List<Split> getSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
-        PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
-                source.getPaimonTable().rowType());
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
                 .toArray();
-        List<Predicate> predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
         ReadBuilder readBuilder = source.getPaimonTable().newReadBuilder();
         List<org.apache.paimon.table.source.Split> paimonSplits = readBuilder.withFilter(predicates)
                 .withProjection(projected)
                 .newScan().plan().splits();
         for (org.apache.paimon.table.source.Split split : paimonSplits) {
-            PaimonInputSplit inputSplit = new PaimonInputSplit(
-                        "tempDir",
-                        (DataSplit) split
-            );
-            PaimonSplit paimonSplit = new PaimonSplit(inputSplit,
-                    ((AbstractFileStoreTable) source.getPaimonTable()).location().toString());
-            paimonSplit.setTableFormatType(TableFormatType.PAIMON);
+            PaimonSplit paimonSplit = new PaimonSplit(split);
             splits.add(paimonSplit);
         }
         return splits;
@@ -157,7 +134,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
         throw new DdlException("Unknown file location " + location
-            + " for hms table " + source.getPaimonTable().name());
+                + " for hms table " + source.getPaimonTable().name());
     }
 
     @Override

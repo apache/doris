@@ -18,7 +18,6 @@
 package org.apache.doris.paimon;
 
 import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
@@ -29,89 +28,88 @@ import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.InternalRow;
-import org.apache.paimon.hive.mapred.PaimonInputSplit;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.table.source.TableRead;
+import org.apache.paimon.types.DataType;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = Logger.getLogger(PaimonJniScanner.class);
 
     private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
-    private final Map<String, String> params;
+    private final Map<String, String> paimonOptionParams;
     private final String dbName;
     private final String tblName;
-    private final String[] ids;
-    private final long splitAddress;
-    private final int lengthByte;
-    private PaimonInputSplit paimonInputSplit;
+    private final String paimonSplit;
+    private final String paimonPredicate;
     private Table table;
     private RecordReader<InternalRow> reader;
     private final PaimonColumnValue columnValue = new PaimonColumnValue();
+    private List<String> paimonAllFieldNames;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
-        this.params = params;
-        splitAddress = Long.parseLong(params.get("split_byte"));
-        lengthByte = Integer.parseInt(params.get("length_byte"));
+        paimonSplit = params.get("paimon_split");
+        paimonPredicate = params.get("paimon_predicate");
         dbName = params.get("db_name");
         tblName = params.get("table_name");
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] types = Arrays.stream(params.get("columns_types").split("#"))
-            .map(s -> s.replaceAll("\\s+", "").replaceAll("NOTNULL", ""))
-            .toArray(String[]::new);
-        ids = params.get("columns_id").split(",");
-        ColumnType[] columnTypes = new ColumnType[types.length];
-        for (int i = 0; i < types.length; i++) {
-            columnTypes[i] = ColumnType.parseType(requiredFields[i], types[i]);
-        }
-        ScanPredicate[] predicates = new ScanPredicate[0];
-        if (params.containsKey("push_down_predicates")) {
-            long predicatesAddress = Long.parseLong(params.get("push_down_predicates"));
-            if (predicatesAddress != 0) {
-                predicates = ScanPredicate.parseScanPredicates(predicatesAddress, columnTypes);
-                LOG.info("MockJniScanner gets pushed-down predicates:  " + ScanPredicate.dump(predicates));
-            }
-        }
-        initTableInfo(columnTypes, requiredFields, predicates, batchSize);
+        super.batchSize = batchSize;
+        super.fields = params.get("paimon_column_names").split(",");
+        super.predicates = new ScanPredicate[0];
+        paimonOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+
     }
 
     @Override
     public void open() throws IOException {
-        getCatalog();
-        // deserialize it into split
-        byte[] splitByte = new byte[lengthByte];
-        OffHeap.copyMemory(null, splitAddress, splitByte, OffHeap.BYTE_ARRAY_OFFSET, lengthByte);
-        ByteArrayInputStream bais = new ByteArrayInputStream(splitByte);
-        DataInputStream input = new DataInputStream(bais);
-        try {
-            paimonInputSplit.readFields(input);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        ReadBuilder readBuilder = table.newReadBuilder()
-                                    .withProjection(Arrays.stream(ids).mapToInt(Integer::parseInt).toArray());
-        TableRead read = readBuilder.newRead();
-        reader = read.createReader(paimonInputSplit.split());
+        initTable();
+        initReader();
+        parseRequiredTypes();
     }
 
-    public void openForTest() throws IOException {
-        getCatalog();
-        ReadBuilder readBuilder = table.newReadBuilder()
-                .withProjection(Arrays.stream(ids).mapToInt(Integer::parseInt).toArray());
-        List<Split> splits = readBuilder.newScan().plan().splits();
-        TableRead read = readBuilder.newRead();
-        reader = read.createReader(splits);
+    private void initReader() throws IOException {
+        ReadBuilder readBuilder = table.newReadBuilder();
+        readBuilder.withProjection(getProjected());
+        readBuilder.withFilter(getPredicates());
+        reader = readBuilder.newRead().createReader(getSplit());
+    }
+
+    private int[] getProjected() {
+        return Arrays.stream(fields).mapToInt(paimonAllFieldNames::indexOf).toArray();
+    }
+
+    private List<Predicate> getPredicates() {
+        return PaimonScannerUtils.decodeStringToObject(paimonPredicate);
+    }
+
+    private Split getSplit() {
+        return PaimonScannerUtils.decodeStringToObject(paimonSplit);
+    }
+
+    private void parseRequiredTypes() {
+        ColumnType[] columnTypes = new ColumnType[fields.length];
+        for (int i = 0; i < fields.length; i++) {
+            int index = paimonAllFieldNames.indexOf(fields[i]);
+            if (index == -1) {
+                throw new RuntimeException(String.format("Cannot find field %s in schema %s",
+                        fields[i], paimonAllFieldNames));
+            }
+            DataType dataType = table.rowType().getTypeAt(index);
+            columnTypes[i] = ColumnType.parseType(fields[i], PaimonTypeUtils.fromPaimonType(dataType));
+        }
+        super.types = columnTypes;
     }
 
     @Override
@@ -128,7 +126,7 @@ public class PaimonJniScanner extends JniScanner {
                 InternalRow record;
                 while ((record = batch.next()) != null) {
                     columnValue.setOffsetRow(record);
-                    for (int i = 0; i < ids.length; i++) {
+                    for (int i = 0; i < fields.length; i++) {
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
@@ -149,11 +147,11 @@ public class PaimonJniScanner extends JniScanner {
         return null;
     }
 
-    private void getCatalog() {
-        paimonInputSplit = new PaimonInputSplit();
+    private void initTable() {
         try {
             Catalog catalog = createCatalog();
             table = catalog.getTable(Identifier.create(dbName, tblName));
+            paimonAllFieldNames = PaimonScannerUtils.fieldNames(table.rowType());
         } catch (Catalog.TableNotExistException e) {
             LOG.warn("failed to create paimon external catalog ", e);
             throw new RuntimeException(e);
@@ -162,11 +160,7 @@ public class PaimonJniScanner extends JniScanner {
 
     private Catalog createCatalog() {
         Options options = new Options();
-        for (Map.Entry<String, String> kv : params.entrySet()) {
-            if (kv.getKey().startsWith(PAIMON_OPTION_PREFIX)) {
-                options.set(kv.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv.getValue());
-            }
-        }
+        paimonOptionParams.entrySet().stream().forEach(kv -> options.set(kv.getKey(), kv.getValue()));
         CatalogContext context = CatalogContext.create(options);
         return CatalogFactory.createCatalog(context);
     }
