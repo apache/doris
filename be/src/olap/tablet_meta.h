@@ -350,11 +350,6 @@ public:
     void remove(const BitmapKey& lower_key, const BitmapKey& upper_key);
 
     /**
-     * Clears all bitmaps
-     */
-    void clear();
-
-    /**
      * Checks if the given row is marked deleted
      *
      * @return true if marked deleted
