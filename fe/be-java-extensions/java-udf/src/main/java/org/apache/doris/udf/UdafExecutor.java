@@ -120,13 +120,6 @@ public class UdafExecutor extends BaseExecutor {
     public void addBatchPlaces(int rowStart, int rowEnd, long placeAddr, int offset, Object[] column)
             throws UdfRuntimeException {
         try {
-            Preconditions.checkState(column != null, "column != null");
-            Preconditions.checkState(udf != null, "udf != null");
-            Preconditions.checkState(stateObjMap != null, "stateObjMap != null");
-            Preconditions.checkState(methodAccess != null, "methodAccess != null");
-            Preconditions.checkState(argTypes != null, "argTypes != null");
-            Preconditions.checkState(argTypes.length == column.length, "argTypes.length != " + argTypes.length + " " + column.length);
-            Preconditions.checkState(rowEnd > rowStart, "rowStart rowEnd " + rowStart + " " + rowEnd );
             Object[][] inputs = (Object[][]) column;
             ArrayList<Object> placeState = new ArrayList<>(rowEnd - rowStart);
             for (int row = rowStart; row < rowEnd; ++row) {
