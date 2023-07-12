@@ -21,19 +21,15 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 
-import org.apache.commons.compress.utils.Lists;
-
 import java.math.BigDecimal;
-import java.util.List;
 
 /**
  * Rewrite binary predicate.
@@ -60,12 +56,20 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                             return expr;
                         } catch (ArithmeticException e) {
                             if (expr0.isNullable()) {
-                                List<Expr> innerIfExprs = Lists.newArrayList();
-                                innerIfExprs.add(new IsNullPredicate(expr0, false));
-                                innerIfExprs.add(NullLiteral.create(expr0.getType()));
-                                innerIfExprs
-                                        .add(op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true));
-                                return new FunctionCallExpr("if", innerIfExprs);
+                                // TODO: the ideal way is to return an If expr like:
+                                // List<Expr> innerIfExprs = Lists.newArrayList();
+                                // innerIfExprs.add(new IsNullPredicate(expr0, false));
+                                // innerIfExprs.add(NullLiteral.create(Type.BOOLEAN));
+                                // innerIfExprs
+                                //         .add(op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true));
+                                // return new FunctionCallExpr("if", innerIfExprs);
+                                // but current fold constant rule can't handle such complex expr with null literal
+                                // so we use a trick way like this:
+                                Expr newExpr = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                                        new IsNullPredicate(expr0, false), new BoolLiteral(false));
+                                return op == Operator.EQ ? newExpr
+                                        : new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                                                newExpr, null);
                             } else {
                                 return op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true);
                             }
@@ -110,12 +114,20 @@ public class RoundLiteralInBinaryPredicatesRule implements ExprRewriteRule {
                         return expr;
                     } else {
                         if (expr0.isNullable()) {
-                            List<Expr> innerIfExprs = Lists.newArrayList();
-                            innerIfExprs.add(new IsNullPredicate(expr0, false));
-                            innerIfExprs.add(NullLiteral.create(expr0.getType()));
-                            innerIfExprs
-                                    .add(op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true));
-                            return new FunctionCallExpr("if", innerIfExprs);
+                            // TODO: the ideal way is to return an If expr like:
+                            // List<Expr> innerIfExprs = Lists.newArrayList();
+                            // innerIfExprs.add(new IsNullPredicate(expr0, false));
+                            // innerIfExprs.add(NullLiteral.create(Type.BOOLEAN));
+                            // innerIfExprs
+                            //         .add(op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true));
+                            // return new FunctionCallExpr("if", innerIfExprs);
+                            // but current fold constant rule can't handle such complex expr with null literal
+                            // so we use a trick way like this:
+                            Expr newExpr = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                                    new IsNullPredicate(expr0, false), new BoolLiteral(false));
+                            return op == Operator.EQ ? newExpr
+                                    : new CompoundPredicate(CompoundPredicate.Operator.NOT, newExpr,
+                                            null);
                         } else {
                             return op == Operator.EQ ? new BoolLiteral(false) : new BoolLiteral(true);
                         }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -30,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -97,8 +98,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                     return comparisonPredicate.withChildren(left, right);
                 } else {
                     if (left.nullable()) {
-                        return new If(new IsNull(left), new NullLiteral(left.getDataType()),
-                                BooleanLiteral.of(false));
+                        // TODO: the ideal way is to return an If expr like:
+                        // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                        // BooleanLiteral.of(false));
+                        // but current fold constant rule can't handle such complex expr with null literal
+                        // before supporting complex conjuncts with null literal folding rules,
+                        // we use a trick way like this:
+                        return new And(new IsNull(left), new NullLiteral(BooleanType.INSTANCE));
                     } else {
                         return BooleanLiteral.of(false);
                     }
@@ -213,8 +219,13 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                                 new DecimalV3Literal(newValue));
                     } catch (ArithmeticException e) {
                         if (left.nullable()) {
-                            return new If(new IsNull(left), new NullLiteral(left.getDataType()),
-                                    BooleanLiteral.of(false));
+                            // TODO: the ideal way is to return an If expr like:
+                            // return new If(new IsNull(left), new NullLiteral(BooleanType.INSTANCE),
+                            // BooleanLiteral.of(false));
+                            // but current fold constant rule can't handle such complex expr with null literal
+                            // before supporting complex conjuncts with null literal folding rules,
+                            // we use a trick way like this:
+                            return new And(new IsNull(left), new NullLiteral(BooleanType.INSTANCE));
                         } else {
                             return BooleanLiteral.of(false);
                         }
