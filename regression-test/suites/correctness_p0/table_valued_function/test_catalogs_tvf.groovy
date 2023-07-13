@@ -59,13 +59,13 @@ suite("test_catalogs_tvf") {
     ) """ 
     
     
-    qt_create """ select * from catalogs() where CatalogName in ("catalog_test_es00","catalog_test_hive00") and Property="type" order by Value"""
+    qt_create """ select CatalogName,CatalogType,Property,Value from catalogs() where CatalogName in ("catalog_test_es00","catalog_test_hive00") and Property="type" order by Value"""
 
     sql """ drop catalog catalog_test_hive00 """ 
 
-    qt_delete """ select * from catalogs() where CatalogName="catalog_test_hive00" """
+    qt_delete """ select CatalogName,CatalogType,Property,Value from catalogs() where CatalogName="catalog_test_hive00" """
 
-    qt_create """ select * from catalogs() where CatalogName in ("catalog_test_es00","catalog_test_hive00") and Property="type" order by Value"""
+    qt_create """ select CatalogName,CatalogType,Property,Value from catalogs() where CatalogName in ("catalog_test_es00","catalog_test_hive00") and Property="type" order by Value"""
     
     sql """ drop catalog catalog_test_es00 """
 }
