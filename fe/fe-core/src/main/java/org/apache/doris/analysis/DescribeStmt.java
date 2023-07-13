@@ -146,7 +146,7 @@ public class DescribeStmt extends ShowStmt {
                     int precision = sType.getScalarPrecision();
                     // not default
                     if (scale > 0 && precision != 9) {
-                        typeStr.append("(").append(precision).append(" ,").append(scale)
+                        typeStr.append("(").append(precision).append(", ").append(scale)
                                 .append(")");
                     }
                     row.set(1, typeStr.toString());
@@ -253,7 +253,7 @@ public class DescribeStmt extends ShowStmt {
                                 int precision = sType.getScalarPrecision();
                                 // not default
                                 if (scale > 0 && precision != 9) {
-                                    typeStr.append("(").append(precision).append(" ,").append(scale)
+                                    typeStr.append("(").append(precision).append(", ").append(scale)
                                             .append(")");
                                 }
                                 row.set(3, typeStr.toString());
