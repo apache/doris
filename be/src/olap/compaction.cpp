@@ -614,7 +614,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
             for (auto& it : commit_tablet_txn_info_vec) {
-                if (check_if_includes_input_rowsets(it.rowset_ids)) {
+                if (_check_if_includes_input_rowsets(it.rowset_ids)) {
                     DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
                     _tablet->calc_compaction_output_rowset_delete_bitmap(
                             _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
@@ -672,7 +672,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     return Status::OK();
 }
 
-bool Compaction::check_if_includes_input_rowsets(
+bool Compaction::_check_if_includes_input_rowsets(
         const RowsetIdUnorderedSet& commit_rowset_ids_set) const {
     std::vector<RowsetId> commit_rowset_ids {};
     commit_rowset_ids.insert(commit_rowset_ids.end(), commit_rowset_ids_set.begin(),
