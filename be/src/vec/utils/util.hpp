@@ -35,19 +35,18 @@ public:
         return create_columns_with_type_and_name(row_desc);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
-        if (block->mem_reuse()) {
-            return MutableBlock(block);
-        } else {
-            return MutableBlock(VectorizedUtils::create_columns_with_type_and_name(row_desc),
-                                block);
+        if (!block->mem_reuse()) {
+            Block tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
+            block->swap(std::move(tmp));
         }
+        return MutableBlock(block);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
-        if (block->mem_reuse()) {
-            return MutableBlock(block);
-        } else {
-            return MutableBlock(other.clone_empty(), block);
+        if (!block->mem_reuse()) {
+            Block tmp = other.clone_empty();
+            block->swap(std::move(tmp));
         }
+        return MutableBlock(block);
     }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
             const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
