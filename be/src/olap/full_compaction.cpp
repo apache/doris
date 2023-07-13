@@ -107,12 +107,34 @@ Status FullCompaction::pick_rowsets_to_compact() {
 }
 
 Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
-    RETURN_IF_ERROR(
-            _tablet->full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
-    std::vector<RowsetSharedPtr> output_rowsets;
-    output_rowsets.push_back(_output_rowset);
-    RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        RETURN_IF_ERROR(_tablet->full_compaction_update_delete_bitmap(_output_rowset,
+                                                                      _output_rs_writer.get()));
+        std::vector<RowsetSharedPtr> output_rowsets;
+        output_rowsets.push_back(_output_rowset);
+        RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        _tablet->save_meta();
+    }
+    return Status::OK();
+}
+
+Status FullCompaction::check_all_version(const std::vector<RowsetSharedPtr>& rowsets) {
+    if (rowsets.empty()) {
+        return Status::Error<FULL_MISS_VERSION>("There is no input rowset when do full compaction");
+    }
+    const RowsetSharedPtr& last_rowset = rowsets.back();
+    const RowsetSharedPtr& first_rowset = rowsets.front();
+    if (last_rowset->version() != _tablet->max_version() || first_rowset->version().first != 0) {
+        return Status::Error<FULL_MISS_VERSION>(
+                "Full compaction rowsets' versions not equal to all exist rowsets' versions. "
+                "full compaction rowsets max version={}-{}"
+                ", current rowsets max version={}-{}"
+                "full compaction rowsets min version={}-{}, current rowsets min version=0-1",
+                last_rowset->start_version(), last_rowset->end_version(),
+                _tablet->max_version().first, _tablet->max_version().second,
+                first_rowset->start_version(), first_rowset->end_version());
+    }
     return Status::OK();
 }
 

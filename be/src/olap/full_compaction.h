@@ -49,6 +49,7 @@ protected:
 
 private:
     Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
+    Status check_all_version(const std::vector<RowsetSharedPtr>& rowsets);
 
     DISALLOW_COPY_AND_ASSIGN(FullCompaction);
 };

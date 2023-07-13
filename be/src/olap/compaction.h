@@ -79,7 +79,6 @@ protected:
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
-    Status check_all_version(const std::vector<RowsetSharedPtr>& rowsets);
     Status check_correctness(const Merger::Statistics& stats);
     Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                             std::vector<Version>* missing_version);
