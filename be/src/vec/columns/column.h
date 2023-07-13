@@ -360,7 +360,9 @@ public:
         LOG(FATAL) << get_name() << "update_hashes_with_value xxhash not supported";
     };
 
-    virtual void update_xxHash_with_value(size_t n, uint64_t& hash) const {
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                          const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_hash_with_value xxhash not supported";
     }
 
@@ -372,7 +374,9 @@ public:
         LOG(FATAL) << get_name() << "update_crcs_with_value not supported";
     };
 
-    virtual void update_crc_with_value(size_t n, uint64_t& hash) const {
+    // use range for one hash value to avoid virtual function call in loop
+    virtual void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                       const uint8_t* __restrict null_data) const {
         LOG(FATAL) << get_name() << " update_crc_with_value not supported";
     }
 

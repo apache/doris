@@ -342,16 +342,42 @@ public:
         SIP_HASHES_FUNCTION_COLUMN_IMPL();
     }
 
-    void update_xxHash_with_value(size_t n, uint64_t& hash) const override {
-        size_t string_size = size_at(n);
-        size_t offset = offset_at(n);
-        hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
-                                          string_size, hash);
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    size_t string_size = size_at(i);
+                    size_t offset = offset_at(i);
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                      string_size, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                size_t string_size = size_at(i);
+                size_t offset = offset_at(i);
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                  string_size, hash);
+            }
+        }
     }
 
-    void update_crc_with_value(size_t n, uint64_t& crc) const override {
-        auto data_ref = get_data_at(n);
-        crc = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, crc);
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    auto data_ref = get_data_at(i);
+                    hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                auto data_ref = get_data_at(i);
+                hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+            }
+        }
     }
 
     void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,

@@ -128,16 +128,27 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_crc_with_value(size_t n, uint64_t& crc) const {
-    if constexpr (!IsDecimalV2<T>) {
-        crc = HashUtil::zlib_crc_hash(&data[n], sizeof(T), crc);
+void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                             const uint8_t* __restrict null_data) const {
+    if (null_data == nullptr) {
+        for (size_t i = start; i < end; i++) {
+            if constexpr (!IsDecimalV2<T>) {
+                hash = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hash);
+            } else {
+                decimalv2_do_crc(i, hash);
+            }
+        }
     } else {
-        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[n];
-        int64_t int_val = dec_val.int_value();
-        int32_t frac_val = dec_val.frac_value();
-        crc = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), crc);
-        crc = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), crc);
-    };
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                if constexpr (!IsDecimalV2<T>) {
+                    hash = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hash);
+                } else {
+                    decimalv2_do_crc(i, hash);
+                }
+            }
+        }
+    }
 }
 
 template <typename T>
@@ -150,19 +161,32 @@ void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Pri
     } else {
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
-                update_crc_with_value(i, hashes[i]);
+                decimalv2_do_crc(i, hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0) update_crc_with_value(i, hashes[i]);
+                if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
         }
     }
 }
 
 template <typename T>
-void ColumnDecimal<T>::update_xxHash_with_value(size_t n, uint64_t& hash) const {
-    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[n]), sizeof(T), hash);
+void ColumnDecimal<T>::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                                const uint8_t* __restrict null_data) const {
+    if (null_data) {
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                  sizeof(T), hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                              hash);
+        }
+    }
 }
 
 template <typename T>
