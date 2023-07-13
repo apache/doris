@@ -169,6 +169,6 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN MAXVALUE ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 5
         """
-        exception "The partition column must be key column in AGGREGATE KEY table"
+        exception "The partition column could not be aggregated column"
     }
 }
