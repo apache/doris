@@ -781,11 +781,6 @@ void Tablet::delete_expired_stale_rowset() {
         for (auto& timestampedVersion : to_delete_version) {
             auto it = _stale_rs_version_map.find(timestampedVersion->version());
             if (it != _stale_rs_version_map.end()) {
-                uint64_t now = UnixSeconds();
-                if (now <= it->second->delayed_expired_timestamp()) {
-                    // Some rowsets gc time was delayed, ignore
-                    continue;
-                }
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
