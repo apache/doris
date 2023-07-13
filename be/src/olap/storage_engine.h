@@ -224,6 +224,12 @@ public:
                                 int64_t transaction_id, bool is_recover);
     int64_t get_pending_publish_min_version(int64_t tablet_id);
 
+    void add_quering_rowset(RowsetSharedPtr rs);
+
+    RowsetSharedPtr get_quering_rowset(RowsetId rs_id);
+
+    void evict_querying_rowset(RowsetId rs_id);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -371,6 +377,10 @@ private:
     std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
+
+    // Hold reference of quering rowsets
+    std::mutex _quering_rowsets_mutex;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _querying_rowsets;
 
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
