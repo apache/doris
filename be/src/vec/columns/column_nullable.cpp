@@ -114,21 +114,35 @@ void ColumnNullable::update_hashes_with_value(uint64_t* __restrict hashes,
     }
 }
 
-void ColumnNullable::update_xxHash_with_value(size_t n, uint64_t& hash) const {
-    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (real_null_data[n] != 0) {
-        hash = HashUtil::xxHash64NullWithSeed(hash);
+void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                              const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_xxHash_with_value(start, end, hash, nullptr);
     } else {
-        nested_column->update_xxHash_with_value(n, hash);
+        auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::xxHash64NullWithSeed(hash);
+            }
+        }
+        nested_column->update_xxHash_with_value(start, end, hash, real_null_data);
     }
 }
 
-void ColumnNullable::update_crc_with_value(size_t n, uint64_t& crc) const {
-    auto* __restrict real_null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
-    if (real_null_data[n] != 0) {
-        crc = HashUtil::zlib_crc_hash_null(crc);
+void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                           const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_crc_with_value(start, end, hash, nullptr);
     } else {
-        nested_column->update_xxHash_with_value(n, crc);
+        auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::zlib_crc_hash_null(hash);
+            }
+        }
+        nested_column->update_crc_with_value(start, end, hash, real_null_data);
     }
 }
 
