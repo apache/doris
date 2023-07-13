@@ -17,6 +17,7 @@
 
 #include "olap/full_compaction.h"
 
+#include <glog/logging.h>
 #include <time.h>
 
 #include <memory>
@@ -30,6 +31,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/schema_change.h"
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
@@ -142,7 +144,7 @@ Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& ro
 
 Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
                                                              RowsetWriter* rowset_writer) {
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> tmp_version_map;
+    std::vector<RowsetSharedPtr> tmp_rowsets {};
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY &&
@@ -152,25 +154,15 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
         return Status::OK();
     }
 
-    int64_t max_version = 0;
-    {
-        std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
-        std::lock_guard header_lock(_tablet->get_header_lock());
-        for (const auto& it : _tablet->rowset_map()) {
-            if (it.first.first > rowset->version().second) {
-                tmp_version_map[it.first] = it.second;
-            }
-            if (it.first.second > max_version) {
-                max_version = it.first.second;
-            }
-        }
-    }
+    int64_t max_version = _tablet->max_version().second;
+    DCHECK(max_version >= rowset->version().second);
+    RETURN_IF_ERROR(_tablet->capture_consistent_rowsets({rowset->version().second + 1, max_version},
+                                                        &tmp_rowsets));
 
-    for (const auto& it : tmp_version_map) {
-        const int64_t& cur_version = it.first.first;
-        const RowsetSharedPtr& published_rowset = it.second;
-        RETURN_IF_ERROR(_full_compaction_calc_delete_bitmap(published_rowset, rowset, cur_version,
-                                                            rowset_writer));
+    for (const auto& it : tmp_rowsets) {
+        const int64_t& cur_version = it->rowset_meta()->start_version();
+        RETURN_IF_ERROR(
+                _full_compaction_calc_delete_bitmap(it, rowset, cur_version, rowset_writer));
     }
 
     std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
