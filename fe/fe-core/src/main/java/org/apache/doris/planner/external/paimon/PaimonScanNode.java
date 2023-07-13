@@ -23,10 +23,8 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.PaimonExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.FileQueryScanNode;
@@ -128,17 +126,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
-        if (location != null && !location.isEmpty()) {
-            if (S3Util.isObjStorage(location)) {
-                return TFileType.FILE_S3;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
-                return TFileType.FILE_HDFS;
-            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
-                return TFileType.FILE_LOCAL;
-            }
-        }
-        throw new DdlException("Unknown file location " + location
-                + " for hms table " + source.getPaimonTable().name());
+        //todo: no use
+        return TFileType.FILE_S3;
     }
 
     @Override
