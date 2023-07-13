@@ -404,6 +404,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected static Optional<TFileType> getTFileType(String location) {
         if (location != null && !location.isEmpty()) {
             if (S3Util.isObjStorage(location)) {
+                if (S3Util.isHdfsOnOssEndpoint(location)) {
+                    // if hdfs service is enabled on oss, use hdfs lib to access oss.
+                    return Optional.of(TFileType.FILE_HDFS);
+                }
                 return Optional.of(TFileType.FILE_S3);
             } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
                 return Optional.of(TFileType.FILE_HDFS);
