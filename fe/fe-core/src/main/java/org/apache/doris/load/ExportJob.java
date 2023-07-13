@@ -285,15 +285,22 @@ public class ExportJob implements Writable {
         return types;
     }
 
-    private String genHeader(Map<String, String> properties) {
+    private String genHeader(Map<String, String> properties) throws UserException {
         String header = "";
-        if (properties.containsKey("csv_format")) {
-            String headerType = properties.get("csv_format");
-            if (headerType.equals(FeConstants.csv_with_names)) {
-                header = genNames();
-            } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
-                header = genNames();
-                header += genTypes();
+        if (properties.containsKey("format")) {
+            String headerType = properties.get("format");
+            switch (headerType) {
+                case FeConstants.csv:
+                    break;
+                case FeConstants.csv_with_names:
+                    header = genNames();
+                    break;
+                case FeConstants.csv_with_names_and_types:
+                    header = genNames();
+                    header += genTypes();
+                    break;
+                default:
+                    throw new DdlException("Unknown format for export.");
             }
         }
         return header;

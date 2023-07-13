@@ -73,7 +73,7 @@ public class ExportStmt extends StatementBase {
             .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
             .add("line_delimiter")
             .add("column_separator")
-            .add("csv_format")
+            .add("format")
             .build();
 
     private TableName tblName;
