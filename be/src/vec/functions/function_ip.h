@@ -26,11 +26,15 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/format_ip.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_ipv4.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+
+struct NameFunctionIPv4StringToNum;
+struct NameFunctionIPv4StringToNumOrDefault;
 
 /** If mask_tail_octets > 0, the last specified number of octets will be filled with "xxx".
   */
@@ -42,34 +46,26 @@ private:
         using ColumnType = ColumnVector<ArgType>;
         const ColumnPtr& column = argument.column;
 
-        if (const ColumnType* col = typeid_cast<const ColumnType*>(column.get())) {
-            const typename ColumnType::Container& vec_in = col->get_data();
+        if (const ColumnType* col_src = typeid_cast<const ColumnType*>(column.get())) {
+            const typename ColumnType::Container& vec_in = col_src->get_data();
             auto col_res = ColumnString::create();
-
-            ColumnString::Chars& vec_res = col_res->get_chars();
-            ColumnString::Offsets& offsets_res = col_res->get_offsets();
-
-            vec_res.resize(vec_in.size() *
-                           (IPV4_MAX_TEXT_LENGTH + 1)); /// the longest value is: 255.255.255.255\0
-            offsets_res.resize(vec_in.size());
-            char* begin = reinterpret_cast<char*>(vec_res.data());
-            char* pos = begin;
-
             auto null_map = ColumnUInt8::create(vec_in.size(), 0);
-            size_t src_size = std::min(sizeof(ArgType), (unsigned long)4);
+
             for (size_t i = 0; i < vec_in.size(); ++i) {
                 auto value = vec_in[i];
                 if (value < IPV4_MIN_NUM_VALUE || value > IPV4_MAX_NUM_VALUE) {
-                    offsets_res[i] = pos - begin;
+                    col_res->insert_default();
                     null_map->get_data()[i] = 1;
                 } else {
-                    formatIPv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos,
-                               mask_tail_octets, "xxx");
-                    offsets_res[i] = pos - begin;
+                    vectorized::IPv4 ipv4_val = static_cast<vectorized::IPv4>(value);
+                    std::string ipv4_str = IPv4Value::to_string(ipv4_val);
+                    col_res->insert_data(ipv4_str.c_str(), ipv4_str.size());
                 }
             }
 
-            vec_res.resize(pos - begin);
+            DCHECK_EQ(col_res->size(), col_src->size());
+            DCHECK_EQ(col_res->size(), null_map->size());
+
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
             return Status::OK();
@@ -115,6 +111,119 @@ public:
                 "Illegal column {} of argument of function {}, expected Int8 or Int16 or Int32 or "
                 "Int64",
                 argument.name, get_name());
+    }
+};
+
+template <typename Name>
+class FunctionIPv4StringToNum : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnInt64::create();
+            auto null_map = ColumnUInt8::create(col_src->size(), 0);
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv4_str = col_src->get_data_at(i).to_string();
+                vectorized::IPv4 ipv4_val;
+                if (!IPv4Value::from_string(ipv4_val, ipv4_str) || ipv4_str.size() > IPV4_MAX_TEXT_LENGTH) {
+                    null_map->get_data()[i] = 1;
+                    col_res->insert_default();
+                } else {
+                    col_res->insert_value(ipv4_val);
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+            DCHECK_EQ(col_res->size(), null_map->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+    }
+
+public:
+    static constexpr auto name = "ipv4stringtonum";
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv4StringToNum<NameFunctionIPv4StringToNum>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
+    }
+};
+
+template <typename Name>
+class FunctionIPv4StringToNumOrDefault : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnInt64::create();
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv4_str = col_src->get_data_at(i).to_string();
+                vectorized::IPv4 ipv4_val;
+                if (!IPv4Value::from_string(ipv4_val, ipv4_str) || ipv4_str.size() > IPV4_MAX_TEXT_LENGTH) {
+                    col_res->insert_value(0);
+                } else {
+                    col_res->insert_value(ipv4_val);
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
+            return Status::OK();
+        } else
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+    }
+
+public:
+    static constexpr auto name = "ipv4stringtonum_or_default";
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv4StringToNumOrDefault<NameFunctionIPv4StringToNumOrDefault>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
     }
 };
 } // namespace doris::vectorized

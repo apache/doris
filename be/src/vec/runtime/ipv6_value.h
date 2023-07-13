@@ -96,7 +96,7 @@ public:
         return true;
     }
 
-    std::string to_string() const {
+    [[nodiscard]] std::string to_string() const {
         return to_string(_value);
     }
 

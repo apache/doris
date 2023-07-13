@@ -54,6 +54,10 @@ public:
         return from_string(_value, ipv4);
     }
 
+    std::string to_string() const {
+        return to_string(_value);
+    }
+
     static bool from_string(vectorized::IPv4& value, std::string ipv4) {
         remove_ipv4_space(ipv4);
         vectorized::IPv4 octets[4] = {0};
@@ -75,16 +79,20 @@ public:
             octets[octet_index++] = val;
         }
 
+        if (octet_index != 4) {
+            return false;
+        }
+
         value = (octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3];
         return true;
     }
 
-    std::string to_string() const {
+    static std::string to_string(vectorized::IPv4 value) {
         std::stringstream ss;
-        ss << ((_value >> 24) & 0xFF) << '.'
-           << ((_value >> 16) & 0xFF) << '.'
-           << ((_value >> 8) & 0xFF) << '.'
-           << (_value & 0xFF);
+        ss << ((value >> 24) & 0xFF) << '.'
+           << ((value >> 16) & 0xFF) << '.'
+           << ((value >> 8) & 0xFF) << '.'
+           << (value & 0xFF);
         return ss.str();
     }
 

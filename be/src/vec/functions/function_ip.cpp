@@ -22,8 +22,20 @@ struct NameFunctionIPv4NumToString {
     static constexpr auto name = "ipv4numtostring";
 };
 
+struct NameFunctionIPv4StringToNum {
+    static constexpr auto name = "ipv4stringtonum";
+};
+
+struct NameFunctionIPv4StringToNumOrDefault {
+    static constexpr auto name = "ipv4stringtonum_or_default";
+};
+
 void register_function_ip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIPv4NumToString<0, NameFunctionIPv4NumToString>>();
+    factory.register_function<FunctionIPv4StringToNum<NameFunctionIPv4StringToNum>>();
+    factory.register_function<FunctionIPv4StringToNumOrDefault<NameFunctionIPv4StringToNumOrDefault>>();
     factory.register_alias(NameFunctionIPv4NumToString::name, "inet_ntoa");
+    factory.register_alias(NameFunctionIPv4StringToNum::name, "inet_aton");
+    factory.register_alias(NameFunctionIPv4StringToNum::name, "ipv4stringtonum_or_null");
 }
 } // namespace doris::vectorized
