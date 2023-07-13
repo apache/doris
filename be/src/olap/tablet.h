@@ -480,9 +480,6 @@ public:
             const std::vector<segment_v2::SegmentSharedPtr>& segments, int64_t txn_id,
             RowsetWriter* rowset_writer = nullptr);
 
-    Status full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
-                                                RowsetWriter* rowset_writer = nullptr);
-
     Status update_delete_bitmap(const RowsetSharedPtr& rowset,
                                 const RowsetIdUnorderedSet& pre_rowset_ids,
                                 DeleteBitmapPtr delete_bitmap, int64_t txn_id,
@@ -592,10 +589,6 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
-    Status _full_compaction_calc_delete_bitmap(const RowsetSharedPtr& published_rowset,
-                                               const RowsetSharedPtr& rowset,
-                                               const int64_t& cur_version,
-                                               RowsetWriter* rowset_writer);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

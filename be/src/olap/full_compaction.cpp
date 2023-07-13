@@ -29,6 +29,8 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/beta_rowset.h"
+#include "olap/schema_change.h"
 #include "olap/tablet_meta.h"
 #include "runtime/thread_context.h"
 #include "util/thread.h"
@@ -92,7 +94,7 @@ Status FullCompaction::execute_compact_impl() {
 Status FullCompaction::pick_rowsets_to_compact() {
     _input_rowsets = _tablet->pick_candidate_rowsets_to_full_compaction();
     RETURN_IF_ERROR(check_version_continuity(_input_rowsets));
-    RETURN_IF_ERROR(check_all_version(_input_rowsets));
+    RETURN_IF_ERROR(_check_all_version(_input_rowsets));
     if (_input_rowsets.size() <= 1) {
         return Status::Error<FULL_NO_SUITABLE_VERSION>("There is no suitable version");
     }
@@ -109,8 +111,8 @@ Status FullCompaction::pick_rowsets_to_compact() {
 Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        RETURN_IF_ERROR(_tablet->full_compaction_update_delete_bitmap(_output_rowset,
-                                                                      _output_rs_writer.get()));
+        RETURN_IF_ERROR(
+                _full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
         std::vector<RowsetSharedPtr> output_rowsets;
         output_rowsets.push_back(_output_rowset);
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
@@ -119,7 +121,7 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
     return Status::OK();
 }
 
-Status FullCompaction::check_all_version(const std::vector<RowsetSharedPtr>& rowsets) {
+Status FullCompaction::_check_all_version(const std::vector<RowsetSharedPtr>& rowsets) {
     if (rowsets.empty()) {
         return Status::Error<FULL_MISS_VERSION>("There is no input rowset when do full compaction");
     }
@@ -135,6 +137,85 @@ Status FullCompaction::check_all_version(const std::vector<RowsetSharedPtr>& row
                 _tablet->max_version().first, _tablet->max_version().second,
                 first_rowset->start_version(), first_rowset->end_version());
     }
+    return Status::OK();
+}
+
+Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedPtr& rowset,
+                                                             RowsetWriter* rowset_writer) {
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> tmp_version_map;
+
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+        LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
+                  << _tablet->tablet_id();
+        return Status::OK();
+    }
+
+    int64_t max_version = 0;
+    {
+        std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
+        std::lock_guard header_lock(_tablet->get_header_lock());
+        for (const auto& it : _tablet->rowset_map()) {
+            if (it.first.first > rowset->version().second) {
+                tmp_version_map[it.first] = it.second;
+            }
+            if (it.first.second > max_version) {
+                max_version = it.first.second;
+            }
+        }
+    }
+
+    for (const auto& it : tmp_version_map) {
+        const int64_t& cur_version = it.first.first;
+        const RowsetSharedPtr& published_rowset = it.second;
+        RETURN_IF_ERROR(_full_compaction_calc_delete_bitmap(published_rowset, rowset, cur_version,
+                                                            rowset_writer));
+    }
+
+    std::lock_guard rowset_update_lock(_tablet->get_rowset_update_lock());
+    std::lock_guard header_lock(_tablet->get_header_lock());
+    for (const auto& it : _tablet->rowset_map()) {
+        const int64_t& cur_version = it.first.first;
+        const RowsetSharedPtr& published_rowset = it.second;
+        if (cur_version > max_version) {
+            RETURN_IF_ERROR(_full_compaction_calc_delete_bitmap(published_rowset, rowset,
+                                                                cur_version, rowset_writer));
+        }
+    }
+
+    return Status::OK();
+}
+
+Status FullCompaction::_full_compaction_calc_delete_bitmap(const RowsetSharedPtr& published_rowset,
+                                                           const RowsetSharedPtr& rowset,
+                                                           const int64_t& cur_version,
+                                                           RowsetWriter* rowset_writer) {
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    auto beta_rowset = reinterpret_cast<BetaRowset*>(published_rowset.get());
+    RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+    DeleteBitmapPtr delete_bitmap =
+            std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
+    std::vector<RowsetSharedPtr> specified_rowsets(1, rowset);
+
+    OlapStopWatch watch;
+    RETURN_IF_ERROR(_tablet->calc_delete_bitmap(published_rowset, segments, specified_rowsets,
+                                                delete_bitmap, cur_version, rowset_writer));
+    size_t total_rows = std::accumulate(
+            segments.begin(), segments.end(), 0,
+            [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
+    VLOG_DEBUG << "[Full compaction] construct delete bitmap tablet: " << _tablet->tablet_id()
+               << ", published rowset version: [" << published_rowset->version().first << "-"
+               << published_rowset->version().second << "]"
+               << ", full compaction rowset version: [" << rowset->version().first << "-"
+               << rowset->version().second << "]"
+               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+
+    for (const auto& [k, v] : delete_bitmap->delete_bitmap) {
+        _tablet->tablet_meta()->delete_bitmap().merge({std::get<0>(k), std::get<1>(k), cur_version},
+                                                      v);
+    }
+
     return Status::OK();
 }
 
