@@ -214,6 +214,7 @@
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/external_statistics",
                 "lakehouse/faq",
                 "lakehouse/fs_benchmark_tool"
             ]
