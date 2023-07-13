@@ -83,6 +83,7 @@ public:
     Status submit();
 
     void close_if_prepare_failed();
+    void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 

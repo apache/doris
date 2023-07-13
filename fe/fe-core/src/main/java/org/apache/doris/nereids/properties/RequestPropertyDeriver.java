@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -216,6 +217,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         } else {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
+        addRequestPropertyToChildren(PhysicalProperties.GATHER);
         return null;
     }
 

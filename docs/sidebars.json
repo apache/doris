@@ -208,12 +208,14 @@
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/dlf",
+                        "lakehouse/multi-catalog/max_compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/external_statistics",
                 "lakehouse/faq",
                 "lakehouse/fs_benchmark_tool"
             ]
