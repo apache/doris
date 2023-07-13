@@ -738,11 +738,12 @@ public class Memo {
             builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             Statistics stats = group.getStatistics();
-            Plan plan = group.getLogicalExpressions().get(0).getPlan();
-            if (stats != null && !group.getLogicalExpressions().isEmpty()
-                    && (plan instanceof LogicalOlapScan || plan instanceof LogicalFileScan)) {
-                for (Entry e : stats.columnStatistics().entrySet()) {
-                    builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+            if (stats != null && !group.getLogicalExpressions().isEmpty()) {
+                Plan plan = group.getLogicalExpressions().get(0).getPlan();
+                if (plan instanceof LogicalOlapScan || plan instanceof LogicalFileScan) {
+                    for (Entry e : stats.columnStatistics().entrySet()) {
+                        builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+                    }
                 }
             }
 

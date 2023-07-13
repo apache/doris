@@ -1883,6 +1883,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (planTypeContext.SHAPE() != null) {
             return ExplainLevel.SHAPE_PLAN;
         }
+        if (planTypeContext.MEMO() != null) {
+            return ExplainLevel.MEMO_PLAN;
+        }
         return ExplainLevel.ALL_PLAN;
     }
 

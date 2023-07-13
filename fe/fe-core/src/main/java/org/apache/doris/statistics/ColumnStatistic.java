@@ -314,7 +314,7 @@ public class ColumnStatistic {
 
     @Override
     public String toString() {
-        return isUnKnown ? "unKnown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f",
+        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f",
                 ndv, minValue, minExpr, maxValue, maxExpr, count);
     }
 
