@@ -118,7 +118,7 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() {
-        return Lists.newArrayList();
+        return tableValuedFunction.getPathPartitionKeys();
     }
 
     @Override
