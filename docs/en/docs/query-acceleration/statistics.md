@@ -187,7 +187,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 
 ##### Collect histogram information
 
-Column histogram information is used to describe the distribution of columns. It divides the data into several intervals (buckets) according to the size, and uses simple statistics to represent the characteristics of the data in each interval. Collected by `ANALYZE TABLE` statement fit `UPDATE HISTOGRAM`.
+Column histogram information is used to describe the distribution of columns. It divides the data into several intervals (buckets) according to the size, and uses simple statistics to represent the characteristics of the data in each interval. Collected by `ANALYZE TABLE` statement fit `WITH HISTOGRAM`.
 
 Columns can be specified to collect their histogram information in the same way that normal statistics are collected. Collecting histogram information takes longer than normal statistics, so to reduce overhead, we can just collect histogram information for specific columns for the optimizer to use.
 
@@ -196,7 +196,7 @@ Example:
 - Collects `example_tbl` histograms for all columns of a table, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -207,7 +207,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
 - Collect `example_tbl` histograms for table `city` `age` `sex` columns, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -219,7 +219,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
 
 ```SQL
 -- use with buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH BUCKETS 2;
 +--------+
 | job_id |
 +--------+
@@ -227,7 +227,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
 +--------+
 
 -- configure num.buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM PROPERTIES("num.buckets" = "2");
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM PROPERTIES("num.buckets" = "2");
 +--------+
 | job_id |
 +--------+
@@ -330,7 +330,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
 - Samples collect `example_tbl` histogram information for a table, similar to normal statistics, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SAMPLE ROWS 5;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SAMPLE ROWS 5;
 +--------+
 | job_id |
 +--------+
@@ -357,7 +357,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
 - Samples collect `example_tbl` histogram information for a table, similar to normal statistics, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SYNC;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SYNC;
 ```
 
 ### Automatic collection
@@ -393,7 +393,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400
 - Collects `example_tbl` histogram information for a table periodically (every other day), similar to normal statistics, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH PERIOD 86400;
 +--------+
 | job_id |
 +--------+
@@ -859,6 +859,14 @@ mysql> DROP STATS stats_test.example_tbl;
 
 ```SQL
 mysql> DROP STATS stats_test.example_tbl(city, age, sex);
+```
+
+## Delete Analyze Job
+
+User can delete automatic/periodic Analyze jobs based on job ID.
+
+```sql
+DROP ANALYZE JOB [JOB_ID]
 ```
 
 ## ANALYZE configuration item
