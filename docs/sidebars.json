@@ -207,9 +207,10 @@
                         "lakehouse/multi-catalog/iceberg",
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
+                        "lakehouse/multi-catalog/dlf",
+                        "lakehouse/multi-catalog/max_compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc",
-                        "lakehouse/multi-catalog/dlf",
                         "lakehouse/multi-catalog/faq"
                     ]
                 },
