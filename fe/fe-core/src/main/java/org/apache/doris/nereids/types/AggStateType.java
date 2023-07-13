@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -65,6 +66,22 @@ public class AggStateType extends DataType {
             result.add(new SlotReference("mocked", subTypes.get(i), subTypeNullables.get(i)));
         }
         return result;
+    }
+
+    /**
+     * check the left agg state type can be cast to the right.
+     */
+    public static boolean canCastTo(AggStateType lhs, AggStateType rhs) {
+        if (!Objects.equals(lhs.functionName, rhs.functionName)) {
+            return false;
+        }
+        if (lhs.subTypes.size() != rhs.subTypes.size()) {
+            return false;
+        }
+        for (int i = 0; i < lhs.subTypes.size(); ++i) {
+            TypeCoercionUtils.checkCanCastTo(lhs.subTypes.get(i), rhs.subTypes.get(i));
+        }
+        return true;
     }
 
     @Override
