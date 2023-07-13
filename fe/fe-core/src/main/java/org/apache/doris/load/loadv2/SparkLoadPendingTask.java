@@ -299,7 +299,7 @@ public class SparkLoadPendingTask extends LoadTask {
         if (column.getAggregationType() != null) {
             if (enableMergeOnWrite && !isKey
                     && AggregateType.NONE.equals(column.getAggregationType())) {
-                aggregationType = AggregateType.NONE.toString();
+                aggregationType = AggregateType.REPLACE.toString();
             } else {
                 aggregationType = column.getAggregationType().toString();
             }
