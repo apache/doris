@@ -67,7 +67,6 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.external.ExternalFileScanNode;
-import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNullSide;
 import org.apache.doris.thrift.TPushAggOp;
