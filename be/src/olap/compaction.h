@@ -94,6 +94,9 @@ protected:
 
     void init_profile(const std::string& label);
 
+private:
+    bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
