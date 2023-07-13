@@ -22,6 +22,7 @@
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/analysis/standard/StandardAnalyzer.h>
 #include <CLucene/clucene-config.h>
+#include <CLucene/config/repl_wchar.h>
 #include <CLucene/debug/error.h>
 #include <CLucene/debug/mem.h>
 #include <CLucene/index/IndexReader.h>
@@ -425,7 +426,7 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
-    std::wstring search_str_ws = std::wstring(search_str.begin(), search_str.end());
+    std::wstring search_str_ws = lucene_utf8stows(search_str);
     // unique_ptr with custom deleter
     std::unique_ptr<lucene::index::Term, void (*)(lucene::index::Term*)> term {
             _CLNEW lucene::index::Term(column_name_ws.c_str(), search_str_ws.c_str()),
