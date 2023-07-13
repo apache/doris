@@ -77,6 +77,7 @@ public enum RuleType {
     ADJUST_NULLABLE_FOR_AGGREGATE_SLOT(RuleTypeClass.REWRITE),
     ADJUST_NULLABLE_FOR_HAVING_SLOT(RuleTypeClass.REWRITE),
     ADJUST_NULLABLE_FOR_REPEAT_SLOT(RuleTypeClass.REWRITE),
+    ADD_DEFAULT_LIMIT(RuleTypeClass.REWRITE),
 
     CHECK_ROW_POLICY(RuleTypeClass.REWRITE),
     CHECK_TYPE_TO_INSERT_TARGET_COLUMN(RuleTypeClass.REWRITE),
@@ -146,6 +147,8 @@ public enum RuleType {
 
     PUSHDOWN_FILTER_THROUGH_CTE(RuleTypeClass.REWRITE),
     PUSHDOWN_FILTER_THROUGH_CTE_ANCHOR(RuleTypeClass.REWRITE),
+
+    PUSH_DOWN_DISTINCT_THROUGH_JOIN(RuleTypeClass.REWRITE),
 
     COLUMN_PRUNING(RuleTypeClass.REWRITE),
 
@@ -228,6 +231,7 @@ public enum RuleType {
     PUSH_LIMIT_INTO_SORT(RuleTypeClass.REWRITE),
     // adjust nullable
     ADJUST_NULLABLE(RuleTypeClass.REWRITE),
+    ADJUST_CONJUNCTS_RETURN_TYPE(RuleTypeClass.REWRITE),
     // ensure having project on the top join
     ENSURE_PROJECT_ON_TOP_JOIN(RuleTypeClass.REWRITE),
 

@@ -44,7 +44,7 @@ class Arena;
 class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<UInt64> {
 public:
     DataTypeDateTimeV2SerDe(int scale) : scale(scale) {};
-    void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                arrow::ArrayBuilder* array_builder, int start,
                                int end) const override;
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,

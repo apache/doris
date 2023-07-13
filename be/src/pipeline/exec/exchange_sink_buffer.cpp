@@ -58,10 +58,6 @@ ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_
 ExchangeSinkBuffer::~ExchangeSinkBuffer() = default;
 
 void ExchangeSinkBuffer::close() {
-    for (const auto& pair : _instance_to_request) {
-        pair.second->release_finst_id();
-        pair.second->release_query_id();
-    }
     _instance_to_broadcast_package_queue.clear();
     _instance_to_package_queue.clear();
     _instance_to_request.clear();
@@ -189,7 +185,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
             set_rpc_time(id, start_rpc_time, result.receive_time());
-            Status s = Status(result.status());
+            Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
             } else if (!s.ok()) {
@@ -233,7 +229,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                                        const PTransmitDataResult& result,
                                        const int64_t& start_rpc_time) {
             set_rpc_time(id, start_rpc_time, result.receive_time());
-            Status s = Status(result.status());
+            Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
             } else if (!s.ok()) {
@@ -269,7 +265,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id) {
     _instance_to_request[id] = std::make_unique<PTransmitDataParams>();
     _instance_to_request[id]->mutable_finst_id()->CopyFrom(finst_id);
-    _instance_to_request[id]->set_allocated_query_id(&_query_id);
+    _instance_to_request[id]->mutable_query_id()->CopyFrom(_query_id);
 
     _instance_to_request[id]->set_node_id(_dest_node_id);
     _instance_to_request[id]->set_sender_id(_sender_id);

@@ -245,7 +245,8 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
         StatsCalculator statsCalculator = StatsCalculator.estimate(groupExpression,
                 context.getCascadesContext().getConnectContext().getSessionVariable().getForbidUnknownColStats(),
                 context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap(),
-                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump());
+                context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump(),
+                context.getCascadesContext());
         if (!context.getCascadesContext().getConnectContext().getSessionVariable().isPlayNereidsDump()
                 && context.getCascadesContext().getConnectContext().getSessionVariable().isEnableMinidump()) {
             context.getCascadesContext().getConnectContext().getTotalColumnStatisticMap()
@@ -317,7 +318,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             groupExpression.putOutputPropertiesMap(outputProperty, requestProperty);
         }
         this.groupExpression.getOwnerGroup().setBestPlan(groupExpression, curTotalCost, requestProperty);
-        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId().toString(),
+        NereidsTracer.logPropertyAndCostEvent(groupExpression.getOwnerGroup().getGroupId(),
                 groupExpression.children(), groupExpression.getPlan(), requestProperty, curTotalCost);
     }
 

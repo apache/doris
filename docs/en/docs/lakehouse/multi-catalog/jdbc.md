@@ -180,7 +180,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                                               |
 | CHAR                                      | CHAR           |                                                                               |
 | VARCHAR                                   | VARCHAR        |                                                                               |
-| JSON                                      | STRING         |                                                                               |
+| JSON                                      | JSON           |                                                                               |
 | SET                                       | STRING         |                                                                               |
 | BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
@@ -236,12 +236,13 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
  | varchar/text                            | STRING         |                                           |
  | timestamp                               | DATETIME       |                                           |
  | date                                    | DATE           |                                           |
+ | json/josnb                              | JSON           |                                           |
  | time                                    | STRING         |                                           |
  | interval                                | STRING         |                                           |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
  | cidr/inet/macaddr                       | STRING         |                                           |
  | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
- | uuid/josnb                              | STRING         |                                           |
+ | uuid                                    | STRING         |                                           |
  | Other                                   | UNSUPPORTED    |                                           |
 
 ### Oracle
@@ -254,7 +255,7 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
     "user"="root",
     "password"="123456",
     "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-    "driver_url" = "ojdbc6.jar",
+    "driver_url" = "ojdbc8.jar",
     "driver_class" = "oracle.jdbc.driver.OracleDriver"
 );
 ```
@@ -490,7 +491,7 @@ CREATE CATALOG jdbc_presto PROPERTIES (
     "password"="",
     "jdbc_url" = "jdbc:presto://localhost:9000/hive",
     "driver_url" = "presto-jdbc-0.280.jar",
-    "driver_class" = "io.prestosql.jdbc.PrestoDriver"
+    "driver_class" = "com.facebook.presto.jdbc.PrestoDriver"
 );
 ```
 

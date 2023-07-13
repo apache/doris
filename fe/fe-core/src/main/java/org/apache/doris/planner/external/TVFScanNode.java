@@ -84,6 +84,11 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
+        return getLocationType(null);
+    }
+
+    @Override
+    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
         return tableValuedFunction.getTFileType();
     }
 
@@ -94,7 +99,7 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() {
-        return Lists.newArrayList();
+        return tableValuedFunction.getPathPartitionKeys();
     }
 
     @Override

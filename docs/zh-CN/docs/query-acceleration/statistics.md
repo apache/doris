@@ -218,7 +218,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 
 ##### 收集直方图信息
 
-列直方图信息用于描述列分布的情况，它将数据根据大小分成若干个区间（桶），并使用简单的统计量来表示每个区间中数据的特征。通过 `ANALYZE TABLE` 语句配合 `UPDATE HISTOGRAM` 进行收集。
+列直方图信息用于描述列分布的情况，它将数据根据大小分成若干个区间（桶），并使用简单的统计量来表示每个区间中数据的特征。通过 `ANALYZE TABLE` 语句配合 `WITH HISTOGRAM` 进行收集。
 
 和收集普通统计信息一样，可以指定列来收集其直方图信息。相比普通统计信息，收集直方图信息耗时更长，所以为了降低开销，我们可以只收集特定列的直方图信息供优化器使用。
 
@@ -227,7 +227,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 - 收集 `example_tbl` 表所有列的直方图，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -238,7 +238,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
 - 收集 `example_tbl` 表 `city`, `age`, `sex` 列的直方图，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -250,7 +250,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
 
 ```SQL
 -- 使用with buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH BUCKETS 2;
 +--------+
 | job_id |
 +--------+
@@ -258,7 +258,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
 +--------+
 
 -- 配置num.buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM PROPERTIES("num.buckets" = "2");
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM PROPERTIES("num.buckets" = "2");
 +--------+
 | job_id |
 +--------+
@@ -361,7 +361,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
 - 抽样收集 `example_tbl` 表的直方图信息，与普通统计信息类似，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SAMPLE ROWS 5;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SAMPLE ROWS 5;
 +--------+
 | job_id |
 +--------+
@@ -388,7 +388,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
 - 抽样收集 `example_tbl` 表的直方图信息，与普通统计信息类似，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SYNC;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SYNC;
 ```
 
 ### 自动收集
@@ -424,7 +424,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400
 - 周期性（每隔一天）收集 `example_tbl` 表的直方图信息，与普通统计信息类似，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH PERIOD 86400;
 +--------+
 | job_id |
 +--------+
@@ -852,7 +852,7 @@ Buckets 说明：
 ⽤户通过 `ALTER` 语句修改统计信息，根据提供的参数，修改列相应的统计信息。
 
 ```SQL
-ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...);
+ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
 其中：
@@ -860,6 +860,7 @@ ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_
 - table_name: 删除统计信息的目标表。可以是 `db_name.table_name` 形式。
 - column_name: 指定的目标列，必须是 `table_name` 中存在的列，每次只能修改一列的统计信息。
 - stat_name 和 stat_value: 相应的统计信息名称和统计信息信息的值，多个统计信息逗号分隔。可以修改的统计信息包括 `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, `data_size`。
+- partition_name: 指定的目标分区。必须是 `table_name` 中存在的分区，多个分区使用逗号分割。
 
 示例：
 
@@ -921,6 +922,14 @@ mysql> DROP STATS stats_test.example_tbl;
 
 ```SQL
 mysql> DROP STATS stats_test.example_tbl(city, age, sex);
+```
+
+## 删除Analyze Job
+
+用于根据job id删除自动/周期Analyze作业
+
+```sql
+DROP ANALYZE JOB [JOB_ID]
 ```
 
 ## ANALYZE 配置项

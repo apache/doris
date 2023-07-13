@@ -83,6 +83,19 @@ public class DBBinlog {
                 return;
             }
 
+            // HACK: for metadata fix
+            if (!binlog.isSetType()) {
+                return;
+            }
+            switch (binlog.getType()) {
+                case CREATE_TABLE:
+                    return;
+                case DROP_TABLE:
+                    return;
+                default:
+                    break;
+            }
+
             for (long tableId : tableIds) {
                 TableBinlog tableBinlog = tableBinlogMap.get(tableId);
                 if (tableBinlog == null) {
@@ -100,7 +113,7 @@ public class DBBinlog {
         return dbId;
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long tableId, long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -110,10 +123,29 @@ public class DBBinlog {
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
-                return tableBinlog.getBinlog(commitSeq);
+                return tableBinlog.getBinlog(prevCommitSeq);
             }
 
-            return BinlogUtils.getBinlog(allBinlogs, commitSeq);
+            return BinlogUtils.getBinlog(allBinlogs, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Pair<TStatus, Long> getBinlogLag(long tableId, long prevCommitSeq) {
+        TStatus status = new TStatus(TStatusCode.OK);
+        lock.readLock().lock();
+        try {
+            if (tableId >= 0) {
+                TableBinlog tableBinlog = tableBinlogMap.get(tableId);
+                if (tableBinlog == null) {
+                    status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
+                    return Pair.of(status, null);
+                }
+                return tableBinlog.getBinlogLag(prevCommitSeq);
+            }
+
+            return BinlogUtils.getBinlogLag(allBinlogs, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }

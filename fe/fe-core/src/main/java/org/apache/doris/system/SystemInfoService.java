@@ -247,9 +247,6 @@ public class SystemInfoService {
             throw new DdlException("Backend[" + backendId + "] does not exist");
         }
         dropBackend(backend.getHost(), backend.getHeartbeatPort());
-        // update BeInfoCollector
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        beinfoCollector.dropBeInfo(backendId);
     }
 
     // final entry of dropping backend
@@ -770,9 +767,6 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        // update BeInfoCollector
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        beinfoCollector.dropBeInfo(backend.getId());
     }
 
     public void updateBackendState(Backend be) {
@@ -791,6 +785,8 @@ public class SystemInfoService {
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());
+            memoryBe.setCpuCores(be.getCputCores());
+            memoryBe.setPipelineExecutorSize(be.getPipelineExecutorSize());
         }
     }
 
@@ -962,5 +958,19 @@ public class SystemInfoService {
     public List<Backend> getBackendsByTag(Tag tag) {
         List<Backend> bes = getMixBackends();
         return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
+    }
+
+    public int getMinPipelineExecutorSize() {
+        if (idToBackendRef.size() == 0) {
+            return 1;
+        }
+        int minPipelineExecutorSize = Integer.MAX_VALUE;
+        for (Backend be : idToBackendRef.values()) {
+            int size = be.getPipelineExecutorSize();
+            if (size > 0) {
+                minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);
+            }
+        }
+        return minPipelineExecutorSize;
     }
 }

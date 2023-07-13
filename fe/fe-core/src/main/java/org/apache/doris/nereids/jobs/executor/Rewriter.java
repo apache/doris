@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.processor.pre.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.AddDefaultLimit;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
 import org.apache.doris.nereids.rules.rewrite.BuildAggForUnion;
@@ -102,6 +104,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
     public static final List<RewriteJob> REWRITE_JOBS = jobs(
             bottomUp(new InlineCTE()),
+            custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new),
             topic("Plan Normalization",
                     topDown(
                             new EliminateOrderByConstant(),
@@ -206,7 +209,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // eliminate useless not null or inferred not null
                     // TODO: wait InferPredicates to infer more not null.
-                    bottomUp(new EliminateNotNull())
+                    bottomUp(new EliminateNotNull()),
+                    topDown(new ConvertInnerOrCrossJoin())
             ),
             topic("Column pruning and infer predicate",
                     custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
@@ -236,6 +240,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     costBased(topDown(new InferSetOperatorDistinct())),
                     topDown(new BuildAggForUnion())
             ),
+
+            // topic("Distinct",
+            //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
+            // ),
 
             topic("Window optimization",
                     topDown(
@@ -280,6 +288,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushdownFilterThroughProject(),
                             new MergeProjects()
                     ),
+                    custom(RuleType.ADJUST_CONJUNCTS_RETURN_TYPE, AdjustConjunctsReturnType::new),
                     custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new),
                     bottomUp(
                             new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),

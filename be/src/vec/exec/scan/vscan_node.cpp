@@ -94,7 +94,9 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 }
 
 Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(RuntimeFilterConsumerNode::init(tnode, state));
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
+    _state = state;
     _is_pipeline_scan = state->enable_pipeline_exec();
 
     const TQueryOptions& query_options = state->query_options();
@@ -115,12 +117,7 @@ Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     // init profile for runtime filter
-    std::stringstream ss;
-    for (auto& rf_ctx : _runtime_filter_ctxs) {
-        rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
-        ss << rf_ctx.runtime_filter->get_name() << ", ";
-    }
-    _runtime_profile->add_info_string("RuntimeFilters: ", ss.str());
+    RuntimeFilterConsumer::_init_profile(_runtime_profile.get());
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
@@ -334,7 +331,7 @@ void VScanNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
-Status VScanNode::try_close() {
+Status VScanNode::try_close(RuntimeState* state) {
     if (_scanner_ctx.get()) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact

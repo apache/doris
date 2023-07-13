@@ -120,7 +120,7 @@ public:
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     Status new_inverted_index_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
-                                       InvertedIndexIterator** iterator);
+                                       std::unique_ptr<InvertedIndexIterator>* iterator);
 
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
@@ -237,7 +237,7 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::unique_ptr<InvertedIndexReader> _inverted_index;
+    std::shared_ptr<InvertedIndexReader> _inverted_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
     DorisCallOnce<Status> _load_zone_map_index_once;
     DorisCallOnce<Status> _load_ordinal_index_once;

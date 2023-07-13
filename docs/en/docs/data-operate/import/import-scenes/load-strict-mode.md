@@ -92,7 +92,7 @@ Different import methods set strict mode in different ways.
 
 ## The role of strict mode
 
-Strict mode means strict filtering of column type conversions during import.
+- Restricting the filtering of column type conversions during import.
 
 The strict filtering strategy is as follows:
 
@@ -130,3 +130,51 @@ For an imported column type that contains range restrictions, if the original da
    > 1. Columns in the table allow to import null values
    > 2. After `abc` is converted to Decimal, it will become NULL due to type problem. When strict mode is on, this data will be filtered. And if it is closed, `null` will be imported.
    > 3. Although `10` is an out-of-range value, because its type conforms to the requirements of decimal, strict mode does not affect it. `10` will eventually be filtered in other import processing flows. But not filtered by strict mode.
+
+- Restricting partial column updates to only existing columns
+
+In strict mode, when performing partial column updates, each row of data inserted must have a key that already exists in the table. In non-strict mode, partial column updates can update existing rows with existing keys or insert new rows with non-existing keys.
+
+For example, consider the following table structure:
+
+```
+mysql> desc user_profile;
++------------------+-----------------+------+-------+---------+-------+
+| Field            | Type            | Null | Key   | Default | Extra |
++------------------+-----------------+------+-------+---------+-------+
+| id               | INT             | Yes  | true  | NULL    |       |
+| name             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
+| age              | INT             | Yes  | false | NULL    | NONE  |
+| city             | VARCHAR(10)     | Yes  | false | NULL    | NONE  |
+| balance          | DECIMALV3(9, 0) | Yes  | false | NULL    | NONE  |
+| last_access_time | DATETIME        | Yes  | false | NULL    | NONE  |
++------------------+-----------------+------+-------+---------+-------+
+```
+
+The table contains the following data:
+
+```
+1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00"
+```
+
+When a user uses non-strict mode stream load for partial column updates and inserts the following data into the table:
+
+```
+1,500,2023-07-03 12:00:01
+3,23,2023-07-03 12:00:02
+18,9999999,2023-07-03 12:00:03
+```
+
+```
+curl  --location-trusted -u root -H "partial_columns:true" -H "strict_mode:false" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://host:port/api/db1/user_profile/_stream_load
+```
+
+The existing row in the table will be updated, and two new rows will be inserted. For columns in the inserted data that are not specified by the user, if the column has a default value, it will be filled with the default value. Otherwise, if the column allows NULL, it will be filled with a NULL value. If neither condition is met, the insertion will not succeed.
+
+However, when a user uses strict mode stream load for partial column updates and inserts the above data into the table:
+
+```
+curl  --location-trusted -u root -H "partial_columns:true" -H "strict_mode:true" -H "column_separator:," -H "columns:id,balance,last_access_time" -T /tmp/test.csv http://host:port/api/db1/user_profile/_stream_load
+```
+
+In this case, since strict mode is enabled and the keys `(3)`, `(18)` in the second and third rows, respectively, do not exist in the original table, the import will fail.
