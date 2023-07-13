@@ -413,6 +413,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
                     delayed_s;
             rs_reader->rowset()->update_delayed_expired_timestamp(delayed_expired_timestamp);
+            StorageEngine::instance()->add_quering_rowset(rs_reader->rowset());
         }
     }
 
