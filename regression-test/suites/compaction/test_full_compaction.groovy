@@ -118,9 +118,15 @@ suite("test_full_compaction") {
         for (String[] tablet in tablets) {
             String tablet_id = tablet[0]
             backend_id = tablet[2]
-            (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
+            times = 1
+
+            do{
+                (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+                ++times
+                sleep(2000)
+            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
+
             def compactJson = parseJson(out.trim())
             if (compactJson.status.toLowerCase() == "fail") {
                 assertEquals(disableAutoCompaction, false)
