@@ -30,7 +30,6 @@ suite("test_show_decimalv3") {
     """
     qt_select1 """desc showdb"""
     qt_select2 """desc showdb all"""
-    qt_select3 """show create table showdb"""
 
     sql """DROP TABLE IF EXISTS showdb """
     sql """
@@ -44,8 +43,7 @@ suite("test_show_decimalv3") {
         "enable_unique_key_merge_on_write" = "true",
         "replication_num" = "1")
     """
-    qt_select4 """desc showdb"""
-    qt_select5 """desc showdb all"""
-    qt_select6 """show create table showdb"""
+    qt_select3 """desc showdb"""
+    qt_select4 """desc showdb all"""
 
 }

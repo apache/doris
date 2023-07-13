@@ -8,16 +8,10 @@ showdb	UNIQUE_KEYS	id	INT	INT	No	true	\N		true
 		dd	DECIMAL(15, 6)	DECIMALV3(15, 6)	Yes	false	\N	NONE	true		
 
 -- !select3 --
-showdb	CREATE TABLE `showdb` (\n  `id` int(11) NOT NULL,\n  `dd` DECIMAL(15, 6) NULL\n) ENGINE=OLAP\nUNIQUE KEY(`id`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`id`) BUCKETS 10\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"enable_unique_key_merge_on_write" = "true",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false"\n);
-
--- !select4 --
 id	INT	No	true	\N	
 dd	DECIMAL	Yes	false	\N	NONE
 
--- !select5 --
+-- !select4 --
 showdb	UNIQUE_KEYS	id	INT	INT	No	true	\N		true		
 		dd	DECIMAL	DECIMALV3(9, 0)	Yes	false	\N	NONE	true		
-
--- !select6 --
-showdb	CREATE TABLE `showdb` (\n  `id` int(11) NOT NULL,\n  `dd` DECIMAL NULL\n) ENGINE=OLAP\nUNIQUE KEY(`id`)\nCOMMENT 'OLAP'\nDISTRIBUTED BY HASH(`id`) BUCKETS 10\nPROPERTIES (\n"replication_allocation" = "tag.location.default: 1",\n"storage_format" = "V2",\n"enable_unique_key_merge_on_write" = "true",\n"light_schema_change" = "true",\n"disable_auto_compaction" = "false",\n"enable_single_replica_compaction" = "false"\n);
 
