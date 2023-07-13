@@ -36,10 +36,27 @@ suite("test_ngram_bloomfilter_index") {
     PROPERTIES("replication_num" = "1");
     """
 
-    sql "insert into ${tableName} values (1, 'dt_bjn001', 'p9-webcast-sign.douyinpic.com', 'test','/%/7212503657802320699%','/test', 100, false);"
+    sql "INSERT INTO ${tableName} values (1, 'dt_bjn001', 'p9-webcast-sign.douyinpic.com', 'test', '/%/7212503657802320699%', '/test', 100, false);"
+    sql "INSERT INTO ${tableName} values (1, 'dt_bjn001', 'p9-webcast-sign.douyinpic.com', 'test', '/%/7212503657802320699%xxx', '/test', 100, false);"
 
-    sql "set enable_function_pushdown = true"
 
-    qt_select_eq "SELECT * FROM ${tableName} WHERE http_url = '/%/7212503657802320699%'"
-    qt_select_like "SELECT * FROM ${tableName} WHERE http_url like '/%/7212503657802320699%'"
+    sql "SET enable_function_pushdown = true"
+
+    qt_select_all_1 "SELECT * FROM ${tableName}"
+    qt_select_eq_1 "SELECT * FROM ${tableName} WHERE http_url = '/%/7212503657802320699%'"
+    qt_select_in_1 "SELECT * FROM ${tableName} WHERE http_url IN ('/%/7212503657802320699%')"
+    qt_select_like_1 "SELECT * FROM ${tableName} WHERE http_url like '/%/7212503657802320699%'"
+
+    // delete and then select
+    sql "DELETE FROM ${tableName} WHERE http_url IN ('/%/7212503657802320699%')"
+    qt_select_all_2 "SELECT * FROM ${tableName}"
+    qt_select_eq_2 "SELECT * FROM ${tableName} WHERE http_url = '/%/7212503657802320699%'"
+    qt_select_in_2 "SELECT * FROM ${tableName} WHERE http_url IN ('/%/7212503657802320699%')"
+    qt_select_like_2 "SELECT * FROM ${tableName} WHERE http_url like '/%/7212503657802320699%'"
+
+    sql "DELETE FROM ${tableName} WHERE http_url = '/%/7212503657802320699%xxx'"
+    qt_select_all_3 "SELECT * FROM ${tableName}"
+    qt_select_eq_3 "SELECT * FROM ${tableName} WHERE http_url = '/%/7212503657802320699%'"
+    qt_select_in_3 "SELECT * FROM ${tableName} WHERE http_url IN ('/%/7212503657802320699%')"
+    qt_select_like_3 "SELECT * FROM ${tableName} WHERE http_url like '/%/7212503657802320699%'"
 }
