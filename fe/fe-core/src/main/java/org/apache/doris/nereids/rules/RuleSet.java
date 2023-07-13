@@ -48,6 +48,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
 import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFileScan;
+import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
@@ -167,6 +168,7 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalFileSinkToPhysicalFileSink())
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
