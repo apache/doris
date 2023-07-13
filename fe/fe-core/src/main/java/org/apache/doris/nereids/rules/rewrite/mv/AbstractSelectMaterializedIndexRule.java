@@ -118,7 +118,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
         mvColNames.addAll(indexConjuncts);
 
-        return mvColNames.containsAll(requiredMvColumnNames) && commonConjuncts.size() == predicateExprSql.size()
+        return mvColNames.containsAll(requiredMvColumnNames)
                 || requiredExpr.stream().map(AbstractSelectMaterializedIndexRule::removeCastAndAlias)
                         .filter(e -> !containsAllColumn(e, mvColNames)).collect(Collectors.toSet()).isEmpty();
     }
