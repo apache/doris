@@ -478,7 +478,8 @@ public class Coordinator {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
+                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port),
+                        ctxs.getInstanceNumber());
             }
         } else {
             for (BackendExecStates states : beToExecStates.values()) {
@@ -846,6 +847,7 @@ public class Coordinator {
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
                     }
                     ctxs.addContext(pipelineExecContext);
+                    ctxs.setInstanceNumber(entry.getValue().getFragmentNumOnHost());
 
                     ++backendIdx;
                 }
@@ -2971,6 +2973,7 @@ public class Coordinator {
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         ScopedSpan scopedSpan = new ScopedSpan();
+        int instanceNumber;
 
         public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
             this.beId = beId;
@@ -2980,6 +2983,14 @@ public class Coordinator {
 
         public void addContext(PipelineExecContext ctx) {
             this.ctxs.add(ctx);
+        }
+
+        public void setInstanceNumber(int instanceNumber) {
+            this.instanceNumber = instanceNumber;
+        }
+
+        public int getInstanceNumber() {
+            return instanceNumber;
         }
 
         /**
