@@ -618,6 +618,7 @@ struct TStreamLoadMultiTablePutResult {
     1: required Status.TStatus status
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
+    3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
 struct TKafkaRLTaskProgress {
