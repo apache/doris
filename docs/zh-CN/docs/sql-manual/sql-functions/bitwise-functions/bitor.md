@@ -44,7 +44,7 @@ mysql> select bitor(3,5) ans;
 |    7 |
 +------+
 
-mysql> select bitor(4,7) ans;
+mysql> select bitand(4,7) ans;
 +------+
 | ans  |
 +------+

@@ -101,7 +101,7 @@ SELECT
 Doris supports JOIN syntax
 
 ```sql
-JOIN
+JION
 table_references:
     table_reference [, table_reference] …
 table_reference:
