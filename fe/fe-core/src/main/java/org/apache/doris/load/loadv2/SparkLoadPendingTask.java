@@ -236,10 +236,14 @@ public class SparkLoadPendingTask extends LoadTask {
             long indexId = entry.getKey();
             int schemaHash = table.getSchemaHashByIndexId(indexId);
 
+            // enable merge on write
+            boolean enableMergeOnWrite = KeysType.UNIQUE_KEYS.equals(table.getKeysType())
+                    && table.getEnableUniqueKeyMergeOnWrite();
+
             // columns
             List<EtlColumn> etlColumns = Lists.newArrayList();
             for (Column column : entry.getValue()) {
-                etlColumns.add(createEtlColumn(column));
+                etlColumns.add(createEtlColumn(column, enableMergeOnWrite));
             }
 
             // check distribution type
@@ -271,7 +275,7 @@ public class SparkLoadPendingTask extends LoadTask {
             }
 
             // is base index
-            boolean isBaseIndex = indexId == table.getBaseIndexId() ? true : false;
+            boolean isBaseIndex = indexId == table.getBaseIndexId();
 
             etlIndexes.add(new EtlIndex(indexId, etlColumns, schemaHash, indexType, isBaseIndex));
         }
@@ -279,7 +283,7 @@ public class SparkLoadPendingTask extends LoadTask {
         return etlIndexes;
     }
 
-    private EtlColumn createEtlColumn(Column column) {
+    private EtlColumn createEtlColumn(Column column, boolean enableMergeOnWrite) {
         // column name
         String name = column.getName();
         // column type
@@ -293,7 +297,12 @@ public class SparkLoadPendingTask extends LoadTask {
         // aggregation type
         String aggregationType = null;
         if (column.getAggregationType() != null) {
-            aggregationType = column.getAggregationType().toString();
+            if (enableMergeOnWrite && !isKey
+                    && AggregateType.NONE.equals(column.getAggregationType())) {
+                aggregationType = AggregateType.NONE.toString();
+            } else {
+                aggregationType = column.getAggregationType().toString();
+            }
         }
 
         // default value
