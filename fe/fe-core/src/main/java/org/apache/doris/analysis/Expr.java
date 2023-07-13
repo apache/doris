@@ -2267,6 +2267,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public boolean isNullValue() {
+        return this instanceof NullLiteral || this.getType().isNull();
+    }
+
     private static boolean customNullableAlgorithm(Function fn, List<Expr> children) {
         Preconditions.checkState(fn.getNullableMode() == Function.NullableMode.CUSTOM);
 

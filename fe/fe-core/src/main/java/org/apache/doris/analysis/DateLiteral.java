@@ -362,9 +362,7 @@ public class DateLiteral extends LiteralExpr {
 
     /*
      * transform a string into Date-like value specific by type.
-     * 
      * @throws IllegalFormatException if the transformed date-like value is illegal.
-     * 
      * @throws AnalysisException if s can't be analysis.
      */
     private void init(String s, Type argType) throws AnalysisException {
@@ -1213,7 +1211,7 @@ public class DateLiteral extends LiteralExpr {
     private long minute;
     private long second;
     private long microsecond; // to distinguish .123 and .000123, we need to save suffix zero in it.
-                              // That is, save .123 in microsecond as 1230 if scale is 4
+    // That is, save .123 in microsecond as 1230 if scale is 4
 
     @Override
     public int hashCode() {
