@@ -23,6 +23,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.planner.external.hudi.HudiPartitionMgr;
+import org.apache.doris.planner.external.hudi.HudiPartitionProcessor;
 
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -41,9 +43,11 @@ public class ExternalMetaCacheMgr {
     private static final Logger LOG = LogManager.getLogger(ExternalMetaCacheMgr.class);
 
     // catalog id -> HiveMetaStoreCache
-    private Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
+    private final Map<Long, HiveMetaStoreCache> cacheMap = Maps.newConcurrentMap();
     // catalog id -> table schema cache
     private Map<Long, ExternalSchemaCache> schemaCacheMap = Maps.newHashMap();
+    // hudi partition manager
+    private final HudiPartitionMgr hudiPartitionMgr;
     private ExecutorService executor;
 
     public ExternalMetaCacheMgr() {
@@ -51,6 +55,7 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "ExternalMetaCacheMgr", 120, true);
+        hudiPartitionMgr = HudiPartitionMgr.get(executor);
     }
 
     public HiveMetaStoreCache getMetaStoreCache(HMSExternalCatalog catalog) {
@@ -79,13 +84,18 @@ public class ExternalMetaCacheMgr {
         return cache;
     }
 
-    public void removeCache(String catalogId) {
+    public HudiPartitionProcessor getHudiPartitionProcess(ExternalCatalog catalog) {
+        return hudiPartitionMgr.getPartitionProcessor(catalog);
+    }
+
+    public void removeCache(long catalogId) {
         if (cacheMap.remove(catalogId) != null) {
-            LOG.info("remove hive metastore cache for catalog {}" + catalogId);
+            LOG.info("remove hive metastore cache for catalog {}", catalogId);
         }
         if (schemaCacheMap.remove(catalogId) != null) {
-            LOG.info("remove schema cache for catalog {}" + catalogId);
+            LOG.info("remove schema cache for catalog {}", catalogId);
         }
+        hudiPartitionMgr.removePartitionProcessor(catalogId);
     }
 
     public void invalidateTableCache(long catalogId, String dbName, String tblName) {
@@ -98,6 +108,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateTableCache(dbName, tblName);
         }
+        hudiPartitionMgr.cleanTablePartitions(catalogId, dbName, tblName);
         LOG.debug("invalid table cache for {}.{} in catalog {}", dbName, tblName, catalogId);
     }
 
@@ -111,6 +122,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateDbCache(dbName);
         }
+        hudiPartitionMgr.cleanDatabasePartitions(catalogId, dbName);
         LOG.debug("invalid db cache for {} in catalog {}", dbName, catalogId);
     }
 
@@ -123,6 +135,7 @@ public class ExternalMetaCacheMgr {
         if (metaCache != null) {
             metaCache.invalidateAll();
         }
+        hudiPartitionMgr.cleanPartitionProcess(catalogId);
         LOG.debug("invalid catalog cache for {}", catalogId);
     }
 
