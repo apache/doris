@@ -315,12 +315,12 @@ void ColumnArray::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveT
         for (size_t i = 0; i < s; ++i) {
             // every row
             if (null_data[i] == 0) {
-                update_crc_with_value(i, hash[i]);
+                update_crc_with_value(i, i + 1, hash[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_crc_with_value(i, hash[i]);
+            update_crc_with_value(i, i + 1, hash[i], nullptr);
         }
     }
 }
