@@ -702,6 +702,16 @@ Status PipelineFragmentContext::submit() {
     }
 }
 
+void PipelineFragmentContext::close_sink() {
+    if (_sink) {
+        if (_prepared) {
+            _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed"));
+        } else {
+            _sink->close(_runtime_state.get(), Status::OK());
+        }
+    }
+}
+
 void PipelineFragmentContext::close_if_prepare_failed() {
     if (_tasks.empty()) {
         if (_root_plan) {
