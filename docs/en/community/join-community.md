@@ -1,6 +1,6 @@
 ---
 {
-    "title": "join doris community",
+    "title": "Join Doris Community",
     "language": "en"
 }
 
@@ -29,7 +29,7 @@ under the License.
 
 Apache Doris Community is a warm & lovely place, with users and developers from all around the world. **We have graduated from Apache incubator succesffully and become an Top-Level Project in June 2022**.
 
-## 🙌 More Contributors Join Us
+## 🙌 More Developers Join Us
 
 [![Monthly Active Contributors](https://p3-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/fe6aa24cc0b74680a4dbd4e049379ab8~tplv-k3u1fbpfcp-zoom-1.image)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity\&repo=apache/doris)
 
@@ -96,7 +96,6 @@ Learn our latest techniques, get inspirations from our rich use cases, and see w
 - ##### Use cases and tech insight -  📭 [Twitter](https://twitter.com/doris_apache) 
 
 - ##### Come and connect with us - 🌐 [LinkedIn](https://www.linkedin.com/company/doris-apache/) 
-
 
 - ##### Events Videos - ▶️ [YouTube](https://www.youtube.com/@Select_DB) 📺 [Bilibili](https://space.bilibili.com/362350065) 
 
