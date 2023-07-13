@@ -42,6 +42,8 @@ public class SummaryProfile {
     public static final String DEFAULT_DB = "Default Db";
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
+    public static final String IS_NEREIDS = "Is Nereids";
+    public static final String IS_PIPELINE = "Is Pipeline";
     public static final String TOTAL_INSTANCES_NUM = "Total Instances Num";
     public static final String INSTANCES_NUM_PER_BE = "Instances Num Per BE";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
@@ -49,6 +51,9 @@ public class SummaryProfile {
 
     // Execution  Summary
     public static final String ANALYSIS_TIME = "Analysis Time";
+    public static final String JOIN_REORDER_TIME = "JoinReorder Time";
+    public static final String CREATE_SINGLE_NODE_TIME = "CreateSingleNode Time";
+    public static final String QUERY_DISTRIBUTED_TIME = "QueryDistributed Time";
     public static final String PLAN_TIME = "Plan Time";
     public static final String SCHEDULE_TIME = "Schedule Time";
     public static final String FETCH_RESULT_TIME = "Fetch Result Time";
@@ -56,8 +61,8 @@ public class SummaryProfile {
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
     public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
-            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT, IS_CACHED,
-            TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
+            START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT, IS_NEREIDS, IS_PIPELINE,
+            IS_CACHED, TOTAL_INSTANCES_NUM, INSTANCES_NUM_PER_BE, PARALLEL_FRAGMENT_EXEC_INSTANCE, TRACE_ID);
 
     public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(ANALYSIS_TIME, PLAN_TIME,
             SCHEDULE_TIME, FETCH_RESULT_TIME, WRITE_RESULT_TIME, WAIT_FETCH_RESULT_TIME);
@@ -69,6 +74,12 @@ public class SummaryProfile {
     private long queryBeginTime = -1;
     // Analysis end time
     private long queryAnalysisFinishTime = -1;
+    // Join reorder end time
+    private long queryJoinReorderFinishTime = -1;
+    // Create single node plan end time
+    private long queryCreateSingleNodeFinishTime = -1;
+    // Create distribute plan end time
+    private long queryDistributedFinishTime = -1;
     // Plan end time
     private long queryPlanFinishTime = -1;
     // Fragment schedule and send end time
@@ -111,6 +122,9 @@ public class SummaryProfile {
 
     private void updateExecutionSummaryProfile() {
         executionSummaryProfile.addInfoString(ANALYSIS_TIME, getPrettyQueryAnalysisFinishTime());
+        executionSummaryProfile.addInfoString(JOIN_REORDER_TIME, getPrettyQueryJoinReorderFinishTime());
+        executionSummaryProfile.addInfoString(CREATE_SINGLE_NODE_TIME, getPrettyCreateSingleNodeFinishTime());
+        executionSummaryProfile.addInfoString(QUERY_DISTRIBUTED_TIME, getPrettyQueryDistributedFinishTime());
         executionSummaryProfile.addInfoString(PLAN_TIME, getPrettyQueryPlanFinishTime());
         executionSummaryProfile.addInfoString(SCHEDULE_TIME, getPrettyQueryScheduleFinishTime());
         executionSummaryProfile.addInfoString(FETCH_RESULT_TIME,
@@ -126,6 +140,18 @@ public class SummaryProfile {
 
     public void setQueryAnalysisFinishTime() {
         this.queryAnalysisFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setQueryJoinReorderFinishTime() {
+        this.queryJoinReorderFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setCreateSingleNodeFinishTime() {
+        this.queryCreateSingleNodeFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setQueryDistributedFinishTime() {
+        this.queryDistributedFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryPlanFinishTime() {
@@ -229,6 +255,16 @@ public class SummaryProfile {
             return this;
         }
 
+        public SummaryBuilder isNereids(String isNereids) {
+            map.put(IS_NEREIDS, isNereids);
+            return this;
+        }
+
+        public SummaryBuilder isPipeline(String isPipeline) {
+            map.put(IS_PIPELINE, isPipeline);
+            return this;
+        }
+
         public Map<String, String> build() {
             return map;
         }
@@ -239,6 +275,27 @@ public class SummaryProfile {
             return "N/A";
         }
         return RuntimeProfile.printCounter(queryAnalysisFinishTime - queryBeginTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyQueryJoinReorderFinishTime() {
+        if (queryAnalysisFinishTime == -1 || queryJoinReorderFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryJoinReorderFinishTime - queryAnalysisFinishTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyCreateSingleNodeFinishTime() {
+        if (queryJoinReorderFinishTime == -1 || queryCreateSingleNodeFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryCreateSingleNodeFinishTime - queryJoinReorderFinishTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyQueryDistributedFinishTime() {
+        if (queryCreateSingleNodeFinishTime == -1 || queryDistributedFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(queryDistributedFinishTime - queryCreateSingleNodeFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyQueryPlanFinishTime() {

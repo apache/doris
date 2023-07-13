@@ -24,6 +24,7 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -42,13 +43,13 @@ import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
-import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -127,6 +128,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -157,14 +159,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private Map<CTEId, Statistics> cteIdToStats;
 
+    private CascadesContext cascadesContext;
+
     private StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
                                 Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
-            Map<CTEId, Statistics> cteIdToStats) {
+            Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         this.groupExpression = groupExpression;
         this.forbidUnknownColStats = forbidUnknownColStats;
         this.totalColumnStatisticMap = columnStatisticMap;
         this.isPlayNereidsDump = isPlayNereidsDump;
         this.cteIdToStats = Objects.requireNonNull(cteIdToStats, "CTEIdToStats can't be null");
+        this.cascadesContext = context;
     }
 
     public Map<String, Histogram> getTotalHistogramMap() {
@@ -188,25 +193,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
                                            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
-            Map<CTEId, Statistics> cteIdToStats) {
+            Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(
-                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats);
+                groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump, cteIdToStats, context);
         statsCalculator.estimate();
         return statsCalculator;
     }
 
     public static StatsCalculator estimate(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump) {
+            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump, CascadesContext context) {
         return StatsCalculator.estimate(groupExpression,
                 forbidUnknownColStats,
                 columnStatisticMap,
                 isPlayNereidsDump,
-                new HashMap<>());
+                new HashMap<>(), context);
     }
 
-    public static void estimate(GroupExpression groupExpression) {
+    // For unit test only
+    public static void estimate(GroupExpression groupExpression, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
-                new HashMap<>(), false, Collections.EMPTY_MAP);
+                new HashMap<>(), false, Collections.EMPTY_MAP, context);
         statsCalculator.estimate();
     }
 
@@ -254,7 +260,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
-        return computeOneRowRelation(oneRowRelation);
+        return computeOneRowRelation(oneRowRelation.getProjects());
     }
 
     @Override
@@ -396,7 +402,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalOneRowRelation(PhysicalOneRowRelation oneRowRelation, Void context) {
-        return computeOneRowRelation(oneRowRelation);
+        return computeOneRowRelation(oneRowRelation.getProjects());
     }
 
     @Override
@@ -679,17 +685,19 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         int groupByCount = groupByExpressions.size();
         if (groupByColStats.values().stream().anyMatch(ColumnStatistic::isUnKnown)) {
+            // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
+            // o.w. output row count is 1
+            // example: select sum(A) from T;
             if (groupByCount > 0) {
-                rowCount *= DEFAULT_AGGREGATE_RATIO * Math.pow(DEFAULT_AGGREGATE_EXPAND_RATIO, groupByCount - 1);
-            }
-            if (rowCount > childStats.getRowCount()) {
-                rowCount = childStats.getRowCount();
+                rowCount = childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO;
+            } else {
+                rowCount = 1;
             }
         } else {
             if (groupByCount > 0) {
                 List<Double> groupByNdvs = groupByColStats.values().stream()
                         .map(colStats -> colStats.ndv)
-                        .sorted().collect(Collectors.toList());
+                        .sorted(Comparator.reverseOrder()).collect(Collectors.toList());
                 rowCount = groupByNdvs.get(0);
                 for (int groupByIndex = 1; groupByIndex < groupByCount; ++groupByIndex) {
                     rowCount *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
@@ -760,9 +768,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return new Statistics(childStats.getRowCount(), columnsStats, childStats.getWidth(), childStats.getPenalty());
     }
 
-    private Statistics computeOneRowRelation(OneRowRelation oneRowRelation) {
-        Map<Expression, ColumnStatistic> columnStatsMap = oneRowRelation.getProjects()
-                .stream()
+    private Statistics computeOneRowRelation(List<NamedExpression> projects) {
+        Map<Expression, ColumnStatistic> columnStatsMap = projects.stream()
                 .map(project -> {
                     ColumnStatistic statistic = new ColumnStatisticBuilder().setNdv(1).build();
                     // TODO: compute the literal size
@@ -789,13 +796,33 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private Statistics computeUnion(SetOperation setOperation) {
-        List<Slot> head = groupExpression.child(0).getLogicalProperties().getOutput();
-        Statistics headStats = groupExpression.childStatistics(0);
+        // TODO: refactor this for one row relation
+        List<Slot> head = null;
+        Statistics headStats = null;
         List<List<Slot>> childOutputs =
                 groupExpression.children()
                         .stream().map(ge -> ge.getLogicalProperties().getOutput()).collect(Collectors.toList());
         List<Statistics> childStats =
                 groupExpression.children().stream().map(Group::getStatistics).collect(Collectors.toList());
+        if (setOperation instanceof Union) {
+            childOutputs.addAll(((Union) setOperation).getConstantExprsList().stream()
+                    .map(l -> l.stream().map(NamedExpression::toSlot).collect(Collectors.toList()))
+                    .collect(Collectors.toList()));
+            childStats.addAll(((Union) setOperation).getConstantExprsList().stream()
+                    .map(this::computeOneRowRelation)
+                    .collect(Collectors.toList()));
+            if (!((Union) setOperation).getConstantExprsList().isEmpty()) {
+                head = ((Union) setOperation).getConstantExprsList().get(0).stream()
+                        .map(NamedExpression::toSlot)
+                        .collect(Collectors.toList());
+                headStats = computeOneRowRelation(((Union) setOperation).getConstantExprsList().get(0));
+            }
+        }
+        if (head == null) {
+            head = groupExpression.child(0).getLogicalProperties().getOutput();
+            headStats = groupExpression.childStatistics(0);
+        }
+
         StatisticsBuilder statisticsBuilder = new StatisticsBuilder();
         List<NamedExpression> unionOutput = setOperation.getOutputs();
         for (int i = 0; i < head.size(); i++) {
@@ -977,6 +1004,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Void context) {
         CTEId cteId = cteConsumer.getCteId();
+        cascadesContext.addCTEConsumerGroup(cteConsumer.getCteId(), groupExpression.getOwnerGroup(),
+                cteConsumer.getProducerToConsumerOutputMap());
         Statistics prodStats = cteIdToStats.get(cteId);
         Preconditions.checkArgument(prodStats != null, String.format("Stats for CTE: %s not found", cteId));
         Statistics consumerStats = new Statistics(prodStats.getRowCount(), new HashMap<>());
@@ -1001,11 +1030,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Void context) {
         Statistics statistics = groupExpression.childStatistics(0);
         cteIdToStats.put(cteProducer.getCteId(), statistics);
+        cascadesContext.updateConsumerStats(cteProducer.getCteId(), statistics);
         return statistics;
     }
 
     @Override
     public Statistics visitPhysicalCTEConsumer(PhysicalCTEConsumer cteConsumer, Void context) {
+        cascadesContext.addCTEConsumerGroup(cteConsumer.getCteId(), groupExpression.getOwnerGroup(),
+                cteConsumer.getProducerToConsumerSlotMap());
         CTEId cteId = cteConsumer.getCteId();
         Statistics prodStats = cteIdToStats.get(cteId);
         if (prodStats == null) {

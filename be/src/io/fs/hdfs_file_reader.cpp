@@ -36,12 +36,29 @@ namespace doris {
 namespace io {
 
 HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
-                               FileHandleCache::Accessor accessor)
-        : _path(std::move(path)), _name_node(name_node), _accessor(std::move(accessor)) {
+                               FileHandleCache::Accessor accessor, RuntimeProfile* profile)
+        : _path(std::move(path)),
+          _name_node(name_node),
+          _accessor(std::move(accessor)),
+          _profile(profile) {
     _handle = _accessor.get();
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
+    if (_profile != nullptr) {
+#ifdef USE_HADOOP_HDFS
+        const char* hdfs_profile_name = "HdfsIO";
+        ADD_TIMER(_profile, hdfs_profile_name);
+        _hdfs_profile.total_bytes_read =
+                ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, hdfs_profile_name);
+        _hdfs_profile.total_local_bytes_read =
+                ADD_CHILD_COUNTER(_profile, "TotalLocalBytesRead", TUnit::BYTES, hdfs_profile_name);
+        _hdfs_profile.total_short_circuit_bytes_read = ADD_CHILD_COUNTER(
+                _profile, "TotalShortCircuitBytesRead", TUnit::BYTES, hdfs_profile_name);
+        _hdfs_profile.total_total_zero_copy_bytes_read = ADD_CHILD_COUNTER(
+                _profile, "TotalZeroCopyBytesRead", TUnit::BYTES, hdfs_profile_name);
+#endif
+    }
 }
 
 HdfsFileReader::~HdfsFileReader() {
@@ -52,6 +69,25 @@ Status HdfsFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->hdfs_file_open_reading->increment(-1);
+        if (_profile != nullptr) {
+#ifdef USE_HADOOP_HDFS
+            struct hdfsReadStatistics* hdfs_statistics = nullptr;
+            auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
+            if (r != 0) {
+                return Status::InternalError(
+                        fmt::format("Failed to run hdfsFileGetReadStatistics(): {}", r));
+            }
+            COUNTER_UPDATE(_hdfs_profile.total_bytes_read, hdfs_statistics->totalBytesRead);
+            COUNTER_UPDATE(_hdfs_profile.total_local_bytes_read,
+                           hdfs_statistics->totalLocalBytesRead);
+            COUNTER_UPDATE(_hdfs_profile.total_short_circuit_bytes_read,
+                           hdfs_statistics->totalShortCircuitBytesRead);
+            COUNTER_UPDATE(_hdfs_profile.total_total_zero_copy_bytes_read,
+                           hdfs_statistics->totalZeroCopyBytesRead);
+            hdfsFileFreeReadStatistics(hdfs_statistics);
+            hdfsFileClearReadStatistics(_handle->file());
+#endif
+        }
     }
     return Status::OK();
 }

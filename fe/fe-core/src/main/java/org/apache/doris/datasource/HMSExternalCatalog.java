@@ -32,6 +32,7 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -53,7 +54,7 @@ import java.util.Objects;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
-    private static final int MAX_CLIENT_POOL_SIZE = 8;
+    private static final int MIN_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
@@ -124,6 +125,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
 
+    public String getHiveVersion() {
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
+    }
+
     protected List<String> listDatabaseNames() {
         return client.getAllDatabases();
     }
@@ -156,7 +161,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             }
         }
 
-        client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
+        client = new PooledHiveMetaStoreClient(hiveConf,
+                    Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
     }
 
     @Override
@@ -199,9 +205,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
             throws MetastoreNotificationFetchException {
         makeSureInitialized();
+        long currentEventId = getCurrentEventId();
         if (lastSyncedEventId < 0) {
-            lastSyncedEventId = getCurrentEventId();
             refreshCatalog(hmsExternalCatalog);
+            // invoke getCurrentEventId() and save the event id before refresh catalog to avoid missing events
+            // but set lastSyncedEventId to currentEventId only if there is not any problems when refreshing catalog
+            lastSyncedEventId = currentEventId;
             LOG.info(
                     "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
                             + "lastSyncedEventId is [{}]",
@@ -209,7 +218,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return null;
         }
 
-        long currentEventId = getCurrentEventId();
         LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {},lastSyncedEventId is {}",
                 hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
@@ -219,11 +227,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
         try {
             return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
-        } catch (IllegalStateException e) {
+        } catch (MetastoreNotificationFetchException e) {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
-            if (HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE.equals(e.getMessage())) {
-                lastSyncedEventId = getCurrentEventId();
+            if (StringUtils.isNotEmpty(e.getMessage())
+                        && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
                 refreshCatalog(hmsExternalCatalog);
+                // set lastSyncedEventId to currentEventId after refresh catalog successfully
+                lastSyncedEventId = currentEventId;
                 LOG.warn("Notification events are missing, maybe an event can not be handled "
                         + "or processing rate is too low, fallback to refresh the catalog");
                 return null;

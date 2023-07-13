@@ -237,8 +237,9 @@ public:
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         col.set_item_size(sizeof(Data));
-        col.resize(1);
-        *reinterpret_cast<Data*>(col.get_data().data()) = this->data(place);
+        size_t old_size = col.size();
+        col.resize(old_size + 1);
+        *(reinterpret_cast<Data*>(col.get_data().data()) + old_size) = this->data(place);
     }
 
     MutableColumnPtr create_serialize_column() const override {

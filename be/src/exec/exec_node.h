@@ -196,12 +196,6 @@ public:
 
     virtual void prepare_for_next() {}
 
-    // When the agg node is the scan node direct parent,
-    // we directly return agg object from scan node to agg node,
-    // and don't serialize the agg object.
-    // This improve is cautious, we ensure the correctness firstly.
-    void try_do_aggregate_serde_improve();
-
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
 

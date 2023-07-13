@@ -671,11 +671,12 @@ mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
 语法如下：
 
 ```SQL
-SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
 ```
 
 其中：
 
+- cached: 展示当前FE内存缓存中的统计信息。
 - table_name: 收集统计信息的目标表。可以是  `db_name.table_name`  形式。
 - column_name: 指定的目标列，必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - partition_name: 指定的目标分区，必须是  `table_name`  中存在的分区，只能指定一个分区。
@@ -851,7 +852,7 @@ Buckets 说明：
 ⽤户通过 `ALTER` 语句修改统计信息，根据提供的参数，修改列相应的统计信息。
 
 ```SQL
-ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...);
+ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
 其中：
@@ -859,6 +860,7 @@ ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_
 - table_name: 删除统计信息的目标表。可以是 `db_name.table_name` 形式。
 - column_name: 指定的目标列，必须是 `table_name` 中存在的列，每次只能修改一列的统计信息。
 - stat_name 和 stat_value: 相应的统计信息名称和统计信息信息的值，多个统计信息逗号分隔。可以修改的统计信息包括 `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, `data_size`。
+- partition_name: 指定的目标分区。必须是 `table_name` 中存在的分区，多个分区使用逗号分割。
 
 示例：
 

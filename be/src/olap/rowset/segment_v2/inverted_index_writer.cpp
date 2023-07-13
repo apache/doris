@@ -409,7 +409,9 @@ public:
             FINALLY_FINALIZE_OUTPUT(meta_out)
             FINALLY_FINALIZE_OUTPUT(data_out)
             FINALLY_FINALIZE_OUTPUT(index_out)
-            FINALLY_FINALIZE_OUTPUT(dir)
+            if constexpr (field_is_numeric_type(field_type)) {
+                FINALLY_FINALIZE_OUTPUT(dir)
+            }
             LOG(WARNING) << "Inverted index writer finish error occurred: " << e.what();
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "Inverted index writer finish error occurred");

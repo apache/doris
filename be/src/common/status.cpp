@@ -18,40 +18,6 @@
 
 namespace doris {
 
-Status::Status(const TStatus& s) {
-    _code = static_cast<int>(s.status_code);
-    if (_code != ErrorCode::OK) {
-        if (!s.error_msgs.empty()) {
-            if (_err_msg == nullptr) {
-                _err_msg = std::make_unique<ErrMsg>();
-            }
-            _err_msg->_msg = s.error_msgs[0];
-#ifdef ENABLE_STACKTRACE
-            _err_msg->_stack = "";
-#endif
-        }
-    } else {
-        _err_msg.reset();
-    }
-}
-
-Status::Status(const PStatus& s) {
-    _code = s.status_code();
-    if (_code != ErrorCode::OK) {
-        if (s.error_msgs_size() > 0) {
-            if (_err_msg == nullptr) {
-                _err_msg = std::make_unique<ErrMsg>();
-            }
-            _err_msg->_msg = s.error_msgs(0);
-#ifdef ENABLE_STACKTRACE
-            _err_msg->_stack = "";
-#endif
-        }
-    } else {
-        _err_msg.reset();
-    }
-}
-
 void Status::to_thrift(TStatus* s) const {
     s->error_msgs.clear();
     if (ok()) {

@@ -7,7 +7,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -82,7 +82,7 @@ There are two ways to configure FE configuration items:
     **Configuration items modified in this way will become invalid after the FE process restarts.**
 
     For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
-    
+
 3. Dynamic configuration via HTTP protocol
 
     For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
@@ -335,7 +335,7 @@ The multi cluster feature will be deprecated in version 0.12 ，set this config 
 
 Default：disable
 
-Set to true if you deploy Doris using thirdparty deploy manager 
+Set to true if you deploy Doris using thirdparty deploy manager
 
 Valid options are:
 
@@ -386,11 +386,11 @@ FE MySQL server port
 
 #### `frontend_address`
 
-Status: Deprecated, not recommended use. This parameter may be deleted later 
+Status: Deprecated, not recommended use. This parameter may be deleted later
 
-Type: string 
+Type: string
 
-Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname. 
+Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname.
 
 Default value: 0.0.0.0
 
@@ -633,7 +633,7 @@ HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separa
 
 #### `http_api_extra_base_path`
 
-In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes. 
+In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes.
 After setting, user can get the parameter value through the `GET /api/basepath` interface. And the new UI will also try to get this base path first to assemble the URL. Only valid when `enable_http_server_v2` is true.
 
 The default is empty, that is, not set
@@ -664,7 +664,7 @@ This is the maximum number of bytes of the file uploaded by the put or post meth
 
 #### `jetty_server_max_http_header_size`
 
-Default：10240  （10K）
+Default：1048576  （1M）
 
 http header size configuration parameter, the default value is 10K
 
@@ -907,7 +907,7 @@ Default：false
 
 IsMutable：true
 
-If set to true, Planner will try to select replica of tablet on same host as this Frontend. 
+If set to true, Planner will try to select replica of tablet on same host as this Frontend.
 This may reduce network transmission in following case:
 
 -  N hosts with N Backends and N Frontends deployed.
@@ -1070,8 +1070,8 @@ MasterOnly：true
 
 if this is set to true
 
-- all pending load job will failed when call begin txn api 
-- all prepare load job will failed when call commit txn api 
+- all pending load job will failed when call begin txn api
+- all prepare load job will failed when call commit txn api
 - all committed load job will waiting to be published
 
 #### `commit_timeout_second`
@@ -1488,9 +1488,9 @@ IsMutable：true
 
 MasterOnly：true
 
-labels of finished or cancelled load jobs will be removed after `label_keep_max_second` ， 
+labels of finished or cancelled load jobs will be removed after `label_keep_max_second` ，
 
-1. The removed labels can be reused.  
+1. The removed labels can be reused.
 2. Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
 
 In the case of high concurrent writes, if there is a large backlog of jobs and call frontend service failed, check the log. If the metadata write takes too long to lock, you can adjust this value to 12 hours, or 6 hours less
@@ -2081,7 +2081,7 @@ IsMutable：true
 
 MasterOnly：true
 
-the factor of delay time before deciding to repair tablet.  
+the factor of delay time before deciding to repair tablet.
 
 -  if priority is VERY_HIGH, repair it immediately.
 -  HIGH, delay tablet_repair_delay_factor_second * 1;
@@ -2160,8 +2160,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 #### `enable_storage_policy`
 
-Whether to enable the Storage Policy feature. This feature allows users to separate hot and cold data. This feature is still under development. Recommended for test environments only.
-
+- Whether to enable the Storage Policy feature. This config allows users to separate hot and cold data.
 Default: false
 
 Is it possible to dynamically configure: true
@@ -2310,7 +2309,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it. 
+Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
 
 This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
 
@@ -2738,5 +2737,5 @@ This is used to limit the setting of "parallel_fragment_exec_instance_num".
 
 Default: 4
 
-This variable indicates the number of digits by which to increase the scale of the result of 
-division operations performed with the `/` operator. 
+This variable indicates the number of digits by which to increase the scale of the result of
+division operations performed with the `/` operator.

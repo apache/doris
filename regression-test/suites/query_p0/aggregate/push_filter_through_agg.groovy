@@ -16,6 +16,8 @@
 // under the License.
 
 suite("push_filter_through_agg") {
+    sql """DROP TABLE IF EXISTS t_push_filter_through_agg"""
+    sql """DROP VIEW IF EXISTS view_i"""
     sql """
         CREATE TABLE t_push_filter_through_agg (col1 varchar(11451) not null, col2 int not null, col3 int not null)
         UNIQUE KEY(col1)

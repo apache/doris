@@ -56,7 +56,6 @@ import java.time.temporal.TemporalAccessor;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
 
@@ -1086,7 +1085,10 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public int hashCode() {
-        return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
+        // do not invoke the super.hashCode(), just use the return value of getLongValue()
+        // a DateV2 DateLiteral obj may be equal to a Date DateLiteral
+        // if the return value of getLongValue() is the same
+        return Long.hashCode(getLongValue());
     }
 
     // parse the date string value in 'value' by 'format' pattern.

@@ -290,7 +290,7 @@ public class IndexChangeJob implements Writable {
                             partitionId, originIndexId, originTabletId,
                             originSchemaHash, olapTable.getIndexes(),
                             alterInvertedIndexes, originSchemaColumns,
-                            isDropOp, taskSignature);
+                            isDropOp, taskSignature, jobId);
                     invertedIndexBatchTask.addTask(alterInvertedIndexTask);
                 }
             } // end for tablet

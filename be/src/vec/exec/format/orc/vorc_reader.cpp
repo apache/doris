@@ -211,11 +211,11 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         io::FileReaderSPtr inner_reader;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
-        reader_options.modification_time =
+        _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &inner_reader,
-                io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
+                _profile, _system_properties, _file_description, reader_options, &_file_system,
+                &inner_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
         _file_input_stream.reset(new ORCFileInputStream(_scan_range.path, inner_reader,
                                                         &_statistics, _io_ctx, _profile));
     }
@@ -744,7 +744,7 @@ Status OrcReader::set_fill_columns(
 
     // create orc row reader
     _row_reader_options.range(_range_start_offset, _range_size);
-    _row_reader_options.setTimezoneName(_ctz);
+    _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
     _row_reader_options.include(_read_cols);
     if (_lazy_read_ctx.can_lazy_read) {
         _row_reader_options.filter(_lazy_read_ctx.predicate_orc_columns);

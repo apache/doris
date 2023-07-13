@@ -144,6 +144,7 @@ Status NewOlapScanNode::_init_profile() {
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
+    _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
     _conditions_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsConditionsFiltered", TUnit::UNIT);
@@ -507,8 +508,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                                  const std::vector<std::pair<int, int>>& rs_reader_seg_offsets) {
         std::shared_ptr<NewOlapScanner> scanner = NewOlapScanner::create_shared(
                 _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation, scan_range,
-                key_ranges, rs_readers, rs_reader_seg_offsets, _need_agg_finalize,
-                _scanner_profile.get());
+                key_ranges, rs_readers, rs_reader_seg_offsets, _scanner_profile.get());
 
         RETURN_IF_ERROR(scanner->prepare(_state, _conjuncts));
         scanner->set_compound_filters(_compound_filters);

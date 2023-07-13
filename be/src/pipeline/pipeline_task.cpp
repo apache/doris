@@ -52,7 +52,6 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _sink(sink),
           _prepared(false),
           _opened(false),
-          _can_steal(pipeline->_can_steal),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
           _data_state(SourceState::DEPEND_ON_SOURCE),
@@ -265,7 +264,8 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::try_close() {
-    return _source->try_close();
+    _sink->try_close(_state);
+    return _source->try_close(_state);
 }
 
 Status PipelineTask::close() {

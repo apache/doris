@@ -19,7 +19,7 @@ PhysicalTopN
 --------------------------------PhysicalOlapScan[store_sales]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------filter(((date_dim.d_dow = 0) OR (date_dim.d_dow = 6))d_year IN (1999, 2000, 2001))
+----------------------------------filter(d_dow IN (0, 6)d_year IN (1999, 2000, 2001))
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
@@ -29,8 +29,9 @@ PhysicalTopN
 ----------------------------PhysicalProject
 ------------------------------filter(s_city IN ('Five Points', 'Centerville', 'Oak Grove', 'Fairview', 'Liberty'))
 --------------------------------PhysicalOlapScan[store]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer_address]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[customer_address]
 ----------PhysicalDistribute
 ------------hashJoin[INNER_JOIN](customer.c_current_addr_sk = current_addr.ca_address_sk)
 --------------PhysicalProject

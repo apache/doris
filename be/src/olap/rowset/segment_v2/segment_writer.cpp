@@ -36,9 +36,7 @@
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/primary_key_index.h"
-#include "olap/row_cursor.h" // IWYU pragma: keep
-#include "olap/row_cursor.h" // RowCursor
-#include "olap/rowset/rowset_writer.h"
+#include "olap/row_cursor.h"                      // RowCursor // IWYU pragma: keep
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/rowset/segment_v2/page_io.h"
@@ -52,6 +50,7 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -118,31 +117,25 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     }
 }
 
-Status SegmentWriter::init(const FlushContext* flush_ctx) {
+Status SegmentWriter::init() {
     std::vector<uint32_t> column_ids;
     int column_cnt = _tablet_schema->num_columns();
-    if (flush_ctx && flush_ctx->flush_schema) {
-        column_cnt = flush_ctx->flush_schema->num_columns();
-    }
     for (uint32_t i = 0; i < column_cnt; ++i) {
         column_ids.emplace_back(i);
     }
-    return init(column_ids, true, flush_ctx);
+    return init(column_ids, true);
 }
 
-Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
-                           const FlushContext* flush_ctx) {
+Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
     _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
-    _opts.compression_type =
-            (flush_ctx == nullptr || flush_ctx->block == nullptr ||
-             flush_ctx->block->bytes() > config::segment_compression_threshold_kb * 1024)
-                    ? _tablet_schema->compression_type()
-                    : NO_COMPRESSION;
+    if (_opts.compression_type == UNKNOWN_COMPRESSION) {
+        _opts.compression_type = _tablet_schema->compression_type();
+    }
     auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
@@ -242,11 +235,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         return Status::OK();
     };
 
-    if (flush_ctx && flush_ctx->flush_schema) {
-        RETURN_IF_ERROR(_create_writers(*flush_ctx->flush_schema, col_ids, create_column_writer));
-    } else {
-        RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
-    }
+    RETURN_IF_ERROR(_create_writers(*_tablet_schema, col_ids, create_column_writer));
 
     // we don't need the short key index for unique key merge on write table.
     if (_has_key) {
@@ -330,7 +319,10 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
     CHECK(block->columns() > _tablet_schema->num_key_columns() &&
-          block->columns() < _tablet_schema->num_columns());
+          block->columns() < _tablet_schema->num_columns())
+            << "block columns: " << block->columns()
+            << ", num key columns: " << _tablet_schema->num_key_columns()
+            << ", total schema columns: " << _tablet_schema->num_columns();
     CHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
 
     // find missing column cids
@@ -362,15 +354,15 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                      num_rows));
     }
 
-    bool has_default = false;
-    std::vector<bool> use_default_flag;
-    use_default_flag.reserve(num_rows);
-    std::unordered_map<RowsetId, SegmentCacheHandle, HashOfRowsetId> segment_caches;
+    bool has_default_or_nullable = false;
+    std::vector<bool> use_default_or_null_flag;
+    use_default_or_null_flag.reserve(num_rows);
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
     }
+    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
     {
         for (size_t pos = row_pos; pos < num_rows; pos++) {
@@ -384,11 +376,19 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             auto st = _tablet->lookup_row_key(key, false, specified_rowsets, &loc,
                                               _mow_context->max_version, segment_caches, &rowset);
             if (st.is<NOT_FOUND>()) {
-                if (!_tablet_schema->allow_key_not_exist_in_partial_update()) {
-                    return Status::InternalError("partial update key not exist before");
+                if (_tablet_schema->is_strict_mode()) {
+                    return Status::InternalError(
+                            "partial update in strict mode only support updating rows with an "
+                            "existing key!");
                 }
-                has_default = true;
-                use_default_flag.emplace_back(true);
+
+                if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
+                    return Status::InternalError(
+                            "the unmentioned columns should have default value or be nullable for "
+                            "newly inserted rows in non-strict mode partial update");
+                }
+                has_default_or_nullable = true;
+                use_default_or_null_flag.emplace_back(true);
                 continue;
             }
             if (!st.ok()) {
@@ -396,17 +396,18 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                 return st;
             }
             // partial update should not contain invisible columns
-            use_default_flag.emplace_back(false);
+            use_default_or_null_flag.emplace_back(false);
             _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
             _tablet->prepare_to_read(loc, pos, &_rssid_to_rid);
             _mow_context->delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
         }
     }
-    CHECK(use_default_flag.size() == num_rows);
+    CHECK(use_default_or_null_flag.size() == num_rows);
 
     // read and fill block
     auto mutable_full_columns = full_block.mutate_columns();
-    RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_flag, has_default));
+    RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
+                                         has_default_or_nullable));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -433,8 +434,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 }
 
 Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                           const std::vector<bool>& use_default_flag,
-                                           bool has_default) {
+                                           const std::vector<bool>& use_default_or_null_flag,
+                                           bool has_default_or_nullable) {
     // create old value columns
     auto old_value_block = _tablet_schema->create_missing_columns_block();
     std::vector<uint32_t> cids_missing = _tablet_schema->get_missing_cids();
@@ -477,24 +478,35 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
-    if (has_default) {
+    if (has_default_or_nullable) {
         for (auto i = 0; i < cids_missing.size(); ++i) {
-            auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
-            vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
-                                      default_value.size());
-            old_value_block.get_by_position(i).type->from_string(
-                    rb, mutable_default_value_columns[i].get());
+            const auto& column = _tablet_schema->column(cids_missing[i]);
+            if (column.has_default_value()) {
+                auto default_value = _tablet_schema->column(cids_missing[i]).default_value();
+                vectorized::ReadBuffer rb(const_cast<char*>(default_value.c_str()),
+                                          default_value.size());
+                old_value_block.get_by_position(i).type->from_string(
+                        rb, mutable_default_value_columns[i].get());
+            }
         }
     }
 
-    // fill all missing value from mutable_old_columns, need consider default value
-    for (auto idx = 0; idx < use_default_flag.size(); idx++) {
-        if (use_default_flag[idx]) {
-            // use default value
+    // fill all missing value from mutable_old_columns, need to consider default value and null value
+    for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
+        if (use_default_or_null_flag[idx]) {
             for (auto i = 0; i < cids_missing.size(); ++i) {
-                CHECK(_tablet_schema->column(cids_missing[i]).has_default_value());
-                mutable_full_columns[cids_missing[i]]->insert_from(
-                        *mutable_default_value_columns[i].get(), 0);
+                // if the column has default value, fiil it with default value
+                // otherwise, if the column is nullable, fill it with null value
+                const auto& tablet_column = _tablet_schema->column(cids_missing[i]);
+                CHECK(tablet_column.has_default_value() || tablet_column.is_nullable());
+                if (tablet_column.has_default_value()) {
+                    mutable_full_columns[cids_missing[i]]->insert_from(
+                            *mutable_default_value_columns[i].get(), 0);
+                } else {
+                    auto nullable_column = assert_cast<vectorized::ColumnNullable*>(
+                            mutable_full_columns[cids_missing[i]].get());
+                    nullable_column->insert_null_elements(1);
+                }
             }
             continue;
         }
@@ -764,10 +776,13 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
     if (_has_key) {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             RETURN_IF_ERROR(_write_primary_key_index());
+            // IndexedColumnWriter write data pages mixed with segment data, we should use
+            // the stat from primary key index builder.
+            *index_size += _primary_key_index_builder->disk_size();
         } else {
             RETURN_IF_ERROR(_write_short_key_index());
+            *index_size = _file_writer->bytes_appended() - index_start;
         }
-        *index_size = _file_writer->bytes_appended() - index_start;
     }
     _inverted_index_file_size = try_get_inverted_index_file_size();
     // reset all column writers and data_conveter

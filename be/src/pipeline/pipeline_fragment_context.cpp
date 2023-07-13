@@ -250,8 +250,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     _runtime_state->set_desc_tbl(desc_tbl);
 
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
-    RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
-                                          request.fragment.plan, *desc_tbl, &_root_plan));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
+                                  request.fragment.plan, *desc_tbl, &_root_plan));
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -273,7 +274,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
 
-    _root_plan->try_do_aggregate_serde_improve();
     // set scan range in ScanNode
     for (int i = 0; i < scan_nodes.size(); ++i) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
@@ -602,7 +602,6 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
-        new_pipe->disable_task_steal();
 
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
@@ -767,16 +766,25 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         _multi_cast_stream_sink_senders.resize(sender_size);
         for (int i = 0; i < sender_size; ++i) {
             auto new_pipeline = add_pipeline();
+
+            auto row_desc =
+                    !thrift_sink.multi_cast_stream_sink.sinks[i].output_exprs.empty()
+                            ? RowDescriptor(
+                                      _runtime_state->desc_tbl(),
+                                      {thrift_sink.multi_cast_stream_sink.sinks[i].output_tuple_id},
+                                      {false})
+                            : sink_->row_desc();
             // 1. create the data stream sender sink
             _multi_cast_stream_sink_senders[i].reset(new vectorized::VDataStreamSender(
-                    _runtime_state.get(), _runtime_state->obj_pool(), sender_id, sink_->row_desc(),
+                    _runtime_state.get(), _runtime_state->obj_pool(), sender_id, row_desc,
                     thrift_sink.multi_cast_stream_sink.sinks[i],
                     thrift_sink.multi_cast_stream_sink.destinations[i], 16 * 1024, false));
 
             // 2. create and set the source operator of multi_cast_data_stream_source for new pipeline
             OperatorBuilderPtr source_op =
                     std::make_shared<MultiCastDataStreamerSourceOperatorBuilder>(
-                            next_operator_builder_id(), i, multi_cast_data_streamer);
+                            next_operator_builder_id(), i, multi_cast_data_streamer,
+                            thrift_sink.multi_cast_stream_sink.sinks[i]);
             new_pipeline->add_operator(source_op);
 
             // 3. create and set sink operator of data stream sender for new pipeline

@@ -45,7 +45,6 @@
 #include "olap/tablet.h"
 #include "olap/utils.h"
 #include "util/slice.h"
-#include "util/trace.h"
 #include "vec/core/block.h"
 #include "vec/olap/block_reader.h"
 #include "vec/olap/vertical_block_reader.h"
@@ -57,8 +56,6 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                               TabletSchemaSPtr cur_tablet_schema,
                               const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                               RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
-    TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
-
     vectorized::BlockReader reader;
     TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
@@ -125,8 +122,8 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
-        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
-        return Status::Error<INTERNAL_ERROR>();
+        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
+                                             tablet->full_name());
     }
 
     if (stats_output != nullptr) {
@@ -257,8 +254,8 @@ Status Merger::vertical_compact_one_group(
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
-        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
-        return Status::Error<INTERNAL_ERROR>();
+        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
+                                             tablet->full_name());
     }
 
     if (is_key && stats_output != nullptr) {
@@ -302,8 +299,8 @@ Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType rea
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
-        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
-        return Status::Error<INTERNAL_ERROR>();
+        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
+                                             tablet->full_name());
     }
 
     if (is_key && stats_output != nullptr) {

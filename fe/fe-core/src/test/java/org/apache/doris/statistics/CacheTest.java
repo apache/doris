@@ -101,6 +101,7 @@ public class CacheTest extends TestWithFeService {
                 colNames.add("col_id");
                 colNames.add("min");
                 colNames.add("max");
+                colNames.add("part_id");
                 List<PrimitiveType> primitiveTypes = new ArrayList<>();
                 primitiveTypes.add(PrimitiveType.BIGINT);
                 primitiveTypes.add(PrimitiveType.BIGINT);
@@ -113,6 +114,7 @@ public class CacheTest extends TestWithFeService {
                 primitiveTypes.add(PrimitiveType.VARCHAR);
                 primitiveTypes.add(PrimitiveType.VARCHAR);
                 primitiveTypes.add(PrimitiveType.VARCHAR);
+                primitiveTypes.add(PrimitiveType.BIGINT);
                 List<String> values = new ArrayList<>();
                 values.add("1");
                 values.add("2");
@@ -125,6 +127,7 @@ public class CacheTest extends TestWithFeService {
                 values.add("8");
                 values.add("9");
                 values.add("10");
+                values.add(null);
                 ResultRow resultRow = new ResultRow(colNames, primitiveTypes, values);
                 return Arrays.asList(resultRow);
             }
@@ -281,7 +284,7 @@ public class CacheTest extends TestWithFeService {
                 db.getTableOrMetaException(1);
                 result = table;
 
-                table.getColumnStatistic();
+                table.getColumnStatistic("col");
                 result = new ColumnStatistic(1, 2, null, 3, 4, 5, 6, 7, 8, null, null, false, null);
             }
         };

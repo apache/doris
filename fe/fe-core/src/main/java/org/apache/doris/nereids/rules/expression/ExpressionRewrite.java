@@ -204,7 +204,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 }
                 return new LogicalJoin<>(join.getJoinType(), rewriteHashJoinConjuncts,
                         rewriteOtherJoinConjuncts, join.getHint(), join.getMarkJoinSlotReference(),
-                        join.left(), join.right());
+                        join.children());
             }).toRule(RuleType.REWRITE_JOIN_EXPRESSION);
         }
     }

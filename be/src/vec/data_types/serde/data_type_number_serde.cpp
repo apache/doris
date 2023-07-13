@@ -65,30 +65,35 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 >;
 
 template <typename T>
-void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                    arrow::ArrayBuilder* array_builder, int start,
                                                    int end) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
+    auto arrow_null_map = revert_null_map(null_map, start, end);
+    auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
                 builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start, reinterpret_cast<const uint8_t*>(null_map)),
+                                     end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
     } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, UInt128>) {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         size_t fixed_length = sizeof(typename ColumnType::value_type);
         const uint8_t* data_start =
                 reinterpret_cast<const uint8_t*>(col_data.data()) + start * fixed_length;
-        checkArrowStatus(builder.AppendValues(data_start, end - start,
-                                              reinterpret_cast<const uint8_t*>(null_map)),
-                         column.get_name(), array_builder->type()->name());
+        checkArrowStatus(
+                builder.AppendValues(data_start, end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                column.get_name(), array_builder->type()->name());
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(builder.AppendValues(col_data.data() + start, end - start,
-                                              reinterpret_cast<const uint8_t*>(null_map)),
-                         column.get_name(), array_builder->type()->name());
+        checkArrowStatus(
+                builder.AppendValues(col_data.data() + start, end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                column.get_name(), array_builder->type()->name());
     }
 }
 

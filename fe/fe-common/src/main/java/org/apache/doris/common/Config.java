@@ -361,9 +361,9 @@ public class Config extends ConfigBase {
             "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
-    @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 10KB。",
-            "The maximum HTTP header size of Jetty, in bytes, the default value is 10KB."})
-    public static int jetty_server_max_http_header_size = 10240;
+    @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 1MB。",
+            "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
+    public static int jetty_server_max_http_header_size = 1048576;
 
     @ConfField(description = {"是否禁用 mini load，默认禁用",
             "Whether to disable mini load, disabled by default"})
@@ -488,7 +488,7 @@ public class Config extends ConfigBase {
     public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     @ConfField(description = {"Spark DPP 程序的版本", "Default spark dpp version"})
-    public static String spark_dpp_version = "1.0.0";
+    public static String spark_dpp_version = "1.2-SNAPSHOT";
 
     @ConfField(mutable = true, masterOnly = true, description = {"Spark load 的默认超时时间，单位是秒。",
             "Default timeout for spark load job, in seconds."})
@@ -1495,7 +1495,7 @@ public class Config extends ConfigBase {
     public static boolean enable_quantile_state_type = true;
 
     @ConfField
-    public static boolean enable_pipeline_load = true;
+    public static boolean enable_pipeline_load = false;
 
     // enable_workload_group should be immutable and temporarily set to mutable during the development test phase
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
@@ -1694,7 +1694,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, masterOnly = false, description = {"Hive表到分区名列表缓存的最大数量。",
         "Max cache number of hive table to partition names list."})
-    public static long max_hive_table_catch_num = 1000;
+    public static long max_hive_table_cache_num = 1000;
 
     @ConfField(mutable = false, masterOnly = false, description = {"获取Hive分区值时候的最大返回数量，-1代表没有限制。",
         "Max number of hive partition values to return while list partitions, -1 means no limitation."})
@@ -1705,7 +1705,7 @@ public class Config extends ConfigBase {
      * Max thread pool size for loading external meta cache
      */
     @ConfField(mutable = false, masterOnly = false)
-    public static int max_external_cache_loader_thread_pool_size = 10;
+    public static int max_external_cache_loader_thread_pool_size = 64;
 
     /**
      * Max cache num of external catalog's file
@@ -1741,13 +1741,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean use_fuzzy_session_variable = false;
-
-    /**
-     * Collect external table statistic info by running sql when set to true.
-     * Otherwise, use external catalog metadata.
-     */
-    @ConfField(mutable = true)
-    public static boolean collect_external_table_stats_by_sql = true;
 
     /**
      * Max num of same name meta informatntion in catalog recycle bin.
@@ -1823,7 +1816,7 @@ public class Config extends ConfigBase {
      * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
      */
     @ConfField(mutable = false, masterOnly = false, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_ssl = true;
+    public static boolean enable_ssl = false;
 
     /**
      * If set to ture, ssl connection needs to authenticate client's certificate.
@@ -2023,4 +2016,9 @@ public class Config extends ConfigBase {
             "是否禁止使用 WITH REOSOURCE 语句创建 Catalog。",
             "Whether to disable creating catalog with WITH RESOURCE statement."})
     public static boolean disallow_create_catalog_with_resource = true;
+
+    @ConfField(mutable = true, masterOnly = false, description = {
+        "Hive行数估算分区采样数",
+        "Sample size for hive row count estimation."})
+    public static int hive_stats_partition_sample_size = 3000;
 }

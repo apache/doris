@@ -94,14 +94,26 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 Optional.empty(), Optional.empty(), leftChild, rightChild);
     }
 
+    public LogicalJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            List<Plan> children) {
+        this(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, hint, markJoinSlotReference,
+                Optional.empty(), Optional.empty(), children);
+    }
+
     /**
      * Just use in withXXX method.
      */
     private LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts,
             JoinHint hint, Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild, JoinReorderContext joinReorderContext) {
-        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
+            List<Plan> children, JoinReorderContext joinReorderContext) {
+        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
@@ -121,6 +133,23 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
+        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
+        this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
+        this.hint = Objects.requireNonNull(hint, "hint can not be null");
+        this.markJoinSlotReference = markJoinSlotReference;
+    }
+
+    private LogicalJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            Optional<MarkJoinSlotReference> markJoinSlotReference,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties,
+            List<Plan> children) {
+        super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, children);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
@@ -252,19 +281,21 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), Optional.empty(), children.get(0), children.get(1), joinReorderContext);
+                Optional.empty(), Optional.empty(), children, joinReorderContext);
     }
 
     @Override
     public LogicalJoin<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                groupExpression, Optional.of(getLogicalProperties()), left(), right(), joinReorderContext);
+                groupExpression, Optional.of(getLogicalProperties()), children, joinReorderContext);
     }
 
     @Override
-    public LogicalJoin<Plan, Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), logicalProperties, left(), right(), joinReorderContext);
+                groupExpression, logicalProperties, children, joinReorderContext);
     }
 
     public LogicalJoin<Plan, Plan> withChildrenNoContext(Plan left, Plan right) {
@@ -275,7 +306,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(
             List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                hint, markJoinSlotReference, left(), right());
+                hint, markJoinSlotReference, children);
     }
 
     public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
@@ -293,7 +324,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, left(), right());
+                markJoinSlotReference, children);
     }
 
     public LogicalJoin<Plan, Plan> withTypeChildren(JoinType joinType, Plan left, Plan right) {
@@ -303,7 +334,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                markJoinSlotReference, left(), right());
+                markJoinSlotReference, children);
     }
 
     @Override

@@ -98,6 +98,15 @@ CREATE TABLE table_name
 table_properties;
 ```
 
+:::tip
+
+Inverted indexes have different limitations in different data models:
+- Aggregate model: Inverted indexes can only be created for the Key column.
+- Unique model: The merge on write feature needs to be enabled. After enabling it, an inverted index can be created for any column.
+- Duplicate model: An inverted index can be created for any column.
+
+:::
+
 - add an inverted index to existed table
 
 **Before version 2.0-beta:**

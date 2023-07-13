@@ -110,8 +110,8 @@ public class RequestPropertyDeriverTest {
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.REQUIRE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.REQUIRE))
         ));
         Assertions.assertEquals(expected, actual);
     }
@@ -136,8 +136,8 @@ public class RequestPropertyDeriverTest {
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.REQUIRE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.REQUIRE))
         ));
         expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
         Assertions.assertEquals(expected, actual);
@@ -174,7 +174,7 @@ public class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.AGGREGATE)),
+                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.REQUIRE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -184,7 +184,7 @@ public class RequestPropertyDeriverTest {
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(PhysicalProperties.createHash(new DistributionSpecHash(
                 Lists.newArrayList(partition.getExprId()),
-                ShuffleType.AGGREGATE
+                ShuffleType.REQUIRE
         ))));
         Assertions.assertEquals(expected, actual);
     }

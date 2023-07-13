@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.table;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -62,10 +61,5 @@ public class Hdfs extends TableValuedFunction {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitHdfs(this, context);
-    }
-
-    @Override
-    public PhysicalProperties getPhysicalProperties() {
-        return PhysicalProperties.ANY;
     }
 }

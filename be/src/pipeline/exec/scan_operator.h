@@ -50,7 +50,7 @@ public:
 
     std::string debug_string() const override;
 
-    Status try_close() override;
+    Status try_close(RuntimeState* state) override;
 };
 
 } // namespace doris::pipeline

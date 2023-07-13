@@ -346,6 +346,17 @@ public:
         }
     }
 
+    bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
+        for (size_t i = 0; i != count; ++i) {
+            const auto found = _values->find(dict_words[i].data, dict_words[i].size) ^ _opposite;
+            if (found == (PT == PredicateType::IN_LIST)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     bool evaluate_del(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null() || statistic.second->is_null()) {
             return false;

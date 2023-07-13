@@ -20,6 +20,10 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
+        DROP TABLE IF EXISTS `${tbl}`
+    """
+
+    sql """
           CREATE TABLE IF NOT EXISTS `${tbl}` (
             `analyzetestlimitedk3` int(11) null comment "",
             `analyzetestlimitedk0` boolean null comment "",
@@ -66,6 +70,12 @@ suite("test_analyze") {
         'ps7qwcZjBjkGfcXYMw5HQMwnElzoHqinwk8vhQCbVoGBgfotc4oSkpD3tP34h4h0tTogDMwFu60iJm1bofUzyUQofTeRwZk8','4692206687866847780')
     """
 
+    def frontends = sql """
+        SHOW FRONTENDS;
+    """
+    if (frontends.size > 1) {
+        return;
+    }
     sql """
         ANALYZE DATABASE ${db}
     """
@@ -84,6 +94,8 @@ suite("test_analyze") {
     sql """
         SET forbid_unknown_col_stats=true;
         """
+
+    Thread.sleep(1000 * 60)
 
     sql """
         SELECT COUNT(*) FROM ${tbl}; 

@@ -286,7 +286,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
         }
 
         if (this.interval <= 0) {
-            throw new AnalysisException("Multi partition time interval mush be larger than zero.");
+            throw new AnalysisException("Multi partition time interval must be larger than zero.");
         }
 
         if (!timeType.equals("")) {

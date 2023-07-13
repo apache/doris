@@ -25,4 +25,26 @@ suite("test_frontends_tvf") {
     table = sql """ select Name from `frontends`();"""
     assertTrue(table.size() > 0)
     assertTrue(table[0].size == 1)
+
+    // case insensitive
+    table = sql """ select name, host, editlogport, httpport, alive from frontends();"""
+    assertTrue(table.size() > 0)
+    assertTrue(table[0].size == 5)
+    assertEquals("true", table[0][4])
+
+    // test aliase columns
+    table = sql """ select name as n, host as h, alive as a, editlogport as e from frontends(); """
+    assertTrue(table.size() > 0)
+    assertTrue(table[0].size == 4)
+    assertEquals("true", table[0][2])
+
+    // test changing position of columns
+    def res = sql """ select count(*) from frontends() where alive = 'true'; """
+    assertTrue(res[0][0] > 0)
+
+    sql """ select Name, Host, EditLogPort
+            HttpPort, QueryPort, RpcPort, `Role`, IsMaster, ClusterId
+            `Join`, Alive, ReplayedJournalId, LastHeartbeat
+            IsHelper, ErrMsg, Version, CurrentConnected from frontends();
+    """
 }

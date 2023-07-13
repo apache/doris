@@ -139,7 +139,7 @@ public:
     UniqueId instance_id() const { return _fragment_instance_id; }
 
     struct RuntimeFilterCntlVal {
-        int64_t create_time;
+        int64_t merge_time;
         int producer_size;
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
@@ -173,7 +173,6 @@ private:
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;
     RuntimeState* _state;
     bool _opt_remote_rf = true;
-    int64_t _merge_timer = 0;
 };
 
 // RuntimeFilterMergeController has a map query-id -> entity

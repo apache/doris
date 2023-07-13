@@ -144,8 +144,6 @@ public:
 
     bool sink_can_write() { return _sink->can_write(); }
 
-    bool can_steal() const { return _can_steal; }
-
     Status finalize();
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
@@ -214,7 +212,6 @@ private:
 
     bool _prepared;
     bool _opened;
-    bool _can_steal;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;

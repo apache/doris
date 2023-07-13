@@ -733,7 +733,7 @@ public class ExportJob implements Writable {
             stmt = (ExportStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
             this.whereExpr = stmt.getWhereExpr();
         } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
+            throw new IOException("error happens when parsing export stmt: " + origStmt, e);
         }
     }
 

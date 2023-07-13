@@ -134,6 +134,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Void> implements CustomR
     @Override
     public Plan visitLogicalSetOperation(LogicalSetOperation setOperation, Void context) {
         setOperation = (LogicalSetOperation) super.visit(setOperation, context);
+        if (setOperation.children().isEmpty()) {
+            return setOperation;
+        }
         List<Boolean> inputNullable = setOperation.child(0).getOutput().stream()
                 .map(ExpressionTrait::nullable).collect(Collectors.toList());
         for (int i = 1; i < setOperation.arity(); i++) {

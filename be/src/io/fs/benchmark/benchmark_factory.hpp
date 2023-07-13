@@ -38,8 +38,20 @@ Status BenchmarkFactory::getBm(const std::string fs_type, const std::string op_t
                                const std::map<std::string, std::string>& conf_map,
                                BaseBenchmark** bm) {
     if (fs_type == "s3") {
-        if (op_type == "read") {
-            *bm = new S3ReadBenchmark(threads, iterations, file_size, conf_map);
+        if (op_type == "create_write") {
+            *bm = new S3CreateWriteBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "open_read") {
+            *bm = new S3OpenReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "single_read") {
+            *bm = new S3SingleReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "prefetch_read") {
+            *bm = new S3PrefetchReadBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "rename") {
+            *bm = new S3RenameBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "exists") {
+            *bm = new S3ExistsBenchmark(threads, iterations, file_size, conf_map);
+        } else if (op_type == "list") {
+            *bm = new S3ListBenchmark(threads, iterations, file_size, conf_map);
         } else {
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "unknown params: fs_type: {}, op_type: {}, iterations: {}", fs_type, op_type,
@@ -87,7 +99,7 @@ public:
         std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
         if (!doris::config::init(conffile.c_str(), true, true, true)) {
             fprintf(stderr, "error read config file. \n");
-            return Status::Error<INTERNAL_ERROR>();
+            return Status::Error<INTERNAL_ERROR>("error read config file.");
         }
         doris::CpuInfo::init();
         Status status = Status::OK();

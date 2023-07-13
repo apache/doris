@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricRepo;
@@ -36,65 +37,62 @@ public class MTMVJobManagerTest extends TestWithFeService {
 
     @Test
     public void testSampleCase() throws DdlException {
-        MTMVJobManager jobManager = new MTMVJobManager();
-        jobManager.start();
-        MTMVJob job = MTMVUtilsTest.createDummyJob();
+        String jobName = "testSampleCaseJob";
+        String mvName = "testSampleCaseMv";
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        MTMVJob job = MTMVUtilsTest.createDummyJob(mvName, jobName);
         jobManager.createJob(job, false);
-        Assertions.assertEquals(1, jobManager.showAllJobs().size());
-        MTMVJob resultJob = jobManager.getJob("dummy");
-        Assertions.assertEquals("dummy", resultJob.getName());
+        Assertions.assertNotNull(jobManager.getJob(job.getName()));
+        MTMVJob resultJob = jobManager.getJob(jobName);
         Assertions.assertEquals(JobState.ACTIVE, resultJob.getState());
         long jobId = resultJob.getId();
         ChangeMTMVJob changeMTMVJob = new ChangeMTMVJob(jobId, JobState.PAUSE);
-        jobManager.updateJob(changeMTMVJob, false);
-        resultJob = jobManager.getJob("dummy");
-        Assertions.assertEquals("dummy", resultJob.getName());
+        resultJob.updateJob(changeMTMVJob, false);
+        resultJob = jobManager.getJob(jobName);
+        Assertions.assertEquals(jobName, resultJob.getName());
         Assertions.assertEquals(JobState.PAUSE, resultJob.getState());
         jobManager.dropJobs(Collections.singletonList(jobId), false);
-        Assertions.assertEquals(0, jobManager.showAllJobs().size());
+        Assertions.assertNull(jobManager.getJob(jobName));
     }
 
     @Test
     public void testSchedulerJob() throws DdlException, InterruptedException {
-        MTMVJobManager jobManager = new MTMVJobManager();
-        jobManager.start();
-        Assertions.assertTrue(jobManager.getTaskManager().getHistoryTasks().isEmpty());
-        MTMVJob job = MTMVUtilsTest.createSchedulerJob();
+        String jobName = "testSchedulerJob";
+        String mvName = "testSchedulerJobMv";
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        MTMVJob job = MTMVUtilsTest.createSchedulerJob(mvName, jobName);
         jobManager.createJob(job, false);
-        Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
-        while (jobManager.getTaskManager().getHistoryTasks().isEmpty()) {
+        Assertions.assertNotNull(jobManager.getJob(jobName));
+        while (jobManager.getTaskManager().getHistoryTasksByJobName(jobName).isEmpty()) {
             Thread.sleep(1000L);
             System.out.println("Loop    once");
         }
-        Assertions.assertTrue(jobManager.getTaskManager().getHistoryTasks().size() > 0);
+        Assertions.assertTrue(jobManager.getTaskManager().getHistoryTasksByJobName(jobName).size() > 0);
     }
 
     @Test
     public void testOnceJob() throws DdlException, InterruptedException {
-        MTMVJobManager jobManager = new MTMVJobManager();
-        jobManager.start();
-        MTMVJob job = MTMVUtilsTest.createOnceJob();
+        String jobName = "testOnceJob";
+        String mvName = "testOnceJobMv";
+        MTMVJobManager jobManager = Env.getCurrentEnv().getMTMVJobManager();
+        MTMVJob job = MTMVUtilsTest.createOnceJob(mvName, jobName);
         jobManager.createJob(job, false);
-        Assertions.assertEquals(1, jobManager.showAllJobs().size());
-        Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
-        Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName, MTMVUtilsTest.MV_NAME).size());
-        while (!jobManager.getJob(MTMVUtilsTest.O_JOB).getState().equals(JobState.COMPLETE)) {
+        Assertions.assertNotNull(jobManager.getJob(jobName));
+        while (!jobManager.getJob(jobName).getState().equals(JobState.COMPLETE)) {
             Thread.sleep(1000L);
             System.out.println("Loop    once");
         }
 
-        Assertions.assertEquals(1, jobManager.getTaskManager().getHistoryTasks().size());
-        Assertions.assertEquals(1, jobManager.getTaskManager().showAllTasks().size());
-        Assertions.assertEquals(1, jobManager.getTaskManager().showTasks(MTMVUtilsTest.dbName).size());
+        Assertions.assertEquals(1, jobManager.getTaskManager().getHistoryTasksByJobName(jobName).size());
         Assertions.assertEquals(1,
-                jobManager.getTaskManager().showTasks(MTMVUtilsTest.dbName, MTMVUtilsTest.MV_NAME).size());
+                jobManager.getTaskManager().showTasks(MTMVUtilsTest.dbName, mvName).size());
 
         // verify job meta
-        MTMVJob metaJob = jobManager.showAllJobs().get(0);
+        MTMVJob metaJob = jobManager.getJob(jobName);
         List<String> jobRow = metaJob.toStringRow();
         Assertions.assertEquals(13, jobRow.size());
         // index 1: Name
-        Assertions.assertEquals(MTMVUtilsTest.O_JOB, jobRow.get(1));
+        Assertions.assertEquals(jobName, jobRow.get(1));
         // index 2: TriggerMode
         Assertions.assertEquals("ONCE", jobRow.get(2));
         // index 3: Schedule
@@ -102,7 +100,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
         // index 4: DBName
         Assertions.assertEquals(MTMVUtilsTest.dbName, jobRow.get(4));
         // index 5: MVName
-        Assertions.assertEquals(MTMVUtilsTest.MV_NAME, jobRow.get(5));
+        Assertions.assertEquals(mvName, jobRow.get(5));
         // index 6: Query
         Assertions.assertEquals("", jobRow.get(6));
         // index 7: User
@@ -113,15 +111,15 @@ public class MTMVJobManagerTest extends TestWithFeService {
         Assertions.assertEquals("COMPLETE", jobRow.get(9));
 
         // verify task meta
-        MTMVTask metaTask = jobManager.getTaskManager().showAllTasks().get(0);
+        MTMVTask metaTask = jobManager.getTaskManager().getHistoryTasksByJobName(jobName).get(0);
         List<String> taskRow = metaTask.toStringRow();
         Assertions.assertEquals(14, taskRow.size());
         // index 1: JobName
-        Assertions.assertEquals(MTMVUtilsTest.O_JOB, taskRow.get(1));
+        Assertions.assertEquals(jobName, taskRow.get(1));
         // index 2: DBName
         Assertions.assertEquals(MTMVUtilsTest.dbName, taskRow.get(2));
         // index 3: MVName
-        Assertions.assertEquals(MTMVUtilsTest.MV_NAME, taskRow.get(3));
+        Assertions.assertEquals(mvName, taskRow.get(3));
         // index 4: Query
         Assertions.assertEquals("", taskRow.get(4));
         // index 5: User
@@ -140,9 +138,6 @@ public class MTMVJobManagerTest extends TestWithFeService {
 
     @Test
     public void testMetrics() {
-        MTMVJobManager jobManager = new MTMVJobManager();
-        jobManager.start();
-
         int jobMetricCount = 0;
         int taskMetricCount = 0;
         List<Metric> metrics = MetricRepo.DORIS_METRIC_REGISTER.getMetrics();

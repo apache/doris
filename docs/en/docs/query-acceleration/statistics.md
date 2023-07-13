@@ -609,11 +609,12 @@ mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
 The syntax is as follows:
 
 ```SQL
-SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
 ```
 
 Explanation:
 
+- cached: Cached means to show statistics in current FE memory cache.
 - Table_name: The target table for collecting statistics. It can be a `db_name.table_name` form.
 - Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
 - Partition_name: The specified target partition `table_name` must exist in. Only one partition can be specified.
@@ -788,7 +789,7 @@ Buckets description:
 Users can modify the statistics information through statements `ALTER`, and modify the corresponding statistics information of the column according to the provided parameters.
 
 ```SQL
-ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...);
+ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
 Explanation:
@@ -796,6 +797,7 @@ Explanation:
 - Table_name: The table to which the statistics are dropped. It can be a `db_name.table_name` form.
 - Column_name: Specified target column. `table_name` Must be a column that exists in. Statistics can only be modified one column at a time.
 - Stat _ name and stat _ value: The corresponding stat name and the value of the stat info. Multiple stats are comma separated. Statistics that can be modified include `row_count`, `ndv`, `num_nulls` `min_value` `max_value`, and `data_size`.
+- Partition_name: specifies the target partition. Must be a partition existing in `table_name`. Multiple partitions are separated by commas.
 
 Example:
 

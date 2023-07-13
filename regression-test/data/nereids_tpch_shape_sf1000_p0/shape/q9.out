@@ -21,9 +21,10 @@ PhysicalQuickSort
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[lineitem]
---------------------------------PhysicalProject
-----------------------------------filter((p_name like '%green%'))
-------------------------------------PhysicalOlapScan[part]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------filter((p_name like '%green%'))
+--------------------------------------PhysicalOlapScan[part]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN](supplier.s_nationkey = nation.n_nationkey)
 --------------------------------PhysicalProject
@@ -31,6 +32,7 @@ PhysicalQuickSort
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[nation]
-----------------PhysicalProject
-------------------PhysicalOlapScan[partsupp]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[partsupp]
 

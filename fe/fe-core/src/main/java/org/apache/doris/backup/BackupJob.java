@@ -75,6 +75,7 @@ import java.util.stream.Collectors;
 
 public class BackupJob extends AbstractJob {
     private static final Logger LOG = LogManager.getLogger(BackupJob.class);
+    private static final String TABLE_COMMIT_SEQ_PREFIX = "table_commit_seq:";
 
     public enum BackupJobState {
         PENDING, // Job is newly created. Send snapshot tasks and save copied meta info, then transfer to SNAPSHOTING
@@ -110,7 +111,7 @@ public class BackupJob extends AbstractJob {
     // save the local file path of meta info and job info file
     private String localMetaInfoFilePath = null;
     private String localJobInfoFilePath = null;
-    // backup properties
+    // backup properties && table commit seq with table id
     private Map<String, String> properties = Maps.newHashMap();
 
     private byte[] metaInfoBytes = null;
@@ -431,6 +432,12 @@ public class BackupJob extends AbstractJob {
 
     private void prepareSnapshotTaskForOlapTableWithoutLock(OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
+        // Add barrier editolog for barrier commit seq
+        long commitSeq = env.getEditLog().logBarrier();
+        // format as "table:{tableId}"
+        String tableKey = String.format("%s%d", TABLE_COMMIT_SEQ_PREFIX, olapTable.getId());
+        properties.put(tableKey, String.valueOf(commitSeq));
+
         // check backup table again
         if (backupTableRef.getPartitionNames() != null) {
             for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
@@ -680,8 +687,20 @@ public class BackupJob extends AbstractJob {
             metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
 
             // 3. save job info file
+            Map<Long, Long> tableCommitSeqMap = Maps.newHashMap();
+            // iterate properties, convert key, value from string to long
+            // key is "${TABLE_COMMIT_SEQ_PREFIX}{tableId}", only need tableId to long
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                if (key.startsWith(TABLE_COMMIT_SEQ_PREFIX)) {
+                    long tableId = Long.parseLong(key.substring(TABLE_COMMIT_SEQ_PREFIX.length()));
+                    long commitSeq = Long.parseLong(value);
+                    tableCommitSeqMap.put(tableId, commitSeq);
+                }
+            }
             jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId,
-                    getContent(), backupMeta, snapshotInfos);
+                    getContent(), backupMeta, snapshotInfos, tableCommitSeqMap);
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
