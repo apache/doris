@@ -40,7 +40,6 @@ public class PaimonScannerUtils {
     public static List<String> fieldNames(RowType rowType) {
         return rowType.getFields().stream()
                 .map(DataField::name)
-                .map(String::toLowerCase)
                 .collect(Collectors.toList());
     }
 }

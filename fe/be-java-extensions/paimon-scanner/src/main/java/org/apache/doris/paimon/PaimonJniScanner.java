@@ -22,7 +22,6 @@ import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.common.jni.vec.TableSchema;
 
-import org.apache.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -35,6 +34,8 @@ import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -44,8 +45,7 @@ import java.util.stream.Collectors;
 
 
 public class PaimonJniScanner extends JniScanner {
-    private static final Logger LOG = Logger.getLogger(PaimonJniScanner.class);
-
+    private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
     private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
     private final Map<String, String> paimonOptionParams;
     private final String dbName;
@@ -58,6 +58,7 @@ public class PaimonJniScanner extends JniScanner {
     private List<String> paimonAllFieldNames;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
+        LOG.info("params:{}", params);
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         dbName = params.get("db_name");
@@ -91,11 +92,15 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private List<Predicate> getPredicates() {
-        return PaimonScannerUtils.decodeStringToObject(paimonPredicate);
+        List<Predicate> predicates = PaimonScannerUtils.decodeStringToObject(paimonPredicate);
+        LOG.info("predicates:{}", predicates);
+        return predicates;
     }
 
     private Split getSplit() {
-        return PaimonScannerUtils.decodeStringToObject(paimonSplit);
+        Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
+        LOG.info("split:{}", split);
+        return split;
     }
 
     private void parseRequiredTypes() {
@@ -152,6 +157,7 @@ public class PaimonJniScanner extends JniScanner {
             Catalog catalog = createCatalog();
             table = catalog.getTable(Identifier.create(dbName, tblName));
             paimonAllFieldNames = PaimonScannerUtils.fieldNames(table.rowType());
+            LOG.info("paimonAllFieldNames:{}", paimonAllFieldNames);
         } catch (Catalog.TableNotExistException e) {
             LOG.warn("failed to create paimon external catalog ", e);
             throw new RuntimeException(e);

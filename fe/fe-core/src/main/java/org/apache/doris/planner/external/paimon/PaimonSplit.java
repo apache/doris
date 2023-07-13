@@ -28,7 +28,7 @@ public class PaimonSplit extends FileSplit {
     private TableFormatType tableFormatType;
 
     public PaimonSplit(Split split) {
-        super(new Path(""), 0, 0, 0, null, null);
+        super(new Path("dummyPath"), 0, 0, 0, null, null);
         this.split = split;
         this.tableFormatType = TableFormatType.PAIMON;
     }

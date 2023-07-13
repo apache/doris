@@ -37,7 +37,7 @@ import org.apache.paimon.types.VarCharType;
 import java.util.stream.Collectors;
 
 /**
- * Convert paimon type to hive string representation.
+ * Convert paimon type to doris string representation.
  */
 public class PaimonTypeUtils {
 
@@ -45,12 +45,12 @@ public class PaimonTypeUtils {
     }
 
     public static String fromPaimonType(DataType type) {
-        return type.accept(PaimonToHiveTypeVisitor.INSTANCE);
+        return type.accept(PaimonToDorisTypeVisitor.INSTANCE);
     }
 
-    private static class PaimonToHiveTypeVisitor extends DataTypeDefaultVisitor<String> {
+    private static class PaimonToDorisTypeVisitor extends DataTypeDefaultVisitor<String> {
 
-        private static final PaimonToHiveTypeVisitor INSTANCE = new PaimonToHiveTypeVisitor();
+        private static final PaimonToDorisTypeVisitor INSTANCE = new PaimonToDorisTypeVisitor();
 
         public String visit(VarCharType varCharType) {
             return "string";
