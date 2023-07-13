@@ -1937,7 +1937,7 @@ visible_functions = {
     ],
     # tokenizer functions
     "Tokenize": [
-        [['Tokenize'], 'ARRAY_VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE']
+        [['Tokenize'], 'ARRAY_VARCHAR', ['VARCHAR', 'VARCHAR'], '']
     ],
 
     "UUID": [
