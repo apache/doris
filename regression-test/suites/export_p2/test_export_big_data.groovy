@@ -15,12 +15,55 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.codehaus.groovy.runtime.IOGroovyMethods
+
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
+
 suite("test_export_big_data", "p2") {
+    // check whether the FE config 'enable_outfile_to_local' is true
+    StringBuilder strBuilder = new StringBuilder()
+    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
+    strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
+
+    String command = strBuilder.toString()
+    def process = command.toString().execute()
+    def code = process.waitFor()
+    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+    def out = process.getText()
+    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
+    assertEquals(code, 0)
+    def response = parseJson(out.trim())
+    assertEquals(response.code, 0)
+    assertEquals(response.msg, "success")
+    def configJson = response.data.rows
+    boolean enableOutfileToLocal = false
+    for (Object conf: configJson) {
+        assert conf instanceof Map
+        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
+            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
+        }
+    }
+    if (!enableOutfileToLocal) {
+        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
+        return
+    }
+
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
+
+    def check_path_exists = { dir_path ->
+        File path = new File(dir_path)
+        if (!path.exists()) {
+            assert path.mkdirs()
+        } else {
+            throw new IllegalStateException("""${dir_path} already exists! """)
+        }
+    }
 
     def table_export_name = "test_export_big_data"
     // create table and insert
@@ -45,22 +88,21 @@ suite("test_export_big_data", "p2") {
             "format" = "csv");
         """
 
+    def outfile_path_prefix = """/mnt/datadisk1/fangtiewei/tmpdata/test_export"""
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = """${bucket}/regression/export_p2/export_data/exp_"""
+    def outFilePath = """${outfile_path_prefix}_${uuid}"""
+
+
+    // check export path
+    check_path_exists.call("${outFilePath}")
+
     // exec export
     sql """
-        EXPORT TABLE ${table_export_name} TO "s3://${outFilePath}"
+        EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
         PROPERTIES(
             "label" = "${uuid}",
             "format" = "orc",
-            "column_separator"=",",
-            "delete_existing_files"="true"
-        )
-        WITH s3 (
-            "s3.endpoint" = "${s3_endpoint}",
-            "s3.region" = "${region}",
-            "s3.secret_key"="${sk}",
-            "s3.access_key" = "${ak}"
+            "column_separator"=","
         );
     """
 
