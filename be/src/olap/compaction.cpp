@@ -615,6 +615,11 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
             for (auto& it : commit_tablet_txn_info_vec) {
                 if (!_check_if_includes_input_rowsets(it.rowset_ids)) {
+                    // When calculating the delete bitmap of all committed rowsets relative to the compaction,
+                    // there may be cases where the compacted rowsets are newer than the committed rowsets.
+                    // At this time, row number conversion cannot be performed, otherwise data will be missing.
+                    // Therefore, we need to check if every committed rowset has calculated delete bitmap for
+                    // all compaction input rowsets.
                     continue;
                 } else {
                     DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
