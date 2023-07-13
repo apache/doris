@@ -29,8 +29,7 @@ under the License.
 
 # 加入我们，与 [Apache Doris](https://github.com/apache/doris) 共同成长.
 
-Apache Doris 开源社区是一个温暖可爱的地方，拥有来自世界各地的用户和开发人员。目前，我们已经从阿帕奇基金会成功毕业，并于 2022 年 6 月成为顶级项目。
-
+Apache Doris 聚集了世界全国各地的用户与开发人员，致力于打造一个内容完整、持续成长的互联网开发者学习生态圈！在 2022 年 6 月，Apache Doris 成功从 Apache 孵化器毕业，正式成为 Apache 顶级项目（Top-Level Project, TLP）。
 
 
 ## 🙌 更多开发者加入我们
@@ -91,7 +90,7 @@ Apache Doris 开源社区是一个温暖可爱的地方，拥有来自世界各�
 
 ## 👋 想要了解更多？别错过最新动态！
 
-一起学习 Apache Doris 最新技术，从丰富用户案例中获得灵感，快来看看社区在做什么！
+一起加入 Apache Doris 社区，了解头部企业如何基于 Apache Doris 构建统一实时数仓，从技术见解获得更多灵感！
 
 
 - ##### 加入社群参与讨论 -  💬 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-1x7x8fger-F7NoshFQn~djlvGdnEtxUQ) 📇 [Github](https://github.com/apache/doris) 
@@ -99,6 +98,5 @@ Apache Doris 开源社区是一个温暖可爱的地方，拥有来自世界各�
 - ##### 用户案例与技术见解 -  📭 [Twitter](https://twitter.com/doris_apache) 
 
 - ##### 来领英拓展技术大牛社交圈 - 🌐 [LinkedIn](https://www.linkedin.com/company/doris-apache/) 
-
 
 - ##### 活动视频回顾 - ▶️ [YouTube](https://www.youtube.com/@Select_DB) 📺 [Bilibili](https://space.bilibili.com/362350065) 
