@@ -29,6 +29,16 @@ class PartitionData {
 class PartitionRecords {
     public List<PartitionData> partitionRecords
 
+    Boolean contains(Long partitionId) {
+        for (PartitionData data : partitionRecords) {
+            if (data.partitionId == partitionId) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     String toString() {
         return partitionRecords.toString()
     }

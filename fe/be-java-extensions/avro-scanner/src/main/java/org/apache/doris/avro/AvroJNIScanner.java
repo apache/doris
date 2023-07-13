@@ -192,6 +192,7 @@ public class AvroJNIScanner extends JniScanner {
         return numRows;
     }
 
+    @Override
     protected TableSchema parseTableSchema() throws UnsupportedOperationException {
         Schema schema = avroReader.getSchema();
         List<Field> schemaFields = schema.getFields();

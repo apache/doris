@@ -281,7 +281,7 @@ Upgrade the non-Master nodes first, and then upgrade the Master nodes.
     cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
     ```
 
-4. Start the BE node
+4. Start the FE node
 
     ```shell
     sh ${DORIS_OLD_HOME}/fe/bin/start_fe.sh --daemon

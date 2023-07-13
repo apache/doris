@@ -50,11 +50,14 @@ public class TableAddOrDropInvertedIndicesInfo implements Writable {
     private boolean isDropInvertedIndex;
     @SerializedName(value = "jobId")
     private long jobId;
+    @SerializedName(value = "rawSql")
+    private String rawSql;
 
-    public TableAddOrDropInvertedIndicesInfo(long dbId, long tableId,
+    public TableAddOrDropInvertedIndicesInfo(String rawSql, long dbId, long tableId,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
             List<Index> alterInvertedIndexes, boolean isDropInvertedIndex,
             long jobId) {
+        this.rawSql = rawSql;
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexSchemaMap = indexSchemaMap;

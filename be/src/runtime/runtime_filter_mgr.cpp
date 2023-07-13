@@ -132,7 +132,6 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
             }
             IRuntimeFilter* filter;
             RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc,
-
                                                    &options, RuntimeFilterRole::CONSUMER, node_id,
                                                    &filter, build_bf_exactly));
             _consumer_map[key].emplace_back(node_id, filter);
@@ -312,6 +311,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
+    int64_t merge_time = 0;
     {
         int64_t start_merge = MonotonicMillis();
         std::lock_guard<std::mutex> guard(_filter_map_mutex);
@@ -335,9 +335,11 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         // TODO: avoid log when we had acquired a lock
         VLOG_ROW << "merge size:" << merged_size << ":" << cntVal->producer_size;
         DCHECK_LE(merged_size, cntVal->producer_size);
-        _merge_timer += (MonotonicMillis() - start_merge);
+        iter->second->merge_time += (MonotonicMillis() - start_merge);
         if (merged_size < cntVal->producer_size) {
             return Status::OK();
+        } else {
+            merge_time = iter->second->merge_time;
         }
     }
 
@@ -375,7 +377,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 rpc_contexts[cur]->request.set_filter_id(request->filter_id());
                 rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
                                                            request->is_pipeline());
-                rpc_contexts[cur]->request.set_merge_time(_merge_timer);
+                rpc_contexts[cur]->request.set_merge_time(merge_time);
                 *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);

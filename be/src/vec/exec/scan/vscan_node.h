@@ -43,7 +43,7 @@
 #include "runtime/runtime_state.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
-#include "vec/exec/runtime_filter_consumer_node.h"
+#include "vec/exec/runtime_filter_consumer.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/runtime/shared_scanner_controller.h"
@@ -88,10 +88,12 @@ struct FilterPredicates {
     std::vector<std::pair<std::string, std::shared_ptr<HybridSetBase>>> in_filters;
 };
 
-class VScanNode : public RuntimeFilterConsumerNode {
+class VScanNode : public ExecNode, public RuntimeFilterConsumer {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : RuntimeFilterConsumerNode(pool, tnode, descs) {
+            : ExecNode(pool, tnode, descs),
+              RuntimeFilterConsumer(id(), tnode.runtime_filters, ExecNode::_row_descriptor,
+                                    ExecNode::_conjuncts) {
         if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
             // Which means the request could be fullfilled in a single segment iterator request.
             if (tnode.limit > 0 && tnode.limit < 1024) {
@@ -138,8 +140,6 @@ public:
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     Status close(RuntimeState* state) override;
-
-    void set_no_agg_finalize() { _need_agg_finalize = false; }
 
     // Clone current _conjuncts to conjuncts, if exists.
     Status clone_conjunct_ctxs(VExprContextSPtrs& conjuncts);
@@ -294,7 +294,6 @@ protected:
     // "_colname_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
-    bool _need_agg_finalize = true;
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.
     bool _should_run_serial = false;
@@ -303,6 +302,8 @@ protected:
     // so that it will be destroyed uniformly at the end of the query.
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
+
+    RuntimeState* _state;
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;

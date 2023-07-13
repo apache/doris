@@ -126,6 +126,8 @@ DEFINE_mString(process_full_gc_size, "20%");
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
+DEFINE_mBool(disable_memory_gc, "false");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -312,6 +314,10 @@ DEFINE_Bool(disable_storage_row_cache, "true");
 DEFINE_String(pk_storage_page_cache_limit, "10%");
 // data page size for primary key index
 DEFINE_Int32(primary_key_data_page_size, "32768");
+
+DEFINE_mInt32(data_page_cache_stale_sweep_time_sec, "300");
+DEFINE_mInt32(index_page_cache_stale_sweep_time_sec, "600");
+DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
@@ -947,11 +953,8 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 
-// inverted index searcher cache
-// cache entry stay time after lookup, default 1h
-DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
-// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DEFINE_mInt32(index_cache_entry_no_visit_gc_time_s, "3600");
+DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
+DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -1028,6 +1031,7 @@ DEFINE_Int64(max_external_file_meta_cache_num, "20000");
 DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
 
 DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
+DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
 
 #ifdef BE_TEST
 // test s3

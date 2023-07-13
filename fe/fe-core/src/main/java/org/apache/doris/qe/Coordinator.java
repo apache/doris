@@ -35,7 +35,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -311,7 +310,9 @@ public class Coordinator {
 
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
-        this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
+        // Only enable pipeline query engine in query, not load
+        this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
+                && (fragments.size() > 0 && fragments.get(0).getSink() instanceof ResultSink);
         initQueryOptions(context);
 
         setFromUserProperty(context);
@@ -379,7 +380,7 @@ public class Coordinator {
 
     private void initQueryOptions(ConnectContext context) {
         this.queryOptions = context.getSessionVariable().toThrift();
-        this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
+        this.queryOptions.setEnablePipelineEngine(SessionVariable.enablePipelineEngine());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());

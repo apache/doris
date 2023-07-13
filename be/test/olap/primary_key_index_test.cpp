@@ -75,7 +75,6 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
-    io::FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());

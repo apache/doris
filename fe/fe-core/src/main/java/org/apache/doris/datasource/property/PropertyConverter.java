@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
+import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.credentials.CloudCredential;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
@@ -253,6 +254,11 @@ public class PropertyConverter {
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
         ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", AliyunOSSFileSystem.class.getName());
+        boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
+        if (S3Util.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
+            // use endpoint or enable hdfs
+            rewriteHdfsOnOssProperties(ossProperties, endpoint);
+        }
         if (credential.isWhole()) {
             ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_ID, credential.getAccessKey());
             ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ACCESS_KEY_SECRET, credential.getSecretKey());
@@ -266,6 +272,22 @@ public class PropertyConverter {
             }
         }
         return ossProperties;
+    }
+
+    private static void rewriteHdfsOnOssProperties(Map<String, String> ossProperties, String endpoint) {
+        if (!S3Util.isHdfsOnOssEndpoint(endpoint)) {
+            // just for robustness here, avoid wrong endpoint when oss-hdfs is enabled.
+            // convert "oss-cn-beijing.aliyuncs.com" to "cn-beijing.oss-dls.aliyuncs.com"
+            // reference link: https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+            String[] endpointSplit = endpoint.split("\\.");
+            if (endpointSplit.length > 0) {
+                String region = endpointSplit[0].replace("oss-", "").replace("-internal", "");
+                ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY,
+                            region + ".oss-dls.aliyuncs.com");
+            }
+        }
+        ossProperties.put("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
+        ossProperties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.emr.fs.oss.OSS");
     }
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
@@ -368,6 +390,10 @@ public class PropertyConverter {
         if (Strings.isNullOrEmpty(uid)) {
             throw new IllegalArgumentException("Required dlf property: " + DataLakeConfig.CATALOG_USER_ID);
         }
+        if (!props.containsKey(DLFProperties.ENDPOINT)) {
+            // just display DLFProperties in catalog, and hide DataLakeConfig properties
+            putNewPropertiesForCompatibility(props, credential);
+        }
         // convert to oss property
         if (credential.isWhole()) {
             props.put(OssProperties.ACCESS_KEY, credential.getAccessKey());
@@ -379,9 +405,30 @@ public class PropertyConverter {
         String publicAccess = props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false");
         String region = props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID, props.get(DLFProperties.REGION));
         if (!Strings.isNullOrEmpty(region)) {
-            props.put(OssProperties.REGION, "oss-" + region);
-            props.put(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
+            if (hdfsEnabled) {
+                props.putIfAbsent("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
+                props.putIfAbsent(OssProperties.REGION, region);
+                // example: cn-shanghai.oss-dls.aliyuncs.com
+                // from https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+                props.putIfAbsent(OssProperties.ENDPOINT, region + ".oss-dls.aliyuncs.com");
+            } else {
+                props.putIfAbsent(OssProperties.REGION, "oss-" + region);
+                props.putIfAbsent(OssProperties.ENDPOINT, getOssEndpoint(region, Boolean.parseBoolean(publicAccess)));
+            }
         }
+    }
+
+    private static void putNewPropertiesForCompatibility(Map<String, String> props, CloudCredential credential) {
+        props.put(DLFProperties.UID, props.get(DataLakeConfig.CATALOG_USER_ID));
+        String endpoint = props.get(DataLakeConfig.CATALOG_ENDPOINT);
+        props.put(DLFProperties.ENDPOINT, endpoint);
+        props.put(DLFProperties.REGION, props.getOrDefault(DataLakeConfig.CATALOG_REGION_ID,
+                S3Properties.getRegionOfEndpoint(endpoint)));
+        props.put(DLFProperties.PROXY_MODE, props.getOrDefault(DataLakeConfig.CATALOG_PROXY_MODE, "DLF_ONLY"));
+        props.put(DLFProperties.ACCESS_KEY, credential.getAccessKey());
+        props.put(DLFProperties.SECRET_KEY, credential.getSecretKey());
+        props.put(DLFProperties.ACCESS_PUBLIC, props.getOrDefault(DLFProperties.Site.ACCESS_PUBLIC, "false"));
     }
 
     private static String getOssEndpoint(String region, boolean publicAccess) {

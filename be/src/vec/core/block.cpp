@@ -128,6 +128,11 @@ Block::Block(const PBlock& pblock) {
     initialize_index_by_name();
 }
 
+void Block::reserve(size_t count) {
+    index_by_name.reserve(count);
+    data.reserve(count);
+}
+
 void Block::initialize_index_by_name() {
     for (size_t i = 0, size = data.size(); i < size; ++i) {
         index_by_name[data[i].name] = i;

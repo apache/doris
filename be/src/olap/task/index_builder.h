@@ -59,14 +59,11 @@ private:
                          const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
                          const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
-    Status _calc_alter_column_ids();
-
 private:
     TabletSharedPtr _tablet;
     std::vector<TColumn> _columns;
     std::vector<doris::TOlapTableIndex> _alter_inverted_indexes;
     bool _is_drop_op;
-    std::unordered_map<std::string, std::set<int32_t>> _rowset_alter_index_column_ids;
     std::set<int32_t> _alter_index_ids;
     std::vector<RowsetSharedPtr> _input_rowsets;
     std::vector<RowsetSharedPtr> _output_rowsets;

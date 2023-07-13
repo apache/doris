@@ -45,6 +45,14 @@ mysql> select bitmap_count(bitmap_empty());
 +------------------------------+
 |                            0 |
 +------------------------------+
+
+mysql> select bitmap_to_string(bitmap_empty());
++----------------------------------+
+| bitmap_to_string(bitmap_empty()) |
++----------------------------------+
+|                                  |
++----------------------------------+
+
 ```
 
 ### keywords

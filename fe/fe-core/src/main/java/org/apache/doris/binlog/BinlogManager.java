@@ -17,12 +17,14 @@
 
 package org.apache.doris.binlog;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -129,6 +131,18 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
     }
 
+    public void addCreateTableRecord(CreateTableRecord createTableRecord) {
+        long dbId = createTableRecord.getDbId();
+        List<Long> tableIds = new ArrayList<Long>();
+        tableIds.add(createTableRecord.getTableId());
+        long commitSeq = createTableRecord.getCommitSeq();
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.CREATE_TABLE;
+        String data = createTableRecord.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
     public void addDropPartitionRecord(DropPartitionInfo dropPartitionInfo, long commitSeq) {
         long dbId = dropPartitionInfo.getDbId();
         List<Long> tableIds = new ArrayList<Long>();
@@ -140,8 +154,42 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
     }
 
+    public void addDropTableRecord(DropTableRecord record) {
+        long dbId = record.getDbId();
+        List<Long> tableIds = new ArrayList<Long>();
+        tableIds.add(record.getTableId());
+        long commitSeq = record.getCommitSeq();
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.DROP_TABLE;
+        String data = record.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addAlterJobV2(AlterJobV2 alterJob, long commitSeq) {
+        long dbId = alterJob.getDbId();
+        List<Long> tableIds = new ArrayList<Long>();
+        tableIds.add(alterJob.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.ALTER_JOB;
+        String data = alterJob.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = new ArrayList<Long>();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_COLUMNS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
     // get binlog by dbId, return first binlog.version > version
-    public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -152,7 +200,25 @@ public class BinlogManager {
                 return Pair.of(status, null);
             }
 
-            return dbBinlog.getBinlog(tableId, commitSeq);
+            return dbBinlog.getBinlog(tableId, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get binlog by dbId, return first binlog.version > version
+    public Pair<TStatus, Long> getBinlogLag(long dbId, long tableId, long prevCommitSeq) {
+        TStatus status = new TStatus(TStatusCode.OK);
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_DB);
+                LOG.warn("dbBinlog not found. dbId: {}", dbId);
+                return Pair.of(status, null);
+            }
+
+            return dbBinlog.getBinlogLag(tableId, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }
@@ -311,10 +377,6 @@ public class BinlogManager {
     }
 
     public long read(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         // Step 1: read binlogs length
         int size = dis.readInt();
         LOG.info("read binlogs length: {}", size);

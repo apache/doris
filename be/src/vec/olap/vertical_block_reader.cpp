@@ -240,7 +240,7 @@ Status VerticalBlockReader::_direct_next_block(Block* block, bool* eof) {
     _eof = *eof;
     if (_reader_context.is_key_column_group && UNLIKELY(_reader_context.record_rowids)) {
         res = _vcollect_iter->current_block_row_locations(&_block_row_locations);
-        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>())) {
+        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>(""))) {
             return res;
         }
         DCHECK_EQ(_block_row_locations.size(), block->rows());

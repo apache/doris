@@ -53,7 +53,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### 基于Iceberg API创建Catalog
 
-使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
+使用Iceberg API访问元数据的方式，支持Hive、REST、Glue、DLF等服务作为Iceberg的Catalog。
 
 #### Hive Metastore
 
@@ -84,6 +84,10 @@ CREATE CATALOG glue PROPERTIES (
 ```
 
 Iceberg 属性详情参见 [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+
+#### 阿里云 DLF
+
+参见[阿里云DLF Catalog配置](dlf.md)
 
 #### REST Catalog
 

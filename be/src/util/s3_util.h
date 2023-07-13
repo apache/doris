@@ -18,6 +18,7 @@
 #pragma once
 
 #include <aws/core/Aws.h>
+#include <aws/core/client/ClientConfiguration.h>
 #include <fmt/format.h>
 #include <stdint.h>
 
@@ -99,6 +100,16 @@ public:
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
                                                 const S3URI& s3_uri, S3Conf* s3_conf);
+
+    static Aws::Client::ClientConfiguration& getClientConfiguration() {
+        // The default constructor of ClientConfiguration will do some http call
+        // such as Aws::Internal::GetEC2MetadataClient and other init operation,
+        // which is unnecessary.
+        // So here we use a static instance, and deep copy every time
+        // to avoid unnecessary operations.
+        static Aws::Client::ClientConfiguration instance;
+        return instance;
+    }
 
 private:
     S3ClientFactory();

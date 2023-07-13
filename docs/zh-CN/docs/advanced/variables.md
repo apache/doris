@@ -175,6 +175,10 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
   用于兼容 MySQL 客户端。无实际作用。
 
+- `have_query_cache`
+
+  用于兼容 MySQL 客户端。无实际作用。
+
 - `default_order_by_limit`
 
   用于控制 OrderBy 以后返回的默认条数。默认值为 -1，默认返回查询后的最大条数，上限为 long 数据类型的 MAX_VALUE 值。
@@ -644,6 +648,10 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 * `enable_orc_lazy_materialization`
 
   控制 orc reader 是否启用延迟物化技术。默认为 true。
+
+* `enable_strong_consistency_read`
+
+  用以开启强一致读。Doris 默认支持同一个会话内的强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。
 
 ***
 

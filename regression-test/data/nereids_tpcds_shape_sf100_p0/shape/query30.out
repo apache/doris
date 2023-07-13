@@ -40,6 +40,7 @@ CteAnchor[cteId= ( CTEId#2=] )
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------CteConsumer[cteId= ( CTEId#2=] )
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------CteConsumer[cteId= ( CTEId#2=] )
 

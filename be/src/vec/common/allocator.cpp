@@ -33,6 +33,7 @@
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
+#include "util/stack_util.h"
 #include "util/uid_util.h"
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
@@ -48,6 +49,10 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                 size, doris::thread_context()->thread_mem_tracker()->label(),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                 doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        if (size > 1024l * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc &&
+            !doris::config::disable_memory_gc) { // 1G
+            err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
+        }
 
         // TODO, Save the query context in the thread context, instead of finding whether the query id is canceled in fragment_mgr.
         if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
@@ -57,12 +62,15 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             }
             return;
         }
-        if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
+        if (!doris::config::disable_memory_gc &&
+            doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
-            LOG(INFO) << fmt::format("Query:{} waiting for enough memory, maximum {}ms, {}.",
-                                     print_id(doris::thread_context()->task_id()),
-                                     doris::config::thread_wait_gc_max_milliseconds, err_msg);
+            LOG(INFO) << fmt::format(
+                    "Query:{} waiting for enough memory in thread id:{}, maximum {}ms, {}.",
+                    print_id(doris::thread_context()->task_id()),
+                    doris::thread_context()->get_thread_id(),
+                    doris::config::thread_wait_gc_max_milliseconds, err_msg);
             while (wait_milliseconds < doris::config::thread_wait_gc_max_milliseconds) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 if (!doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
@@ -81,7 +89,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             if (wait_milliseconds >= doris::config::thread_wait_gc_max_milliseconds) {
                 // Make sure to completely wait thread_wait_gc_max_milliseconds only once.
                 doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
-                doris::MemTrackerLimiter::print_log_process_usage(err_msg);
+                doris::MemTrackerLimiter::print_log_process_usage();
                 // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
                 if (!doris::enable_thread_catch_bad_alloc) {
                     LOG(INFO) << fmt::format(
@@ -100,7 +108,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             // else, enough memory is available, the query continues execute.
         } else if (doris::enable_thread_catch_bad_alloc) {
             LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
-            doris::MemTrackerLimiter::print_log_process_usage(err_msg);
+            doris::MemTrackerLimiter::print_log_process_usage();
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
         }
     }
@@ -155,8 +163,15 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::release_memory(size_t si
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
         const std::string& err) const {
-    LOG(WARNING) << err;
-    doris::MemTrackerLimiter::print_log_process_usage(err);
+    LOG(WARNING) << err
+                 << fmt::format(
+                            " OS physical memory {}. Process memory usage {}, Sys available memory "
+                            "{}, Stacktrace: {}",
+                            doris::PrettyPrinter::print(doris::MemInfo::physical_mem(),
+                                                        doris::TUnit::BYTES),
+                            doris::PerfCounters::get_vm_rss_str(),
+                            doris::MemInfo::sys_mem_available_str(), doris::get_stack_trace());
+    doris::MemTrackerLimiter::print_log_process_usage();
     throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err);
 }
 

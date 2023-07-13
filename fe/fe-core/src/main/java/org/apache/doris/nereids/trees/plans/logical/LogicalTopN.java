@@ -132,7 +132,9 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     @Override
-    public LogicalTopN<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalTopN<>(orderKeys, limit, offset, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
     }
 }

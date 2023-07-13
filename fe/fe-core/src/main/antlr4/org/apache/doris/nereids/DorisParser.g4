@@ -34,7 +34,7 @@ singleStatement
     ;
 
 statement
-    : explain? query                                                   #statementDefault
+    : explain? query outFileClause?                                    #statementDefault
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
@@ -84,6 +84,13 @@ planType
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
 // identifier.
+
+outFileClause
+    : INTO OUTFILE filePath=constant
+        (FORMAT AS format=identifier)?
+        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+    ;
+
 query
     : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
     | {doris_legacy_SQL_syntax}? queryTerm queryOrganization

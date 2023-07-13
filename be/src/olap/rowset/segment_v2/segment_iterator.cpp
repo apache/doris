@@ -753,7 +753,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res;
+                         << ", error msg: " << res.to_string();
             return res;
         }
 
@@ -820,6 +820,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
     bool has_fulltext_index =
+            _inverted_index_iterators.count(unique_id) > 0 &&
             _inverted_index_iterators[unique_id] != nullptr &&
             _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
                     InvertedIndexReaderType::FULLTEXT;

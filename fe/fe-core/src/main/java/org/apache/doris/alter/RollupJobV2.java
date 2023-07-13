@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -147,12 +148,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         super(JobType.ROLLUP);
     }
 
-    public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs, long baseIndexId,
-            long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
-            Column whereColumn,
-            int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType, short rollupShortKeyColumnCount,
-            OriginStatement origStmt) throws AnalysisException {
-        super(jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
+    public RollupJobV2(String rawSql, long jobId, long dbId, long tableId, String tableName, long timeoutMs,
+                       long baseIndexId,
+                       long rollupIndexId, String baseIndexName, String rollupIndexName, List<Column> rollupSchema,
+                       Column whereColumn,
+                       int baseSchemaHash, int rollupSchemaHash, KeysType rollupKeysType,
+                       short rollupShortKeyColumnCount,
+                       OriginStatement origStmt) throws AnalysisException {
+        super(rawSql, jobId, JobType.ROLLUP, dbId, tableId, tableName, timeoutMs);
 
         this.baseIndexId = baseIndexId;
         this.rollupIndexId = rollupIndexId;
@@ -243,6 +246,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.readLock();
         try {
+            BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
@@ -281,7 +285,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.enableSingleReplicaCompaction(),
                                 tbl.skipWriteIndexOnLoad(),
                                 tbl.storeRowColumn(),
-                                tbl.isDynamicSchema());
+                                tbl.isDynamicSchema(),
+                                binlogConfig);
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -879,5 +884,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             throw new IOException("error happens when parsing create materialized view stmt: " + stmt, e);
         }
         setColumnsDefineExpr(stmt.getMVColumnItemList());
+    }
+
+    @Override
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
     }
 }
