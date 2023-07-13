@@ -73,7 +73,8 @@ suite("test_partition_operation", "p1") {
         ALTER TABLE test_add_partition_1 ADD PARTITION add_1 VALUES LESS THAN ("65536000")
     """
     checkTablePartitionExists("test_add_partition_1", "add_1")
-    sql "insert into test_add_partition_1 values(50, 500, 5000, 65535990, 5000000, '2060-01-01 00:00:00', '2010-02-28', '=', 'asdfg', 50.555, 505.55522, 545.005)"
+    sql "insert into test_add_partition_1 values (50, 500, 5000, 65535990, 5000000, '2060-01-01 00:00:00', " +
+            "'2010-02-28', '=', 'asdfg', 50.555, 505.55522, 545.005)"
     qt_sql1 "select * from test_add_partition_1 order by k1"
 
     // add partition value overlap
@@ -90,34 +91,44 @@ suite("test_partition_operation", "p1") {
         exception "is intersected with range"
     }
     // add partition with different bucket num, become bigger,smaller ok
-    sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_2 VALUES LESS THAN ("65537000") DISTRIBUTED BY HASH(k1) BUCKETS 20"""
+    sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_2 VALUES LESS THAN ("65537000") 
+            DISTRIBUTED BY HASH(k1) BUCKETS 20"""
     checkTablePartitionExists("test_add_partition_1", "add_2")
-    sql "insert into test_add_partition_1 values(60, 600, 6000, 65536990, 6000000, '2070-01-01 00:00:00', '2010-03-01', '-', 'qwert', 60.555, 605.55522, 645.005)"
+    sql "insert into test_add_partition_1 values(60, 600, 6000, 65536990, 6000000, '2070-01-01 00:00:00', " +
+            "'2010-03-01', '-', 'qwert', 60.555, 605.55522, 645.005)"
     qt_sql2 "select * from test_add_partition_1 order by k1"
-    sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_3 VALUES LESS THAN ("65538000") DISTRIBUTED BY HASH(k1) BUCKETS 37"""
+    sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_3 VALUES LESS THAN ("65538000") 
+            DISTRIBUTED BY HASH(k1) BUCKETS 37"""
     checkTablePartitionExists("test_add_partition_1", "add_3")
-    sql "insert into test_add_partition_1 values(70, 700, 7000, 65537990, 7000000, '2080-01-01 00:00:00', '2010-03-02', '+', 'zxcvb', 70.555, 705.55522, 745.005)"
+    sql "insert into test_add_partition_1 values(70, 700, 7000, 65537990, 7000000, '2080-01-01 00:00:00', " +
+            "'2010-03-02', '+', 'zxcvb', 70.555, 705.55522, 745.005)"
     qt_sql3 "select * from test_add_partition_1 order by k1"
-    sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_4 VALUES LESS THAN ("65540000") DISTRIBUTED BY HASH(k1) BUCKETS 7"""
+    sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_4 VALUES LESS THAN ("65540000") 
+            DISTRIBUTED BY HASH(k1) BUCKETS 7"""
     checkTablePartitionExists("test_add_partition_1", "add_4")
-    sql "insert into test_add_partition_1 values(80, 800, 8000, 65539990, 8000000, '2090-01-01 00:00:00', '2010-03-03', '>', 'uiopy', 80.555, 805.55522, 845.005)"
+    sql "insert into test_add_partition_1 values(80, 800, 8000, 65539990, 8000000, '2090-01-01 00:00:00', " +
+            "'2010-03-03', '>', 'uiopy', 80.555, 805.55522, 845.005)"
     qt_sql4 "select * from test_add_partition_1 order by k1"
     // add partition with 0 bucket
     test {
-        sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_0_err VALUES LESS THAN ("2147483647") DISTRIBUTED BY HASH(k1) BUCKETS 0"""
+        sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_0_err VALUES LESS THAN ("2147483647") 
+                DISTRIBUTED BY HASH(k1) BUCKETS 0"""
         exception "Cannot assign hash distribution buckets less than 1"
     }
 
     // add partition with different distribution key
     // todo err msg need be fixed
-    // ERROR 1105 (HY000): errCode = 2, detailMessage = Cannot assign hash distribution with different distribution cols. new is: [`k1` tinyint(4) NOT NULL, `k2` smallint(6) NOT NULL] default is: [`k1` tinyint(4) NOT NULL, `k2` smallint(6) NOT NULL]
+    // ERROR 1105 (HY000): errCode = 2, detailMessage = Cannot assign hash distribution with different distribution cols.
+    // new is: [`k1` tinyint(4) NOT NULL, `k2` smallint(6) NOT NULL] default is: [`k1` tinyint(4) NOT NULL, `k2` smallint(6) NOT NULL]
     test {
-        sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_2_err VALUES LESS THAN ("2147483647") DISTRIBUTED BY HASH(k1, k2) BUCKETS 13"""
+        sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_2_err VALUES LESS THAN ("2147483647") 
+                DISTRIBUTED BY HASH(k1, k2) BUCKETS 13"""
         exception "Cannot assign hash distribution with different distribution cols"
     }
     // add partition with different ditribution type: hash -> random
     test {
-        sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_2_err VALUES LESS THAN ("2147483647") DISTRIBUTED BY RANDOM BUCKETS 13"""
+        sql """ALTER TABLE test_add_partition_1 ADD PARTITION add_2_err VALUES LESS THAN ("2147483647") 
+                DISTRIBUTED BY RANDOM BUCKETS 13"""
         exception "Cannot assign different distribution type. default is: HASH"
     }
 
@@ -203,7 +214,8 @@ suite("test_partition_operation", "p1") {
     for (int repeat_times = 0; repeat_times < 10; repeat_times++) {
         sql "ALTER TABLE test_add_drop_partition_times DROP PARTITION partition_g"
         checkTablePartitionNotExists("test_add_drop_partition_times", "partition_g")
-        sql "ALTER TABLE test_add_drop_partition_times ADD PARTITION partition_g VALUES LESS THAN ('4000') DISTRIBUTED BY HASH(k1) BUCKETS ${random.nextInt(300) + 1}"
+        sql "ALTER TABLE test_add_drop_partition_times ADD PARTITION partition_g VALUES LESS THAN ('4000') " +
+                "DISTRIBUTED BY HASH(k1) BUCKETS ${random.nextInt(300) + 1}"
         checkTablePartitionExists("test_add_drop_partition_times", "partition_g")
     }
     test {
@@ -259,7 +271,8 @@ suite("test_partition_operation", "p1") {
         PROPERTIES("replication_allocation" = "tag.location.default: 1")
     """
     test {
-        sql """ALTER TABLE test_non_partition_tbl ADD PARTITION add_1 VALUES LESS THAN ("2147483647") DISTRIBUTED BY HASH(k1, k2) BUCKETS 13"""
+        sql """ALTER TABLE test_non_partition_tbl ADD PARTITION add_1 VALUES LESS THAN ("2147483647") 
+                DISTRIBUTED BY HASH(k1, k2) BUCKETS 13"""
         exception ""
     }
     try_sql "DROP TABLE IF EXISTS test_add_partition_1"
