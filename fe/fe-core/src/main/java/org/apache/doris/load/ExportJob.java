@@ -300,7 +300,7 @@ public class ExportJob implements Writable {
                     header += genTypes();
                     break;
                 default:
-                    throw new DdlException("Unknown format for export.");
+                    throw new DdlException("Unknown format for export: " + headerType);
             }
         }
         return header;
