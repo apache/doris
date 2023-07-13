@@ -695,6 +695,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     // cleand unused delete bitmap for deleted tablet
     _clean_unused_delete_bitmap();
 
+    // cleand unused pending publish info for deleted tablet
+    _clean_unused_pending_publish_info();
+
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
@@ -792,6 +795,30 @@ void StorageEngine::_clean_unused_delete_bitmap() {
         LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
                   << ", deleted tablets size: " << removed_tablets.size();
         removed_tablets.clear();
+    }
+}
+
+void StorageEngine::_clean_unused_pending_publish_info() {
+    std::vector<std::pair<int64_t, int64_t>> removed_infos;
+    auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
+                                                                  int64_t publish_version,
+                                                                  const string& info) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            removed_infos.emplace_back(tablet_id, publish_version);
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        TabletMetaManager::traverse_pending_publish(data_dir->get_meta(),
+                                                    clean_pending_publish_info_func);
+        for (auto& [tablet_id, publish_version] : removed_infos) {
+            TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id, publish_version);
+        }
+        LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
+                  << ", deleted pending publish info size: " << removed_infos.size();
+        removed_infos.clear();
     }
 }
 
