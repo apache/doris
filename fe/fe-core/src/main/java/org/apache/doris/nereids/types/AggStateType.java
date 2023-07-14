@@ -72,16 +72,7 @@ public class AggStateType extends DataType {
      * check the left agg state type can be cast to the right.
      */
     public static boolean canCastTo(AggStateType lhs, AggStateType rhs) {
-        if (!Objects.equals(lhs.functionName, rhs.functionName)) {
-            return false;
-        }
-        if (lhs.subTypes.size() != rhs.subTypes.size()) {
-            return false;
-        }
-        for (int i = 0; i < lhs.subTypes.size(); ++i) {
-            TypeCoercionUtils.checkCanCastTo(lhs.subTypes.get(i), rhs.subTypes.get(i));
-        }
-        return true;
+        throw new UnsupportedOperationException("currently cast for agg_state type is unsupported");
     }
 
     @Override
