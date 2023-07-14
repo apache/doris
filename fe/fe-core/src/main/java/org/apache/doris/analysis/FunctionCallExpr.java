@@ -1475,10 +1475,10 @@ public class FunctionCallExpr extends Expr {
 
                 // find user defined functions
                 if (fn == null) {
-                    if (analyzer.isReAnalyze()) {
+                    fn = findUdf(fnName, analyzer);
+                    if (analyzer.isReAnalyze() && fn instanceof AliasFunction) {
                         throw new AnalysisException("a UDF in the original function of a alias function");
                     }
-                    fn = findUdf(fnName, analyzer);
                 }
             }
         }
