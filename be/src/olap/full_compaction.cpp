@@ -117,9 +117,9 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
                 _full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
         std::vector<RowsetSharedPtr> output_rowsets;
         output_rowsets.push_back(_output_rowset);
-        RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-        _tablet->save_meta();
     }
+    RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+    _tablet->save_meta();
     return Status::OK();
 }
 
