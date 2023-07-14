@@ -440,7 +440,10 @@ public:
                 << "Can not change to bloom filter because of runtime filter type is "
                 << to_string(_filter_type);
         _is_bloomfilter = true;
-        insert_to_bloom_filter(_context.bloom_filter_func.get());
+        BloomFilterFuncBase* bf = _context.bloom_filter_func.get();
+        // BloomFilter may be not init
+        bf->init_with_fixed_length();
+        insert_to_bloom_filter(bf);
         // release in filter
         _context.hybrid_set.reset(create_set(_column_return_type));
     }
