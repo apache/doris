@@ -25,12 +25,12 @@
 
 #include "common/status.h"
 #include "udf/udf.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/columns/column_array.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -64,7 +64,9 @@ public:
                 << " and arguments[1] is " << arguments[1]->get_name();
         return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
     }
-
+    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
+                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
+                           NullMapType* dest_nested_null_map);
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
 
