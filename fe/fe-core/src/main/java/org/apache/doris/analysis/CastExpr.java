@@ -204,11 +204,11 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        boolean isVerbose = ConnectContext.get() != null && (ConnectContext.get().getExecutor() != null
+        boolean isVerbose = ConnectContext.get() != null
+                && ConnectContext.get().getExecutor() != null
                 && ConnectContext.get().getExecutor().getParsedStmt() != null
                 && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
-                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose()
-                || !ConnectContext.get().getState().isQuery());
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
         if (isImplicit && !isVerbose) {
             return getChild(0).toSql();
         }
