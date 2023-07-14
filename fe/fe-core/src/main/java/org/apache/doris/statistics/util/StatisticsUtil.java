@@ -577,7 +577,8 @@ public class StatisticsUtil {
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(hivePartitions, true);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(
+                hivePartitions, true);
         long totalSize = 0;
         // Calculate the total file size.
         for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
