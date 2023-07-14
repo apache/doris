@@ -27,7 +27,7 @@ suite("test_date_floor_ceil") {
     qt_sql5 """select date_floor("2023-07-14 10:51:00",interval 5 month); """
     qt_sql6 """select date_floor("2023-07-14 10:51:00",interval 5 year); """
 
-    qt_sql7 """select date_ceil("2023-07-14 10:51:00",interval 5 second); """
+    qt_sql7 """select date_ceil("2023-07-14 10:51:11",interval 5 second); """
     qt_sql8 """select date_ceil("2023-07-14 10:51:00",interval 5 minute); """
     qt_sql9 """select date_ceil("2023-07-14 10:51:00",interval 5 hour); """
     qt_sql10 """select date_ceil("2023-07-14 10:51:00",interval 5 day);   """
