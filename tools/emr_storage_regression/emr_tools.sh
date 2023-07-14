@@ -1,3 +1,5 @@
+#!/bin/bash
+
 set -eo pipefail
 
 usage() {
@@ -44,16 +46,13 @@ while true; do
     case "$1" in
     --profile)
         PROFILE="$2"
+        # can use custom profile: sh emr_tools.sh --profile default_emr_env.sh
         if [[ -n "${PROFILE}" ]]; then
-          echo "${PROFILE}"
-          ENV="$3"
-          if [[ -z "${ENV}" ]]; then
-            echo "ENV is not specified, use default profile"
-          else
-            
-          fi
+          # shellcheck source="$(pwd)/default_emr_env.sh"
+          source "${PROFILE}"
         fi
         shift 2
+        break
         ;;
     --case)
         CASE="$2"
@@ -107,26 +106,24 @@ while true; do
     esac
 done
 
-#export FE_HOST=172.16.1.163
-#export USER=root
-#export FE_QUERY_PORT=9035
 export FE_HOST=${HOST}
 export USER=${USER}
 export FE_QUERY_PORT=${PORT}
 
 if [[ ${CASE} == 'ping' ]]; then
   if [[ ${SERVICE} == 'hw' ]]; then
-    HMS_META_URI="thrift://192.168.0.104:9083"
-    HMS_WAREHOUSE=obs://datalake-bench-obs/user
+    HMS_META_URI="thrift://node-master1rjzj.mrs-dr8h.com:9083,thrift://node-master2rksk.mrs-dr8h.com:9083"
+    BEELINE_URI="jdbc:hive2://192.168.0.8:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2;hive.server2.proxy.user=hive"
+    HMS_WAREHOUSE=obs://datalake-bench/user
   elif [[ ${SERVICE} == 'ali' ]]; then
-    HMS_META_URI="thrift://172.16.1.162:9083",
+    HMS_META_URI="thrift://172.16.1.162:9083"
     HMS_WAREHOUSE=oss://benchmark-oss/user
   else
     # [[ ${SERVICE} == 'tx' ]];
     HMS_META_URI="thrift://172.21.0.32:7004"
     HMS_WAREHOUSE=cosn://datalake-bench-cos-1308700295/user
   fi
-  sh ping_poc.sh "${ENDPOINT}" "${REGION}" "${SERVICE}" "${AK}" "${SK}" "${HMS_META_URI}" "${HMS_WAREHOUSE}"
+  sh ping_test/ping_poc.sh "${ENDPOINT}" "${REGION}" "${SERVICE}" "${AK}" "${SK}" "${HMS_META_URI}" "${HMS_WAREHOUSE}" "${BEELINE_URI}"
 elif [[ ${CASE} == 'data_set' ]]; then
   if [[ ${SERVICE} == 'tx' ]]; then
       BUCKET=cosn://datalake-bench-cos-1308700295
@@ -146,13 +143,13 @@ elif [[ ${CASE} == 'data_set' ]]; then
   # FE_HOST=172.16.1.163
   # USER=root
   # PORT=9035
-  TYPE=hdfs sh run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_hdfs
-  TYPE=hdfs sh run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms
+  TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_hdfs
+  TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms
   if [[ ${SERVICE} == 'tx' ]]; then
-    sh run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_cos 
-    sh run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_cos
+    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_cos 
+    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_cos
   elif [[ ${SERVICE} == 'ali' ]]; then
-    sh run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_oss
-    sh run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_oss
+    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_oss
+    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_oss
   fi
 fi
