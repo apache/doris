@@ -527,4 +527,46 @@ public class AggregateTest extends TestWithFeService {
             }
         } while (false);
     }
+
+    @Test
+    public void testCountByEnumAnalysisException() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // normal.
+        do {
+            String query = "select count_by_enum(name) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        do {
+            String query = "select count_by_enum(name, commission) from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        } while (false);
+
+        // less argument.
+        do {
+            String query = "select count_by_enum() from "
+                + DB_NAME + "." + TABLE_NAME;
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("No matching function with signature: count_by_enum()"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while (false);
+
+    }
 }
