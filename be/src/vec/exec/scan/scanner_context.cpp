@@ -188,8 +188,12 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
     if (has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
-        _num_scheduling_ctx++;
-        _scanner_scheduler->submit(this);
+        auto state = _scanner_scheduler->submit(this);
+        if (state.ok()) {
+            _num_scheduling_ctx++;
+        } else {
+            _process_status = state;
+        }
     }
     // Wait for block from queue
     if (wait) {
@@ -340,10 +344,9 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     }
     std::lock_guard l(_transfer_lock);
     if (has_enough_space_in_blocks_queue()) {
-        _num_scheduling_ctx++;
         auto submit_st = _scanner_scheduler->submit(this);
-        if (!submit_st.ok()) {
-            _num_scheduling_ctx--;
+        if (submit_st.ok()) {
+            _num_scheduling_ctx++;
         }
     }
 
