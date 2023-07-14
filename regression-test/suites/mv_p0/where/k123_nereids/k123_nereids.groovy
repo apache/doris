@@ -19,7 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k123p_nereids") {
     sql """ DROP TABLE IF EXISTS d_table; """
-
+    sql """set enable_nereids_planner=true"""
     sql """
             create table d_table(
                 k1 int null,
