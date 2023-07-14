@@ -1092,6 +1092,9 @@ public class SessionVariable implements Serializable, Writable {
         */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
+            this.enableNereidsPlanner = false;
+            this.enablePipelineEngine = false;
+
             switch (Config.pull_request_id % 4) {
                 case 0:
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
@@ -1102,7 +1105,7 @@ public class SessionVariable implements Serializable, Writable {
                 case 2:
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                     break;
-                case 3:
+                case 3:       
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                     break;
                 default:
