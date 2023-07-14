@@ -124,7 +124,7 @@ public class JoinEstimation {
 
         Statistics innerJoinStats;
         Statistics crossJoinStats = new StatisticsBuilder()
-                .setRowCount(Math.max(1, leftStats.getRowCount() * rightStats.getRowCount()))
+                .setRowCount(Math.max(1, leftStats.getRowCount()) * Math.max(1, rightStats.getRowCount()))
                 .putColumnStatistics(leftStats.columnStatistics())
                 .putColumnStatistics(rightStats.columnStatistics())
                 .build();
