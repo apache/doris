@@ -99,8 +99,9 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
 }
 
 RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
-                           const TUniqueId& query_id, const TQueryOptions& query_options,
-                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+                           const TUniqueId& query_id, int32_t fragment_id,
+                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                           ExecEnv* exec_env)
         : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
@@ -108,6 +109,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
+          _fragment_id(fragment_id),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
