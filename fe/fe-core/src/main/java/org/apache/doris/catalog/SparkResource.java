@@ -37,6 +37,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -159,16 +160,17 @@ public class SparkResource extends Resource {
     }
 
     public Map<String, String> getEnvConfigsWithoutPrefix() {
-        Map<String, String> envConfig = Maps.newHashMap();
+        Map<String, String> systemEnv = System.getenv();
+        Map<String, String> currentEnvConfigs = new HashMap<>(systemEnv);
         if (envConfigs != null) {
             for (Map.Entry<String, String> entry : envConfigs.entrySet()) {
                 if (entry.getKey().startsWith(ENV_PREFIX)) {
                     String key = entry.getKey().substring(ENV_PREFIX.length());
-                    envConfig.put(key, entry.getValue());
+                    currentEnvConfigs.put(key, entry.getValue());
                 }
             }
         }
-        return envConfig;
+        return currentEnvConfigs;
     }
 
     public Pair<String, String> getYarnResourcemanagerAddressPair() {
