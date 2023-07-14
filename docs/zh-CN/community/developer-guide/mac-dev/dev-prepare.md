@@ -38,8 +38,8 @@ python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@
     - 自行下载的 Java 与 Maven 需要配置环境变量
 2. 其他依赖的环境变量 (示例为 Apple Silicon 芯片 Mac)
     - llvm: `export PATH="/opt/homebrew/opt/llvm/bin:$PATH"`
-    - bison: `export PATH = "/opt/homebrew/opt/bison/bin:$PATH`
-    - texinfo: `export PATH = "/opt/homebrew/opt/texinfo/bin:$PATH`
+    - bison: `export PATH="/opt/homebrew/opt/bison/bin:$PATH"`
+    - texinfo: `export PATH="/opt/homebrew/opt/texinfo/bin:$PATH"`
     - python: `ln -s -f /opt/homebrew/bin/python3 /opt/homebrew/bin/python`
    
 ## 安装 thrift
