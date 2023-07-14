@@ -267,7 +267,7 @@ public class OutFileClause {
     }
 
     private void genOrcSchema(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
-        Preconditions.checkState(this.parquetSchemas.isEmpty());
+        Preconditions.checkState(this.orcSchemas.isEmpty());
         for (int i = 0; i < resultExprs.size(); ++i) {
             Expr expr = resultExprs.get(i);
             String type = "";
