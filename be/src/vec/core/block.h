@@ -420,6 +420,7 @@ public:
     }
     MutableBlock() = default;
     ~MutableBlock() = default;
+
     MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
                  bool igore_trivial_slot = false);
 
