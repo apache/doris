@@ -36,15 +36,15 @@ public:
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const RowDescriptor& row_desc) {
         if (!block->mem_reuse()) {
-            Block tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
-            block->swap(std::move(tmp));
+            MutableBlock tmp(VectorizedUtils::create_columns_with_type_and_name(row_desc));
+            block->swap(tmp.to_block());
         }
         return MutableBlock::build_mutable_block(block);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block, const Block& other) {
         if (!block->mem_reuse()) {
-            Block tmp(other.clone_empty());
-            block->swap(std::move(tmp));
+            MutableBlock tmp(other.clone_empty());
+            block->swap(tmp.to_block());
         }
         return MutableBlock::build_mutable_block(block);
     }
