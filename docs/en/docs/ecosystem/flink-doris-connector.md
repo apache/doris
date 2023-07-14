@@ -555,3 +555,7 @@ When Flink imports data, if there is dirty data, such as field format, length, e
 
 11. **How should the source table and Doris table correspond?**
 When using Flink Connector to import data, pay attention to two aspects. The first is that the columns and types of the source table correspond to the columns and types in flink sql; the second is that the columns and types in flink sql must match those of the doris table For the correspondence between columns and types, please refer to the above "Doris & Flink Column Type Mapping" for details
+
+12. **TApplicationException: get_next failed: out of sequence response: expected 4 but got 3**
+
+If it occurs  occasionally, it may be that the current connector version is incompatible with the Flink version. You can upgrade the Flink version or use a lower version of the connector.
