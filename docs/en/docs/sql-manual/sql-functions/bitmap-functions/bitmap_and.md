@@ -42,6 +42,13 @@ mysql> select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt;
 |    0 |
 +------+
 
+mysql> select bitmap_to_string(bitmap_and(to_bitmap(1), to_bitmap(2)));
++----------------------------------------------------------+
+| bitmap_to_string(bitmap_and(to_bitmap(1), to_bitmap(2))) |
++----------------------------------------------------------+
+|                                                          |
++----------------------------------------------------------+
+
 mysql> select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt;
 +------+
 | cnt  |
@@ -49,28 +56,28 @@ mysql> select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(1))) cnt;
 |    1 |
 +------+
 
-MySQL> select bitmap_to_string(bitmap_and(to_bitmap(1), to_bitmap(1)));
+mysql> select bitmap_to_string(bitmap_and(to_bitmap(1), to_bitmap(1)));
 +----------------------------------------------------------+
 | bitmap_to_string(bitmap_and(to_bitmap(1), to_bitmap(1))) |
 +----------------------------------------------------------+
 | 1                                                        |
 +----------------------------------------------------------+
 
-MySQL> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5')));
+mysql> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5')));
 +-----------------------------------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'))) |
 +-----------------------------------------------------------------------------------------------------------------------+
 | 1,2                                                                                                                   |
 +-----------------------------------------------------------------------------------------------------------------------+
 
-MySQL> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),bitmap_empty()));
+mysql> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),bitmap_empty()));
 +---------------------------------------------------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), bitmap_empty())) |
 +---------------------------------------------------------------------------------------------------------------------------------------+
 |                                                                                                                                       |
 +---------------------------------------------------------------------------------------------------------------------------------------+
 
-MySQL> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),NULL));
+mysql> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'),NULL));
 +-----------------------------------------------------------------------------------------------------------------------------+
 | bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_from_string('1,2'), bitmap_from_string('1,2,3,4,5'), NULL)) |
 +-----------------------------------------------------------------------------------------------------------------------------+
