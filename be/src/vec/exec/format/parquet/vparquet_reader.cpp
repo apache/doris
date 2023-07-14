@@ -836,15 +836,22 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         auto& statistic = meta_data.statistics;
         bool is_all_null =
                 (statistic.__isset.null_count && statistic.null_count == meta_data.num_values);
-        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min);
+        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min) ||
+                              (statistic.__isset.max_value && statistic.__isset.min_value);
         if ((!is_set_min_max) && (!is_all_null)) {
             continue;
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
-        *filter_group =
-                ParquetPredicate::filter_by_stats(slot_iter->second, col_schema, is_set_min_max,
-                                                  statistic.min, statistic.max, is_all_null, *_ctz);
+        if (statistic.__isset.min_value) {
+            *filter_group = ParquetPredicate::filter_by_stats(
+                    slot_iter->second, col_schema, is_set_min_max, statistic.min_value,
+                    statistic.max_value, is_all_null, *_ctz, true);
+        } else {
+            *filter_group = ParquetPredicate::filter_by_stats(
+                    slot_iter->second, col_schema, is_set_min_max, statistic.min, statistic.max,
+                    is_all_null, *_ctz, false);
+        }
         if (*filter_group) {
             break;
         }

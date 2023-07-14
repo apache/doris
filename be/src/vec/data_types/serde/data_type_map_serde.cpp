@@ -19,6 +19,7 @@
 
 #include "arrow/array/builder_nested.h"
 #include "util/jsonb_document.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
@@ -50,13 +51,23 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
     auto& map_column = assert_cast<const ColumnMap&>(column);
     const IColumn& nested_keys_column = map_column.get_keys();
-    CHECK(!nested_keys_column.is_nullable());
     const IColumn& nested_values_column = map_column.get_values();
+    // now we default set key value in map is nullable
+    DCHECK(nested_keys_column.is_nullable());
+    DCHECK(nested_values_column.is_nullable());
+    auto keys_nullmap_data =
+            check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
     auto& offsets = map_column.get_offsets();
     auto key_builder = builder.key_builder();
     auto value_builder = builder.item_builder();
+
     for (size_t r = start; r < end; ++r) {
-        if (null_map && (*null_map)[r]) {
+        if ((null_map && (*null_map)[r])) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+        } else if (simd::contain_byte(keys_nullmap_data + offsets[r - 1],
+                                      offsets[r] - offsets[r - 1], 1)) {
+            // arrow do not support key is null so we just put null with this row
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {

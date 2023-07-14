@@ -695,6 +695,9 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     // cleand unused delete bitmap for deleted tablet
     _clean_unused_delete_bitmap();
 
+    // cleand unused pending publish info for deleted tablet
+    _clean_unused_pending_publish_info();
+
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
         data_dir->perform_remote_rowset_gc();
@@ -792,6 +795,30 @@ void StorageEngine::_clean_unused_delete_bitmap() {
         LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
                   << ", deleted tablets size: " << removed_tablets.size();
         removed_tablets.clear();
+    }
+}
+
+void StorageEngine::_clean_unused_pending_publish_info() {
+    std::vector<std::pair<int64_t, int64_t>> removed_infos;
+    auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
+                                                                  int64_t publish_version,
+                                                                  const string& info) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            removed_infos.emplace_back(tablet_id, publish_version);
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        TabletMetaManager::traverse_pending_publish(data_dir->get_meta(),
+                                                    clean_pending_publish_info_func);
+        for (auto& [tablet_id, publish_version] : removed_infos) {
+            TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id, publish_version);
+        }
+        LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
+                  << ", deleted pending publish info size: " << removed_infos.size();
+        removed_infos.clear();
     }
 }
 
@@ -903,11 +930,15 @@ void StorageEngine::start_delete_unused_rowset() {
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-            if (it->second.use_count() == 1 && it->second->need_delete_file()) {
+            uint64_t now = UnixSeconds();
+            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+                // We delay the GC time of this rowset since it's maybe still needed, see #20732
+                now > it->second->delayed_expired_timestamp()) {
                 if (it->second->is_local()) {
                     unused_rowsets_copy[it->first] = it->second;
                 }
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                evict_querying_rowset(it->second->rowset_id());
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
@@ -1167,6 +1198,25 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
     root.Accept(writer);
     *result = std::string(strbuf.GetString());
     return Status::OK();
+}
+
+void StorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    _querying_rowsets.emplace(rs->rowset_id(), rs);
+}
+
+RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    auto it = _querying_rowsets.find(rs_id);
+    if (it != _querying_rowsets.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void StorageEngine::evict_querying_rowset(RowsetId rs_id) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    _querying_rowsets.erase(rs_id);
 }
 
 } // namespace doris
