@@ -78,6 +78,7 @@ planType
     | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
     | SHAPE
+    | MEMO
     | ALL // default type
     ;
 
