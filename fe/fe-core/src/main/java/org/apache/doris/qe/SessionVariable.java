@@ -1105,7 +1105,7 @@ public class SessionVariable implements Serializable, Writable {
                 case 2:
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                     break;
-                case 3:       
+                case 3:
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
                     break;
                 default:
