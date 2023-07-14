@@ -465,7 +465,7 @@ public class AnalyticExpr extends Expr {
         type = getFnCall().getType();
 
         for (Expr e : partitionExprs) {
-            if (e.isConstant()) {
+            if (e.isLiteral()) {
                 throw new AnalysisException(
                     "Expressions in the PARTITION BY clause must not be constant: "
                     + e.toSql() + " (in " + toSql() + ")");
