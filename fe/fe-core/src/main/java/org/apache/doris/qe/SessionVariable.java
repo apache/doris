@@ -1094,24 +1094,16 @@ public class SessionVariable implements Serializable, Writable {
         if (Config.pull_request_id > 0) {
             switch (Config.pull_request_id % 4) {
                 case 0:
-                    this.enablePipelineEngine = true;
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = true;
                     break;
                 case 1:
-                    this.enablePipelineEngine = true;
                     this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = false;
                     break;
                 case 2:
-                    this.enablePipelineEngine = false;
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = true;
                     break;
                 case 3:
-                    this.enablePipelineEngine = false;
                     this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    this.enableNereidsPlanner = false;
                     break;
                 default:
                     break;
