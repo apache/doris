@@ -263,6 +263,7 @@ public class BeLoadRebalancer extends Rebalancer {
 
         // Select a low load backend as destination.
         boolean setDest = false;
+        boolean hasCandidate = false;
         for (BackendLoadStatistic beStat : lowBe) {
             if (beStat.isAvailable() && replicas.stream().noneMatch(r -> r.getBackendId() == beStat.getBeId())) {
                 // check if on same host.
@@ -296,6 +297,8 @@ public class BeLoadRebalancer extends Rebalancer {
                     continue;
                 }
 
+                hasCandidate = true;
+
                 // classify the paths.
                 // And we only select path from 'low' and 'mid' paths
                 Set<Long> pathLow = Sets.newHashSet();
@@ -316,7 +319,11 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (!setDest) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "unable to find low backend");
+            Status status = Status.UNRECOVERABLE;
+            if (hasCandidate) {
+                status = Status.SCHEDULE_FAILED;
+            }
+            throw new SchedException(status, "unable to find low backend");
         }
     }
 }

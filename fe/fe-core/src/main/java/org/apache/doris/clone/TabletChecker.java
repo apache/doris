@@ -373,11 +373,6 @@ public class TabletChecker extends MasterDaemon {
 
                 counter.unhealthyTabletNum++;
 
-                if (!tablet.readyToBeRepaired(statusWithPrio.second)) {
-                    counter.tabletNotReady++;
-                    continue;
-                }
-
                 TabletSchedCtx tabletCtx = new TabletSchedCtx(
                         TabletSchedCtx.Type.REPAIR,
                         db.getId(), tbl.getId(),
