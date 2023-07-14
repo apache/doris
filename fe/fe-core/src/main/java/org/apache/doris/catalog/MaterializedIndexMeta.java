@@ -111,6 +111,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
+        if (this.whereClause != null) {
+            this.whereClause.setDisableTableName(true);
+        }
     }
 
     public Expr getWhereClause() {
