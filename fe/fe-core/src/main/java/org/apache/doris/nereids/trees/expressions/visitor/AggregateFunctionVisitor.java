@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -33,6 +34,10 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitCount(Count count, C context) {
+        return visitAggregateFunction(count, context);
+    }
+
+    default R visitCountByEnum(CountByEnum count, C context) {
         return visitAggregateFunction(count, context);
     }
 
