@@ -14,36 +14,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
 
-kind/docs:
-  - docs/**/*
-  - README.md
-  - ./**/README.md
-  - CONTRIBUTING.md
-  - CODE_OF_CONDUCT.md
-  - CODE_OF_CONDUCT_CN.md
-
-kind/test:
-  - regression-test/**/*.groovy
-  - regression-test/**/*.sql
-
-area/docker:
-  - docker/runtime/*
-
-area/nereids:
-  - fe/fe-core/src/main/java/org/apache/doris/nereids/**/*
-  - fe/fe-core/src/main/antlr4/org/apache/doris/nereids/**/*
-  - fe/fe-core/src/test/java/org/apache/doris/nereids/**/*
-
-area/planner:
-  - fe/fe-core/src/main/java/org/apache/doris/planner/**/*
-  - fe/fe-core/src/main/java/org/apache/doris/analysis/**/*
-
-area/load:
-  - fe/fe-core/src/main/java/org/apache/doris/load/*
-  - fe/fe-core/src/main/java/org/apache/doris/load/**/*
-
-area/pipeline:
-  - be/src/pipeline/**/*
-
+docker
+docker-compose
+jsonpickle
+prettytable
+pymysql

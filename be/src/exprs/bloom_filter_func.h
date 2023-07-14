@@ -137,6 +137,7 @@ public:
         if (_inited) {
             return Status::OK();
         }
+        // TODO: really need the lock?
         std::lock_guard<std::mutex> l(_lock);
         if (_inited) {
             return Status::OK();

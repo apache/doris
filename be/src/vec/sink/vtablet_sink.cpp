@@ -96,6 +96,7 @@ namespace doris {
 class TExpr;
 
 namespace stream_load {
+
 IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
@@ -364,7 +365,7 @@ Status VNodeChannel::open_wait() {
         return Status::InternalError("failed to open tablet writer, error={}, error_text={}",
                                      berror(error_code), error_text);
     }
-    Status status(_open_closure->result.status());
+    Status status(Status::create(_open_closure->result.status()));
     if (_open_closure->unref()) {
         delete _open_closure;
     }
@@ -410,7 +411,7 @@ Status VNodeChannel::open_wait() {
             return;
         }
         SCOPED_ATTACH_TASK(_state);
-        Status status(result.status());
+        Status status(Status::create(result.status()));
         if (status.ok()) {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {

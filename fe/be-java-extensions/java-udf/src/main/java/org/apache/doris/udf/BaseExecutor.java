@@ -25,12 +25,14 @@ import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
+import com.google.common.base.Preconditions;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
@@ -1020,5 +1022,184 @@ public abstract class BaseExecutor {
     }
 
     protected void updateOutputOffset(long offset) {
+    }
+
+    public Object[] convertBasicArg(boolean isUdf, int argIdx, boolean isNullable, int rowStart, int rowEnd,
+            long nullMapAddr, long columnAddr, long strOffsetAddr) {
+        switch (argTypes[argIdx]) {
+            case BOOLEAN:
+                return UdfConvert.convertBooleanArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case TINYINT:
+                return UdfConvert.convertTinyIntArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case SMALLINT:
+                return UdfConvert.convertSmallIntArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case INT:
+                return UdfConvert.convertIntArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case BIGINT:
+                return UdfConvert.convertBigIntArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case LARGEINT:
+                return UdfConvert.convertLargeIntArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case FLOAT:
+                return UdfConvert.convertFloatArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case DOUBLE:
+                return UdfConvert.convertDoubleArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr);
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                return UdfConvert
+                        .convertStringArg(isNullable, rowStart, rowEnd, nullMapAddr, columnAddr, strOffsetAddr);
+            case DATE: // udaf maybe argClass[i + argClassOffset] need add +1
+                return UdfConvert
+                        .convertDateArg(isUdf ? argClass[argIdx] : argClass[argIdx + 1], isNullable, rowStart, rowEnd,
+                                nullMapAddr, columnAddr);
+            case DATETIME:
+                return UdfConvert
+                        .convertDateTimeArg(isUdf ? argClass[argIdx] : argClass[argIdx + 1], isNullable, rowStart,
+                                rowEnd, nullMapAddr, columnAddr);
+            case DATEV2:
+                return UdfConvert
+                        .convertDateV2Arg(isUdf ? argClass[argIdx] : argClass[argIdx + 1], isNullable, rowStart, rowEnd,
+                                nullMapAddr, columnAddr);
+            case DATETIMEV2:
+                return UdfConvert
+                        .convertDateTimeV2Arg(isUdf ? argClass[argIdx] : argClass[argIdx + 1], isNullable, rowStart,
+                                rowEnd, nullMapAddr, columnAddr);
+            case DECIMALV2:
+            case DECIMAL128:
+                return UdfConvert
+                        .convertDecimalArg(argTypes[argIdx].getScale(), 16L, isNullable, rowStart, rowEnd, nullMapAddr,
+                                columnAddr);
+            case DECIMAL32:
+                return UdfConvert
+                        .convertDecimalArg(argTypes[argIdx].getScale(), 4L, isNullable, rowStart, rowEnd, nullMapAddr,
+                                columnAddr);
+            case DECIMAL64:
+                return UdfConvert
+                        .convertDecimalArg(argTypes[argIdx].getScale(), 8L, isNullable, rowStart, rowEnd, nullMapAddr,
+                                columnAddr);
+            default: {
+                LOG.info("Not support type: " + argTypes[argIdx].toString());
+                Preconditions.checkState(false, "Not support type: " + argTypes[argIdx].toString());
+                break;
+            }
+        }
+        return null;
+    }
+
+    public Object[] convertArrayArg(int argIdx, boolean isNullable, int rowStart, int rowEnd, long nullMapAddr,
+            long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
+        Object[] argument = (Object[]) Array.newInstance(ArrayList.class, rowEnd - rowStart);
+        for (int row = rowStart; row < rowEnd; ++row) {
+            long offsetStart = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row - 1));
+            long offsetEnd = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row));
+            int currentRowNum = (int) (offsetEnd - offsetStart);
+            switch (argTypes[argIdx].getItemType().getPrimitiveType()) {
+                case BOOLEAN: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayBooleanArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case TINYINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayTinyIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case SMALLINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArraySmallIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case INT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case BIGINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayBigIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case LARGEINT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayLargeIntArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case FLOAT: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayFloatArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DOUBLE: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDoubleArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayStringArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr, strOffsetAddr);
+                    break;
+                }
+                case DATE: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATETIME: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateTimeArg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATEV2: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateV2Arg(row, currentRowNum, offsetStart, isNullable, nullMapAddr,
+                                    nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DATETIMEV2: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDateTimeV2Arg(row, currentRowNum, offsetStart, isNullable,
+                                    nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMALV2:
+                case DECIMAL128: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 16L, row, currentRowNum,
+                                    offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL32: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 4L, row, currentRowNum,
+                                    offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                case DECIMAL64: {
+                    argument[row - rowStart] = UdfConvert
+                            .convertArrayDecimalArg(argTypes[argIdx].getScale(), 8L, row, currentRowNum,
+                                    offsetStart, isNullable, nullMapAddr, nestedNullMapAddr, dataAddr);
+                    break;
+                }
+                default: {
+                    LOG.info("Not support: " + argTypes[argIdx]);
+                    Preconditions.checkState(false, "Not support type " + argTypes[argIdx].toString());
+                    break;
+                }
+            }
+        }
+        return argument;
     }
 }

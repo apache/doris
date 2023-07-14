@@ -165,7 +165,7 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);

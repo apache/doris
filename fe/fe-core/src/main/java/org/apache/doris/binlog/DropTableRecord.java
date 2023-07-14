@@ -29,11 +29,17 @@ public class DropTableRecord {
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
+    private String tableName;
+    @SerializedName(value = "rawSql")
+    private String rawSql;
 
     public DropTableRecord(long commitSeq, DropInfo info) {
         this.commitSeq = commitSeq;
         this.dbId = info.getDbId();
         this.tableId = info.getTableId();
+        this.tableName = info.getTableName();
+        this.rawSql = String.format("DROP TABLE IF EXISTS `%s`", this.tableName);
     }
 
     public long getCommitSeq() {

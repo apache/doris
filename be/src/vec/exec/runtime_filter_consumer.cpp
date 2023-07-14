@@ -34,6 +34,15 @@ Status RuntimeFilterConsumer::init(RuntimeState* state) {
     return Status::OK();
 }
 
+void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
+    std::stringstream ss;
+    for (auto& rf_ctx : _runtime_filter_ctxs) {
+        rf_ctx.runtime_filter->init_profile(profile);
+        ss << rf_ctx.runtime_filter->get_name() << ", ";
+    }
+    profile->add_info_string("RuntimeFilters: ", ss.str());
+}
+
 Status RuntimeFilterConsumer::_register_runtime_filter() {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);

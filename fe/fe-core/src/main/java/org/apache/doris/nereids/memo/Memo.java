@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -737,10 +738,12 @@ public class Memo {
             builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             Statistics stats = group.getStatistics();
-            if (stats != null && !group.getLogicalExpressions().isEmpty()
-                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
-                for (Entry e : stats.columnStatistics().entrySet()) {
-                    builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+            if (stats != null && !group.getLogicalExpressions().isEmpty()) {
+                Plan plan = group.getLogicalExpressions().get(0).getPlan();
+                if (plan instanceof LogicalOlapScan || plan instanceof LogicalFileScan) {
+                    for (Entry e : stats.columnStatistics().entrySet()) {
+                        builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+                    }
                 }
             }
 

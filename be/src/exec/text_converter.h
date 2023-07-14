@@ -29,7 +29,7 @@ class SlotDescriptor;
 // numeric types, etc.
 class TextConverter {
 public:
-    TextConverter(char escape_char);
+    TextConverter(char escape_char, char array_delimiter = '\2');
 
     void write_string_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data,
@@ -55,8 +55,11 @@ public:
                           size_t rows);
     void unescape_string_on_spot(const char* src, size_t* len);
 
+    void set_array_delimiter(char array_delimiter) { _array_delimiter = array_delimiter; }
+
 private:
     char _escape_char;
+    char _array_delimiter;
 };
 
 } // namespace doris

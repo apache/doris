@@ -70,7 +70,7 @@ private:
 template <typename T>
 Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("split_string meet nullptr result input");
     }
 
     // 处理base为空的情况

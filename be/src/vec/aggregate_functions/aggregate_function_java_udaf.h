@@ -128,63 +128,80 @@ public:
         return Status::OK();
     }
 
-    Status add(const int64_t places_address[], bool is_single_place, const IColumn** columns,
-               size_t row_num_start, size_t row_num_end, const DataTypes& argument_types) {
+    Status add(int64_t places_address, bool is_single_place, const IColumn** columns,
+               int row_num_start, int row_num_end, const DataTypes& argument_types,
+               int place_offset) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf add function");
+        jclass obj_class = env->FindClass("[Ljava/lang/Object;");
+        jobjectArray arg_objects = env->NewObjectArray(argument_size, obj_class, nullptr);
+        int64_t nullmap_address = 0;
+
         for (int arg_idx = 0; arg_idx < argument_size; ++arg_idx) {
+            bool arg_column_nullable = false;
             auto data_col = columns[arg_idx];
             if (auto* nullable = check_and_get_column<const ColumnNullable>(*columns[arg_idx])) {
+                arg_column_nullable = true;
+                auto null_col = nullable->get_null_map_column_ptr();
                 data_col = nullable->get_nested_column_ptr();
-                auto null_col = check_and_get_column<ColumnVector<UInt8>>(
-                        nullable->get_null_map_column_ptr());
-                input_nulls_buffer_ptr.get()[arg_idx] =
-                        reinterpret_cast<int64_t>(null_col->get_data().data());
-            } else {
-                input_nulls_buffer_ptr.get()[arg_idx] = -1;
+                nullmap_address = reinterpret_cast<int64_t>(
+                        check_and_get_column<ColumnVector<UInt8>>(null_col)->get_data().data());
             }
-            if (data_col->is_column_string()) {
-                const ColumnString* str_col = check_and_get_column<ColumnString>(data_col);
-                input_values_buffer_ptr.get()[arg_idx] =
-                        reinterpret_cast<int64_t>(str_col->get_chars().data());
-                input_offsets_ptrs.get()[arg_idx] =
-                        reinterpret_cast<int64_t>(str_col->get_offsets().data());
-            } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
-                input_values_buffer_ptr.get()[arg_idx] =
-                        reinterpret_cast<int64_t>(data_col->get_raw_data().data);
+            // convert argument column data into java type
+            jobjectArray arr_obj = nullptr;
+            if (data_col->is_numeric() || data_col->is_column_decimal()) {
+                arr_obj = (jobjectArray)env->CallObjectMethod(
+                        executor_obj, executor_convert_basic_argument_id, arg_idx,
+                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
+                        reinterpret_cast<int64_t>(data_col->get_raw_data().data), 0);
+            } else if (data_col->is_column_string()) {
+                const ColumnString* str_col = assert_cast<const ColumnString*>(data_col);
+                arr_obj = (jobjectArray)env->CallObjectMethod(
+                        executor_obj, executor_convert_basic_argument_id, arg_idx,
+                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
+                        reinterpret_cast<int64_t>(str_col->get_chars().data()),
+                        reinterpret_cast<int64_t>(str_col->get_offsets().data()));
             } else if (data_col->is_column_array()) {
                 const ColumnArray* array_col = assert_cast<const ColumnArray*>(data_col);
-                input_offsets_ptrs.get()[arg_idx] = reinterpret_cast<int64_t>(
-                        array_col->get_offsets_column().get_raw_data().data);
                 const ColumnNullable& array_nested_nullable =
                         assert_cast<const ColumnNullable&>(array_col->get_data());
                 auto data_column_null_map = array_nested_nullable.get_null_map_column_ptr();
                 auto data_column = array_nested_nullable.get_nested_column_ptr();
-                input_array_nulls_buffer_ptr.get()[arg_idx] = reinterpret_cast<int64_t>(
+                auto offset_address = reinterpret_cast<int64_t>(
+                        array_col->get_offsets_column().get_raw_data().data);
+                auto nested_nullmap_address = reinterpret_cast<int64_t>(
                         check_and_get_column<ColumnVector<UInt8>>(data_column_null_map)
                                 ->get_data()
                                 .data());
-
-                //need pass FE, nullamp and offset, chars
+                int64_t nested_data_address = 0, nested_offset_address = 0;
+                // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
                 if (data_column->is_column_string()) {
                     const ColumnString* col = assert_cast<const ColumnString*>(data_column.get());
-                    input_values_buffer_ptr.get()[arg_idx] =
-                            reinterpret_cast<int64_t>(col->get_chars().data());
-                    input_array_string_offsets_ptrs.get()[arg_idx] =
-                            reinterpret_cast<int64_t>(col->get_offsets().data());
+                    nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
+                    nested_offset_address = reinterpret_cast<int64_t>(col->get_offsets().data());
                 } else {
-                    input_values_buffer_ptr.get()[arg_idx] =
+                    nested_data_address =
                             reinterpret_cast<int64_t>(data_column->get_raw_data().data);
                 }
+                arr_obj = (jobjectArray)env->CallObjectMethod(
+                        executor_obj, executor_convert_array_argument_id, arg_idx,
+                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
+                        offset_address, nested_nullmap_address, nested_data_address,
+                        nested_offset_address);
             } else {
                 return Status::InvalidArgument(
                         strings::Substitute("Java UDAF doesn't support type is $0 now !",
                                             argument_types[arg_idx]->get_name()));
             }
+            env->SetObjectArrayElement(arg_objects, arg_idx, arr_obj);
+            env->DeleteLocalRef(arr_obj);
         }
-        *input_place_ptrs = reinterpret_cast<int64_t>(places_address);
-        env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_add_id, is_single_place,
-                                      row_num_start, row_num_end);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        // invoke add batch
+        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place, row_num_start,
+                              row_num_end, places_address, place_offset, arg_objects);
+        env->DeleteLocalRef(arg_objects);
+        env->DeleteLocalRef(obj_class);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -392,6 +409,12 @@ private:
                 register_id("getValue", UDAF_EXECUTOR_RESULT_SIGNATURE, executor_result_id));
         RETURN_IF_ERROR(
                 register_id("destroy", UDAF_EXECUTOR_DESTROY_SIGNATURE, executor_destroy_id));
+        RETURN_IF_ERROR(register_id("convertBasicArguments", "(IZIIJJJ)[Ljava/lang/Object;",
+                                    executor_convert_basic_argument_id));
+        RETURN_IF_ERROR(register_id("convertArrayArguments", "(IZIIJJJJJ)[Ljava/lang/Object;",
+                                    executor_convert_array_argument_id));
+        RETURN_IF_ERROR(
+                register_id("addBatch", "(ZIIJI[Ljava/lang/Object;)V", executor_add_batch_id));
         return Status::OK();
     }
 
@@ -403,12 +426,15 @@ private:
     jmethodID executor_ctor_id;
 
     jmethodID executor_add_id;
+    jmethodID executor_add_batch_id;
     jmethodID executor_merge_id;
     jmethodID executor_serialize_id;
     jmethodID executor_result_id;
     jmethodID executor_reset_id;
     jmethodID executor_close_id;
     jmethodID executor_destroy_id;
+    jmethodID executor_convert_basic_argument_id;
+    jmethodID executor_convert_array_argument_id;
 
     std::unique_ptr<int64_t[]> input_values_buffer_ptr;
     std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
@@ -481,11 +507,10 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        int64_t places_address[1];
-        places_address[0] = reinterpret_cast<int64_t>(place);
-        Status st =
-                this->data(_exec_place)
-                        .add(places_address, true, columns, row_num, row_num + 1, argument_types);
+        int64_t places_address = reinterpret_cast<int64_t>(place);
+        Status st = this->data(_exec_place)
+                            .add(places_address, true, columns, row_num, row_num + 1,
+                                 argument_types, 0);
         if (UNLIKELY(st != Status::OK())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
@@ -493,25 +518,20 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
-        int64_t places_address[batch_size];
-        for (size_t i = 0; i < batch_size; ++i) {
-            places_address[i] = reinterpret_cast<int64_t>(places[i] + place_offset);
-        }
+        int64_t places_address = reinterpret_cast<int64_t>(places);
         Status st = this->data(_exec_place)
-                            .add(places_address, false, columns, 0, batch_size, argument_types);
+                            .add(places_address, false, columns, 0, batch_size, argument_types,
+                                 place_offset);
         if (UNLIKELY(st != Status::OK())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
     }
 
-    // TODO: Here we calling method by jni, And if we get a thrown from FE,
-    // But can't let user known the error, only return directly and output error to log file.
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* /*arena*/) const override {
-        int64_t places_address[1];
-        places_address[0] = reinterpret_cast<int64_t>(place);
+        int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
-                            .add(places_address, true, columns, 0, batch_size, argument_types);
+                            .add(places_address, true, columns, 0, batch_size, argument_types, 0);
         if (UNLIKELY(st != Status::OK())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
@@ -522,11 +542,10 @@ public:
                                 Arena* arena) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
-        int64_t places_address[1];
-        places_address[0] = reinterpret_cast<int64_t>(place);
-        Status st =
-                this->data(_exec_place)
-                        .add(places_address, true, columns, frame_start, frame_end, argument_types);
+        int64_t places_address = reinterpret_cast<int64_t>(place);
+        Status st = this->data(_exec_place)
+                            .add(places_address, true, columns, frame_start, frame_end,
+                                 argument_types, 0);
         if (UNLIKELY(st != Status::OK())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
