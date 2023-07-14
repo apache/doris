@@ -86,7 +86,6 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                 + "properties(\"replication_num\" = \"1\")");
 
         createMv("create materialized view k12s3m as select k1,sum(k2),max(k2) from agg_have_dup_base group by k1");
-        createMv("create materialized view mv2 as select k1, k2, k3 from agg_have_dup_base group by k1, k2, k3");
         createMv("create materialized view mv3 as select k1, k2 + k3 from agg_have_dup_base group by k1, k2 + k3");
     }
 
@@ -119,9 +118,9 @@ public class ExplainInsertCommandTest extends TestWithFeService {
     @Test
     public void testWithMV() throws Exception {
         String sql = "explain insert into agg_have_dup_base select -4, -4, -4, 'd'";
-        Assertions.assertEquals(10, getOutputFragment(sql).getOutputExprs().size());
+        Assertions.assertEquals(8, getOutputFragment(sql).getOutputExprs().size());
         String sql1 = "explain insert into agg_have_dup_base select -4, k2, -4, 'd' from agg_have_dup_base";
-        Assertions.assertEquals(10, getOutputFragment(sql1).getOutputExprs().size());
+        Assertions.assertEquals(8, getOutputFragment(sql1).getOutputExprs().size());
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

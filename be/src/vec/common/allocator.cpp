@@ -49,7 +49,8 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                 size, doris::thread_context()->thread_mem_tracker()->label(),
                 doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
                 doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
-        if (size > 1024l * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc) { // 1G
+        if (size > 1024l * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc &&
+            !doris::config::disable_memory_gc) { // 1G
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 

@@ -42,6 +42,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "util/time.h"
 
@@ -49,19 +50,8 @@ namespace doris {
 class OlapMeta;
 } // namespace doris
 
-using apache::thrift::ThriftDebugString;
-using std::filesystem::canonical;
-using std::filesystem::directory_iterator;
-using std::filesystem::path;
-using std::filesystem::recursive_directory_iterator;
-using std::back_inserter;
-using std::copy;
-using std::inserter;
-using std::list;
 using std::map;
-using std::nothrow;
 using std::pair;
-using std::priority_queue;
 using std::set;
 using std::string;
 using std::stringstream;
@@ -142,9 +132,9 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     // if yes, reject the request.
     txn_partition_map_t& txn_partition_map = _get_txn_partition_map(transaction_id);
     if (txn_partition_map.size() > config::max_runnings_transactions_per_txn_map) {
-        LOG(WARNING) << "too many transactions: " << txn_tablet_map.size()
-                     << ", limit: " << config::max_runnings_transactions_per_txn_map;
-        return Status::Error<TOO_MANY_TRANSACTIONS>();
+        return Status::Error<TOO_MANY_TRANSACTIONS>("too many transactions: {}, limit: {}",
+                                                    txn_tablet_map.size(),
+                                                    config::max_runnings_transactions_per_txn_map);
     }
 
     /// Step 3: Add transaction to engine
@@ -236,10 +226,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     if (rowset_ptr == nullptr) {
-        LOG(WARNING) << "could not commit txn because rowset ptr is null. "
-                     << "partition_id: " << key.first << ", transaction_id: " << key.second
-                     << ", tablet: " << tablet_info.to_string();
-        return Status::Error<ROWSET_INVALID>();
+        return Status::Error<ROWSET_INVALID>(
+                "could not commit txn because rowset ptr is null. partition_id: {}, "
+                "transaction_id: {}, tablet: {}",
+                key.first, key.second, tablet_info.to_string());
     }
 
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
@@ -275,14 +265,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                    load_info.load_id.lo() == load_id.lo() && load_info.rowset != nullptr &&
                    load_info.rowset->rowset_id() != rowset_ptr->rowset_id()) {
             // find a rowset with different rowset id, then it should not happen, just return errors
-            LOG(WARNING) << "find rowset exists when commit transaction to engine. but "
-                            "rowset ids "
-                            "are not same."
-                         << "partition_id: " << key.first << ", transaction_id: " << key.second
-                         << ", tablet: " << tablet_info.to_string()
-                         << ", exist rowset_id: " << load_info.rowset->rowset_id()
-                         << ", new rowset_id: " << rowset_ptr->rowset_id();
-            return Status::Error<PUSH_TRANSACTION_ALREADY_EXIST>();
+            return Status::Error<PUSH_TRANSACTION_ALREADY_EXIST>(
+                    "find rowset exists when commit transaction to engine. but rowset ids are not "
+                    "same. partition_id: {}, transaction_id: {}, tablet: {}, exist rowset_id: {}, "
+                    "new rowset_id: {}",
+                    key.first, key.second, tablet_info.to_string(),
+                    load_info.rowset->rowset_id().to_string(), rowset_ptr->rowset_id().to_string());
         } else {
             break;
         }
@@ -295,10 +283,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
         Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                                      rowset_ptr->rowset_meta()->get_rowset_pb());
         if (save_status != Status::OK()) {
-            LOG(WARNING) << "save committed rowset failed. when commit txn rowset_id:"
-                         << rowset_ptr->rowset_id() << "tablet id: " << tablet_id
-                         << "txn id:" << transaction_id;
-            return Status::Error<ROWSET_SAVE_FAILED>();
+            return Status::Error<ROWSET_SAVE_FAILED>(
+                    "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
+                    "txn id: {}",
+                    rowset_ptr->rowset_id().to_string(), tablet_id, transaction_id);
         }
     }
 
@@ -360,10 +348,10 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         }
     }
     if (rowset == nullptr) {
-        LOG(WARNING) << "publish txn failed, rowset not found. partition_id: " << partition_id
-                     << ", transaction_id: " << transaction_id
-                     << ", tablet: " << tablet_info.to_string();
-        return Status::Error<TRANSACTION_NOT_EXIST>();
+        return Status::Error<TRANSACTION_NOT_EXIST>(
+                "publish txn failed, rowset not found. partition_id={}, transaction_id={}, "
+                "tablet={}",
+                partition_id, transaction_id, tablet_info.to_string());
     }
 
     /// Step 2: make rowset visible
@@ -394,8 +382,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
         }
         stats->partial_update_write_segment_us = MonotonicMicros() - t3;
         int64_t t4 = MonotonicMicros();
-        std::shared_lock rlock(tablet->get_header_lock());
-        tablet->save_meta();
+        RETURN_IF_ERROR(TabletMetaManager::save_delete_bitmap(
+                tablet->data_dir(), tablet->tablet_id(), tablet_txn_info.delete_bitmap,
+                version.second));
         stats->save_meta_time_us = MonotonicMicros() - t4;
     }
 
@@ -404,10 +393,10 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (enable_binlog) {
         auto status = rowset->add_to_binlog();
         if (!status.ok()) {
-            LOG(WARNING) << "add rowset to binlog failed. when publish txn rowset_id:"
-                         << rowset->rowset_id() << ", tablet id: " << tablet_id
-                         << ", txn id:" << transaction_id;
-            return Status::Error<ROWSET_ADD_TO_BINLOG_FAILED>();
+            return Status::Error<ROWSET_ADD_TO_BINLOG_FAILED>(
+                    "add rowset to binlog failed. when publish txn rowset_id: {}, tablet id: {}, "
+                    "txn id: {}",
+                    rowset->rowset_id().to_string(), tablet_id, transaction_id);
         }
     }
 
@@ -417,10 +406,10 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                           rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
-        LOG(WARNING) << "save committed rowset failed. when publish txn rowset_id:"
-                     << rowset->rowset_id() << ", tablet id: " << tablet_id
-                     << ", txn id:" << transaction_id;
-        return Status::Error<ROWSET_SAVE_FAILED>();
+        return Status::Error<ROWSET_SAVE_FAILED>(
+                "save committed rowset failed. when publish txn rowset_id: {}, tablet id: {}, txn "
+                "id: {}",
+                rowset->rowset_id().to_string(), tablet_id, transaction_id);
     }
 
     // TODO(Drogon): remove these test codes
@@ -471,9 +460,9 @@ Status TxnManager::rollback_txn(TPartitionId partition_id, TTransactionId transa
             // case 1: user commit rowset, then the load id must be equal
             TabletTxnInfo& load_info = load_itr->second;
             if (load_info.rowset != nullptr) {
-                // if rowset is not null, it means other thread may commit the rowset
-                // should not delete txn any more
-                return Status::Error<TRANSACTION_ALREADY_COMMITTED>();
+                return Status::Error<TRANSACTION_ALREADY_COMMITTED>(
+                        "if rowset is not null, it means other thread may commit the rowset should "
+                        "not delete txn any more");
             }
         }
         it->second.erase(tablet_info);
@@ -499,7 +488,7 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
     auto it = txn_tablet_map.find(key);
     if (it == txn_tablet_map.end()) {
-        return Status::Error<TRANSACTION_NOT_EXIST>();
+        return Status::Error<TRANSACTION_NOT_EXIST>("key not founded from txn_tablet_map");
     }
     auto load_itr = it->second.find(tablet_info);
     if (load_itr != it->second.end()) {
@@ -508,14 +497,13 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
         TabletTxnInfo& load_info = load_itr->second;
         if (load_info.rowset != nullptr && meta != nullptr) {
             if (load_info.rowset->version().first > 0) {
-                LOG(WARNING) << "could not delete transaction from engine, "
-                             << "just remove it from memory not delete from disk"
-                             << " because related rowset already published."
-                             << ",partition_id: " << key.first << ", transaction_id: " << key.second
-                             << ", tablet: " << tablet_info.to_string()
-                             << ", rowset id: " << load_info.rowset->rowset_id()
-                             << ", version: " << load_info.rowset->version().first;
-                return Status::Error<TRANSACTION_ALREADY_COMMITTED>();
+                return Status::Error<TRANSACTION_ALREADY_COMMITTED>(
+                        "could not delete transaction from engine, just remove it from memory not "
+                        "delete from disk, because related rowset already published. partition_id: "
+                        "{}, transaction_id: {}, tablet: {}, rowset id: {}, version:{}",
+                        key.first, key.second, tablet_info.to_string(),
+                        load_info.rowset->rowset_id().to_string(),
+                        load_info.rowset->version().to_string());
             } else {
                 RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id());
 #ifndef BE_TEST
@@ -630,6 +618,28 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
         for (auto& it : _txn_tablet_maps[i]) {
             for (auto& tablet_load_it : it.second) {
                 tablet_infos->emplace(tablet_load_it.first);
+            }
+        }
+    }
+}
+
+void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
+        const TabletSharedPtr& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
+    for (int32_t i = 0; i < _txn_map_shard_size; i++) {
+        std::shared_lock txn_rdlock(_txn_map_locks[i]);
+        for (const auto& it : _txn_tablet_maps[i]) {
+            auto tablet_load_it = it.second.find(tablet->get_tablet_info());
+            if (tablet_load_it != it.second.end()) {
+                TPartitionId partition_id = it.first.first;
+                TTransactionId transaction_id = it.first.second;
+                const RowsetSharedPtr& rowset = tablet_load_it->second.rowset;
+                const DeleteBitmapPtr& delete_bitmap = tablet_load_it->second.delete_bitmap;
+                const RowsetIdUnorderedSet& rowset_ids = tablet_load_it->second.rowset_ids;
+                if (!rowset || !delete_bitmap) {
+                    continue;
+                }
+                commit_tablet_txn_info_vec->push_back(CommitTabletTxnInfo(
+                        partition_id, transaction_id, rowset, delete_bitmap, rowset_ids));
             }
         }
     }

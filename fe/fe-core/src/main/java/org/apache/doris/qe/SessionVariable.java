@@ -96,6 +96,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
+    public static final String HAVE_QUERY_CACHE =  "have_query_cache";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -177,6 +178,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_BUSHY_TREE = "enable_bushy_tree";
 
+    public static final String MAX_JOIN_NUMBER_BUSHY_TREE = "max_join_number_bushy_tree";
     public static final String ENABLE_PARTITION_TOPN = "enable_partition_topn";
 
     public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
@@ -269,8 +271,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
 
     public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
-
-    public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
 
@@ -520,6 +520,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
+    @VariableMgr.VarAttr(name = HAVE_QUERY_CACHE, flag = VariableMgr.READ_ONLY)
+    public boolean haveQueryCache = false;
+
     // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
     public int batchSize = 4064;
@@ -722,6 +725,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_BUSHY_TREE, needForward = true)
     private boolean enableBushyTree = false;
 
+    public int getMaxJoinNumBushyTree() {
+        return maxJoinNumBushyTree;
+    }
+
+    public void setMaxJoinNumBushyTree(int maxJoinNumBushyTree) {
+        this.maxJoinNumBushyTree = maxJoinNumBushyTree;
+    }
+
+    @VariableMgr.VarAttr(name = MAX_JOIN_NUMBER_BUSHY_TREE)
+    private int maxJoinNumBushyTree = 5;
+
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_TOPN)
     private boolean enablePartitionTopN = false;
 
@@ -850,9 +864,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_NEW_SHUFFLE_HASH_METHOD)
-    public boolean enableNewShuffleHashMethod = true;
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
@@ -1056,6 +1067,7 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
         }
         this.runtimeFilterType = 1 << randomInt;
+        /*
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
@@ -1077,6 +1089,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalAggPartitionBits = 4;
                 break;
         }
+        */
         // pull_request_id default value is 0. When it is 0, use default (global) session variable.
         if (Config.pull_request_id > 0) {
             switch (Config.pull_request_id % 4) {
@@ -1340,6 +1353,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getCodegenLevel() {
         return codegenLevel;
+    }
+
+    public boolean getHaveQueryCache() {
+        return haveQueryCache;
     }
 
     /**
@@ -2035,7 +2052,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
         tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
         tResult.setEnableLocalExchange(enableLocalExchange);
-        tResult.setEnableNewShuffleHashMethod(enableNewShuffleHashMethod);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 

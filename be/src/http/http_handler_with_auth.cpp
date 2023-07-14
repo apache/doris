@@ -74,7 +74,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
 #else
     CHECK(_exec_env == nullptr);
 #endif
-    Status status(auth_result.status);
+    Status status(Status::create(auth_result.status));
     if (!status.ok()) {
         LOG(WARNING) << "permission verification failed, request: " << auth_request;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);

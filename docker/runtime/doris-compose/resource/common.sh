@@ -14,29 +14,23 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-#
----
-name: Add Scope Labeler
 
-on:
-  pull_request_target:
-    types:
-      - opened
-      - synchronize
+export MASTER_FE_IP=""
+export MASTER_FE_IP_FILE=$DORIS_HOME/status/master_fe_ip
 
-jobs:
-  process:
-    name: Process
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Assign GitHub labels
-        if: |
-          github.event_name == 'pull_request_target' &&
-            (github.event.action == 'opened' ||
-             github.event.action == 'synchronize')
-        uses: actions/labeler@2.2.0
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          configuration-path: .github/workflows/labeler/scope-label-conf.yml
-          sync-labels: true
+health_log() {
+    date >> "$DORIS_HOME/log/health.out"
+    echo "$@" >> "$DORIS_HOME/log/health.out"
+}
+
+read_master_fe_ip() {
+    MASTER_FE_IP=`cat $MASTER_FE_IP_FILE`
+    if [ $? -eq 0 ]; then
+        health_log "master fe ${MASTER_FE_IP} has ready."
+        return 0
+    else
+        health_log "master fe has not ready."
+        return 1
+    fi
+}
+

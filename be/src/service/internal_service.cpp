@@ -280,7 +280,8 @@ void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
     } catch (const Exception& e) {
         st = e.to_status();
     } catch (...) {
-        st = Status::Error(ErrorCode::INTERNAL_ERROR);
+        st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                           "_exec_plan_fragment_impl meet unknown error");
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
@@ -1516,8 +1517,9 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         if (!tablet) {
             continue;
         }
-        BetaRowsetSharedPtr rowset =
-                std::static_pointer_cast<BetaRowset>(tablet->get_rowset(rowset_id));
+        // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
+        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
+                StorageEngine::instance()->get_quering_rowset(rowset_id));
         if (!rowset) {
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;

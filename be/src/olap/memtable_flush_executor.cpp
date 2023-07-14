@@ -70,7 +70,7 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     auto s = _flush_status.load();
     if (s != OK) {
-        return Status::Error(s);
+        return Status::Error(s, "FlushToken meet error");
     }
     if (mem_table->empty()) {
         return Status::OK();
@@ -89,7 +89,7 @@ void FlushToken::cancel() {
 Status FlushToken::wait() {
     _flush_token->wait();
     auto s = _flush_status.load();
-    return s == OK ? Status::OK() : Status::Error(s);
+    return s == OK ? Status::OK() : Status::Error(s, "FlushToken meet error");
 }
 
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {

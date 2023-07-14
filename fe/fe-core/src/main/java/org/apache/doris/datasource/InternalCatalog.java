@@ -895,7 +895,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             } finally {
                 table.writeUnlock();
             }
-            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop(), recycleTime);
+            DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, stmt.isForceDrop(), recycleTime);
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
@@ -1230,8 +1230,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
                     DefaultValue defaultValue;
                     if (column.getDefaultValueExprDef() != null) {
-                        defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                        if (column.getDefaultValueExprDef().getPrecision() != null) {
+                            defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
+                                column.getDefaultValueExprDef().getExprName(),
+                                column.getDefaultValueExprDef().getPrecision());
+                        } else {
+                            defaultValue = new DefaultValue(setDefault, column.getDefaultValue(),
                                 column.getDefaultValueExprDef().getExprName());
+                        }
                     } else {
                         defaultValue = new DefaultValue(setDefault, column.getDefaultValue());
                     }

@@ -33,7 +33,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -48,13 +50,15 @@ import java.util.stream.Collectors;
  *   A     B                 A       B
  * </pre>
  */
-public class PushdownProjectThroughInnerJoin implements ExplorationRuleFactory {
-    public static final PushdownProjectThroughInnerJoin INSTANCE = new PushdownProjectThroughInnerJoin();
+public class PushdownProjectThroughInnerOuterJoin implements ExplorationRuleFactory {
+    public static final PushdownProjectThroughInnerOuterJoin INSTANCE = new PushdownProjectThroughInnerOuterJoin();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalJoin(logicalProject(innerLogicalJoin()), group())
+                logicalJoin(logicalProject(logicalJoin()), group())
+                        .when(j -> j.left().child().getJoinType().isOuterJoin() || j.left().child().getJoinType()
+                                .isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.left().isAllSlots())
                         .whenNot(j -> j.left().child().hasJoinHint())
@@ -65,8 +69,10 @@ public class PushdownProjectThroughInnerJoin implements ExplorationRuleFactory {
                                 return null;
                             }
                             return topJoin.withChildren(newLeft, topJoin.right());
-                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_JOIN),
-                logicalJoin(group(), logicalProject(innerLogicalJoin()))
+                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN),
+                logicalJoin(group(), logicalProject(logicalJoin()))
+                        .when(j -> j.right().child().getJoinType().isOuterJoin() || j.right().child().getJoinType()
+                                .isInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.right().isAllSlots())
                         .whenNot(j -> j.right().child().hasJoinHint())
@@ -77,7 +83,7 @@ public class PushdownProjectThroughInnerJoin implements ExplorationRuleFactory {
                                 return null;
                             }
                             return topJoin.withChildren(topJoin.left(), newRight);
-                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_JOIN)
+                        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN)
         );
     }
 
@@ -97,7 +103,24 @@ public class PushdownProjectThroughInnerJoin implements ExplorationRuleFactory {
 
         List<NamedExpression> aProjects = new ArrayList<>();
         List<NamedExpression> bProjects = new ArrayList<>();
-        for (NamedExpression namedExpression : project.getProjects()) {
+        List<NamedExpression> projects;
+        if (join.getJoinType().isInnerJoin()) {
+            projects = project.getProjects();
+        } else {
+            Map<Slot, Slot> childrenSlots = new HashMap<>();
+            join.left().getOutputSet().forEach(slot -> childrenSlots.put(slot, slot));
+            join.right().getOutputSet().forEach(slot -> childrenSlots.put(slot, slot));
+            join.getOutputSet().forEach(slot -> {
+                if (childrenSlots.containsKey(slot)) {
+                    childrenSlots.put(slot, childrenSlots.get(slot));
+                }
+            });
+
+            projects = project.getProjects().stream().map(expr -> expr.rewriteUp(e ->
+                    e instanceof Slot ? childrenSlots.get((Slot) e) : e
+            )).map(e -> (NamedExpression) e).collect(Collectors.toList());
+        }
+        for (NamedExpression namedExpression : projects) {
             Set<ExprId> usedExprIds = namedExpression.getInputSlotExprIds();
             if (aOutputExprIdSet.containsAll(usedExprIds)) {
                 aProjects.add(namedExpression);

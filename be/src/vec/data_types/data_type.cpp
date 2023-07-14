@@ -171,6 +171,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::TIME;
     case TypeIndex::AggState:
         return PGenericType::AGG_STATE;
+    case TypeIndex::TimeV2:
+        return PGenericType::TIMEV2;
     default:
         return PGenericType::UNKNOWN;
     }

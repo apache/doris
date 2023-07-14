@@ -1230,7 +1230,7 @@ void CreateTableTaskPool::_create_tablet_worker_thread_callback() {
         Status status = _env->storage_engine()->create_tablet(create_tablet_req);
         if (!status.ok()) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
-            LOG_WARNING("failed to create tablet")
+            LOG_WARNING("failed to create tablet, reason={}", status.to_string())
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", create_tablet_req.tablet_id)
                     .error(status);

@@ -725,4 +725,18 @@ public class CreateTableTest {
                             + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');");
                 });
     }
+
+    @Test
+    public void testCreateTableWithStringLen() throws DdlException  {
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
+                    + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
+        Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
+        Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
+        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
+        Assert.assertEquals(10, tb.getColumn("k4").getStrLen());
+    }
 }
