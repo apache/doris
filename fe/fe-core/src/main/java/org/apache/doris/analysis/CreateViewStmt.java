@@ -37,16 +37,22 @@ public class CreateViewStmt extends BaseViewStmt {
 
     private final boolean ifNotExists;
     private final String comment;
+    private final boolean orReplace;
 
     public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols,
-            String comment, QueryStmt queryStmt) {
+            String comment, QueryStmt queryStmt, boolean orReplace) {
         super(tableName, cols, queryStmt);
         this.ifNotExists = ifNotExists;
         this.comment = Strings.nullToEmpty(comment);
+        this.orReplace = orReplace;
     }
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
+    }
+
+    public boolean isOrReplace() {
+        return orReplace;
     }
 
     public String getComment() {

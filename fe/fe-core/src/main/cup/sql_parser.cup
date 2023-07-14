@@ -1906,7 +1906,12 @@ create_stmt ::=
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
-        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
+        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def, false);
+    :}
+    | KW_CREATE KW_OR KW_REPLACE KW_VIEW table_name:viewName
+        opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
+    {:
+        RESULT = new CreateViewStmt(false, viewName, columns, comment, view_def, true);
     :}
     | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
@@ -3646,7 +3651,6 @@ opt_if_not_exists ::=
         RESULT = true;
     :}
     ;
-
 opt_external ::=
     /* empty */
     {:

@@ -4682,6 +4682,13 @@ public class Env {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create view[{}] which already exists", tableName);
                 return;
+            } else if (stmt.isOrReplace()) {
+                try {
+                    this.alter.processAlterView(stmt, ConnectContext.get());
+                } catch (UserException e) {
+                    throw new DdlException("failed to replace view", e);
+                }
+                return;
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }

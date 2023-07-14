@@ -65,6 +65,9 @@ public class BaseViewStmt extends DdlStmt {
         return tableName.getTbl();
     }
 
+    public TableName getTableName() {
+        return tableName;
+    }
 
     public List<Column> getColumns() {
         return finalCols;

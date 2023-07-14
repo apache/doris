@@ -41,12 +41,19 @@ CREATE VIEW [IF NOT EXISTS]
  (column1[ COMMENT "col comment"][, column2, ...])
 AS query_stmt
 ````
-
+or
+```sql
+CREATE OR REPLACE VIEW
+ [db_name.]view_name
+ (column1[ COMMENT "col comment"][, column2, ...])
+AS query_stmt
+````
 
 illustrate:
 
 - Views are logical views and have no physical storage. All queries on the view are equivalent to the sub-queries corresponding to the view.
-- query_stmt is any supported SQL
+- query_stmt is any supported SQL.
+- View column names don't have to be same as query_stmt, but column numbers must be identical.
 
 ### Example
 
@@ -58,7 +65,7 @@ illustrate:
     SELECT c1 as k1, k2, k3, SUM(v1) FROM example_table
     WHERE k1 = 20160112 GROUP BY k1,k2,k3;
     ````
-    
+
 2. Create a view with a comment
 
     ```sql
@@ -73,6 +80,19 @@ illustrate:
     AS
     SELECT c1 as k1, k2, k3, SUM(v1) FROM example_table
     WHERE k1 = 20160112 GROUP BY k1,k2,k3;
+    ````
+
+2. Replace an existing view
+
+    ```sql
+    CREATE OR REPLACE VIEW example_db.example_view
+    (
+        c1 COMMENT "column 1",
+        c2 COMMENT "column 2",
+        c3 COMMENT "column 3",
+    )
+    AS
+    SELECT k1, k2, k3 FROM example_table;
     ````
 
 ### Keywords

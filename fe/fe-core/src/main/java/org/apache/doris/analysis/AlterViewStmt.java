@@ -38,10 +38,6 @@ public class AlterViewStmt extends BaseViewStmt {
         super(tbl, cols, queryStmt);
     }
 
-    public TableName getTbl() {
-        return tableName;
-    }
-
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);

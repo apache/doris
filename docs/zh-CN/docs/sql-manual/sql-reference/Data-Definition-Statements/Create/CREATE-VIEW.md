@@ -41,12 +41,19 @@ CREATE VIEW [IF NOT EXISTS]
  (column1[ COMMENT "col comment"][, column2, ...])
 AS query_stmt
 ```
-
+或
+```sql
+CREATE OR REPLACE VIEW
+ [db_name.]view_name
+ (column1[ COMMENT "col comment"][, column2, ...])
+AS query_stmt
+````
 
 说明：
 
 - 视图为逻辑视图，没有物理存储。所有在视图上的查询相当于在视图对应的子查询上进行。
-- query_stmt 为任意支持的 SQL
+- query_stmt 为任意支持的 SQL。
+- 视图的列名不必与query_stmt的对应列名相同，但是两者列的个数必须相同。
 
 ### Example
 
@@ -58,7 +65,7 @@ AS query_stmt
     SELECT c1 as k1, k2, k3, SUM(v1) FROM example_table
     WHERE k1 = 20160112 GROUP BY k1,k2,k3;
     ```
-    
+
 2. 创建一个包含 comment 的 view
 
     ```sql
@@ -74,6 +81,18 @@ AS query_stmt
     SELECT c1 as k1, k2, k3, SUM(v1) FROM example_table
     WHERE k1 = 20160112 GROUP BY k1,k2,k3;
     ```
+3. 创建或者覆盖已存在的视图
+
+    ```sql
+    CREATE OR REPLACE VIEW example_db.example_view
+    (
+        c1 COMMENT "column 1",
+        c2 COMMENT "column 2",
+        c3 COMMENT "column 3",
+    )
+    AS
+    SELECT k1, k2, k3 FROM example_table;
+    ````
 
 ### Keywords
 
