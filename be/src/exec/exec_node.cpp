@@ -495,38 +495,6 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
 }
 
-void ExecNode::try_do_aggregate_serde_improve() {
-    std::vector<ExecNode*> agg_node;
-    collect_nodes(TPlanNodeType::AGGREGATION_NODE, &agg_node);
-    if (agg_node.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children.size() != 1) {
-        return;
-    }
-
-    if (agg_node[0]->_children[0]->type() != TPlanNodeType::OLAP_SCAN_NODE) {
-        return;
-    }
-
-    // TODO(cmy): should be removed when NewOlapScanNode is ready
-    ExecNode* child0 = agg_node[0]->_children[0];
-    if (typeid(*child0) == typeid(vectorized::NewOlapScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewFileScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewOdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewEsScanNode) ||
-        typeid(*child0) == typeid(vectorized::NewJdbcScanNode) ||
-        typeid(*child0) == typeid(vectorized::VMetaScanNode)) {
-        vectorized::VScanNode* scan_node =
-                static_cast<vectorized::VScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    } else {
-        ScanNode* scan_node = static_cast<ScanNode*>(agg_node[0]->_children[0]);
-        scan_node->set_no_agg_finalize();
-    }
-}
-
 void ExecNode::init_runtime_profile(const std::string& name) {
     std::stringstream ss;
     ss << name << " (id=" << _id << ")";

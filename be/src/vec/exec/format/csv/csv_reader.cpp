@@ -91,7 +91,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _file_compress_type = _params.compress_type;
     _size = _range.size;
 
-    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
+    _text_converter.reset(new (std::nothrow) TextConverter('\\', _array_delimiter[0]));
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
@@ -166,8 +166,7 @@ Status CsvReader::init_reader(bool is_load) {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
-                                                        _state->fragment_instance_id()));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
@@ -186,6 +185,10 @@ Status CsvReader::init_reader(bool is_load) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+
+    //get array delimiter
+    _array_delimiter = _params.file_attributes.text_params.array_delimiter;
+    _text_converter->set_array_delimiter(_array_delimiter[0]);
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -671,6 +674,10 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+
+    //get array delimiter
+    _array_delimiter = _params.file_attributes.text_params.array_delimiter;
+    _text_converter->set_array_delimiter(_array_delimiter[0]);
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file

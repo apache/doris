@@ -180,7 +180,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                 |
 | CHAR                                      | CHAR           |                                                 |
 | VARCHAR                                   | VARCHAR        |                                                 |
-| JSON                                      | STRING         |                                                 |
+| JSON                                      | JSON           |                                                 |
 | SET                                       | STRING         |                                                 |
 | BIT                                       | BOOLEAN/STRING | BIT(1) 会映射为 BOOLEAN,其他 BIT 映射为 STRING  |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                 |
@@ -236,12 +236,13 @@ Doris 通过sql 语句 `select nspname from pg_namespace where has_schema_privil
  | varchar/text                            | STRING         |                                               |
  | timestamp                               | DATETIME       |                                               |
  | date                                    | DATE           |                                               |
+ | json/josnb                              | JSON           |                                               |
  | time                                    | STRING         |                                               |
  | interval                                | STRING         |                                               |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                               |
  | cidr/inet/macaddr                       | STRING         |                                               |
  | bit                                     | BOOLEAN/STRING | bit(1)会映射为 BOOLEAN,其他 bit 映射为 STRING |
- | uuid/josnb                              | STRING         |                                               |
+ | uuid                                    | STRING         |                                               |
  | Other                                   | UNSUPPORTED    |                                               |
 
 ### Oracle

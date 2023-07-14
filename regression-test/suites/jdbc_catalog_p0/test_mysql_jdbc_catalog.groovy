@@ -105,6 +105,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_auto_default_t """insert into ${auto_default_t}(name) values('a'); """
         order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
+        order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
+        order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
+        order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

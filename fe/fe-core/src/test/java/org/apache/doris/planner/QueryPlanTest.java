@@ -65,6 +65,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         // create database
         createDatabase("test");
+        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
 
         createTable("create table test.test1\n"
                 + "(\n"

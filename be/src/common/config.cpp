@@ -315,6 +315,10 @@ DEFINE_String(pk_storage_page_cache_limit, "10%");
 // data page size for primary key index
 DEFINE_Int32(primary_key_data_page_size, "32768");
 
+DEFINE_mInt32(data_page_cache_stale_sweep_time_sec, "300");
+DEFINE_mInt32(index_page_cache_stale_sweep_time_sec, "600");
+DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
+
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
@@ -949,11 +953,8 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 
-// inverted index searcher cache
-// cache entry stay time after lookup, default 1h
-DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
-// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DEFINE_mInt32(index_cache_entry_no_visit_gc_time_s, "3600");
+DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
+DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data

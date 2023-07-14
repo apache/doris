@@ -348,6 +348,10 @@ FragmentMgr::~FragmentMgr() {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.clear();
         _query_ctx_map.clear();
+        for (auto& pipeline : _pipeline_map) {
+            pipeline.second->close_sink();
+        }
+        _pipeline_map.clear();
     }
 }
 
@@ -494,7 +498,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             coord->reportExecStatus(res, params);
         }
 
-        rpc_status = Status(res.status);
+        rpc_status = Status(Status::create(res.status));
     } catch (TException& e) {
         std::stringstream msg;
         msg << "ReportExecStatus() to " << req.coord_addr << " failed:\n" << e.what();

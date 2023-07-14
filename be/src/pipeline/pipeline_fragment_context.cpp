@@ -217,9 +217,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
             .tag("pthread_id", (uintptr_t)pthread_self());
 
     // 1. init _runtime_state
-    _runtime_state =
-            RuntimeState::create_unique(local_params, request.query_id, request.query_options,
-                                        _query_ctx->query_globals, _exec_env);
+    _runtime_state = RuntimeState::create_unique(local_params, request.query_id,
+                                                 request.fragment_id, request.query_options,
+                                                 _query_ctx->query_globals, _exec_env);
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
@@ -274,7 +274,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     VLOG_CRITICAL << "params.per_node_scan_ranges.size()="
                   << local_params.per_node_scan_ranges.size();
 
-    _root_plan->try_do_aggregate_serde_improve();
     // set scan range in ScanNode
     for (int i = 0; i < scan_nodes.size(); ++i) {
         // TODO(cmy): this "if...else" should be removed once all ScanNode are derived from VScanNode.
@@ -603,7 +602,6 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
-        new_pipe->disable_task_steal();
 
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
@@ -704,6 +702,16 @@ Status PipelineFragmentContext::submit() {
                                      BackendOptions::get_localhost());
     } else {
         return st;
+    }
+}
+
+void PipelineFragmentContext::close_sink() {
+    if (_sink) {
+        if (_prepared) {
+            _sink->close(_runtime_state.get(), Status::RuntimeError("prepare failed"));
+        } else {
+            _sink->close(_runtime_state.get(), Status::OK());
+        }
     }
 }
 
