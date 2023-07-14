@@ -71,7 +71,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -101,8 +100,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
         Set<String> predicateExprSql = predicateExpr.stream().map(e -> e.toSql()).collect(Collectors.toSet());
         Set<String> indexConjuncts = PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream()
-                .filter(Objects::nonNull).map(e -> new NereidsParser().parseExpression(e.toSql()).toSql())
-                .collect(Collectors.toSet());
+                .map(e -> new NereidsParser().parseExpression(e.toSql()).toSql()).collect(Collectors.toSet());
         Set<String> commonConjuncts = indexConjuncts.stream().filter(e -> predicateExprSql.contains(e))
                 .collect(Collectors.toSet());
         if (commonConjuncts.size() != indexConjuncts.size()) {
@@ -118,7 +116,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
                 .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
         mvColNames.addAll(indexConjuncts);
 
-        return mvColNames.containsAll(requiredMvColumnNames) && commonConjuncts.size() == predicateExprSql.size()
+        return mvColNames.containsAll(requiredMvColumnNames)
+                && (indexConjuncts.isEmpty() || commonConjuncts.size() == predicateExprSql.size())
                 || requiredExpr.stream().map(AbstractSelectMaterializedIndexRule::removeCastAndAlias)
                         .filter(e -> !containsAllColumn(e, mvColNames)).collect(Collectors.toSet()).isEmpty();
     }
@@ -425,7 +424,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         MaterializedIndexMeta meta = table.getIndexMetaByIndexId(mvPlan.getSelectedIndexId());
 
         return new SlotContext(baseSlotToMvSlot, mvNameToMvSlot,
-                PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream().filter(Objects::nonNull)
+                PlanNode.splitAndCompoundPredicateToConjuncts(meta.getWhereClause()).stream()
                         .map(e -> new NereidsParser().parseExpression(e.toSql())).collect(Collectors.toSet()));
     }
 
