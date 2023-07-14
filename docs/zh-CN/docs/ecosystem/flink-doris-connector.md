@@ -556,3 +556,7 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 12. **TApplicationException: get_next failed: out of sequence response: expected 4 but got 3**
 
 如果这是偶发性的出现，可能是当前 connector 版本与 flink 版本存在不兼容，你可以升级 flink 版本或使用较低版本的 connector。
+
+13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
+
+你可以在 TaskManager 中搜索日志 `abort transaction response`，根据 http 返回码确定是 client 的问题还是 server 的问题。
