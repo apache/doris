@@ -38,8 +38,8 @@ python@3 cmake ninja ccache bison byacc gettext wget pcre maven llvm@16 openjdk@
             - Self-downloaded Java and Maven need to configure environment variables
 2. Other dependent environment variables (example for Apple Silicon Macs)
     - llvm: `export PATH="/opt/homebrew/opt/llvm/bin:$PATH"`
-    - bison: `export PATH = "/opt/homebrew/opt/bison/bin:$PATH`
-    - texinfo: `export PATH = "/opt/homebrew/opt/texinfo/bin:$PATH`
+    - bison: `export PATH="/opt/homebrew/opt/bison/bin:$PATH"`
+    - texinfo: `export PATH="/opt/homebrew/opt/texinfo/bin:$PATH"`
     - python: `ln -s -f /opt/homebrew/bin/python3 /opt/homebrew/bin/python`
    
 ## Install thrift
