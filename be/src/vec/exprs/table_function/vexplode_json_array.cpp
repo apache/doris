@@ -24,6 +24,8 @@
 #include <algorithm>
 
 #include "common/status.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
