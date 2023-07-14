@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -67,6 +69,12 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
             StatementContext context) {
         Plan child = olapTableSink.child().accept(this, context);
         return olapTableSink.withChildren(child);
+    }
+
+    @Override
+    public LogicalPlan visitLogicalFileSink(LogicalFileSink<? extends Plan> sink, StatementContext context) {
+        Plan child = sink.child().accept(this, context);
+        return ((LogicalPlan) sink.withChildren(child));
     }
 
     @Override
