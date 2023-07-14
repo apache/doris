@@ -37,9 +37,7 @@ COUNT_BY_ENUM
 
 `count_by_enum(expr1, expr2, ... , exprN);`
 
-The `count_by_enum` function takes as arguments a set of conditions from 1 to 32 arguments of type `UInt8` that indicate whether a certain condition was met for the event. Any condition can be specified as an argument.
-
-The conditions, except the first, apply in pairs: the result of the second will be true if the first and second are true, of the third if the first and third are true, etc.
+Treats the data in a column as an enumeration and counts the number of values in each enumeration. Returns the number of enumerated values for each column, and the number of non-null values versus the number of null values.
 
 #### Arguments
 
