@@ -65,6 +65,19 @@ public class TimeRoundSeries {
         }
     }
 
+    private static long periodToSecond(DATE tag, int period) {
+        switch (tag) {
+            case DAY:
+                return period * 60 * 60 * 24;
+            case HOUR:
+                return period * 60 * 60;
+            case MINUTE:
+                return period * 60;
+            default:
+                return period;
+        }
+    }
+
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
             boolean getCeil) {
         // Algorithm:
@@ -77,20 +90,45 @@ public class TimeRoundSeries {
         TemporalUnit unit = dateEnumToUnit(tag);
         if (origin.isAfter(date)) {
             Duration duration = Duration.between(date, origin);
-            long hour = Math.abs(duration.get(unit));
-            long ceil = ((hour - 1) / period + 1) * period;
-            origin = origin.minus(ceil, unit);
+            long hour = duration.getSeconds();
+            long secondPeriod = periodToSecond(tag, period); //change to second
+            long ceil = ((hour - 1) / secondPeriod + 1) * secondPeriod;
+            origin = origin.minus(ceil, ChronoUnit.SECONDS);
         }
 
-        // get distance
-        Duration duration = Duration.between(origin, date);
-        long hour = Math.abs(duration.get(unit));
-        long ceil = ((hour - 1) / period + 1) * period;
-        long floor = hour / period * period;
-        LocalDateTime floorDate = origin.plus(floor, unit);
-        LocalDateTime ceilDate = origin.plus(ceil, unit);
-
-        return getCeil ? ceilDate : floorDate;
+        switch (tag) {
+            case YEAR: {
+                int diff = date.getYear() - origin.getYear();
+                long ceil = ((diff - 1) / period + 1) * period;
+                long floor = diff / period * period;
+                LocalDateTime floorDate = origin.plus(floor, unit);
+                LocalDateTime ceilDate = origin.plus(ceil, unit);
+                return getCeil ? ceilDate : floorDate;
+            }
+            case MONTH: {
+                int diff = (date.getYear() - origin.getYear()) * 12 + (date.getMonthValue() - origin.getMonthValue());
+                long ceil = ((diff - 1) / period + 1) * period;
+                long floor = diff / period * period;
+                LocalDateTime floorDate = origin.plus(floor, unit);
+                LocalDateTime ceilDate = origin.plus(ceil, unit);
+                return getCeil ? ceilDate : floorDate;
+            }
+            case DAY:
+            case HOUR:
+            case MINUTE:
+            case SECOND: {
+                Duration duration = Duration.between(origin, date);
+                long hour = duration.getSeconds();
+                long secondPeriod = periodToSecond(tag, period); //change to second
+                long ceil = ((hour - 1) / secondPeriod + 1) * secondPeriod;
+                long floor = hour / secondPeriod * secondPeriod;
+                LocalDateTime floorDate = origin.plus(floor, ChronoUnit.SECONDS);
+                LocalDateTime ceilDate = origin.plus(ceil, ChronoUnit.SECONDS); //convert by second
+                return getCeil ? ceilDate : floorDate;
+            }
+            default:
+                return null;
+        }
     }
 
     /**
