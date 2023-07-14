@@ -1774,7 +1774,7 @@ public class FunctionCallExpr extends Expr {
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
         }
-        
+
         // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
         // but type is varchar(*), we change it to varchar(N);
         if (fn.getFunctionName().getFunction().equals("substr")
