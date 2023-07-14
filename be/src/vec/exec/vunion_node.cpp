@@ -206,7 +206,11 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
-    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
+    bool mem_reuse = block->mem_reuse();
+    MutableBlock mblock =
+            mem_reuse ? MutableBlock::build_mutable_block(block)
+                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
+                                _row_descriptor)));
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
          ++_const_expr_list_idx) {
         Block tmp_block;
@@ -225,6 +229,9 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         }
     }
 
+    if (!mem_reuse) {
+        block->swap(mblock.to_block());
+    }
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
