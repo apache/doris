@@ -814,6 +814,12 @@ struct NameToFloat32 {
 struct NameToFloat64 {
     static constexpr auto name = "toFloat64";
 };
+struct NameToIPv4 {
+    static constexpr auto name = "toIPv4";
+};
+struct NameToIPv6 {
+    static constexpr auto name = "toIPv6";
+};
 struct NameToDate {
     static constexpr auto name = "toDate";
 };
@@ -1148,8 +1154,8 @@ using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
 using FunctionToDecimal128I =
         FunctionConvert<DataTypeDecimal<Decimal128I>, NameToDecimal128I, UnknownMonotonicity>;
-using FunctionToIPv4 = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
-using FunctionToIPv6 = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
+using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
+using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;

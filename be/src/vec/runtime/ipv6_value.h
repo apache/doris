@@ -31,7 +31,10 @@ namespace doris {
 
 class IPv6Value {
 public:
-    IPv6Value() = default;
+    IPv6Value() {
+        _value.high = 0;
+        _value.low = 0;
+    }
 
     explicit IPv6Value(vectorized::IPv6 ipv6) {
         _value = ipv6;
@@ -53,8 +56,15 @@ public:
         return from_string(_value, ipv6);
     }
 
+    bool from_binary_string(std::string ipv6_binary) {
+        return from_binary_string(_value, ipv6_binary);
+    }
+
     static bool from_string(vectorized::IPv6& x, std::string ipv6) {
         remove_ipv6_space(ipv6);
+        std::transform(ipv6.begin(), ipv6.end(), ipv6.begin(), [] (unsigned char ch) {
+            return std::tolower(ch);
+        });
         std::istringstream iss(ipv6);
         std::string field;
         uint16_t fields[8] = {0};
@@ -72,6 +82,10 @@ public:
                 fields[num_field++] = 0;
             } else {
                 try {
+                    if (field.size() > 4 || field > "ffff") {
+                        return false;
+                    }
+
                     fields[num_field++] = std::stoi(field, nullptr, 16);
                 } catch (const std::exception& /*e*/) {
                     return false;
@@ -96,11 +110,38 @@ public:
         return true;
     }
 
+    static bool from_binary_string(vectorized::IPv6& x, std::string ipv6_binary_str) {
+        // Accepts a FixedString(16) value containing the IPv6 address in binary format
+        if (ipv6_binary_str.size() != 16) {
+            return false;
+        }
+
+        x.high = 0;
+        x.low = 0;
+
+        const uint8_t* ipv6_binary = reinterpret_cast<const uint8_t*>(ipv6_binary_str.c_str());
+
+        for (int i = 0; i < 8; ++i) {
+            x.high |= (static_cast<uint64_t>(ipv6_binary[i]) << (56 - i * 8));
+        }
+
+        for (int i = 8; i < 16; ++i) {
+            x.low |= (static_cast<uint64_t>(ipv6_binary[i]) << (56 - (i - 8) * 8));
+        }
+
+        return true;
+    }
+
     [[nodiscard]] std::string to_string() const {
         return to_string(_value);
     }
 
-    static std::string to_string(const vectorized::IPv6& x) {
+    static std::string to_string(vectorized::IPv6 x) {
+        // "0000:0000:0000:0000:0000:0000:0000:0000"
+        if (x.high == 0 && x.low == 0) {
+            return "::";
+        }
+
         uint16_t fields[8] = {
                 static_cast<uint16_t>((x.high >> 48) & 0xFFFF),
                 static_cast<uint16_t>((x.high >> 32) & 0xFFFF),
@@ -152,6 +193,39 @@ public:
                     ss << std::hex << ":" << fields[j];
                 }
             }
+        }
+
+        return ss.str();
+    }
+
+    [[nodiscard]] std::string to_binary_string() const {
+        return to_binary_string(_value);
+    }
+
+    static std::string to_binary_string(vectorized::IPv6 x) {
+        uint8_t fields[16] = {
+                static_cast<uint8_t>((x.high >> 56) & 0xFF),
+                static_cast<uint8_t>((x.high >> 48) & 0xFF),
+                static_cast<uint8_t>((x.high >> 40) & 0xFF),
+                static_cast<uint8_t>((x.high >> 32) & 0xFF),
+                static_cast<uint8_t>((x.high >> 24) & 0xFF),
+                static_cast<uint8_t>((x.high >> 16) & 0xFF),
+                static_cast<uint8_t>((x.high >> 8) & 0xFF),
+                static_cast<uint8_t>(x.high & 0xFF),
+                static_cast<uint8_t>((x.low >> 56) & 0xFF),
+                static_cast<uint8_t>((x.low >> 48) & 0xFF),
+                static_cast<uint8_t>((x.low >> 40) & 0xFF),
+                static_cast<uint8_t>((x.low >> 32) & 0xFF),
+                static_cast<uint8_t>((x.low >> 24) & 0xFF),
+                static_cast<uint8_t>((x.low >> 16) & 0xFF),
+                static_cast<uint8_t>((x.low >> 8) & 0xFF),
+                static_cast<uint8_t>(x.low & 0xFF)
+        };
+
+        std::stringstream ss;
+
+        for (int i = 0; i < 16; ++i) {
+            ss << (char) fields[i];
         }
 
         return ss.str();

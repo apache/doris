@@ -168,6 +168,8 @@ public enum PrimitiveType {
         builder.put(TINYINT, DATETIME);
         builder.put(TINYINT, DATEV2);
         builder.put(TINYINT, DATETIMEV2);
+        builder.put(TINYINT, IPV4);
+        builder.put(TINYINT, IPV6);
         builder.put(TINYINT, DECIMALV2);
         builder.put(TINYINT, DECIMAL32);
         builder.put(TINYINT, DECIMAL64);

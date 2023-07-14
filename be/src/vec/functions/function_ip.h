@@ -27,18 +27,14 @@
 #include "vec/common/format_ip.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-struct NameFunctionIPv4StringToNum;
-struct NameFunctionIPv4StringToNumOrDefault;
-
-/** If mask_tail_octets > 0, the last specified number of octets will be filled with "xxx".
-  */
-template <size_t mask_tail_octets, typename Name>
+template <typename Name>
 class FunctionIPv4NumToString : public IFunction {
 private:
     template <typename ArgType>
@@ -69,15 +65,16 @@ private:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
             return Status::OK();
-        } else
+        } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         argument.column->get_name(), get_name());
+        }
     }
 
 public:
     static constexpr auto name = "ipv4numtostring";
     static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4NumToString<mask_tail_octets, Name>>();
+        return std::make_shared<FunctionIPv4NumToString<Name>>();
     }
 
     String get_name() const override { return name; }
@@ -141,15 +138,16 @@ private:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
             return Status::OK();
-        } else
+        } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         argument.column->get_name(), get_name());
+        }
     }
 
 public:
     static constexpr auto name = "ipv4stringtonum";
     static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4StringToNum<NameFunctionIPv4StringToNum>>();
+        return std::make_shared<FunctionIPv4StringToNum<Name>>();
     }
 
     String get_name() const override { return name; }
@@ -196,15 +194,16 @@ private:
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
             return Status::OK();
-        } else
+        } else {
             return Status::RuntimeError("Illegal column {} of argument of function {}",
                                         argument.column->get_name(), get_name());
+        }
     }
 
 public:
     static constexpr auto name = "ipv4stringtonum_or_default";
     static FunctionPtr create() {
-        return std::make_shared<FunctionIPv4StringToNumOrDefault<NameFunctionIPv4StringToNumOrDefault>>();
+        return std::make_shared<FunctionIPv4StringToNumOrDefault<Name>>();
     }
 
     String get_name() const override { return name; }
@@ -226,4 +225,183 @@ public:
         return execute_type(block, argument, result);
     }
 };
+
+template <typename Name>
+class FunctionIPv6NumToString : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnString::create();
+            auto null_map = ColumnUInt8::create(col_src->size(), 0);
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv6_binary_str = col_src->get_data_at(i).to_string();
+                vectorized::IPv6 ipv6_val;
+                if (ipv6_binary_str.size() != 16 || !IPv6Value::from_binary_string(ipv6_val, ipv6_binary_str)) {
+                    null_map->get_data()[i] = 1;
+                    col_res->insert_default();
+                } else {
+                    std::string ipv6_text_str = IPv6Value::to_string(ipv6_val);
+                    col_res->insert_data(ipv6_text_str.c_str(), ipv6_text_str.size());
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+            DCHECK_EQ(col_res->size(), null_map->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = "ipv6numtostring";
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv6NumToString<Name>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
+    }
+};
+
+template <typename Name>
+class FunctionIPv6StringToNum : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnString::create();
+            auto null_map = ColumnUInt8::create(col_src->size(), 0);
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv6_text_str = col_src->get_data_at(i).to_string();
+                vectorized::IPv6 ipv6_val;
+                if (ipv6_text_str.size() > IPV6_MAX_TEXT_LENGTH || !IPv6Value::from_string(ipv6_val, ipv6_text_str)) {
+                    null_map->get_data()[i] = 1;
+                    col_res->insert_default();
+                } else {
+                    std::string ipv6_binary_str = IPv6Value::to_binary_string(ipv6_val);
+                    DCHECK(ipv6_binary_str.size() == 16);
+                    col_res->insert_data(ipv6_binary_str.c_str(), ipv6_binary_str.size());
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+            DCHECK_EQ(col_res->size(), null_map->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = "ipv6stringtonum";
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv6StringToNum<Name>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
+    }
+};
+
+template <typename Name>
+class FunctionIPv6StringToNumOrDefault : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnString::create();
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv6_text_str = col_src->get_data_at(i).to_string();
+                vectorized::IPv6 ipv6_val;
+                if (ipv6_text_str.size() > IPV6_MAX_TEXT_LENGTH || !IPv6Value::from_string(ipv6_val, ipv6_text_str)) {
+                    col_res->insert_data("\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", 16);
+                } else {
+                    auto ipv6_binary_str = IPv6Value::to_binary_string(ipv6_val);
+                    col_res->insert_data(ipv6_binary_str.c_str(), ipv6_binary_str.size());
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = "ipv6stringtonum_or_default";
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv6StringToNumOrDefault<Name>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
+    }
+};
+
 } // namespace doris::vectorized
