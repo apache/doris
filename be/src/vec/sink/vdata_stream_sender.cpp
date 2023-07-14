@@ -465,9 +465,6 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         shuffle(_channels.begin(), _channels.end(), g);
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
-        if (_state->query_options().__isset.enable_new_shuffle_hash_method) {
-            _new_shuffle_hash_method = _state->query_options().enable_new_shuffle_hash_method;
-        }
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
     } else {
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
@@ -624,31 +621,16 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 
         // TODO: after we support new shuffle hash method, should simple the code
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
-            if (!_new_shuffle_hash_method) {
-                SCOPED_TIMER(_split_block_hash_compute_timer);
-                // for each row, we have a siphash val
-                std::vector<SipHash> siphashs(rows);
-                // result[j] means column index, i means rows index
-                for (int j = 0; j < result_size; ++j) {
-                    // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(siphashs);
-                }
-                for (int i = 0; i < rows; i++) {
-                    hashes[i] = siphashs[i].get64() % element_size;
-                }
-            } else {
-                SCOPED_TIMER(_split_block_hash_compute_timer);
-                // result[j] means column index, i means rows index, here to calculate the xxhash value
-                for (int j = 0; j < result_size; ++j) {
-                    // complex type most not implement get_data_at() method which column_const will call
-                    unpack_if_const(block->get_by_position(result[j]).column)
-                            .first->update_hashes_with_value(hashes);
-                }
+            SCOPED_TIMER(_split_block_hash_compute_timer);
+            // result[j] means column index, i means rows index, here to calculate the xxhash value
+            for (int j = 0; j < result_size; ++j) {
+                // complex type most not implement get_data_at() method which column_const will call
+                unpack_if_const(block->get_by_position(result[j]).column)
+                        .first->update_hashes_with_value(hashes);
+            }
 
-                for (int i = 0; i < rows; i++) {
-                    hashes[i] = hashes[i] % element_size;
-                }
+            for (int i = 0; i < rows; i++) {
+                hashes[i] = hashes[i] % element_size;
             }
 
             {
