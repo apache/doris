@@ -54,12 +54,22 @@ The currently supported types are:
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DECIMALV3, DATE,
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
+## Notice
+STRUCT type now default is disable and
+here are two ways to enable it
+```
+1. set enable_struct_type=true in doris fe config
+2. in mysql-client shell : we can use this sql 
+    ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')
+```
 
 We have a todo list for future version:
 
 ```
 TODO:支持嵌套 STRUCT 或其他的复杂类型
 ```
+## Notice
+We do not support creating a STRUCT type which field_type is array/struct/map type when we create table
 
 ### example
 

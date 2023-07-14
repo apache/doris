@@ -53,6 +53,9 @@ BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
 
+## Notice
+我们目前不支持创建 ARRAY 类型时，其中 item 是 struct/map 类型, 目前只支持array 嵌套 array 类型和上述基本类型
+
 ### example
 
 建表示例如下：

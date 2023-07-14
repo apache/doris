@@ -52,12 +52,21 @@ STRUCT
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DECIMALV3, DATE,
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
+## Notice
+STRUCT 类型默认是关闭的，下面有两种方式可以开启
+```
+1. set enable_struct_type=true in doris fe config
+2. in mysql-client shell : we can use this sql 
+    ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')
+```
 
 在将来的版本我们还将完善：
 
 ```
 TODO:支持嵌套 STRUCT 或其他的复杂类型
 ```
+## Notice
+我们目前不支持创建 STRUCT 类型时，其中 field_type 是 array/struct/map 类型
 
 ### example
 
