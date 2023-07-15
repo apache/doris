@@ -27,6 +27,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -52,6 +53,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.tools.ant.taskdefs.Exec;
 
 import java.util.List;
 import java.util.Map;
@@ -71,7 +73,6 @@ public class HeartbeatMgr extends MasterDaemon {
     private final ExecutorService executor;
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
-    private long feStartTime;
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -81,7 +82,6 @@ public class HeartbeatMgr extends MasterDaemon {
         this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
-        this.feStartTime = System.currentTimeMillis();
     }
 
     public void setMaster(int clusterId, String token, long epoch) {
@@ -114,7 +114,7 @@ public class HeartbeatMgr extends MasterDaemon {
         for (Frontend frontend : frontends) {
             FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(frontend,
                     Env.getCurrentEnv().getClusterId(),
-                    Env.getCurrentEnv().getToken(), this.feStartTime);
+                    Env.getCurrentEnv().getToken(), ExecuteEnv.getInstance().getStartupTime());
             hbResponses.add(executor.submit(handler));
         }
 
