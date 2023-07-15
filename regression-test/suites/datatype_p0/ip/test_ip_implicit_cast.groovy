@@ -22,18 +22,19 @@ suite("test_ip_implicit_cast") {
     sql """
     CREATE TABLE ${tableName} (
       `id` bigint,
-      `ip_v4` ipv4
+      `ip_v4` ipv4,
+      `ip_v6` ipv6
     ) ENGINE=OLAP
     DISTRIBUTED BY HASH(`id`) BUCKETS 4
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );
     """
-    sql "insert into ${tableName} values(-1, NULL)"
-    sql "insert into ${tableName} values(0, 0)"
-    sql "insert into ${tableName} values(2130706433, 2130706433)"
-    sql "insert into ${tableName} values(4294967295, 4294967295)"
-    sql "insert into ${tableName} values(4294967296, NULL)"
+    sql "insert into ${tableName} values(-1, NULL, NULL)"
+    sql "insert into ${tableName} values(0, 0, '::')"
+    sql "insert into ${tableName} values(1, 1, '::1')"
+    sql "insert into ${tableName} values(2130706433, 2130706433, '2001:1b70:a1:610::b102:2')"
+    sql "insert into ${tableName} values(4294967295, 4294967295, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')"
 
     qt_sql1 "select id, ip_v4 from ${tableName} order by id"
 

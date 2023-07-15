@@ -68,3 +68,6 @@
 2130706433	2001:1b70:a1:610::b102:2	2001:1b70:a1:610::b102:2
 4294967295	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff	ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
 4294967296	ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg	\N
+
+-- !sql11 --
+2a02:6b8::11	2b02:cb8::1000:1:0:11
