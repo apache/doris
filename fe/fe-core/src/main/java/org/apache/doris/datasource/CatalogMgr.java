@@ -345,7 +345,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
-            replayAlterCatalogProps(log,oldProperties);
+            replayAlterCatalogProps(log, oldProperties);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
