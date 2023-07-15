@@ -760,13 +760,13 @@ Status BufferedFileStreamReader::read_bytes(Slice& slice, uint64_t offset,
 Status DelegateReader::create_file_reader(RuntimeProfile* profile,
                                           const FileSystemProperties& system_properties,
                                           const FileDescription& file_description,
+                                          const io::FileReaderOptions& reader_options,
                                           std::shared_ptr<io::FileSystem>* file_system,
                                           io::FileReaderSPtr* file_reader, AccessMode access_mode,
-                                          io::FileReaderOptions reader_options,
                                           const IOContext* io_ctx, const PrefetchRange file_range) {
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR(FileFactory::create_file_reader(system_properties, file_description,
-                                                    file_system, &reader, reader_options));
+                                                    reader_options, file_system, &reader, profile));
     if (reader->size() < IN_MEMORY_FILE_SIZE) {
         *file_reader = std::make_shared<InMemoryFileReader>(reader);
     } else if (access_mode == AccessMode::SEQUENTIAL) {

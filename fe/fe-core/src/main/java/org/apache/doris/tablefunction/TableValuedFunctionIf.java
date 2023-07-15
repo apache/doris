@@ -57,6 +57,8 @@ public abstract class TableValuedFunctionIf {
                 return new FrontendsTableValuedFunction(params);
             case WorkloadGroupsTableValuedFunction.NAME:
                 return new WorkloadGroupsTableValuedFunction(params);
+            case CatalogsTableValuedFunction.NAME:
+                return new CatalogsTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

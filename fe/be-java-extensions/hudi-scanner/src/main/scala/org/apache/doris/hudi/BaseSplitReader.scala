@@ -211,9 +211,7 @@ abstract class BaseSplitReader(val split: HoodieSplit) {
 
   protected lazy val partitionColumns: Array[String] = tableConfig.getPartitionFields.orElse(Array.empty)
 
-  protected lazy val specifiedQueryTimestamp: Option[String] =
-    optParams.get(DataSourceReadOptions.TIME_TRAVEL_AS_OF_INSTANT.key)
-      .map(HoodieSqlCommonUtils.formatQueryInstant)
+  protected lazy val specifiedQueryTimestamp: Option[String] = Some(split.instantTime)
 
   private def queryTimestamp: Option[String] =
     specifiedQueryTimestamp.orElse(toScalaOption(timeline.lastInstant()).map(_.getTimestamp))
@@ -624,9 +622,7 @@ object BaseSplitReader {
         // NOTE: We're including compaction here since it's not considering a "commit" operation
         val timeline = metaClient.getCommitsAndCompactionTimeline.filterCompletedInstants
 
-        val specifiedQueryTimestamp: Option[String] =
-          split.optParams.get(DataSourceReadOptions.TIME_TRAVEL_AS_OF_INSTANT.key)
-            .map(HoodieSqlCommonUtils.formatQueryInstant)
+        val specifiedQueryTimestamp: Option[String] = Some(split.instantTime)
         val schemaResolver = new TableSchemaResolver(metaClient)
         val internalSchemaOpt = if (!isSchemaEvolutionEnabledOnRead(split.optParams, sparkSession)) {
           None

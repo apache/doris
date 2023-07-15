@@ -44,12 +44,6 @@ It's recommended to deploy 2.0.0 alpha1 version in a new test cluster for testin
 
 	Refer to: [https://doris.apache.org/docs/dev/data-table/index/inverted-index](https://doris.apache.org/docs/dev/data-table/index/inverted-index)
 
-- Dynamic Schema Table (Experimental)
-  - Automatically infer field names and types of semi structured JSON data
-  - Dynamically extend table schema correspondingly.
-
-	Refer to: [https://doris.apache.org/docs/dev/data-table/dynamic-schema-table](https://doris.apache.org/docs/dev/data-table/dynamic-schema-table)
-
 - Complex Datatypes
   - JSONB data type is more efficient with fast simdjson first time data parsing
   - ARRAY data type is more mature, adding dozens of array functions

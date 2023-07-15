@@ -27,6 +27,7 @@
 namespace rocksdb {
 class ColumnFamilyHandle;
 class DB;
+class WriteBatch;
 } // namespace rocksdb
 
 namespace doris {
@@ -41,7 +42,6 @@ public:
                 : key(key_arg), value(value_arg) {}
     };
 
-public:
     OlapMeta(const std::string& root_path);
     ~OlapMeta();
 
@@ -53,6 +53,7 @@ public:
 
     Status put(const int column_family_index, const std::string& key, const std::string& value);
     Status put(const int column_family_index, const std::vector<BatchEntry>& entries);
+    Status put(rocksdb::WriteBatch* batch);
 
     Status remove(const int column_family_index, const std::string& key);
     Status remove(const int column_family_index, const std::vector<std::string>& keys);
@@ -61,6 +62,10 @@ public:
                    std::function<bool(const std::string&, const std::string&)> const& func);
 
     std::string get_root_path() const { return _root_path; }
+
+    rocksdb::ColumnFamilyHandle* get_handle(const int column_family_index) {
+        return _handles[column_family_index].get();
+    }
 
 private:
     std::string _root_path;

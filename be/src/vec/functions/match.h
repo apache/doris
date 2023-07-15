@@ -91,11 +91,11 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override;
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override;
 };
 
 class FunctionMatchAll : public FunctionMatchBase {
@@ -105,11 +105,11 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override;
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override;
 };
 
 class FunctionMatchPhrase : public FunctionMatchBase {
@@ -119,11 +119,11 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override;
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override;
 };
 
 class FunctionMatchElementEQ : public FunctionMatchBase {
@@ -133,12 +133,13 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchElementEQ not support execute_match");
     }
 };
 
@@ -149,12 +150,13 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchElementLT not support execute_match");
     }
 };
 
@@ -165,12 +167,13 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchElementGT not support execute_match");
     }
 };
 
@@ -181,12 +184,13 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchElementLE not support execute_match");
     }
 };
 
@@ -197,12 +201,13 @@ public:
 
     String get_name() const override { return name; }
 
-    virtual Status execute_match(const std::string& column_name, const std::string& match_query_str,
-                                 size_t input_rows_count, const ColumnString* string_col,
-                                 InvertedIndexCtx* inverted_index_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
-                                 ColumnUInt8::Container& result) override {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+    Status execute_match(const std::string& column_name, const std::string& match_query_str,
+                         size_t input_rows_count, const ColumnString* string_col,
+                         InvertedIndexCtx* inverted_index_ctx,
+                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnUInt8::Container& result) override {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "FunctionMatchElementGE not support execute_match");
     }
 };
 

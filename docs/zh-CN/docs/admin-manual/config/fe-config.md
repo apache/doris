@@ -8,7 +8,7 @@
 
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -664,7 +664,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 #### `jetty_server_max_http_header_size`
 
-默认值：10240  （10K）
+默认值：1048576  （1M）
 
 http header size 配置参数
 
@@ -689,8 +689,8 @@ http header size 配置参数
 是否为 Master FE 节点独有的配置项：false
 
 当前支持导出的链路追踪：
-zipkin：直接将trace导出到zipkin，用于快速开启tracing特性。
-collector：collector可用于接收和处理traces，支持导出到多种第三方系统
+    zipkin：直接将trace导出到zipkin，用于快速开启tracing特性。
+    collector：collector可用于接收和处理traces，支持导出到多种第三方系统
 如果启用此配置，您还应该指定 enable_tracing=true 和 trace_export_url。
 
 #### `trace_export_url`
@@ -1649,8 +1649,8 @@ sys_log_dir:
 详细模块。 VERBOSE 级别由 log4j DEBUG 级别实现。
 
 例如：
-sys_log_verbose_modules = org.apache.doris.catalog
-这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
+   sys_log_verbose_modules = org.apache.doris.catalog
+   这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
 
 #### `sys_log_roll_interval`
 
@@ -1799,9 +1799,9 @@ show data （其他用法：HELP SHOW DATA）
 
 这个配置有三个值：
 
-* disable ：出现异常会正常报错。
-* ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
-* ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
+   * disable ：出现异常会正常报错。
+   * ignore_version: 忽略 fe partition 中记录的visibleVersion 信息， 使用replica version
+   * ignore_all: 除了ignore_version， 在遇到找不到可查询的replica 时，直接跳过而不是抛出异常
 
 #### `min_clone_task_timeout_sec`  和 `max_clone_task_timeout_sec`
 
@@ -2231,8 +2231,8 @@ tablet 状态更新间隔
 创建单个副本的最长等待时间。
 
 例如。
-如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
-创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
+   如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
+   创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
 
 #### `tablet_delete_timeout_second`
 
@@ -2445,17 +2445,17 @@ FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 #### `dpp_default_config_str`
 
 默认值：{
-hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
-}
+            hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
+        }
 
 #### `dpp_config_str`
 
 默认值：{
-palo-dpp : {
-hadoop_palo_path : '/dir',
-hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
-}
-}
+            palo-dpp : {
+                    hadoop_palo_path : '/dir',
+                    hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
+                }
+        }
 
 #### `yarn_config_dir`
 

@@ -252,9 +252,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
             // set hdfs params for hdfs file type.
             Map<String, String> locationProperties = getLocationProperties();
-            if (fileFormatType == TFileFormatType.FORMAT_JNI) {
+            if (fileFormatType == TFileFormatType.FORMAT_JNI || locationType == TFileType.FILE_S3) {
                 scanRangeParams.setProperties(locationProperties);
-            } else if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
+            }
+            if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
                 String fsName = getFsName(fileSplit);
                 THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
                 tHdfsParams.setFsName(fsName);
@@ -267,8 +268,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     }
                     scanRangeParams.addToBrokerAddresses(new TNetworkAddress(broker.host, broker.port));
                 }
-            } else if (locationType == TFileType.FILE_S3) {
-                scanRangeParams.setProperties(locationProperties);
             }
 
             TScanRangeLocations curLocations = newLocations(scanRangeParams);
@@ -404,6 +403,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected static Optional<TFileType> getTFileType(String location) {
         if (location != null && !location.isEmpty()) {
             if (S3Util.isObjStorage(location)) {
+                if (S3Util.isHdfsOnOssEndpoint(location)) {
+                    // if hdfs service is enabled on oss, use hdfs lib to access oss.
+                    return Optional.of(TFileType.FILE_HDFS);
+                }
                 return Optional.of(TFileType.FILE_S3);
             } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
                 return Optional.of(TFileType.FILE_HDFS);

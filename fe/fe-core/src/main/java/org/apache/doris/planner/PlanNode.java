@@ -138,8 +138,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // Runtime filters assigned to this node.
     protected List<RuntimeFilter> runtimeFilters = new ArrayList<>();
 
-    private boolean cardinalityIsDone = false;
-
     protected List<SlotId> outputSlotIds;
 
     protected StatisticalType statisticalType = StatisticalType.DEFAULT;
@@ -432,7 +430,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return targetConjuncts.get(0);
     }
 
-    protected List<Expr> splitAndCompoundPredicateToConjuncts(Expr vconjunct) {
+    public static List<Expr> splitAndCompoundPredicateToConjuncts(Expr vconjunct) {
         List<Expr> conjuncts = Lists.newArrayList();
         if (vconjunct instanceof CompoundPredicate) {
             CompoundPredicate andCompound = (CompoundPredicate) vconjunct;

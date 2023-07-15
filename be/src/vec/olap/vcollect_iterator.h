@@ -65,7 +65,7 @@ public:
     // Read nest order row in Block.
     // Returns
     //      OK when read successfully.
-    //      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
+    //      Status::Error<END_OF_FILE>("") and set *row to nullptr when EOF is reached.
     //      Others when error happens
     Status next(IteratorRowRef* ref);
 

@@ -179,7 +179,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(d.cardinality(), 4);
         ASSERT_EQ(db_upper.get({RowsetId {2, 0, 1, 1}, 1, 2}, &d), 0);
         ASSERT_EQ(d.cardinality(), 1);
-        ASSERT_EQ(db_upper.delete_bitmap.size(), 20);
+        ASSERT_EQ(db_upper.delete_bitmap.size(), 21);
     }
 
     {

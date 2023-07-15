@@ -757,7 +757,10 @@ public class TypeCoercionUtils {
                     }
                 }
         );
-        return compoundPredicate;
+        List<Expression> children = compoundPredicate.children().stream()
+                .map(e -> e.getDataType().isNullType() ? new NullLiteral(BooleanType.INSTANCE) : e)
+                .collect(Collectors.toList());
+        return compoundPredicate.withChildren(children);
     }
 
     /**

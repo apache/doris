@@ -231,19 +231,19 @@ Status VCollectIterator::current_row(IteratorRowRef* ref) const {
     if (LIKELY(_inner_iter)) {
         *ref = *_inner_iter->current_row_ref();
         if (ref->row_pos == -1) {
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         } else {
             return Status::OK();
         }
     }
-    return Status::Error<DATA_ROW_BLOCK_ERROR>();
+    return Status::Error<DATA_ROW_BLOCK_ERROR>("inner iter is nullptr");
 }
 
 Status VCollectIterator::next(IteratorRowRef* ref) {
     if (LIKELY(_inner_iter)) {
         return _inner_iter->next(ref);
     } else {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
 }
 
@@ -255,13 +255,13 @@ Status VCollectIterator::next(Block* block) {
     if (LIKELY(_inner_iter)) {
         return _inner_iter->next(block);
     } else {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
 }
 
 Status VCollectIterator::_topn_next(Block* block) {
     if (_topn_eof) {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
 
     auto clone_block = block->clone_empty();
@@ -456,7 +456,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             {filtered_column, filtered_datatype, BeConsts::BLOCK_TEMP_COLUMN_SCANNER_FILTERED});
 
     _topn_eof = true;
-    return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>();
+    return block->rows() > 0 ? Status::OK() : Status::Error<END_OF_FILE>("");
 }
 
 bool VCollectIterator::BlockRowPosComparator::operator()(const size_t& lpos,
@@ -540,7 +540,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
     } while (!_is_empty());
     _ref.row_pos = -1;
     _current = -1;
-    return Status::Error<END_OF_FILE>();
+    return Status::Error<END_OF_FILE>("");
 }
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
@@ -572,7 +572,7 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
             return res;
         }
         if (res.is<END_OF_FILE>() && block->rows() == 0) {
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
         if (UNLIKELY(_reader->_reader_context.record_rowids)) {
             RETURN_IF_ERROR(_rs_reader->current_block_row_locations(&_block_row_locations));
@@ -636,12 +636,12 @@ VCollectIterator::Level1Iterator::~Level1Iterator() {
 // Read next row into *row.
 // Returns
 //      OK when read successfully.
-//      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
+//      Status::Error<END_OF_FILE>("") and set *row to nullptr when EOF is reached.
 //      Others when error happens
 Status VCollectIterator::Level1Iterator::next(IteratorRowRef* ref) {
     if (UNLIKELY(_cur_child == nullptr)) {
         _ref.reset();
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
     if (_merge) {
         return _merge_next(ref);
@@ -653,11 +653,11 @@ Status VCollectIterator::Level1Iterator::next(IteratorRowRef* ref) {
 // Read next block
 // Returns
 //      OK when read successfully.
-//      Status::Error<END_OF_FILE>() and set *row to nullptr when EOF is reached.
+//      Status::Error<END_OF_FILE>("") and set *row to nullptr when EOF is reached.
 //      Others when error happens
 Status VCollectIterator::Level1Iterator::next(Block* block) {
     if (UNLIKELY(_cur_child == nullptr)) {
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<END_OF_FILE>("");
     }
     if (_merge) {
         return _merge_next(block);
@@ -740,7 +740,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
         } else {
             _ref.reset();
             _cur_child = nullptr;
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
@@ -777,7 +777,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
             return _normal_next(ref);
         } else {
             _cur_child = nullptr;
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
     } else {
         _cur_child = nullptr;
@@ -875,7 +875,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
             return _normal_next(block);
         } else {
             _cur_child = nullptr;
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
     } else {
         _cur_child = nullptr;
@@ -889,7 +889,7 @@ Status VCollectIterator::Level1Iterator::current_block_row_locations(
     if (!_merge) {
         if (UNLIKELY(_cur_child == nullptr)) {
             block_row_locations->clear();
-            return Status::Error<END_OF_FILE>();
+            return Status::Error<END_OF_FILE>("");
         }
         return _cur_child->current_block_row_locations(block_row_locations);
     } else {

@@ -52,7 +52,6 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _sink(sink),
           _prepared(false),
           _opened(false),
-          _can_steal(pipeline->_can_steal),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
           _data_state(SourceState::DEPEND_ON_SOURCE),

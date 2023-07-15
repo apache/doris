@@ -35,7 +35,7 @@ import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssoc;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerJoin;
+import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerOuterJoin;
 import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
@@ -48,6 +48,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysi
 import org.apache.doris.nereids.rules.implementation.LogicalEsScanToPhysicalEsScan;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
 import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFileScan;
+import org.apache.doris.nereids.rules.implementation.LogicalFileSinkToPhysicalFileSink;
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
@@ -110,7 +111,7 @@ public class RuleSet {
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTranspose.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
-            .add(PushdownProjectThroughInnerJoin.INSTANCE)
+            .add(PushdownProjectThroughInnerOuterJoin.INSTANCE)
             .add(PushdownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
@@ -167,6 +168,7 @@ public class RuleSet {
             .add(new LogicalIntersectToPhysicalIntersect())
             .add(new LogicalGenerateToPhysicalGenerate())
             .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalFileSinkToPhysicalFileSink())
             .build();
 
     public static final List<Rule> ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()

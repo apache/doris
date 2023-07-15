@@ -134,13 +134,13 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status S3FileSystem::open_file_internal(const Path& file, int64_t file_size,
+Status S3FileSystem::open_file_internal(const FileDescription& fd, const Path& abs_path,
                                         FileReaderSPtr* reader) {
-    int64_t fsize = file_size;
+    int64_t fsize = fd.file_size;
     if (fsize < 0) {
-        RETURN_IF_ERROR(file_size_impl(file, &fsize));
+        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
     }
-    GET_KEY(key, file);
+    GET_KEY(key, abs_path);
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
     *reader = std::make_shared<S3FileReader>(
             std::move(fs_path), fsize, std::move(key), _s3_conf.bucket,

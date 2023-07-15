@@ -41,12 +41,6 @@ Apache Doris 2.0.0 alpha1 版本是 2.0 系列的首个版本，包含了倒排�
 
 	参考文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/index/inverted-index](https://doris.apache.org/zh-CN/docs/dev/data-table/index/inverted-index)
 
-- 动态 Schema 表（实验性功能）
-  - 自动推断半结构化 JSON 数据的字段名称和类型
-  - 根据写入的数据动态拓展相应数据表的 Schema。
-
-	参考文档：[https://doris.apache.org/zh-CN/docs/dev/data-table/dynamic-schema-table](https://doris.apache.org/zh-CN/docs/dev/data-table/dynamic-schema-table)
-
 - 复杂数据类型
   - JSONB 数据类型通过 simdjson 获得更高效的首次数据解析速度
   - ARRAY 数据类型更加成熟，增加了数十个数组函数
