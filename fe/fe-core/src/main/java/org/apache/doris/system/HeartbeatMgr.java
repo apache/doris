@@ -329,7 +329,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getReplayedJournalId(),
-                            System.currentTimeMillis(), result.getVersion(), fe.getLastStartupTime());
+                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime());
 
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
