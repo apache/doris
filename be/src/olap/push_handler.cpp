@@ -339,7 +339,7 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
         // and it use _ranges[0].file_type.
         // Later, this field is moved to TFileRangeDesc, but here we still only use _ranges[0]'s
         // file_type.
-        // Because I don't know if othere range has this field, so just keep it same as before.
+        // Because I don't know if other range has this field, so just keep it same as before.
         file_range.file_type = _ranges[0].file_type;
         file_range.load_id = _ranges[i].load_id;
         file_range.path = _ranges[i].path;

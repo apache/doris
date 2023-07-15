@@ -197,6 +197,8 @@ public:
 
     std::vector<TUniqueId> fragment_ids;
 
+    // plan node id -> TFileScanRangeParams
+    // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
 private:
