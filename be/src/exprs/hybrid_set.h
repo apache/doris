@@ -181,7 +181,7 @@ public:
 
     virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
 
-    virtual void insert(HybridSetBase* set) {
+    void insert(HybridSetBase* set) {
         HybridSetBase::IteratorBase* iter = set->begin();
         while (iter->has_next()) {
             const void* value = iter->get_value();
