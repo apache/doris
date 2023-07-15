@@ -127,17 +127,18 @@ Parameter introduction:
 16. merge_type: The merge type of data, which supports three types: APPEND, DELETE, and MERGE. Among them, APPEND is the default value, which means that this batch of data needs to be appended to the existing data, and DELETE means to delete all the data with the same key as this batch of data. Line, the MERGE semantics need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to the DELETE semantics and the rest is processed according to the APPEND semantics, for example: `-H "merge_type: MERGE" -H "delete: flag=1"`
 
 17. delete: Only meaningful under MERGE, indicating the deletion condition of the data
-        function_column.sequence_col: Only applicable to UNIQUE_KEYS. Under the same key column, ensure that the value column is REPLACEed according to the source_sequence column. The source_sequence can be a column in the data source or a column in the table structure.
+    
+18. function_column.sequence_col: Only applicable to UNIQUE_KEYS. Under the same key column, ensure that the value column is REPLACEed according to the source_sequence column. The source_sequence can be a column in the data source or a column in the table structure.
 
-18. fuzzy_parse: Boolean type, true means that json will be parsed with the schema of the first row. Enabling this option can improve the efficiency of json import, but requires that the order of the keys of all json objects is the same as the first row, the default is false, only use in json format
+19. fuzzy_parse: Boolean type, true means that json will be parsed with the schema of the first row. Enabling this option can improve the efficiency of json import, but requires that the order of the keys of all json objects is the same as the first row, the default is false, only use in json format
 
-19. num_as_string: Boolean type, true means that when parsing json data, the numeric type will be converted to a string, and then imported without losing precision.
+20. num_as_string: Boolean type, true means that when parsing json data, the numeric type will be converted to a string, and then imported without losing precision.
 
-20. read_json_by_line: Boolean type, true to support reading one json object per line, the default value is false.
+21. read_json_by_line: Boolean type, true to support reading one json object per line, the default value is false.
 
-21. send_batch_parallelism: Integer, used to set the parallelism of sending batch data. If the value of parallelism exceeds `max_send_batch_parallelism_per_job` in the BE configuration, the BE as a coordination point will use the value of `max_send_batch_parallelism_per_job`.
+22. send_batch_parallelism: Integer, used to set the parallelism of sending batch data. If the value of parallelism exceeds `max_send_batch_parallelism_per_job` in the BE configuration, the BE as a coordination point will use the value of `max_send_batch_parallelism_per_job`.
 
-22. hidden_columns: Specify hidden column when no `columns` in Headers，multi hidden column shoud be
+23. hidden_columns: Specify hidden column when no `columns` in Headers，multi hidden column shoud be
 separated by commas.
 
        ```
@@ -145,45 +146,15 @@ separated by commas.
            The system will use the order specified by user. in case above, data should be ended
            with __DORIS_SEQUENCE_COL__.
        ```
-23. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
-    
-    RETURN VALUES
-        After the import is complete, the related content of this import will be returned in Json format. Currently includes the following fields
-        Status: Import the last status.
-            Success: Indicates that the import is successful and the data is already visible;
-            Publish Timeout: Indicates that the import job has been successfully committed, but is not immediately visible for some reason. The user can consider the import to be successful and not have to retry the import
-            Label Already Exists: Indicates that the Label has been occupied by other jobs. It may be imported successfully or it may be being imported.
-            The user needs to determine the subsequent operation through the get label state command
-            Others: The import failed, the user can specify the Label to retry the job
-        Message: Detailed description of the import status. On failure, the specific failure reason is returned.
-        NumberTotalRows: The total number of rows read from the data stream
-        NumberLoadedRows: The number of data rows imported this time, only valid in Success
-        NumberFilteredRows: The number of rows filtered out by this import, that is, the number of rows with unqualified data quality
-        NumberUnselectedRows: This import, the number of rows filtered out by the where condition
-        LoadBytes: The size of the source file data imported this time
-        LoadTimeMs: The time taken for this import
-        BeginTxnTimeMs: The time it takes to request Fe to start a transaction, in milliseconds.
-        StreamLoadPutTimeMs: The time it takes to request Fe to obtain the execution plan for importing data, in milliseconds.
-        ReadDataTimeMs: Time spent reading data, in milliseconds.
-        WriteDataTimeMs: The time taken to perform the write data operation, in milliseconds.
-        CommitAndPublishTimeMs: The time it takes to submit a request to Fe and publish the transaction, in milliseconds.
-        ErrorURL: The specific content of the filtered data, only the first 1000 items are retained
+24. load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. This parameter can only be set when loading data into the OLAP table with random partition.
 
-ERRORS:
-        Import error details can be viewed with the following statement:
-        ````
-        SHOW LOAD WARNINGS ON 'url'
-        ````
-        where url is the url given by ErrorURL.
+25. compress_type: Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
-24. compress_type
+26. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
-    Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
+27. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
 
-25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
-
-26. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
-27. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
+28. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
 ### Example
 
@@ -390,52 +361,53 @@ ERRORS:
    }
    ````
 
-   The field definitions are as follows:
+   The following main explanations are given for the Stream load import result parameters:
 
-   - TxnId: Import transaction ID, which is automatically generated by the system and is globally unique.
+    + TxnId: The imported transaction ID. Users do not perceive.
 
-   - Label: Import Label, if not specified, the system will generate a UUID.
+    + Label: Import Label. User specified or automatically generated by the system.
 
-   - Status:
+    + Status: Import completion status.
 
-     Import results. Has the following values:
+	    "Success": Indicates successful import.
 
-     - Success: Indicates that the import was successful and the data is already visible.
-     - Publish Timeout: This status also means that the import has completed, but the data may be visible with a delay.
-     - Label Already Exists: The Label is duplicated and needs to be replaced.
-     - Fail: Import failed.
+	    "Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-   - ExistingJobStatus:
+	    "Label Already Exists": Label duplicate, need to be replaced Label.
 
-     The status of the import job corresponding to the existing Label.
+	    "Fail": Import failed.
 
-     This field is only displayed when the Status is "Label Already Exists". The user can know the status of the import job corresponding to the existing Label through this status. "RUNNING" means the job is still executing, "FINISHED" means the job was successful.
+    + ExistingJobStatus: The state of the load job corresponding to the existing Label.
 
-   - Message: Import error message.
+        This field is displayed only when the status is "Label Already Exists". The user can know the status of the load job corresponding to Label through this state. "RUNNING" means that the job is still executing, and "FINISHED" means that the job is successful.
 
-   - NumberTotalRows: The total number of rows processed by the import.
+    + Message: Import error messages.
 
-   - NumberLoadedRows: The number of rows successfully imported.
+    + NumberTotalRows: Number of rows imported for total processing.
 
-   - NumberFilteredRows: The number of rows with unqualified data quality.
+    + NumberLoadedRows: Number of rows successfully imported.
 
-   - NumberUnselectedRows: The number of rows filtered by the where condition.
+    + NumberFilteredRows: Number of rows that do not qualify for data quality.
 
-   - LoadBytes: Number of bytes imported.
+    + NumberUnselectedRows: Number of rows filtered by where condition.
 
-   - LoadTimeMs: Import completion time. The unit is milliseconds.
+    + LoadBytes: Number of bytes imported.
 
-   - BeginTxnTimeMs: The time it takes to request the FE to start a transaction, in milliseconds.
+    + LoadTimeMs: Import completion time. Unit milliseconds.
 
-   - StreamLoadPutTimeMs: The time taken to request the FE to obtain the execution plan for importing data, in milliseconds.
+    + BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
 
-   - ReadDataTimeMs: Time spent reading data, in milliseconds.
+    + StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
 
-   - WriteDataTimeMs: The time spent performing the write data operation, in milliseconds.
+    + ReadDataTimeMs: Read data time, Unit milliseconds.
 
-   - CommitAndPublishTimeMs: The time it takes to submit a request to Fe and publish the transaction, in milliseconds.
+    + WriteDataTimeMs: Write data time, Unit milliseconds.
 
-   - ErrorURL: If there is a data quality problem, visit this URL to view the specific error line.
+    + CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
+
+    + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
+
+    > Note: Since Stream load is a synchronous import mode, import information will not be recorded in Doris system. Users cannot see Stream load asynchronously by looking at import commands. You need to listen for the return value of the create import request to get the import result.
 
 2. How to correctly submit the Stream Load job and process the returned results.
 
@@ -474,7 +446,7 @@ ERRORS:
 
 7. Strict Mode
 
-   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering. For a detailed description of strict mode, see the [strict mode](../../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
+   The `strict_mode` attribute is used to set whether the import task runs in strict mode. The format affects the results of column mapping, transformation, and filtering, and it also controls the behavior of partial updates. For a detailed description of strict mode, see the [strict mode](../../../../data-operate/import/import-scenes/load-strict-mode.md) documentation.
 
 8. Timeout
 

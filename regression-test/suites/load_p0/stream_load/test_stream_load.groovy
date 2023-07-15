@@ -14,6 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.Date
+import java.text.SimpleDateFormat
 
 suite("test_stream_load", "p0") {
     sql "show tables"
@@ -884,5 +886,61 @@ suite("test_stream_load", "p0") {
     sql "sync"
     sql """DROP USER 'common_user'@'%'"""
 
+    // test default value
+    def tableName14 = "test_default_value"
+    sql """ DROP TABLE IF EXISTS ${tableName14} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName14} (
+            `k1` bigint(20) NULL DEFAULT "1",
+            `k2` bigint(20) NULL ,
+            `v1` tinyint(4) NULL,
+            `v2` tinyint(4) NULL,
+            `v3` tinyint(4) NULL,
+            `v4` DATETIME NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=OLAP
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    streamLoad {
+        table "${tableName14}"
+
+        set 'column_separator', '|'
+        set 'columns', 'k2, v1, v2, v3'
+        set 'strict_mode', 'true'
+
+        file 'test_default_value.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(2, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
+        }
+    }
+    
+    sql "sync"
+    def res = sql "select * from ${tableName14}"
+    def time = res[0][5].toString().split("T")[0].split("-")
+    def year = time[0].toString()
+    SimpleDateFormat sdf= new SimpleDateFormat("yyyy-MM-dd")
+    def now = sdf.format(new Date()).toString().split("-")
+
+    // parse time is correct
+    // Due to the time difference in parsing, should deal with three situations:
+    // 2023-6-29 -> 2023-6-30
+    // 2023-6-30 -> 2023-7-1
+    // 2023-12-31 -> 2024-1-1
+    // now only compare year simply, you can retry if this test is error.
+    assertEquals(year, now[0])
+    // parse k1 default value
+    assertEquals(res[0][0], 1)
+    assertEquals(res[1][0], 1)
 }
 

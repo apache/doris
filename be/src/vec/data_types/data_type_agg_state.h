@@ -82,7 +82,9 @@ public:
         std::string res = "binary(";
         StringRef str = column.get_data_at(row_num);
         for (auto c : str.to_string()) {
-            res += std::to_string(int(c));
+            for (int i = 0; i < 8; i++) {
+                res += (c & (1 << (7 - i))) ? "1" : "0";
+            }
             res += ' ';
         }
         res += ")";

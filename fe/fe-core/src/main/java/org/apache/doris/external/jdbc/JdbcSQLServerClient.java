@@ -56,21 +56,23 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "smallmoney":
                 return ScalarType.createDecimalV3Type(10, 4);
             case "decimal":
-            case "numeric":
+            case "numeric": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 return ScalarType.createDecimalV3Type(precision, scale);
+            }
             case "date":
                 return ScalarType.createDateV2Type();
             case "datetime":
-                // datetime with millisecond precision
-                return ScalarType.createDatetimeV2Type(3);
             case "datetime2":
-                // datetime2 with 100 nanoseconds precision, will lose precision
-                return ScalarType.createDatetimeV2Type(6);
-            case "smalldatetime":
-                // smalldatetime with second precision
-                return ScalarType.createDatetimeV2Type(0);
+            case "smalldatetime": {
+                // postgres can support microsecond
+                int scale = fieldSchema.getDecimalDigits();
+                if (scale > 6) {
+                    scale = 6;
+                }
+                return ScalarType.createDatetimeV2Type(scale);
+            }
             case "char":
             case "varchar":
             case "nchar":

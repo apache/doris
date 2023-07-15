@@ -17,13 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.AggStateFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
@@ -40,12 +47,18 @@ import javax.annotation.concurrent.ThreadSafe;
 @Developing
 @ThreadSafe
 public class FunctionRegistry {
-    private final Map<String, List<FunctionBuilder>> name2Builders;
+
+    // to record the global alias function and other udf.
+    private static final String GLOBAL_FUNCTION = "__GLOBAL_FUNCTION__";
+
+    private final Map<String, List<FunctionBuilder>> name2InternalBuiltinBuilders;
+    private final Map<String, Map<String, List<FunctionBuilder>>> name2UdfBuilders;
 
     public FunctionRegistry() {
-        name2Builders = new ConcurrentHashMap<>();
-        registerBuiltinFunctions(name2Builders);
-        afterRegisterBuiltinFunctions(name2Builders);
+        name2InternalBuiltinBuilders = new ConcurrentHashMap<>();
+        name2UdfBuilders = new ConcurrentHashMap<>();
+        registerBuiltinFunctions(name2InternalBuiltinBuilders);
+        afterRegisterBuiltinFunctions(name2InternalBuiltinBuilders);
     }
 
     // this function is used to test.
@@ -54,20 +67,23 @@ public class FunctionRegistry {
     @VisibleForTesting
     protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {}
 
-
-    public FunctionBuilder findFunctionBuilder(String name, Object argument) {
-        return findFunctionBuilder(name, ImmutableList.of(argument));
+    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
+        return findFunctionBuilder(null, name, arguments);
     }
 
-    // currently we only find function by name and arity
-    public FunctionBuilder findFunctionBuilder(String name, List<?> arguments) {
+    public FunctionBuilder findFunctionBuilder(String name, Object argument) {
+        return findFunctionBuilder(null, name, ImmutableList.of(argument));
+    }
+
+    // currently we only find function by name and arity and args' types.
+    public FunctionBuilder findFunctionBuilder(String dbName, String name, List<?> arguments) {
         int arity = arguments.size();
-        List<FunctionBuilder> functionBuilders = name2Builders.get(name.toLowerCase());
+        List<FunctionBuilder> functionBuilders = name2InternalBuiltinBuilders.get(name.toLowerCase());
         if (CollectionUtils.isEmpty(functionBuilders) && AggStateFunctionBuilder.isAggStateCombinator(name)) {
             String nestedName = AggStateFunctionBuilder.getNestedName(name);
             String combinatorSuffix = AggStateFunctionBuilder.getCombinatorSuffix(name);
 
-            functionBuilders = name2Builders.get(nestedName.toLowerCase());
+            functionBuilders = name2InternalBuiltinBuilders.get(nestedName.toLowerCase());
 
             if (functionBuilders != null) {
                 functionBuilders = functionBuilders.stream().map(builder -> {
@@ -76,7 +92,10 @@ public class FunctionRegistry {
             }
         }
         if (functionBuilders == null || functionBuilders.isEmpty()) {
-            throw new AnalysisException("Can not found function '" + name + "'");
+            functionBuilders = findUdfBuilder(dbName, name);
+            if (functionBuilders == null || functionBuilders.isEmpty()) {
+                throw new AnalysisException("Can not found function '" + name + "'");
+            }
         }
 
         // check the arity and type
@@ -97,6 +116,33 @@ public class FunctionRegistry {
         return candidateBuilders.get(0);
     }
 
+    /**
+     * public for test.
+     */
+    public List<FunctionBuilder> findUdfBuilder(String dbName, String name) {
+        List<String> scopes = ImmutableList.of(GLOBAL_FUNCTION);
+        if (ConnectContext.get() != null) {
+            dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
+                    dbName == null ? ConnectContext.get().getDatabase() : dbName);
+            if (dbName == null) {
+                scopes = ImmutableList.of(GLOBAL_FUNCTION);
+            } else {
+                scopes = ImmutableList.of(dbName, GLOBAL_FUNCTION);
+            }
+        }
+
+        synchronized (name2UdfBuilders) {
+            for (String scope : scopes) {
+                List<FunctionBuilder> candidate = name2UdfBuilders.getOrDefault(scope, ImmutableMap.of())
+                        .get(name.toLowerCase());
+                if (candidate != null && !candidate.isEmpty()) {
+                    return candidate;
+                }
+            }
+        }
+        return ImmutableList.of();
+    }
+
     private void registerBuiltinFunctions(Map<String, List<FunctionBuilder>> name2Builders) {
         FunctionHelper.addFunctions(name2Builders, BuiltinScalarFunctions.INSTANCE.scalarFunctions);
         FunctionHelper.addFunctions(name2Builders, BuiltinAggregateFunctions.INSTANCE.aggregateFunctions);
@@ -109,5 +155,28 @@ public class FunctionRegistry {
         return candidateBuilders.stream()
                 .map(builder -> name + builder.toString())
                 .collect(Collectors.joining(", ", "[", "]"));
+    }
+
+
+    public void addUdf(String dbName, String name, UdfBuilder builder) {
+        if (dbName == null) {
+            dbName = GLOBAL_FUNCTION;
+        }
+        synchronized (name2UdfBuilders) {
+            Map<String, List<FunctionBuilder>> builders = name2UdfBuilders
+                    .computeIfAbsent(dbName, k -> Maps.newHashMap());
+            builders.computeIfAbsent(name, k -> Lists.newArrayList()).add(builder);
+        }
+    }
+
+    public void dropUdf(String dbName, String name, List<DataType> argTypes) {
+        if (dbName == null) {
+            dbName = GLOBAL_FUNCTION;
+        }
+        synchronized (name2UdfBuilders) {
+            Map<String, List<FunctionBuilder>> builders = name2UdfBuilders.getOrDefault(dbName, ImmutableMap.of());
+            builders.getOrDefault(name, Lists.newArrayList()).removeIf(builder -> ((UdfBuilder) builder).getArgTypes()
+                    .equals(argTypes));
+        }
     }
 }

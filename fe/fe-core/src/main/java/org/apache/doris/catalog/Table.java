@@ -551,7 +551,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     @Override
-    public Optional<ColumnStatistic> getColumnStatistic() {
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
         return Optional.empty();
     }
 }

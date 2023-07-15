@@ -80,6 +80,21 @@ suite("test_case_when_decimal") {
                 FROM decimal_to_double_table2 T001, decimal_to_double_table1 T101 ) t;
     """
 
+    sql "set enable_dphyp_optimizer=true;"
+    qt_sql3 """
+            SELECT sum(v24)
+                FROM ( select
+                    CASE
+                    WHEN 1=0 THEN
+                    0.00
+                    ELSE round((CASE
+                    WHEN T001.cust_no = '86193' THEN
+                    0
+                    ELSE COALESCE(T101.bar_averageday_asset,0.0) END) * T101.bar_averageday_asset,2)
+                    END v24
+                FROM decimal_to_double_table2 T001, decimal_to_double_table1 T101 ) t;
+    """
+
     sql """ DROP TABLE IF EXISTS `decimal_to_double_table1`; """
     sql """ DROP TABLE IF EXISTS `decimal_to_double_table2`; """
 }

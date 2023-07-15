@@ -65,5 +65,6 @@ message POlapTableSchemaParam {
     repeated POlapTableIndexSchema indexes = 6;
     optional bool partial_update = 7;
     repeated string partial_update_input_columns = 8;
+    optional bool is_strict_mode = 9 [default = false];
 };
 

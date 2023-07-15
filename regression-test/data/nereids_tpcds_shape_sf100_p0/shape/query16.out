@@ -4,8 +4,8 @@ PhysicalTopN
 --PhysicalTopN
 ----PhysicalProject
 ------hashAgg[GLOBAL]
---------hashAgg[LOCAL]
-----------PhysicalDistribute
+--------PhysicalDistribute
+----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](cs1.cs_call_center_sk = call_center.cc_call_center_sk)
 ----------------PhysicalProject
@@ -15,7 +15,7 @@ PhysicalTopN
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN](cs1.cs_ship_date_sk = date_dim.d_date_sk)
 ----------------------PhysicalProject
-------------------------filter((cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('2002-4-01' as DATE), INTERVAL 60 DAY) as DATETIMEV2(0)))(date_dim.d_date >= 2002-04-01))
+------------------------filter((cast(d_date as DATETIMEV2(0)) <= cast(days_add(cast('2002-4-01' as DATEV2), INTERVAL 60 DAY) as DATETIMEV2(0)))(date_dim.d_date >= 2002-04-01))
 --------------------------PhysicalOlapScan[date_dim]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject

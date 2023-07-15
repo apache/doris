@@ -225,10 +225,12 @@ void Daemon::memory_gc_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     int32_t memory_minor_gc_sleep_time_ms = 0;
     int32_t memory_full_gc_sleep_time_ms = 0;
+    int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
                    std::chrono::milliseconds(interval_milliseconds)) &&
            !k_doris_exit) {
-        if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
+        if (config::disable_memory_gc || !MemInfo::initialized() ||
+            !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
@@ -243,9 +245,11 @@ void Daemon::memory_gc_thread() {
             (sys_mem_available < doris::MemInfo::sys_mem_available_low_water_mark() ||
              proc_mem_no_allocator_cache >= doris::MemInfo::mem_limit())) {
             // No longer full gc and minor gc during sleep.
-            memory_full_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-            memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-            doris::MemTrackerLimiter::print_log_process_usage("process full gc", false);
+            memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
+            memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
+            LOG(INFO) << fmt::format("Start Full GC, {}.",
+                                     MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+            doris::MemTrackerLimiter::print_log_process_usage();
             if (doris::MemInfo::process_full_gc()) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
@@ -254,8 +258,10 @@ void Daemon::memory_gc_thread() {
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
                     proc_mem_no_allocator_cache >= doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
-            memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-            doris::MemTrackerLimiter::print_log_process_usage("process minor gc", false);
+            memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
+            LOG(INFO) << fmt::format("Start Minor GC, {}.",
+                                     MemTrackerLimiter::process_soft_limit_exceeded_errmsg_str());
+            doris::MemTrackerLimiter::print_log_process_usage();
             if (doris::MemInfo::process_minor_gc()) {
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }

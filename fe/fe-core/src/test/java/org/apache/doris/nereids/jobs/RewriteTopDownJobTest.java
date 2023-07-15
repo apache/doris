@@ -119,8 +119,9 @@ public class RewriteTopDownJobTest {
         }
 
         @Override
-        public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-            return new LogicalBoundRelation(table, qualifier, Optional.empty(), logicalProperties);
+        public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+                Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+            return new LogicalBoundRelation(table, qualifier, groupExpression, logicalProperties);
         }
     }
 }

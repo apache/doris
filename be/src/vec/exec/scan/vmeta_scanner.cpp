@@ -23,7 +23,6 @@
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <gen_cpp/Types_types.h>
 
 #include <ostream>
 #include <string>
@@ -58,10 +57,11 @@ namespace doris::vectorized {
 
 VMetaScanner::VMetaScanner(RuntimeState* state, VMetaScanNode* parent, int64_t tuple_id,
                            const TScanRangeParams& scan_range, int64_t limit,
-                           RuntimeProfile* profile)
+                           RuntimeProfile* profile, TUserIdentity user_identity)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _meta_eos(false),
           _tuple_id(tuple_id),
+          _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
 Status VMetaScanner::open(RuntimeState* state) {
@@ -216,6 +216,9 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     case TMetadataType::WORKLOAD_GROUPS:
         RETURN_IF_ERROR(_build_workload_groups_metadata_request(meta_scan_range, &request));
         break;
+    case TMetadataType::CATALOGS:
+        RETURN_IF_ERROR(_build_catalogs_metadata_request(meta_scan_range, &request));
+        break;
     default:
         _meta_eos = true;
         return Status::OK();
@@ -239,7 +242,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
             },
             time_out));
 
-    Status status(result.status);
+    Status status(Status::create(result.status));
     if (!status.ok()) {
         LOG(WARNING) << "fetch schema table data from master failed, errmsg=" << status;
         return status;
@@ -317,6 +320,22 @@ Status VMetaScanner::_build_workload_groups_metadata_request(
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::WORKLOAD_GROUPS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
+
+    request->__set_metada_table_params(metadata_table_params);
+    return Status::OK();
+}
+
+Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                      TFetchSchemaTableDataRequest* request) {
+    VLOG_CRITICAL << "VMetaScanner::_build_catalogs_metadata_request";
+
+    // create request
+    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
+
+    // create TMetadataTableRequestParams
+    TMetadataTableRequestParams metadata_table_params;
+    metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

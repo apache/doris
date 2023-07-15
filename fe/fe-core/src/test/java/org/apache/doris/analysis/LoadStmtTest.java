@@ -150,13 +150,13 @@ public class LoadStmtTest {
         columnDescs.descs = columns1;
         columnDescs.isColumnDescsRewrited = false;
         Load.rewriteColumns(columnDescs);
-        String orig = "`c1` + 1 + 1";
+        String orig = "((`c1` + 1) + 1)";
         Assert.assertEquals(orig, columns1.get(4).getExpr().toString());
 
         List<ImportColumnDesc> columns2 = getColumns("c1,c2,c3,tmp_c5 = tmp_c4+1, tmp_c4=c1 + 1");
         columnDescs.descs = columns2;
         columnDescs.isColumnDescsRewrited = false;
-        String orig2 = "`tmp_c4` + 1";
+        String orig2 = "(`tmp_c4` + 1)";
         Load.rewriteColumns(columnDescs);
         Assert.assertEquals(orig2, columns2.get(3).getExpr().toString());
 

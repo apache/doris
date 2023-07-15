@@ -111,6 +111,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
 
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
+        if (this.whereClause != null) {
+            this.whereClause.setDisableTableName(true);
+        }
     }
 
     public Expr getWhereClause() {
@@ -193,9 +196,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                 // mv_count_sale_amt -> mva_SUM__CASE WHEN `sale_amt` IS NULL THEN 0 ELSE 1 END
                 List<SlotRef> slots = new ArrayList<>();
                 entry.getValue().collect(SlotRef.class, slots);
-                if (slots.size() > 1) {
-                    throw new IOException("DefineExpr have multiple slot in MaterializedIndex, Expr=" + entry.getKey());
-                }
 
                 String name = MaterializedIndexMeta.normalizeName(slots.get(0).toSqlWithoutTbl());
                 Column matchedColumn = null;

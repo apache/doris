@@ -164,9 +164,11 @@ public class OriginalPlanner extends Planner {
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setCreateSingleNodeFinishTime();
+        }
         ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
         projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
@@ -219,6 +221,9 @@ public class OriginalPlanner extends Planner {
             // all select query are unpartitioned.
             distributedPlanner = new DistributedPlanner(plannerContext);
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
+        }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setQueryDistributedFinishTime();
         }
 
         // Push sort node down to the bottom of olapscan.
@@ -451,9 +456,6 @@ public class OriginalPlanner extends Planner {
         slotDesc.setColumn(col);
         slotDesc.setIsNullable(false);
         slotDesc.setIsMaterialized(true);
-        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        slotDesc.setNullIndicatorBit(-1);
-        slotDesc.setNullIndicatorByte(0);
         return slotDesc;
     }
 

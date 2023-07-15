@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -282,10 +283,10 @@ public class Memo {
         Preconditions.checkArgument(!(plan instanceof GroupPlan), "Cannot init memo by a GroupPlan");
 
         // initialize children recursively
-        List<Group> childrenGroups = plan.children()
-                .stream()
-                .map(this::init)
-                .collect(ImmutableList.toImmutableList());
+        List<Group> childrenGroups = new ArrayList<>(plan.arity());
+        for (Plan child : plan.children()) {
+            childrenGroups.add(init(child));
+        }
 
         plan = replaceChildrenToGroupPlan(plan, childrenGroups);
         GroupExpression newGroupExpression = new GroupExpression(plan, childrenGroups);
@@ -737,10 +738,12 @@ public class Memo {
             builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
             Statistics stats = group.getStatistics();
-            if (stats != null && !group.getLogicalExpressions().isEmpty()
-                    && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
-                for (Entry e : stats.columnStatistics().entrySet()) {
-                    builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+            if (stats != null && !group.getLogicalExpressions().isEmpty()) {
+                Plan plan = group.getLogicalExpressions().get(0).getPlan();
+                if (plan instanceof LogicalOlapScan || plan instanceof LogicalFileScan) {
+                    for (Entry e : stats.columnStatistics().entrySet()) {
+                        builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
+                    }
                 }
             }
 
@@ -751,7 +754,7 @@ public class Memo {
                         if (costAndGroupExpression.isPresent()) {
                             Cost cost = costAndGroupExpression.get().first;
                             GroupExpression child = costAndGroupExpression.get().second;
-                            builder.append("\n    " + cost.getValue() + " " + prop)
+                            builder.append("\n\n    " + cost.getValue() + " " + prop)
                                     .append("\n     ").append(child)
                                     .append("\n     " + child.getInputPropertiesListOrEmpty(prop));
                         }

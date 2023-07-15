@@ -158,9 +158,14 @@ public class PhysicalHashJoin<
     @Override
     public PhysicalHashJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
+        PhysicalHashJoin newJoin = new PhysicalHashJoin<>(joinType, hashJoinConjuncts,
+                otherJoinConjuncts, hint, markJoinSlotReference,
                 Optional.empty(), getLogicalProperties(), physicalProperties, statistics,
                 children.get(0), children.get(1));
+        if (groupExpression.isPresent()) {
+            newJoin.setMutableState("group", groupExpression.get().getOwnerGroup().getGroupId().asInt());
+        }
+        return newJoin;
     }
 
     @Override
@@ -171,10 +176,11 @@ public class PhysicalHashJoin<
     }
 
     @Override
-    public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withLogicalProperties(
-            Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 2);
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
-                Optional.empty(), logicalProperties.get(), left(), right());
+                groupExpression, logicalProperties.get(), children.get(0), children.get(1));
     }
 
     public PhysicalHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> withPhysicalPropertiesAndStats(

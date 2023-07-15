@@ -141,7 +141,11 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        String location = ((AbstractFileStoreTable) source.getPaimonTable()).location().toString();
+        return getLocationType(((AbstractFileStoreTable) source.getPaimonTable()).location().toString());
+    }
+
+    @Override
+    public TFileType getLocationType(String location) throws DdlException, MetaNotFoundException {
         if (location != null && !location.isEmpty()) {
             if (S3Util.isObjStorage(location)) {
                 return TFileType.FILE_S3;

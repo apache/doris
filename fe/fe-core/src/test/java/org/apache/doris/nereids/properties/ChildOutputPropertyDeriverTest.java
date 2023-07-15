@@ -219,7 +219,7 @@ public class ChildOutputPropertyDeriverTest {
         leftMap.put(new ExprId(1), 0);
         PhysicalProperties left = new PhysicalProperties(new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0)),
-                ShuffleType.ENFORCED,
+                ShuffleType.EXECUTION_BUCKETED,
                 0,
                 Sets.newHashSet(0L),
                 ImmutableList.of(Sets.newHashSet(new ExprId(0), new ExprId(1))),
@@ -228,7 +228,7 @@ public class ChildOutputPropertyDeriverTest {
 
         PhysicalProperties right = new PhysicalProperties(new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(2)),
-                ShuffleType.ENFORCED,
+                ShuffleType.EXECUTION_BUCKETED,
                 1,
                 Sets.newHashSet(1L)
         ));
@@ -240,7 +240,7 @@ public class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.BUCKETED, actual.getShuffleType());
+        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED, actual.getShuffleType());
         // check merged
         Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
     }
@@ -308,12 +308,12 @@ public class ChildOutputPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.AGGREGATE)),
+                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.REQUIRE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         DistributionSpecHash childHash = new DistributionSpecHash(Lists.newArrayList(partition.getExprId()),
-                ShuffleType.BUCKETED);
+                ShuffleType.EXECUTION_BUCKETED);
         PhysicalProperties child = new PhysicalProperties(childHash,
                 new OrderSpec(Lists.newArrayList(
                         new OrderKey(new SlotReference("ignored", IntegerType.INSTANCE), true, true))));
@@ -323,7 +323,7 @@ public class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertTrue(result.getDistributionSpec() instanceof DistributionSpecHash);
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(ShuffleType.BUCKETED, actual.getShuffleType());
+        Assertions.assertEquals(ShuffleType.EXECUTION_BUCKETED, actual.getShuffleType());
         Assertions.assertEquals(Lists.newArrayList(partition).stream()
                         .map(SlotReference::getExprId).collect(Collectors.toList()),
                 actual.getOrderedShuffledColumns());
@@ -355,7 +355,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testLocalQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort(orderKeys, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
+        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
@@ -417,7 +417,7 @@ public class ChildOutputPropertyDeriverTest {
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
         PhysicalLimit<GroupPlan> limit = new PhysicalLimit<>(10, 10, LimitPhase.ORIGIN, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(limit);
-        PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
+        PhysicalProperties child = new PhysicalProperties(DistributionSpecGather.INSTANCE,
                 new OrderSpec(orderKeys));
 
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
@@ -434,7 +434,7 @@ public class ChildOutputPropertyDeriverTest {
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(assertNumRows);
-        PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE, new OrderSpec());
+        PhysicalProperties child = new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec());
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(Lists.newArrayList(child));
         PhysicalProperties result = deriver.getOutputProperties(groupExpression);
         Assertions.assertEquals(PhysicalProperties.GATHER, result);

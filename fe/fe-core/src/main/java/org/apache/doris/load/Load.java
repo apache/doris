@@ -736,9 +736,6 @@ public class Load {
             slotDesc.setType(Type.VARIANT);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(false);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsMaterialized(true);
             srcSlotIds.add(slotDesc.getId().asInt());
             slotDescByName.put(name, slotDesc);

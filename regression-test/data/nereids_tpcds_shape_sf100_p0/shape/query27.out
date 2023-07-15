@@ -26,8 +26,9 @@ PhysicalTopN
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_year = 1999))
 ------------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[item]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------filter(s_state IN ('MO', 'AL', 'MI', 'TN', 'LA', 'SC'))

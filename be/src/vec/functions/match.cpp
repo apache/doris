@@ -137,9 +137,8 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
     if (query_tokens.empty()) {
-        LOG(WARNING) << "invalid input query_str: " << match_query_str
-                     << ", please check your query sql";
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+                "invalid input query_str: {}, please check your query sql", match_query_str);
     }
 
     auto current_src_array_offset = 0;
@@ -178,9 +177,8 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                     column_name, match_query_str,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
     if (query_tokens.empty()) {
-        LOG(WARNING) << "invalid input query_str: " << match_query_str
-                     << ", please check your query sql";
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+                "invalid input query_str: {}, please check your query sql", match_query_str);
     }
 
     auto current_src_array_offset = 0;
@@ -226,9 +224,8 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                     inverted_index_ctx);
     if (query_tokens.empty()) {
-        LOG(WARNING) << "invalid input query_str: " << match_query_str
-                     << ", please check your query sql";
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>();
+        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
+                "invalid input query_str: {}, please check your query sql", match_query_str);
     }
 
     auto current_src_array_offset = 0;

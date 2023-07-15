@@ -19,11 +19,15 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
@@ -32,7 +36,10 @@ import java.util.Optional;
 /**
  * Logical Union.
  */
-public class LogicalUnion extends LogicalSetOperation implements OutputPrunable {
+public class LogicalUnion extends LogicalSetOperation implements Union, OutputPrunable {
+
+    // in doris, we use union node to present one row relation
+    private final List<List<NamedExpression>> constantExprsList;
     // When there is an agg on the union and there is a filter on the agg,
     // it is necessary to keep the filter on the agg and push the filter down to each child of the union.
     private final boolean hasPushedFilter;
@@ -40,25 +47,47 @@ public class LogicalUnion extends LogicalSetOperation implements OutputPrunable 
     public LogicalUnion(Qualifier qualifier, List<Plan> inputs) {
         super(PlanType.LOGICAL_UNION, qualifier, inputs);
         this.hasPushedFilter = false;
+        this.constantExprsList = ImmutableList.of();
     }
 
-    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, boolean hasPushedFilter,
-            List<Plan> inputs) {
+    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
+            List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> inputs) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, inputs);
         this.hasPushedFilter = hasPushedFilter;
+        this.constantExprsList = ImmutableList.copyOf(
+                Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
-    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, boolean hasPushedFilter,
+    public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
+            List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             List<Plan> inputs) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, groupExpression, logicalProperties, inputs);
         this.hasPushedFilter = hasPushedFilter;
+        this.constantExprsList = ImmutableList.copyOf(
+                Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
+    }
+
+    public boolean hasPushedFilter() {
+        return hasPushedFilter;
+    }
+
+    public List<List<NamedExpression>> getConstantExprsList() {
+        return constantExprsList;
+    }
+
+    @Override
+    public List<? extends Expression> getExpressions() {
+        return constantExprsList.stream().flatMap(List::stream).collect(ImmutableList.toImmutableList());
     }
 
     @Override
     public String toString() {
-        return Utils.toSqlString("LogicalUnion", "qualifier", qualifier, "outputs", outputs, "hasPushedFilter",
-                hasPushedFilter);
+        return Utils.toSqlString("LogicalUnion",
+                "qualifier", qualifier,
+                "outputs", outputs,
+                "constantExprsList", constantExprsList,
+                "hasPushedFilter", hasPushedFilter);
     }
 
     @Override
@@ -70,12 +99,13 @@ public class LogicalUnion extends LogicalSetOperation implements OutputPrunable 
             return false;
         }
         LogicalUnion that = (LogicalUnion) o;
-        return super.equals(that) && hasPushedFilter == that.hasPushedFilter;
+        return super.equals(that) && hasPushedFilter == that.hasPushedFilter
+                && Objects.equals(constantExprsList, that.constantExprsList);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), hasPushedFilter);
+        return Objects.hash(super.hashCode(), hasPushedFilter, constantExprsList);
     }
 
     @Override
@@ -85,35 +115,41 @@ public class LogicalUnion extends LogicalSetOperation implements OutputPrunable 
 
     @Override
     public LogicalUnion withChildren(List<Plan> children) {
-        return new LogicalUnion(qualifier, outputs, hasPushedFilter, children);
+        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, children);
     }
 
     @Override
     public LogicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalUnion(qualifier, outputs, hasPushedFilter, groupExpression,
+        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
-    public LogicalUnion withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalUnion(qualifier, outputs, hasPushedFilter, Optional.empty(), logicalProperties, children);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, groupExpression,
+                logicalProperties, children);
     }
 
     @Override
     public LogicalUnion withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalUnion(qualifier, newOutputs, hasPushedFilter, Optional.empty(), Optional.empty(), children);
+        return new LogicalUnion(qualifier, newOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+    }
+
+    public LogicalUnion withChildrenAndConstExprsList(
+            List<Plan> children, List<List<NamedExpression>> constantExprsList) {
+        return new LogicalUnion(qualifier, outputs, constantExprsList, hasPushedFilter, children);
     }
 
     public LogicalUnion withAllQualifier() {
-        return new LogicalUnion(Qualifier.ALL, outputs, hasPushedFilter, Optional.empty(), Optional.empty(), children);
-    }
-
-    public boolean hasPushedFilter() {
-        return hasPushedFilter;
+        return new LogicalUnion(Qualifier.ALL, outputs, constantExprsList, hasPushedFilter,
+                Optional.empty(), Optional.empty(), children);
     }
 
     public LogicalUnion withHasPushedFilter() {
-        return new LogicalUnion(qualifier, outputs, true, Optional.empty(), Optional.empty(), children);
+        return new LogicalUnion(qualifier, outputs, constantExprsList, true,
+                Optional.empty(), Optional.empty(), children);
     }
 
     @Override

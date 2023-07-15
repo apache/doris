@@ -65,6 +65,38 @@ MutableColumnPtr ColumnNullable::get_shrinked_column() {
                                   get_null_map_column_ptr());
 }
 
+void ColumnNullable::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                              const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_xxHash_with_value(start, end, hash, nullptr);
+    } else {
+        auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::xxHash64NullWithSeed(hash);
+            }
+        }
+        nested_column->update_xxHash_with_value(start, end, hash, real_null_data);
+    }
+}
+
+void ColumnNullable::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                           const uint8_t* __restrict null_data) const {
+    if (!has_null()) {
+        nested_column->update_crc_with_value(start, end, hash, nullptr);
+    } else {
+        auto* __restrict real_null_data =
+                assert_cast<const ColumnUInt8&>(*null_map).get_data().data();
+        for (int i = start; i < end; ++i) {
+            if (real_null_data[i] != 0) {
+                hash = HashUtil::zlib_crc_hash_null(hash);
+            }
+        }
+        nested_column->update_crc_with_value(start, end, hash, real_null_data);
+    }
+}
+
 void ColumnNullable::update_hash_with_value(size_t n, SipHash& hash) const {
     if (is_null_at(n))
         hash.update(0);

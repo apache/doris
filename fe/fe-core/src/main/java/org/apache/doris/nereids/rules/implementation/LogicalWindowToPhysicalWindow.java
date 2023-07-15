@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.rules.implementation;
 
 import org.apache.doris.nereids.annotation.DependsRules;
-import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -145,7 +145,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
 
         if (!orderKeyGroup.orderKeys.isEmpty()) {
             keysNeedToBeSorted.addAll(orderKeyGroup.orderKeys.stream()
-                    .map(orderExpression -> orderExpression.getOrderKey())
+                    .map(OrderExpression::getOrderKey)
                     .collect(Collectors.toList())
             );
         }
@@ -165,7 +165,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
                 root);
 
         if (windowFrameGroup.partitionKeys.isEmpty() && requiredOrderKeys.isEmpty()) {
-            return physicalWindow;
+            return physicalWindow.withRequirePropertiesAndChild(RequireProperties.of(PhysicalProperties.GATHER), root);
         }
 
         // todo: WFGs in the same OKG only need same RequiredProperties
@@ -174,7 +174,7 @@ public class LogicalWindowToPhysicalWindow extends OneImplementationRuleFactory 
             properties = PhysicalProperties.GATHER.withOrderSpec(new OrderSpec(requiredOrderKeys));
         } else {
             properties = PhysicalProperties.createHash(
-                windowFrameGroup.partitionKeys, DistributionSpecHash.ShuffleType.ENFORCED);
+                windowFrameGroup.partitionKeys, ShuffleType.REQUIRE);
             // requiredOrderKeys contain partitionKeys, so there is no need to check if requiredOrderKeys.isEmpty()
             properties = properties.withOrderSpec(new OrderSpec(requiredOrderKeys));
         }

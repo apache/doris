@@ -55,7 +55,7 @@
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/memory/chunk_allocator.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
@@ -118,6 +118,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
+
+    TimezoneUtils::load_timezone_names();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -227,6 +229,8 @@ Status ExecEnv::_init_mem_env() {
     }
 
     // 3. init storage page cache
+    CacheManager::create_global_instance();
+
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
                                       MemInfo::physical_mem(), &is_percent);
@@ -307,30 +311,13 @@ Status ExecEnv::_init_mem_env() {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
     }
-    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit);
     LOG(INFO) << "Inverted index query match cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
     RETURN_IF_ERROR(_block_spill_mgr->init());
-
-    // 5. init chunk allocator
-    if (!BitUtil::IsPowerOf2(config::min_chunk_reserved_bytes)) {
-        ss << "Config min_chunk_reserved_bytes must be a power-of-two: "
-           << config::min_chunk_reserved_bytes;
-        return Status::InternalError(ss.str());
-    }
-
-    int64_t chunk_reserved_bytes_limit =
-            ParseUtil::parse_mem_spec(config::chunk_reserved_bytes_limit, MemInfo::mem_limit(),
-                                      MemInfo::physical_mem(), &is_percent);
-    chunk_reserved_bytes_limit =
-            BitUtil::RoundDown(chunk_reserved_bytes_limit, config::min_chunk_reserved_bytes);
-    ChunkAllocator::init_instance(chunk_reserved_bytes_limit);
-    LOG(INFO) << "Chunk allocator memory limit: "
-              << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
-              << ", origin config value: " << config::chunk_reserved_bytes_limit;
     return Status::OK();
 }
 
@@ -428,6 +415,7 @@ void ExecEnv::_destroy() {
     _experimental_mem_tracker.reset();
     _page_no_cache_mem_tracker.reset();
     _brpc_iobuf_block_memory_tracker.reset();
+    InvertedIndexSearcherCache::reset_global_instance();
 
     _is_init = false;
 }

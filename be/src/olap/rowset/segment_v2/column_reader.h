@@ -120,7 +120,7 @@ public:
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     Status new_inverted_index_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
-                                       InvertedIndexIterator** iterator);
+                                       std::unique_ptr<InvertedIndexIterator>* iterator);
 
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
@@ -137,7 +137,15 @@ public:
 
     bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
     bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
-    bool has_bloom_filter_index() const { return _bf_index_meta != nullptr; }
+    bool has_bloom_filter_index(bool ngram) const {
+        if (_bf_index_meta == nullptr) return false;
+
+        if (ngram) {
+            return _bf_index_meta->algorithm() == BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
+        } else {
+            return _bf_index_meta->algorithm() != BloomFilterAlgorithmPB::NGRAM_BLOOM_FILTER;
+        }
+    }
 
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
@@ -237,7 +245,7 @@ private:
     std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
     std::unique_ptr<OrdinalIndexReader> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index;
-    std::unique_ptr<InvertedIndexReader> _inverted_index;
+    std::shared_ptr<InvertedIndexReader> _inverted_index;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
     DorisCallOnce<Status> _load_zone_map_index_once;
     DorisCallOnce<Status> _load_ordinal_index_once;
@@ -302,6 +310,11 @@ public:
         return Status::OK();
     }
 
+    virtual Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
+                                          RowRanges* row_ranges) {
+        return Status::OK();
+    }
+
     virtual bool is_all_dict_encoding() const { return false; }
 
 protected:
@@ -342,6 +355,9 @@ public:
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
                                           RowRanges* row_ranges) override;
 
+    Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
+                                  RowRanges* row_ranges) override;
+
     ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
@@ -352,8 +368,8 @@ private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const;
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
+    Status _read_dict_data();
 
-private:
     ColumnReader* _reader;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()

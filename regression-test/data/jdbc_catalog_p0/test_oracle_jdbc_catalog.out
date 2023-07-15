@@ -32,14 +32,15 @@
 5	\N	\N	12 10:23:1.123457
 
 -- !test6 --
-1	2013-01-21T05:23:01	\N	\N	\N	\N	\N
-2	2013-11-12T20:32:56	\N	\N	\N	\N	\N
-3	\N	2019-11-12T20:33:57.999998	\N	\N	\N	\N
-4	\N	\N	2019-11-12T20:33:57.999996	\N	\N	\N
-5	\N	\N	\N	2019-11-12T20:33:57.999997	\N	\N
-6	\N	\N	\N	\N	11-0	\N
-7	\N	\N	\N	\N	223-9	\N
-8	\N	\N	\N	\N	\N	12 10:23:1.123457
+1	2013-01-21T05:23:01	\N	\N	\N	\N	\N	\N
+2	2013-11-12T20:32:56	\N	\N	\N	\N	\N	\N
+3	\N	2019-11-12T20:33:57.999	\N	\N	\N	\N	\N
+4	\N	\N	2019-11-12T20:33:57.999998	\N	\N	\N	\N
+5	\N	\N	\N	2019-11-12T20:33:57.999996	\N	\N	\N
+6	\N	\N	\N	\N	2019-11-12T20:33:57.999997	\N	\N
+7	\N	\N	\N	\N	\N	11-0	\N
+8	\N	\N	\N	\N	\N	223-9	\N
+9	\N	\N	\N	\N	\N	\N	12 10:23:1.123457
 
 -- !test7 --
 1	123.45	12300	0.0012345
@@ -65,6 +66,17 @@
 -- !test10 --
 1	10000000
 2	123460000000
+
+-- !filter1 --
+1	1	china 	beijing	alice	abcdefghrjkmnopq
+
+-- !filter2 --
+1	1	china 	beijing	alice	abcdefghrjkmnopq
+2	2	china 	shanghai	bob	abcdefghrjkmnopq
+3	3	Americ	new york	Jerry	abcdefghrjkmnopq
+
+-- !filter3 --
+1	1	china 	beijing	alice	abcdefghrjkmnopq
 
 -- !test_insert1 --
 doris1	18

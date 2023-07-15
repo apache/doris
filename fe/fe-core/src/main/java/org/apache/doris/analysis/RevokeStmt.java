@@ -42,38 +42,42 @@ public class RevokeStmt extends DdlStmt {
     private String role;
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
+    private WorkloadGroupPattern workloadGroupPattern;
     private List<Privilege> privileges;
     // Indicates that these roles are revoked from a user
     private List<String> roles;
 
     public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
-        this.userIdent = userIdent;
-        this.role = role;
-        this.tblPattern = tblPattern;
-        this.resourcePattern = null;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
-        }
-        this.privileges = privs.toPrivilegeList();
+        this(userIdent, role, tblPattern, null, null, privileges);
     }
 
     public RevokeStmt(UserIdentity userIdent, String role,
             ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
-        this.userIdent = userIdent;
-        this.role = role;
-        this.tblPattern = null;
-        this.resourcePattern = resourcePattern;
-        PrivBitSet privs = PrivBitSet.of();
-        for (AccessPrivilege accessPrivilege : privileges) {
-            privs.or(accessPrivilege.toPaloPrivilege());
-        }
-        this.privileges = privs.toPrivilegeList();
+        this(userIdent, role, null, resourcePattern, null, privileges);
+    }
+
+    public RevokeStmt(UserIdentity userIdent, String role,
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilege> privileges) {
+        this(userIdent, role, null, null, workloadGroupPattern, privileges);
     }
 
     public RevokeStmt(List<String> roles, UserIdentity userIdent) {
         this.roles = roles;
         this.userIdent = userIdent;
+    }
+
+    private RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, ResourcePattern resourcePattern,
+            WorkloadGroupPattern workloadGroupPattern, List<AccessPrivilege> privileges) {
+        this.userIdent = userIdent;
+        this.role = role;
+        this.tblPattern = tblPattern;
+        this.resourcePattern = resourcePattern;
+        this.workloadGroupPattern = workloadGroupPattern;
+        PrivBitSet privs = PrivBitSet.of();
+        for (AccessPrivilege accessPrivilege : privileges) {
+            privs.or(accessPrivilege.toPaloPrivilege());
+        }
+        this.privileges = privs.toPrivilegeList();
     }
 
     public UserIdentity getUserIdent() {
@@ -86,6 +90,10 @@ public class RevokeStmt extends DdlStmt {
 
     public ResourcePattern getResourcePattern() {
         return resourcePattern;
+    }
+
+    public WorkloadGroupPattern getWorkloadGroupPattern() {
+        return workloadGroupPattern;
     }
 
     public String getQualifiedRole() {
@@ -113,6 +121,8 @@ public class RevokeStmt extends DdlStmt {
             tblPattern.analyze(analyzer);
         } else if (resourcePattern != null) {
             resourcePattern.analyze();
+        } else if (workloadGroupPattern != null) {
+            workloadGroupPattern.analyze();
         } else if (roles != null) {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
@@ -130,6 +140,8 @@ public class RevokeStmt extends DdlStmt {
             GrantStmt.checkTablePrivileges(privileges, role, tblPattern);
         } else if (resourcePattern != null) {
             GrantStmt.checkResourcePrivileges(privileges, role, resourcePattern);
+        } else if (workloadGroupPattern != null) {
+            GrantStmt.checkWorkloadGroupPrivileges(privileges, role, workloadGroupPattern);
         } else if (roles != null) {
             GrantStmt.checkRolePrivileges();
         }
@@ -149,6 +161,8 @@ public class RevokeStmt extends DdlStmt {
             sb.append(" ON ").append(tblPattern).append(" FROM ");
         } else if (resourcePattern != null) {
             sb.append(" ON RESOURCE '").append(resourcePattern).append("' FROM ");
+        } else if (workloadGroupPattern != null) {
+            sb.append(" ON WORKLOAD GROUP '").append(workloadGroupPattern).append("' FROM ");
         } else {
             sb.append(" FROM ");
         }

@@ -61,6 +61,12 @@ Related parameters for accessing hdfs:
 - `dfs.client.read.shortcircuit`: (optional)
 - `dfs.domain.socket.path`: (optional)
 
+Related parameters for accessing HDFS in HA mode:
+- `dfs.nameservices`: (optional)
+- `dfs.ha.namenodes.your-nameservices`: (optional)
+- `dfs.namenode.rpc-address.your-nameservices.your-namenode`: (optional)
+- `dfs.client.failover.proxy.provider.your-nameservices`: (optional)
+
 File format parameters:
 
 - `format`: (required) Currently support `csv/csv_with_names/csv_with_names_and_types/json/parquet/orc`
@@ -82,6 +88,10 @@ File format parameters:
 - `trim_double_quotes`: Boolean type (optional), the default value is `false`. True means that the outermost double quotes of each field in the csv file are trimmed.
 - `skip_lines`: Integer type (optional), the default value is 0. It will skip some lines in the head of csv file. It will be disabled when the format is `csv_with_names` or `csv_with_names_and_types`.
 
+other kinds of parameters:
+
+- `path_partition_keys`: (optional) Specifies the column names carried in the file path. For example, if the file path is /path/to/city=beijing/date="2023-07-09", you should fill in `path_partition_keys="city,date"`. It will automatically read the corresponding column names and values from the path during load process.
+
 ### Examples
 
 Read and access csv format files on hdfs storage.
@@ -92,6 +102,29 @@ MySQL [(none)]> select * from hdfs(
             "fs.defaultFS" = "hdfs://127.0.0.1:8424",
             "hadoop.username" = "doris",
             "format" = "csv");
++------+---------+------+
+| c1   | c2      | c3   |
++------+---------+------+
+| 1    | alice   | 18   |
+| 2    | bob     | 20   |
+| 3    | jack    | 24   |
+| 4    | jackson | 19   |
+| 5    | liming  | 18   |
++------+---------+------+
+```
+
+Read and access csv format files on hdfs storage in HA mode.
+```sql
+MySQL [(none)]> select * from hdfs(
+            "uri" = "hdfs://127.0.0.1:842/user/doris/csv_format_test/student.csv",
+            "fs.defaultFS" = "hdfs://127.0.0.1:8424",
+            "hadoop.username" = "doris",
+            "format" = "csv",
+            "dfs.nameservices" = "my_hdfs",
+            "dfs.ha.namenodes.my_hdfs" = "nn1,nn2",
+            "dfs.namenode.rpc-address.my_hdfs.nn1" = "nanmenode01:8020",
+            "dfs.namenode.rpc-address.my_hdfs.nn2" = "nanmenode02:8020",
+            "dfs.client.failover.proxy.provider.my_hdfs" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
 +------+---------+------+
 | c1   | c2      | c3   |
 +------+---------+------+
