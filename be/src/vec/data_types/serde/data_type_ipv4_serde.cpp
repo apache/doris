@@ -30,7 +30,7 @@ namespace vectorized {
 void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
-    auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
+    auto& col_data = static_cast<const ColumnVector<IPv4>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         IPv4Value ipv4_val(col_data[i]);
@@ -56,7 +56,7 @@ template <bool is_binary_format>
 Status DataTypeIPv4SerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& result,
                                                    int row_idx, bool col_const) const {
-    auto& data = assert_cast<const ColumnVector<UInt32>&>(column).get_data();
+    auto& data = assert_cast<const ColumnVector<IPv4>&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv4Value ipv4_val(data[col_index]);
     if (UNLIKELY(0 != result.push_ipv4(ipv4_val))) {

@@ -48,6 +48,7 @@ suite("test_ip_functions") {
     qt_sql9 "select id, ip_v6, ipv6numtostring(ipv6stringtonum_or_default(ip_v6)) from ${tableName} order by id"
     qt_sql10 "select id, ip_v6, inet6_ntoa(inet6_aton(ip_v6)) from ${tableName} order by id"
     qt_sql11 "select ipv6numtostring(unhex('2A0206B8000000000000000000000011')), ipv6numtostring(unhex('2B020CB8000000001000000100000011'))"
-
+    qt_sql12 "select isipv4string('255.255.255.255'), isipv4string('255.255.255.256'), isipv4string('0.0.0.0.1'), isipv4string('0.0.0.2556'), isipv4string(' '), isipv4string('')"
+    qt_sql13 "select isipv6string('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'), isipv6string('ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg'), isipv4string(' '), isipv4string('')"
     sql "DROP TABLE ${tableName}"
 }

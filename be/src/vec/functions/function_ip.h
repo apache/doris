@@ -72,7 +72,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv4numtostring";
+    static constexpr auto name = Name::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4NumToString<Name>>();
     }
@@ -145,7 +145,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv4stringtonum";
+    static constexpr auto name = Name::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4StringToNum<Name>>();
     }
@@ -201,7 +201,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv4stringtonum_or_default";
+    static constexpr auto name = Name::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv4StringToNumOrDefault<Name>>();
     }
@@ -212,6 +212,61 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
+    }
+};
+
+template <typename Name>
+class FunctionIsIPv4String : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnInt8::create();
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv4_str = col_src->get_data_at(i).to_string();
+                if (ipv4_str.size() > IPV4_MAX_TEXT_LENGTH || !IPv4Value::is_valid_string(ipv4_str)) {
+                    col_res->insert_value(0);
+                } else {
+                    col_res->insert_value(1);
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = Name::name;
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIsIPv4String<Name>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt8>());
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -261,7 +316,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv6numtostring";
+    static constexpr auto name = Name::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6NumToString<Name>>();
     }
@@ -322,7 +377,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv6stringtonum";
+    static constexpr auto name = Name::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6StringToNum<Name>>();
     }
@@ -379,7 +434,7 @@ private:
     }
 
 public:
-    static constexpr auto name = "ipv6stringtonum_or_default";
+    static constexpr auto name = Name::name;
     static FunctionPtr create() {
         return std::make_shared<FunctionIPv6StringToNumOrDefault<Name>>();
     }
@@ -390,6 +445,61 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
+
+        DCHECK(argument.type->get_type_id() == TypeIndex::String);
+
+        return execute_type(block, argument, result);
+    }
+};
+
+template <typename Name>
+class FunctionIsIPv6String : public IFunction {
+private:
+    Status execute_type(Block& block, const ColumnWithTypeAndName& argument, size_t result) const {
+        const ColumnPtr& column = argument.column;
+
+        if (const ColumnString* col_src = typeid_cast<const ColumnString*>(column.get())) {
+            auto col_res = ColumnInt8::create();
+
+            for (size_t i = 0; i < col_src->size(); ++i) {
+                auto ipv6_str = col_src->get_data_at(i).to_string();
+                if (ipv6_str.size() > IPV6_MAX_TEXT_LENGTH || !IPv6Value::is_valid_string(ipv6_str)) {
+                    col_res->insert_value(0);
+                } else {
+                    col_res->insert_value(1);
+                }
+            }
+
+            DCHECK_EQ(col_res->size(), col_src->size());
+
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
+            return Status::OK();
+        } else {
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        argument.column->get_name(), get_name());
+        }
+    }
+
+public:
+    static constexpr auto name = Name::name;
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIsIPv6String<Name>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeInt8>());
     }
 
     bool use_default_implementation_for_nulls() const override { return true; }

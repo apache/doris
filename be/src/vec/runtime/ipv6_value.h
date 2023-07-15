@@ -62,6 +62,11 @@ public:
 
     static bool from_string(vectorized::IPv6& x, std::string ipv6) {
         remove_ipv6_space(ipv6);
+
+        if (ipv6.empty() || !is_valid_string(ipv6)) {
+            return false;
+        }
+
         std::transform(ipv6.begin(), ipv6.end(), ipv6.begin(), [] (unsigned char ch) {
             return std::tolower(ch);
         });
@@ -232,6 +237,10 @@ public:
     }
 
     static void remove_ipv6_space(std::string& ipv6) {
+        if (ipv6.empty()) {
+            return;
+        }
+        
         std::string special_chars = "\r\n\t ";
 
         size_t pos = ipv6.find_first_not_of(special_chars);
@@ -245,10 +254,14 @@ public:
         }
     }
 
-    static IPv6Value create_from_olap_ipv6(vectorized::IPv6 value) {
-        IPv6Value ipv6;
-        ipv6.set_value(value);
-        return ipv6;
+    static bool is_valid_string(std::string ipv6) {
+        static std::regex IPV6_STD_REGEX("^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
+        static std::regex IPV6_COMPRESS_REGEX("^(([0-9A-Fa-f]{1,4}(:[0-9A-Fa-f]{1,4})*)?)::((([0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4})?)$");
+
+        if (ipv6.size() > 39 || !(std::regex_match(ipv6, IPV6_STD_REGEX) || std::regex_match(ipv6, IPV6_COMPRESS_REGEX))) {
+            return false;
+        }
+        return true;
     }
 
 private:

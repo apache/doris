@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <stdint.h>
 
 #include <sstream>
@@ -54,12 +55,18 @@ public:
         return from_string(_value, ipv4);
     }
 
-    std::string to_string() const {
+    [[nodiscard]] std::string to_string() const {
         return to_string(_value);
     }
 
     static bool from_string(vectorized::IPv4& value, std::string ipv4) {
         remove_ipv4_space(ipv4);
+
+        // shortest ipv4 string is `0.0.0.0` whose length is 7
+        if (ipv4.size() < 7 || !is_valid_string(ipv4)) {
+            return false;
+        }
+
         vectorized::IPv4 octets[4] = {0};
         std::istringstream iss(ipv4);
         std::string octet;
@@ -97,6 +104,10 @@ public:
     }
 
     static void remove_ipv4_space(std::string& ipv4) {
+        if (ipv4.empty()) {
+            return;
+        }
+
         std::string special_chars = "\r\n\t ";
 
         size_t pos = ipv4.find_first_not_of(special_chars);
@@ -110,10 +121,12 @@ public:
         }
     }
 
-    static IPv4Value create_from_olap_ipv4(vectorized::IPv4 value) {
-        IPv4Value ipv4;
-        ipv4.set_value(value);
-        return ipv4;
+    static bool is_valid_string(std::string ipv4) {
+        static std::regex IPV4_STD_REGEX("^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$");
+        if (ipv4.size() > 15 || !std::regex_match(ipv4, IPV4_STD_REGEX)) {
+            return false;
+        }
+        return true;
     }
 
 private:
