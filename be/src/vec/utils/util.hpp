@@ -49,6 +49,23 @@ public:
         }
         return MutableBlock::build_mutable_block(block);
     }
+    static MutableBlock build_mutable_mem_reuse_block(Block* block,
+                                                      std::vector<SlotDescriptor*>& slots) {
+        if (!block->mem_reuse()) {
+            size_t column_size = slots.size();
+            MutableColumns columns(column_size);
+            for (size_t i = 0; i < column_size; i++) {
+                columns[i] = slots[i]->get_empty_mutable_column();
+            }
+            int n_columns = 0;
+            for (const auto slot_desc : slots) {
+                block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                    slot_desc->get_data_type_ptr(),
+                                                    slot_desc->col_name()));
+            }
+        }
+        return MutableBlock(block);
+    }
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
             const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
