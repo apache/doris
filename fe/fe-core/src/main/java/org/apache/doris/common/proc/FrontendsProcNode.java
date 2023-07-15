@@ -45,7 +45,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
-            .add("ReplayedJournalId").add("LastStartup").add("LastHeartbeat")
+            .add("ReplayedJournalId").add("LastStartTime").add("LastHeartbeat")
             .add("IsHelper").add("ErrMsg").add("Version")
             .add("CurrentConnected")
             .build();
