@@ -54,7 +54,8 @@ The currently supported types are:
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DECIMALV3, DATE,
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
-## Notice
+
+### Notice
 STRUCT type now default is disable and
 here are two ways to enable it
 ```
@@ -68,7 +69,8 @@ We have a todo list for future version:
 ```
 TODO:支持嵌套 STRUCT 或其他的复杂类型
 ```
-## Notice
+
+### Notice
 We do not support creating a STRUCT type which field_type is array/struct/map type when we create table
 
 ### example

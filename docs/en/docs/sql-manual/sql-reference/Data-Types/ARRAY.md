@@ -50,7 +50,7 @@ T-type could be any of:
 BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DATE,
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
-## Notice
+### Notice
 We now do not support creating an array type where the item is an struct/map type when we create a table, only support array type where the item is array type or a basic type.
 
 ### example

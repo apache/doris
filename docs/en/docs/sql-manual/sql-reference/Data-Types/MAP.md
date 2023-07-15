@@ -47,14 +47,14 @@ BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DECIM
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
 
-## Notice
+### Notice
 We do not support creating a Map type which K/V is array/struct/map type when we create table
 
 ### example
 
 Create table example:
 
-## Notice
+### Notice
 Map type now default is disable and 
 here are two ways to enable it
 ```

@@ -47,12 +47,12 @@ BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, FLOAT, DOUBLE, DECIMAL, DECIM
 DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 ```
 
-## Notice
+### Notice
 我们现在不支持创建 Map类型时，其中 K/V 是 array/struct/map 类型
 
 ### example
 
-## Notice
+### Notice
 Map 类型目前默认时关闭的，下面有两种方式可以开启
 ```
 1. set enable_map_type=true in doris fe config
