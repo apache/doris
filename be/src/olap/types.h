@@ -974,7 +974,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
         uint32_t value = StringParser::string_to_unsigned_int<uint32_t>(scan_key.c_str(), scan_key.size(), &result);
 
         if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV4>::from_string meet PARSE_FAILURE");
         }
         *reinterpret_cast<uint32_t*>(buf) = value;
         return Status::OK();
@@ -1009,13 +1010,15 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
             }
 
             if (count > 8) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>();;
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
             }
 
             uint16_t value;
             std::istringstream ss(token);
             if (!(ss >> std::hex >> value)) {
-                return Status::Error<ErrorCode::INVALID_ARGUMENT>();;
+                return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                        "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
             }
 
             result = (result << 16) | value;
@@ -1023,7 +1026,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         }
 
         if (count < 8) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();;
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
         }
 
         *reinterpret_cast<uint128_t*>(buf) = result;

@@ -27,7 +27,7 @@
 namespace doris {
 namespace vectorized {
 
-void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     auto& col_data = static_cast<const ColumnVector<UInt32>&>(column).get_data();
@@ -35,7 +35,7 @@ void DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const UInt8
     for (size_t i = start; i < end; ++i) {
         IPv4Value ipv4_val(col_data[i]);
         auto ipv4_str = ipv4_val.to_string();
-        if (null_map && null_map[i]) {
+        if (null_map && (*null_map)[i]) {
             checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
