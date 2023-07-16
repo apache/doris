@@ -70,7 +70,8 @@ Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
           _input_row_num(0),
           _input_num_segments(0),
           _input_index_size(0),
-          _state(CompactionState::INITED) {
+          _state(CompactionState::INITED),
+          _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::COMPACTION, label);
     init_profile(label);
 }
@@ -371,7 +372,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // is below output_version to be delete in the future base compaction, we should carry
     // all delete predicate in the output rowset.
     // Output start version > 2 means we must set the delete predicate in the output rowset
-    if (config::enable_delete_when_cumu_compaction && _output_rowset->version().first > 2) {
+    if (allow_delete_in_cumu_compaction() && _output_rowset->version().first > 2) {
         DeletePredicatePB delete_predicate;
         std::accumulate(
                 _input_rs_readers.begin(), _input_rs_readers.end(), &delete_predicate,
@@ -609,7 +610,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // of incremental data later.
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
-        if (!config::enable_delete_when_cumu_compaction) {
+        if (!allow_delete_in_cumu_compaction()) {
             _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, 0, version.second + 1, &missed_rows,
                     &location_map, _tablet->tablet_meta()->delete_bitmap(),
@@ -674,7 +675,7 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     &location_map, _tablet->tablet_meta()->delete_bitmap(),
                     &output_rowset_delete_bitmap);
 
-            if (!config::enable_delete_when_cumu_compaction &&
+            if (!allow_delete_in_cumu_compaction() &&
                 compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
                 DCHECK_EQ(missed_rows.size(), missed_rows_size);
                 if (missed_rows.size() != missed_rows_size) {

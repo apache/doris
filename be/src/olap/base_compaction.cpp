@@ -142,8 +142,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     // rowset's start version is bigger than 2, we'll always remain the delete pred information inside
     // the output rowset so the rowsets whose version is less than _input_rowsets.front()->start_version() > 0
     // would apply the delete pred in the end.
-    if (!config::enable_delete_when_cumu_compaction &&
-        _input_rowsets.front()->start_version() > 0) {
+    if (!allow_delete_in_cumu_compaction() && _input_rowsets.front()->start_version() > 0) {
         bool has_delete_predicate = false;
         for (const auto& rs : _input_rowsets) {
             if (rs->rowset_meta()->has_delete_predicate()) {
