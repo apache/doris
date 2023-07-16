@@ -246,7 +246,7 @@ public class CatalogMgrTest extends TestWithFeService {
         AlterCatalogPropertyStmt alterStmt = new AlterCatalogPropertyStmt(MY_CATALOG, alterProps2);
         mgr.alterCatalogProps(alterStmt);
         catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
-        Assert.assertEquals(8, catalog.getProperties().size());
+        Assert.assertEquals(9, catalog.getProperties().size());
         Assert.assertEquals("service1", catalog.getProperties().get("dfs.nameservices"));
 
         String showDetailCatalog = "SHOW CATALOG my_catalog";
