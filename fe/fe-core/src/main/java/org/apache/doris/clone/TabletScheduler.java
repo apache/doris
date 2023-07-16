@@ -351,11 +351,18 @@ public class TabletScheduler extends MasterDaemon {
      */
     private void schedulePendingTablets() {
         long start = System.currentTimeMillis();
-        List<TabletSchedCtx> currentBatch = getNextTabletCtxBatch();
-        LOG.debug("get {} tablets to schedule", currentBatch.size());
+        LOG.debug("start schedule tablets, tablet size {}", getPendingNum());
 
+        List<TabletSchedCtx> needAddBackTablets = Lists.newArrayList();
         AgentBatchTask batchTask = new AgentBatchTask();
-        for (TabletSchedCtx tabletCtx : currentBatch) {
+        for (int i = 0; i < MIN_BATCH_NUM; i++) {
+            if (i != 0 && !hasAvailableSlot()) {
+                break;
+            }
+            TabletSchedCtx tabletCtx = getNextPendingTabletCtx();
+            if (tabletCtx == null) {
+                break;
+            }
             try {
                 if (Config.disable_tablet_scheduler) {
                     // do not schedule more tablet is tablet scheduler is disabled.
@@ -378,7 +385,7 @@ public class TabletScheduler extends MasterDaemon {
                         tabletCtx.releaseResource(this);
                         // adjust priority to avoid some higher priority always be the first in pendingTablets
                         stat.counterTabletScheduledFailed.incrementAndGet();
-                        addBackToPendingTablets(tabletCtx);
+                        needAddBackTablets.add(tabletCtx);
                     }
                 } else if (e.getStatus() == Status.FINISHED) {
                     // schedule redundant tablet or scheduler disabled will throw this exception
@@ -402,6 +409,10 @@ public class TabletScheduler extends MasterDaemon {
             Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING, tabletCtx.getState());
             stat.counterTabletScheduledSucceeded.incrementAndGet();
             addToRunningTablets(tabletCtx);
+        }
+
+        for (TabletSchedCtx tabletCtx : needAddBackTablets) {
+            addBackToPendingTablets(tabletCtx);
         }
 
         // must send task after adding tablet info to runningTablets.
@@ -1371,31 +1382,17 @@ public class TabletScheduler extends MasterDaemon {
         LOG.info("remove the tablet {}. because: {}", tabletCtx.getTabletId(), reason);
     }
 
-    // get next batch of tablets from queue.
-    private synchronized List<TabletSchedCtx> getNextTabletCtxBatch() {
-        List<TabletSchedCtx> list = Lists.newArrayList();
-        int count = Math.min(MIN_BATCH_NUM, getCurrentAvailableSlotNum());
-        if (count < 1) {
-            count = 1;
-        }
-        while (count > 0) {
-            TabletSchedCtx tablet = pendingTablets.poll();
-            if (tablet == null) {
-                // no more tablets
-                break;
-            }
-            list.add(tablet);
-            count--;
-        }
-        return list;
+    private synchronized TabletSchedCtx getNextPendingTabletCtx() {
+        return pendingTablets.poll();
     }
 
-    private int getCurrentAvailableSlotNum() {
-        int total = 0;
+    private boolean hasAvailableSlot() {
         for (PathSlot pathSlot : backendsWorkingSlots.values()) {
-            total += pathSlot.getTotalAvailSlotNum();
+            if (pathSlot.getTotalAvailSlotNum() > 0) {
+                return true;
+            }
         }
-        return total;
+        return false;
     }
 
     public boolean finishStorageMediaMigrationTask(StorageMediaMigrationTask migrationTask,
