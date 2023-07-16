@@ -905,13 +905,13 @@ public class Config extends ConfigBase {
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int schedule_slot_num_per_path = 2;
+    public static int schedule_slot_num_per_path = 4;
 
     /**
      * the default slot number per path in tablet scheduler for decommission backend
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int decommission_schedule_slot_num_per_path = 6;
+    public static int decommission_schedule_slot_num_per_path = 8;
 
     /**
      * Deprecated after 0.10

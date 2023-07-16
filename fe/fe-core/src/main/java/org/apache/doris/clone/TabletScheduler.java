@@ -226,7 +226,8 @@ public class TabletScheduler extends MasterDaemon {
         if (!force && Config.disable_tablet_scheduler) {
             return AddResult.DISABLED;
         }
-        if (!force && containsTablet(tablet.getTabletId())) {
+        boolean contains = containsTablet(tablet.getTabletId());
+        if (!force && contains) {
             return AddResult.ALREADY_IN;
         }
 
@@ -241,6 +242,12 @@ public class TabletScheduler extends MasterDaemon {
 
         allTabletIds.add(tablet.getTabletId());
         pendingTablets.offer(tablet);
+        if (!contains) {
+            LOG.info("Add tablet to pending queue, tablet id {}, type {}, status {}, priority {}",
+                    tablet.getTabletId(), tablet.getType(), tablet.getTabletStatus(),
+                    tablet.getPriority());
+        }
+
         return AddResult.ADDED;
     }
 
@@ -1693,14 +1700,6 @@ public class TabletScheduler extends MasterDaemon {
             if (slot.used > 0) {
                 slot.used--;
             }
-        }
-
-        public synchronized int peekSlot(long pathHash) {
-            Slot slot = pathSlots.get(pathHash);
-            if (slot == null) {
-                return -1;
-            }
-            return slot.getAvailable();
         }
 
         public synchronized int getTotalAvailSlotNum() {
