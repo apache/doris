@@ -61,6 +61,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -215,7 +216,6 @@ public class HudiScanNode extends HiveScanNode {
         List<FieldSchema> allFields = hmsTable.getRemoteTable().getSd().getCols();
         allFields.addAll(hmsTable.getRemoteTable().getPartitionKeys());
 
-        List<Split> splits = new ArrayList<>();
         for (Schema.Field hudiField : hudiSchema.getFields()) {
             String columnName = hudiField.name().toLowerCase(Locale.ROOT);
             // keep hive metastore column in hudi avro schema.
@@ -254,66 +254,63 @@ public class HudiScanNode extends HiveScanNode {
         } else {
             partitions = getPrunedPartitions(hudiClient);
         }
-        try {
-            for (HivePartition partition : partitions) {
-                String globPath;
-                String partitionName = "";
-                if (partition.isDummyPartition()) {
-                    globPath = hudiClient.getBasePathV2().toString() + "/*";
-                } else {
-                    partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePathV2(),
-                            new Path(partition.getPath()));
-                    globPath = String.format("%s/%s/*", hudiClient.getBasePathV2().toString(), partitionName);
-                }
-                List<FileStatus> statuses = FSUtils.getGlobStatusExcludingMetaFolder(hudiClient.getRawFs(),
-                        new Path(globPath));
-                HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(hudiClient,
-                        timeline, statuses.toArray(new FileStatus[0]));
-
-                if (isCowTable) {
-                    fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
-                        noLogsSplitNum++;
-                        String filePath = baseFile.getPath();
-                        long fileSize = baseFile.getFileSize();
-                        FileSplit split = new FileSplit(new Path(filePath), 0, fileSize, fileSize, new String[0],
-                                partition.getPartitionValues());
-                        splits.add(split);
-                    });
-                } else {
-                    fileSystemView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant)
-                            .forEach(fileSlice -> {
-                                Optional<HoodieBaseFile> baseFile = fileSlice.getBaseFile().toJavaOptional();
-                                String filePath = baseFile.map(BaseFile::getPath).orElse("");
-                                long fileSize = baseFile.map(BaseFile::getFileSize).orElse(0L);
-
-                                List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
-                                        .map(Path::toString)
-                                        .collect(Collectors.toList());
-                                if (logs.isEmpty()) {
-                                    noLogsSplitNum++;
-                                }
-
-                                HudiSplit split = new HudiSplit(new Path(filePath), 0, fileSize, fileSize,
-                                        new String[0], partition.getPartitionValues());
-                                split.setTableFormatType(TableFormatType.HUDI);
-                                split.setDataFilePath(filePath);
-                                split.setHudiDeltaLogs(logs);
-                                split.setInputFormat(inputFormat);
-                                split.setSerde(serdeLib);
-                                split.setBasePath(basePath);
-                                split.setHudiColumnNames(columnNames);
-                                split.setHudiColumnTypes(columnTypes);
-                                split.setInstantTime(queryInstant);
-                                splits.add(split);
-                            });
-                }
+        return partitions.parallelStream().flatMap(partition -> {
+            String globPath;
+            String partitionName = "";
+            if (partition.isDummyPartition()) {
+                globPath = hudiClient.getBasePathV2().toString() + "/*";
+            } else {
+                partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePathV2(),
+                        new Path(partition.getPath()));
+                globPath = String.format("%s/%s/*", hudiClient.getBasePathV2().toString(), partitionName);
             }
-        } catch (Exception e) {
-            String errorMsg = String.format("Failed to get hudi info on basePath: %s", basePath);
-            LOG.error(errorMsg, e);
-            throw new IllegalArgumentException(errorMsg, e);
-        }
-        return splits;
+            List<FileStatus> statuses;
+            try {
+                statuses = FSUtils.getGlobStatusExcludingMetaFolder(hudiClient.getRawFs(),
+                        new Path(globPath));
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to get hudi file statuses on path: " + globPath, e);
+            }
+            HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(hudiClient,
+                    timeline, statuses.toArray(new FileStatus[0]));
+
+            if (isCowTable) {
+                return fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).map(baseFile -> {
+                    noLogsSplitNum++;
+                    String filePath = baseFile.getPath();
+                    long fileSize = baseFile.getFileSize();
+                    return new FileSplit(new Path(filePath), 0, fileSize, fileSize, new String[0],
+                            partition.getPartitionValues());
+                });
+            } else {
+                return fileSystemView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant)
+                        .map(fileSlice -> {
+                            Optional<HoodieBaseFile> baseFile = fileSlice.getBaseFile().toJavaOptional();
+                            String filePath = baseFile.map(BaseFile::getPath).orElse("");
+                            long fileSize = baseFile.map(BaseFile::getFileSize).orElse(0L);
+
+                            List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
+                                    .map(Path::toString)
+                                    .collect(Collectors.toList());
+                            if (logs.isEmpty()) {
+                                noLogsSplitNum++;
+                            }
+
+                            HudiSplit split = new HudiSplit(new Path(filePath), 0, fileSize, fileSize,
+                                    new String[0], partition.getPartitionValues());
+                            split.setTableFormatType(TableFormatType.HUDI);
+                            split.setDataFilePath(filePath);
+                            split.setHudiDeltaLogs(logs);
+                            split.setInputFormat(inputFormat);
+                            split.setSerde(serdeLib);
+                            split.setBasePath(basePath);
+                            split.setHudiColumnNames(columnNames);
+                            split.setHudiColumnTypes(columnTypes);
+                            split.setInstantTime(queryInstant);
+                            return split;
+                        });
+            }
+        }).collect(Collectors.toList());
     }
 
     @Override
