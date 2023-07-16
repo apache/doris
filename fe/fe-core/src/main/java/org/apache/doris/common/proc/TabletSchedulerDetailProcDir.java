@@ -29,13 +29,13 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /*
- * show proc "/tablet_scheduler/pending_tablets";
- * show proc "/tablet_scheduler/running_tablets";
- * show proc "/tablet_scheduler/history_tablets";
+ * show proc "/cluster_balance/pending_tablets";
+ * show proc "/cluster_balance/running_tablets";
+ * show proc "/cluster_balance/history_tablets";
  */
 public class TabletSchedulerDetailProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("TabletId")
-            .add("Type").add("Medium").add("Status").add("State").add("Priority").add("SrcBe")
+            .add("Type").add("Medium").add("Status").add("State").add("SchedCode").add("Priority").add("SrcBe")
             .add("SrcPath").add("DestBe").add("DestPath").add("Timeout").add("Create").add("LstSched").add("LstVisit")
             .add("Finished").add("Rate").add("FailedSched").add("FailedRunning").add("VisibleVer")
             .add("CmtVer").add("ErrMsg")

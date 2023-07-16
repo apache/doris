@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
@@ -319,11 +320,12 @@ public class BeLoadRebalancer extends Rebalancer {
         }
 
         if (!setDest) {
-            Status status = Status.UNRECOVERABLE;
             if (hasCandidate) {
-                status = Status.SCHEDULE_FAILED;
+                throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                        "unable to find low backend");
+            } else {
+                throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
             }
-            throw new SchedException(status, "unable to find low backend");
         }
     }
 }

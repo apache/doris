@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.SchedException.Status;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.AnalysisException;
@@ -374,10 +375,10 @@ public class TabletScheduler extends MasterDaemon {
                 }
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
-                tabletCtx.increaseFailedSchedCounter();
                 tabletCtx.setErrMsg(e.getMessage());
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
-                    if (tabletCtx.isExceedSchedFailedLimit()) {
+                    boolean isExceedLimit = tabletCtx.onSchedFailedAndCheckExceedLimit(e.getSubCode());
+                    if (isExceedLimit) {
                         finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, e.getStatus(),
                                 "schedule failed too many times and " + e.getMessage());
                     } else {
@@ -1060,16 +1061,16 @@ public class TabletScheduler extends MasterDaemon {
             replica.setState(ReplicaState.DECOMMISSION);
             // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
             tabletCtx.setPriority(Priority.NORMAL);
-            tabletCtx.setDecommissionTime(System.currentTimeMillis());
             LOG.info("set replica {} on backend {} of tablet {} state to DECOMMISSION due to reason {}",
                     replica.getId(), replica.getBackendId(), tabletCtx.getTabletId(), reason);
-            throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
+                    "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
             try {
                 if (!Env.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
                         tabletCtx.getDbId(), Lists.newArrayList(tabletCtx.getTblId()))) {
-                    throw new SchedException(Status.SCHEDULE_FAILED,
+                    throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_DECOMMISSION,
                             "wait txn before " + watermarkTxnId + " to be finished");
                 }
             } catch (AnalysisException e) {
@@ -1664,7 +1665,8 @@ public class TabletScheduler extends MasterDaemon {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("path hash is not set.", new Exception());
                 }
-                throw new SchedException(Status.SCHEDULE_FAILED, "path hash is not set");
+                throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                        "path hash is not set");
             }
 
             Slot slot = pathSlots.get(pathHash);

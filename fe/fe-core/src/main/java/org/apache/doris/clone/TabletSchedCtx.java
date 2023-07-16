@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -201,6 +202,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
 
+    private SubCode schedFailedCode;
+
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
@@ -214,6 +217,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.state = State.PENDING;
         this.replicaAlloc = replicaAlloc;
         this.balanceType = BalanceType.BE_BALANCE;
+        this.schedFailedCode = SubCode.NONE;
     }
 
     public ReplicaAllocation getReplicaAlloc() {
@@ -268,26 +272,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return failedRunningCounter >= RUNNING_FAILED_COUNTER_THRESHOLD;
     }
 
-    public boolean isExceedSchedFailedLimit() {
-        if (decommissionTime > 0) {
+    public boolean onSchedFailedAndCheckExceedLimit(SubCode code) {
+        schedFailedCode = code;
+        failedSchedCounter++;
+        if (code == SubCode.WAITING_DECOMMISSION) {
+            failedSchedCounter = 0;
+            if (decommissionTime < 0) {
+                decommissionTime = System.currentTimeMillis();
+            }
             return System.currentTimeMillis() > decommissionTime + 10 * 60 * 1000L;
+        } else {
+            decommissionTime = -1;
+            if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
+                return failedSchedCounter > 60;
+            } else {
+                return failedSchedCounter > 10;
+            }
         }
-
-        int limitCount = -1;
-        switch (priority) {
-            case VERY_HIGH:
-                limitCount = 5 * 60;
-                break;
-            case HIGH:
-            case NORMAL:
-                limitCount = 30;
-                break;
-            default:
-                limitCount = 10;
-                break;
-        }
-
-        return failedSchedCounter > limitCount;
     }
 
     public void setLastSchedTime(long lastSchedTime) {
@@ -610,7 +611,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             setSrc(srcReplica);
             return;
         }
-        throw new SchedException(Status.SCHEDULE_FAILED, "unable to find source slot");
+        throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                "unable to find source slot");
     }
 
     /*
@@ -675,7 +677,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
             if (slot == null || !slot.hasAvailableSlot(replica.getPathHash())) {
                 if (!replica.needFurtherRepair()) {
-                    throw new SchedException(Status.SCHEDULE_FAILED,
+                    throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                             "replica " + replica + " has not slot");
                 }
 
@@ -704,11 +706,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // it should not happen cause it just check hasAvailableSlot yet.
         PathSlot slot = backendsWorkingSlots.get(chosenReplica.getBackendId());
         if (slot == null) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "backend of dest replica is missing");
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                    "backend of dest replica is missing");
         }
         long destPathHash = slot.takeSlot(chosenReplica.getPathHash());
         if (destPathHash == -1) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "unable to take slot of dest path");
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                    "unable to take slot of dest path");
         }
 
         if (chosenReplica.getState() == ReplicaState.DECOMMISSION) {
@@ -1082,6 +1086,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(storageMedium == null ? FeConstants.null_string : storageMedium.name());
         result.add(tabletStatus == null ? FeConstants.null_string : tabletStatus.name());
         result.add(state.name());
+        result.add(schedFailedCode.name());
         result.add(priority.name());
         result.add(srcReplica == null ? "-1" : String.valueOf(srcReplica.getBackendId()));
         result.add(String.valueOf(srcPathHash));
