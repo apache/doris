@@ -241,6 +241,8 @@ public class CatalogMgrTest extends TestWithFeService {
         alterProps2.put("dfs.ha.namenodes.service1", "nn1,nn2");
         alterProps2.put("dfs.namenode.rpc-address.service1.nn1", "nn1_host:rpc_port");
         alterProps2.put("dfs.namenode.rpc-address.service1.nn2", "nn2_host:rpc_port");
+        alterProps2.put("dfs.client.failover.proxy.provider.service1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         AlterCatalogPropertyStmt alterStmt = new AlterCatalogPropertyStmt(MY_CATALOG, alterProps2);
         mgr.alterCatalogProps(alterStmt);
         catalog = env.getCatalogMgr().getCatalog(MY_CATALOG);
