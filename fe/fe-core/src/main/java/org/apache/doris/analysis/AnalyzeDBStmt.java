@@ -44,7 +44,7 @@ public class AnalyzeDBStmt extends AnalyzeStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (ctlName == null) {
-            ctlIf = Env.getCurrentInternalCatalog();
+            ctlIf = Env.getCurrentEnv().getCurrentCatalog();
         } else {
             ctlIf = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(ctlName);
         }
