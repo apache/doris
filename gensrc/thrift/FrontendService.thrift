@@ -766,6 +766,7 @@ struct TFrontendPingFrontendResult {
     4: required i32 rpcPort
     5: required i64 replayedJournalId
     6: required string version
+    7: optional i64 lastStartupTime
 }
 
 struct TPropertyVal {
