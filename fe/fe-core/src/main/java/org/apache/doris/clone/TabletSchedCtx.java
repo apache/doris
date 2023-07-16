@@ -117,22 +117,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         NORMAL,
         HIGH,
         VERY_HIGH;
-
-        // VERY_HIGH can only be downgraded to NORMAL
-        // LOW can only be upgraded to HIGH
-        public Priority adjust(Priority origPriority, boolean isUp) {
-            switch (this) {
-                case VERY_HIGH:
-                    return isUp ? VERY_HIGH : HIGH;
-                case HIGH:
-                    return isUp ? (origPriority == LOW ? HIGH : VERY_HIGH) : NORMAL;
-                case NORMAL:
-                    return isUp ? HIGH : (origPriority == Priority.VERY_HIGH ? NORMAL : LOW);
-                default:
-                    return isUp ? NORMAL : LOW;
-            }
-        }
-
     }
 
     public enum State {
@@ -147,12 +131,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private Type type;
     private BalanceType balanceType;
 
-    /*
-     * origPriority is the origin priority being set when this tablet being added to scheduler.
-     * dynamicPriority will be set during tablet schedule processing, it will not be prior than origin priority.
-     * And dynamic priority is also used in priority queue compare in tablet scheduler.
-     */
-    private Priority origPriority;
+    private Priority priority;
 
     // we change the dynamic priority based on how many times it fails to be scheduled
     private int failedSchedCounter = 0;
@@ -161,8 +140,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     // last time this tablet being scheduled
     private long lastSchedTime = 0;
-    // last time the dynamic priority being adjusted
-    private long lastAdjustPrioTime = 0;
 
     // last time this tablet being visited.
     // being visited means:
@@ -267,12 +244,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return balanceType;
     }
 
-    public Priority getOrigPriority() {
-        return origPriority;
+    public Priority getPriority() {
+        return priority;
     }
 
-    public void setOrigPriority(Priority origPriority) {
-        this.origPriority = origPriority;
+    public void setPriority(Priority priority) {
+        this.priority = priority;
     }
 
     public void increaseFailedSchedCounter() {
@@ -292,16 +269,25 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public boolean isExceedSchedFailedLimit() {
-        if (failedRunningCounter < SCHED_FAILED_COUNTER_THRESHOLD) {
-            return false;
+        if (decommissionTime > 0) {
+            return System.currentTimeMillis() > decommissionTime + 10 * 60 * 1000L;
         }
 
-        if (decommissionTime > 0
-                && System.currentTimeMillis() < decommissionTime + 10 * 60 * 1000L) {
-            return false;
+        int limitCount = -1;
+        switch (priority) {
+            case VERY_HIGH:
+                limitCount = 5 * 60;
+                break;
+            case HIGH:
+            case NORMAL:
+                limitCount = 30;
+                break;
+            default:
+                limitCount = 10;
+                break;
         }
 
-        return true;
+        return failedSchedCounter > limitCount;
     }
 
     public void setLastSchedTime(long lastSchedTime) {
@@ -1096,8 +1082,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(storageMedium == null ? FeConstants.null_string : storageMedium.name());
         result.add(tabletStatus == null ? FeConstants.null_string : tabletStatus.name());
         result.add(state.name());
-        result.add(origPriority.name());
-        result.add("");
+        result.add(priority.name());
         result.add(srcReplica == null ? "-1" : String.valueOf(srcReplica.getBackendId()));
         result.add(String.valueOf(srcPathHash));
         result.add(String.valueOf(destBackendId));
@@ -1110,7 +1095,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : FeConstants.null_string);
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
-        result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(committedVersion));
         result.add(Strings.nullToEmpty(errMsg));
@@ -1127,10 +1111,17 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     private long getCompareValue() {
-        long value = Math.max(lastVisitedTime, createTime);
+        long value = createTime;
+        if (lastVisitedTime > 0) {
+            value = lastVisitedTime;
+        }
 
-        long weight = Priority.VERY_HIGH.ordinal() - origPriority.ordinal() + 1;
-        value += weight * Math.min(60 * 1000L, 5000L * failedSchedCounter);
+        value += (Priority.VERY_HIGH.ordinal() - priority.ordinal() + 1) * 60  * 1000L;
+        value += 5000L * (failedSchedCounter / 10);
+
+        if (type == Type.BALANCE) {
+            value += 30 * 60 * 1000L;
+        }
 
         return value;
     }

@@ -151,7 +151,7 @@ public class PartitionRebalancer extends Rebalancer {
                     System.currentTimeMillis());
             tabletCtx.setTag(clusterStat.getTag());
             // Balance task's priority is always LOW
-            tabletCtx.setOrigPriority(TabletSchedCtx.Priority.LOW);
+            tabletCtx.setPriority(TabletSchedCtx.Priority.LOW);
             alternativeTablets.add(tabletCtx);
             // Pair<Move, ToDeleteReplicaId>, ToDeleteReplicaId should be -1L before scheduled successfully
             movesInProgress.get().put(pickedTabletId,

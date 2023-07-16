@@ -166,7 +166,7 @@ public class BeLoadRebalancer extends Rebalancer {
                             System.currentTimeMillis());
                     tabletCtx.setTag(clusterStat.getTag());
                     // balance task's priority is always LOW
-                    tabletCtx.setOrigPriority(Priority.LOW);
+                    tabletCtx.setPriority(Priority.LOW);
 
                     alternativeTablets.add(tabletCtx);
                     if (--numOfLowPaths <= 0) {
