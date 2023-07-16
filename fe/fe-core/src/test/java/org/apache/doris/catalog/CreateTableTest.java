@@ -758,10 +758,10 @@ public class CreateTableTest {
         });
 
         // can still set replication_num manually.
-        ExceptionChecker.expectThrowsWithMsg(UserException.class, "Failed to find enough host with tag", gi
-                () ->{
-            alterTable("alter table test.test_replica modify partition p1 set ('replication_num' = '3')");
-        });
+        ExceptionChecker.expectThrowsWithMsg(UserException.class, "Failed to find enough host with tag",
+                () -> {
+                    alterTable("alter table test.test_replica modify partition p1 set ('replication_num' = '3')");
+                });
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
