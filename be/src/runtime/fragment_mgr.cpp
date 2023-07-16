@@ -773,7 +773,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
     cur_span->SetAttribute("instance_id", print_id(params.params.fragment_instance_id));
 
     VLOG_ROW << "exec_plan_fragment params is "
-              << apache::thrift::ThriftDebugString(params).c_str();
+             << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TExecPlanFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "query options is "
