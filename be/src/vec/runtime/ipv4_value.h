@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <regex>
 #include <stdint.h>
 
 #include <sstream>

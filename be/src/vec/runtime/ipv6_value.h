@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 
+#include <regex>
 #include <sstream>
 #include <string>
 
@@ -240,7 +241,7 @@ public:
         if (ipv6.empty()) {
             return;
         }
-        
+
         std::string special_chars = "\r\n\t ";
 
         size_t pos = ipv6.find_first_not_of(special_chars);
