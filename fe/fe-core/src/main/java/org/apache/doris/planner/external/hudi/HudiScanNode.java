@@ -70,6 +70,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 public class HudiScanNode extends HiveScanNode {
@@ -78,7 +79,7 @@ public class HudiScanNode extends HiveScanNode {
 
     private final boolean isCowTable;
 
-    private long noLogsSplitNum = 0;
+    private final AtomicLong noLogsSplitNum = new AtomicLong(0);
 
     /**
      * External file scan node for Query Hudi table
@@ -276,7 +277,7 @@ public class HudiScanNode extends HiveScanNode {
 
             if (isCowTable) {
                 return fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).map(baseFile -> {
-                    noLogsSplitNum++;
+                    noLogsSplitNum.incrementAndGet();
                     String filePath = baseFile.getPath();
                     long fileSize = baseFile.getFileSize();
                     return new FileSplit(new Path(filePath), 0, fileSize, fileSize, new String[0],
@@ -293,7 +294,7 @@ public class HudiScanNode extends HiveScanNode {
                                     .map(Path::toString)
                                     .collect(Collectors.toList());
                             if (logs.isEmpty()) {
-                                noLogsSplitNum++;
+                                noLogsSplitNum.incrementAndGet();
                             }
 
                             HudiSplit split = new HudiSplit(new Path(filePath), 0, fileSize, fileSize,
@@ -316,6 +317,6 @@ public class HudiScanNode extends HiveScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return super.getNodeExplainString(prefix, detailLevel)
-                + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum, inputSplitsNum);
+                + String.format("%shudiNativeReadSplits=%d/%d\n", prefix, noLogsSplitNum.get(), inputSplitsNum);
     }
 }
