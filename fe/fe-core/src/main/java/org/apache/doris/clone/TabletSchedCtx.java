@@ -204,6 +204,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private SubCode schedFailedCode;
 
+    private boolean needCheckFinished = false;
+
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
@@ -256,6 +258,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.priority = priority;
     }
 
+    public boolean isNeedCheckFinished() {
+        return needCheckFinished;
+    }
+
+    public void enableNeedCheckFinished() {
+        needCheckFinished = true;
+    }
+
     public void increaseFailedSchedCounter() {
         ++failedSchedCounter;
     }
@@ -284,7 +294,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         } else {
             decommissionTime = -1;
             if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
-                return failedSchedCounter > 60;
+                return failedSchedCounter > 30 * 1000 / TabletScheduler.SCHEDULE_INTERVAL_MS;
             } else {
                 return failedSchedCounter > 10;
             }

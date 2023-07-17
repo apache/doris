@@ -1365,7 +1365,6 @@ public class TabletScheduler extends MasterDaemon {
         // release resources taken by tablet ctx
         releaseTabletCtx(tabletCtx, state, status == Status.UNRECOVERABLE);
 
-        // if check immediately, then no need to wait TabletChecker's 20s
         if (state == TabletSchedCtx.State.FINISHED) {
             checkAgainAfterFinished(tabletCtx);
         }
@@ -1441,15 +1440,15 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
 
-        TabletSchedCtx newTabletCtx = new TabletSchedCtx(
+        newTabletCtx = new TabletSchedCtx(
                 TabletSchedCtx.Type.REPAIR,
-                tabletCtx.getDbId(), tabletCtx.getTblId(),
-                tabletCtx.getPartitionId(), tabletCtx.getIndexId(), tabletCtx.getTabletId(),
-                tabletCtx.getReplicaAlloc(),
+                db.getId(), tbl.getId(),
+                partition.getId(), idx.getId(), tablet.getId(),
+                tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                 System.currentTimeMillis());
 
-        newTabletCtx.setTabletStatus(statusPair.first);
-        newTabletCtx.setPriority(statusPair.second);
+        newTabletCtx.setTabletStatus(statusWithPrio.first);
+        newTabletCtx.setPriority(statusWithPrio.second);
 
         addTablet(newTabletCtx, false);
     }

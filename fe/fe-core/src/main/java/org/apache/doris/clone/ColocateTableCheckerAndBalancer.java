@@ -254,9 +254,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             + " status: %s", tablet.getId(), st);
                                     LOG.debug(unstableReason);
 
-                                    if (!tablet.readyToBeRepaired(Priority.NORMAL)) {
-                                        continue;
-                                    }
+                                    //if (!tablet.readyToBeRepaired(Priority.NORMAL)) {
+                                    //    continue;
+                                    //}
 
                                     TabletSchedCtx tabletCtx = new TabletSchedCtx(
                                             TabletSchedCtx.Type.REPAIR,
@@ -267,6 +267,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     tabletCtx.setTabletStatus(st);
                                     tabletCtx.setPriority(Priority.NORMAL);
                                     tabletCtx.setTabletOrderIdx(idx);
+                                    tabletCtx.enableNeedCheckFinished();
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
                                     if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {

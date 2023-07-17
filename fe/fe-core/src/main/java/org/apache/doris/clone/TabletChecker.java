@@ -382,6 +382,7 @@ public class TabletChecker extends MasterDaemon {
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletStatus(statusWithPrio.first);
                 tabletCtx.setPriority(statusWithPrio.second);
+                tabletCtx.enableNeedCheckFinished();
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
                 if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
