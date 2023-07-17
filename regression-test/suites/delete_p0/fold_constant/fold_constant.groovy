@@ -22,20 +22,46 @@ suite("fold_constant") {
     sql """
             create table d_table(
                 k1 int null,
-                k2 date null,
-                k3 date null
+                k2 date null
             )
             duplicate key (k1)
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
-    sql "insert into d_table values(1,1,curdate());"
-    qt_select "select * from d_table;"
-    sql "delete from d_table where k3=curdate();"
-    qt_select "select * from d_table;"
+    sql "insert into d_table values(1,curdate());"
+    sql "insert into d_table values(2,'2020-01-01');"
+    qt_select "select * from d_table order by 1;"
+    sql "delete from d_table where k2=curdate();"
+    qt_select "select * from d_table order by 1;"
 
-    sql "insert into d_table values(2,1,curdate());"
-    qt_select "select * from d_table;"
-    sql "delete from d_table where k1=1+1;"
-    qt_select "select * from d_table;"
+    sql "insert into d_table values(3,curdate());"
+    sql "insert into d_table values(4,'2020-01-01');"
+    qt_select "select * from d_table order by 1;"
+    sql "delete from d_table where k1=3+1;"
+    qt_select "select * from d_table order by 1;"
+
+    sql """ DROP TABLE IF EXISTS d_table2; """
+
+    sql """
+            create table d_table2(
+                k1 int null,
+                k2 date null
+            )
+            duplicate key (k1)
+            distributed BY hash(k1) buckets 3
+            properties("replication_num" = "1",
+            "disable_auto_compaction" = "true");
+        """
+    sql "insert into d_table2 values(1,curdate());"
+    sql "insert into d_table2 values(2,'2020-01-01');"
+    qt_select "select * from d_table2 order by 1;"
+    sql "delete from d_table2 where k2=curdate();"
+    qt_select "select * from d_table2 order by 1;"
+
+    sql "insert into d_table2 values(3,curdate());"
+    sql "insert into d_table2 values(4,'2020-01-01');"
+    qt_select "select * from d_table2 order by 1;"
+    sql "delete from d_table2 where k1=3+1;"
+    qt_select "select * from d_table2 order by 1;"
+
 }
