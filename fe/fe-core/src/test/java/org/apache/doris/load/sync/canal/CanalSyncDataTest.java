@@ -150,7 +150,7 @@ public class CanalSyncDataTest {
                 result = execPlanFragmentParams;
 
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
-                        (TStorageMedium) any);
+                        (TStorageMedium) any, false);
                 minTimes = 0;
                 result = backendIds;
 

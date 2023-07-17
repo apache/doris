@@ -30,7 +30,11 @@ import java.util.List;
 public class ModifyStorageMediumTest extends TestWithFeService {
 
     @Override
-    protected void runBeforeAll() throws Exception {
+    protected void runAfterAll() throws Exception {
+        Env.getCurrentEnv().clear();
+    }
+
+    public void modifyStorageMediumToSSDTest() throws Exception {
         SystemInfoService clusterInfo = Env.getCurrentEnv().getClusterInfo();
         List<Backend> allBackends = clusterInfo.getAllBackends();
         // set all backends' storage medium to SSD
@@ -40,14 +44,7 @@ public class ModifyStorageMediumTest extends TestWithFeService {
                         .peek(diskInfo -> diskInfo.setStorageMedium(TStorageMedium.SSD));
             }
         }
-    }
 
-    @Override
-    protected void runAfterAll() throws Exception {
-        Env.getCurrentEnv().clear();
-    }
-
-    public void modifyStorageMediumTest() throws Exception {
         createDatabase("db1");
 
         String sql1 = "CREATE TABLE IF NOT EXISTS db1.t1 (pk INT, v1 INT sum) AGGREGATE KEY (pk) "
@@ -60,5 +57,30 @@ public class ModifyStorageMediumTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1', 'storage_medium' = 'hdd');";
         Assertions.assertThrows(DdlException.class, () -> createTables(sql3));
     }
+
+    public void modifyStorageMediumToHDDTest() throws Exception {
+        SystemInfoService clusterInfo = Env.getCurrentEnv().getClusterInfo();
+        List<Backend> allBackends = clusterInfo.getAllBackends();
+        // set all backends' storage medium to SSD
+        for (Backend backend : allBackends) {
+            if (backend.hasPathHash()) {
+                backend.getDisks().values().stream()
+                        .peek(diskInfo -> diskInfo.setStorageMedium(TStorageMedium.HDD));
+            }
+        }
+
+        createDatabase("db1");
+
+        String sql1 = "CREATE TABLE IF NOT EXISTS db1.t4 (pk INT, v1 INT sum) AGGREGATE KEY (pk) "
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1');";
+        Assertions.assertDoesNotThrow(() -> createTables(sql1));
+        String sql2 = "CREATE TABLE IF NOT EXISTS db1.t5 (pk INT, v1 INT sum) AGGREGATE KEY (pk) "
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1', 'storage_medium' = 'hdd');";
+        Assertions.assertDoesNotThrow(() -> createTables(sql2));
+        String sql3 = "CREATE TABLE IF NOT EXISTS db1.t6 (pk INT, v1 INT sum) AGGREGATE KEY (pk) "
+                + "DISTRIBUTED BY HASH(pk) BUCKETS 1 PROPERTIES ('replication_num' = '1', 'storage_medium' = 'ssd');";
+        Assertions.assertThrows(DdlException.class, () -> createTables(sql3));
+    }
+
 
 }
