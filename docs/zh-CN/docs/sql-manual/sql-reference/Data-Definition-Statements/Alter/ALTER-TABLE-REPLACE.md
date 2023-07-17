@@ -67,7 +67,7 @@ ALTER TABLE [db.]tbl1 REPLACE WITH TABLE tbl2
 
 ### Example
 
-1. 将 `tbl1` 与 `tbl2` 进行交换，不删除 `tbl1` 表
+1. 将 `tbl1` 与 `tbl2` 进行交换，不删除 `tbl1` 表(注：如果删除的话，实际删除的就是tbl1，只是将tbl2重命名为tbl1。)
 
 ```sql
 ALTER TABLE tbl1 REPLACE WITH TABLE tbl2
