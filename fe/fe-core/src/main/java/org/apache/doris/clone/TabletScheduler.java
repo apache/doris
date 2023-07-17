@@ -104,18 +104,18 @@ public class TabletScheduler extends MasterDaemon {
     public static final long SCHEDULE_INTERVAL_MS = 100;
 
     /*
-     * Tablet is added to pendingTablets as well it's id in allTabletIds.
-     * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
+     * Tablet is added to pendingTablets as well it's id in allTabletTypes.
+     * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletTypes when
      * handling a tablet.
      * Tablet' id can only be removed after the clone task or migration task is done(timeout, cancelled or finished).
-     * So if a tablet's id is still in allTabletIds, TabletChecker can not add tablet to TabletScheduler.
+     * So if a tablet's id is still in allTabletTypes, TabletChecker can not add tablet to TabletScheduler.
      *
-     * pendingTablets + runningTablets = allTabletIds
+     * pendingTablets + runningTablets = allTabletTypes
      *
-     * pendingTablets, allTabletIds, runningTablets and schedHistory are protected by 'synchronized'
+     * pendingTablets, allTabletTypes, runningTablets and schedHistory are protected by 'synchronized'
      */
     private PriorityQueue<TabletSchedCtx> pendingTablets = new PriorityQueue<>();
-    private Set<Long> allTabletIds = Sets.newHashSet();
+    private Map<Long, TabletSchedCtx.Type> allTabletTypes = Maps.newHashMap();
     // contains all tabletCtxs which state are RUNNING
     private Map<Long, TabletSchedCtx> runningTablets = Maps.newHashMap();
     // save the latest 1000 scheduled tablet info
@@ -228,8 +228,13 @@ public class TabletScheduler extends MasterDaemon {
         if (!force && Config.disable_tablet_scheduler) {
             return AddResult.DISABLED;
         }
-        boolean contains = containsTablet(tablet.getTabletId());
-        if (!force && contains) {
+
+        long tabletId = tablet.getTabletId();
+        boolean contains = allTabletTypes.containsKey(tabletId);
+        if (contains && !force) {
+            if (tablet.getType() == TabletSchedCtx.Type.REPAIR) {
+                allTabletTypes.put(tabletId, TabletSchedCtx.Type.REPAIR);
+            }
             return AddResult.ALREADY_IN;
         }
 
@@ -242,9 +247,9 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.LIMIT_EXCEED;
         }
 
-        allTabletIds.add(tablet.getTabletId());
         pendingTablets.offer(tablet);
         if (!contains) {
+            allTabletTypes.put(tabletId, tablet.getType());
             LOG.info("Add tablet to pending queue, tablet id {}, type {}, status {}, priority {}",
                     tablet.getTabletId(), tablet.getType(), tablet.getTabletStatus(),
                     tablet.getPriority());
@@ -254,7 +259,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     public synchronized boolean containsTablet(long tabletId) {
-        return allTabletIds.contains(tabletId);
+        return allTabletTypes.containsKey(tabletId);
     }
 
     public synchronized void rebalanceDisk(AdminRebalanceDiskStmt stmt) {
@@ -303,14 +308,14 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
 
-        schedulePendingTablets();
-
-        if (System.currentTimeMillis() - lastCheckTimeoutTime > 1000L) {
+        if (System.currentTimeMillis() - lastCheckTimeoutTime >= 1000L) {
             updateLoadStatisticsAndPriorityIfNecessary();
             handleRunningTablets();
             selectTabletsForBalance();
             lastCheckTimeoutTime = System.currentTimeMillis();
         }
+
+        schedulePendingTablets();
 
         stat.counterTabletScheduleRound.incrementAndGet();
     }
@@ -358,7 +363,7 @@ public class TabletScheduler extends MasterDaemon {
      * 2. or in schedHistory with state CANCELLING, if some unrecoverable error happens.
      * 3. or in pendingTablets with state PENDING, if failed to be scheduled.
      *
-     * if in schedHistory, it should be removed from allTabletIds.
+     * if in schedHistory, it should be removed from allTabletTypes.
      */
     private void schedulePendingTablets() {
         long start = System.currentTimeMillis();
@@ -1368,12 +1373,15 @@ public class TabletScheduler extends MasterDaemon {
 
         // if check immediately, then no need to wait TabletChecker's 20s
         if (state == TabletSchedCtx.State.FINISHED) {
-            checkAgainAfterFinished(tabletCtx);
+            tryAddAfterFinished(tabletCtx);
         }
     }
 
-    private void checkAgainAfterFinished(TabletSchedCtx tabletCtx) {
-        if (!tabletCtx.isNeedCheckFinished()) {
+    private void tryAddAfterFinished(TabletSchedCtx tabletCtx) {
+        int finishedCounter = tabletCtx.getFinishedCounter();
+        finishedCounter++;
+        tabletCtx.setFinishedCounter(finishedCounter);
+        if (finishedCounter >= TabletSchedCtx.FINISHED_COUNTER_THRESHOLD) {
             return;
         }
 
@@ -1451,6 +1459,7 @@ public class TabletScheduler extends MasterDaemon {
 
         newTabletCtx.setTabletStatus(statusPair.first);
         newTabletCtx.setPriority(statusPair.second);
+        newTabletCtx.setFinishedCounter(finishedCounter);
 
         addTablet(newTabletCtx, false);
     }
@@ -1466,7 +1475,7 @@ public class TabletScheduler extends MasterDaemon {
 
     private synchronized void removeTabletCtx(TabletSchedCtx tabletCtx, String reason) {
         runningTablets.remove(tabletCtx.getTabletId());
-        allTabletIds.remove(tabletCtx.getTabletId());
+        allTabletTypes.remove(tabletCtx.getTabletId());
         schedHistory.add(tabletCtx);
         LOG.info("remove the tablet {}. because: {}", tabletCtx.getTabletId(), reason);
     }
@@ -1475,23 +1484,28 @@ public class TabletScheduler extends MasterDaemon {
     private synchronized List<TabletSchedCtx> getNextTabletCtxBatch() {
         List<TabletSchedCtx> list = Lists.newArrayList();
         int slotNum = getCurrentAvailableSlotNum();
+        // Make slotNum >= 1 to ensure that it could return at least 1 ctx
+        // when the pending list is not empty.
         if (slotNum < 1) {
             slotNum = 1;
         }
-        while (list.size() < MIN_BATCH_NUM && slotNum > 0) {
+        while (list.size() < Config.schedule_batch_size && slotNum > 0) {
             TabletSchedCtx tablet = pendingTablets.poll();
             if (tablet == null) {
                 // no more tablets
                 break;
             }
+            tablet.setType(allTabletTypes.get(tablet.getTabletId()));
             list.add(tablet);
             switch (tablet.getTabletStatus()) {
+                // these task no need slot
                 case REDUNDANT:
                 case FORCE_REDUNDANT:
                 case COLOCATE_REDUNDANT:
                 case REPLICA_COMPACTION_TOO_SLOW:
                     break;
 
+                // for a clone, it will take 2 slots: src slot and dst slot.
                 default:
                     slotNum -= 2;
                     break;
@@ -1704,7 +1718,7 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     public synchronized int getTotalNum() {
-        return allTabletIds.size();
+        return allTabletTypes.size();
     }
 
     public synchronized long getBalanceTabletsNumber() {
@@ -1937,7 +1951,7 @@ public class TabletScheduler extends MasterDaemon {
 
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
             if (be != null && be.isDecommissioned()) {
-                total = Math.max(1, Config.decommission_schedule_slot_num_per_path);
+                total = Math.max(1, Config.schedule_decommission_slot_num_per_path);
             }
 
             return total;

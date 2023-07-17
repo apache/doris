@@ -103,6 +103,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
 
+    public static final int FINISHED_COUNTER_THRESHOLD = 3;
+
     private static VersionCountComparator VERSION_COUNTER_COMPARATOR = new VersionCountComparator();
 
     public enum Type {
@@ -138,6 +140,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private int failedSchedCounter = 0;
     // clone task failed counter
     private int failedRunningCounter = 0;
+    // When finish a tablet ctx, it will check the tablet's health status.
+    // If the tablet is unhealthy, it will add a new ctx.
+    // The new ctx's finishedCounter = old ctx's finishedCounter + 1.
+    private int finishedCounter = 0;
 
     // last time this tablet being scheduled
     private long lastSchedTime = 0;
@@ -204,8 +210,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private SubCode schedFailedCode;
 
-    private boolean needCheckFinished = false;
-
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
@@ -258,12 +262,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.priority = priority;
     }
 
-    public boolean isNeedCheckFinished() {
-        return needCheckFinished;
+    public int getFinishedCounter() {
+        return finishedCounter;
     }
 
-    public void enableNeedCheckFinished() {
-        needCheckFinished = true;
+    public void setFinishedCounter(int finishedCounter) {
+        this.finishedCounter = finishedCounter;
     }
 
     public void increaseFailedSchedCounter() {

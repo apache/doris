@@ -911,7 +911,14 @@ public class Config extends ConfigBase {
      * the default slot number per path in tablet scheduler for decommission backend
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int decommission_schedule_slot_num_per_path = 8;
+    public static int schedule_decommission_slot_num_per_path = 8;
+
+    /**
+     * the default batch size in tablet scheduler for a single schedule.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_batch_size = 50;
+
 
     /**
      * Deprecated after 0.10
