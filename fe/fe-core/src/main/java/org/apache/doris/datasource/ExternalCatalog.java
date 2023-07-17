@@ -396,7 +396,7 @@ public abstract class ExternalCatalog
         props.remove("comment");
     }
 
-    public long getlastUpdateTime() {
+    public long getLastUpdateTime() {
         return lastUpdateTime;
     }
 

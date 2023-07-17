@@ -396,7 +396,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         Map<String, String> props = catalog.getProperties();
                         String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
                         row.add(createTime);
-                        long lastUpdateTime = catalog.getlastUpdateTime();
+                        long lastUpdateTime = catalog.getLastUpdateTime();
                         row.add(lastUpdateTime > 0 ? TimeUtils.longToTimeString(lastUpdateTime) : "UNRECORDED");
                         row.add(catalog.getComment());
                         rows.add(row);

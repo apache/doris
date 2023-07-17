@@ -91,7 +91,7 @@ public class CatalogsProcDir implements ProcDirInterface {
             catalogInfo.add(catalog.getId());
             catalogInfo.add(catalog.getName());
             catalogInfo.add(catalog.getDbNames().size());
-            long lastUpdateTime = catalog.getlastUpdateTime();
+            long lastUpdateTime = catalog.getLastUpdateTime();
             catalogInfo.add(lastUpdateTime > 0 ? TimeUtils.longToTimeString(lastUpdateTime) : "UNRECORDED");
             catalogInfos.add(catalogInfo);
         }
