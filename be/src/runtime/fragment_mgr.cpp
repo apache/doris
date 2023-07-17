@@ -327,6 +327,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 
     RuntimeState* runtime_state = _executor.runtime_state();
     DCHECK(runtime_state != nullptr);
+    params.__set_query_type(runtime_state->query_type());
     if (runtime_state->query_type() == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(runtime_state->num_rows_load_total());
