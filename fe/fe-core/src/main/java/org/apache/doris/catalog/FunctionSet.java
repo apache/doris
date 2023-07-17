@@ -1107,7 +1107,7 @@ public class FunctionSet<T> {
                     null, null,
                     "",
                     null, false, true, false, true));
-                    
+
             addBuiltin(AggregateFunction.createBuiltin(name,
                     Lists.<Type>newArrayList(Type.TINYINT), Type.BIGINT, Type.BIGINT, "",
                     "",
