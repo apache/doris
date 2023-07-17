@@ -109,15 +109,18 @@ Status PipelineTask::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(o->prepare(state));
     }
 
-    _task_profile->add_info_string("Sink", fmt::format("{}({})", _sink->get_name(), _sink->id()));
+    _task_profile->add_info_string("Sink",
+                                   fmt::format("{}(dst_id={})", _sink->get_name(), _sink->id()));
     fmt::memory_buffer operator_ids_str;
     for (size_t i = 0; i < _operators.size(); i++) {
         if (i == 0) {
-            fmt::format_to(operator_ids_str,
-                           fmt::format("[{}({})", _operators[i]->get_name(), _operators[i]->id()));
+            fmt::format_to(
+                    operator_ids_str,
+                    fmt::format("[{}(node_id={})", _operators[i]->get_name(), _operators[i]->id()));
         } else {
             fmt::format_to(operator_ids_str,
-                           fmt::format(", {}({})", _operators[i]->get_name(), _operators[i]->id()));
+                           fmt::format(", {}(node_id={})", _operators[i]->get_name(),
+                                       _operators[i]->id()));
         }
     }
     fmt::format_to(operator_ids_str, "]");
