@@ -1245,7 +1245,6 @@ Status VScanNode::_should_push_down_binary_predicate(
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *slot_ref_child = i;
-                LOG(WARNING)<<"mytest "<<const_column->get_name();
                 *constant_val = const_column->get_data_at(0);
             } else {
                 pdt = PushDownType::UNACCEPTABLE;
