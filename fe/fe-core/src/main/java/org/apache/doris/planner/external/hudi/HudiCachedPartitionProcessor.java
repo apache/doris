@@ -63,7 +63,6 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
     public void cleanDatabasePartitions(String dbName) {
         partitionCache.asMap().keySet().stream().filter(k -> k.getDbName().equals(dbName)).collect(Collectors.toList())
                 .forEach(partitionCache::invalidate);
-
     }
 
     @Override
@@ -72,6 +71,31 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 .filter(k -> k.getDbName().equals(dbName) && k.getTblName().equals(tblName))
                 .collect(Collectors.toList())
                 .forEach(partitionCache::invalidate);
+    }
+
+    public TablePartitionValues getSnapshotPartitionValues(HMSExternalTable table,
+            HoodieTableMetaClient tableMetaClient, String timestamp) {
+        assert (catalogId == table.getCatalog().getId());
+        Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
+        if (!partitionColumns.isPresent()) {
+            return null;
+        }
+        HoodieTimeline timeline = tableMetaClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
+        Option<HoodieInstant> lastInstant = timeline.lastInstant();
+        if (!lastInstant.isPresent()) {
+            return null;
+        }
+        long lastTimestamp = Long.parseLong(lastInstant.get().getTimestamp());
+        if (Long.parseLong(timestamp) == lastTimestamp) {
+            return getPartitionValues(table, tableMetaClient);
+        }
+        List<String> partitionNames = getPartitionNamesBeforeOrEquals(timeline, timestamp);
+        List<String> partitionColumnsList = Arrays.asList(partitionColumns.get());
+        TablePartitionValues partitionValues = new TablePartitionValues();
+        partitionValues.addPartitions(partitionNames,
+                partitionNames.stream().map(p -> parsePartitionValues(partitionColumnsList, p))
+                        .collect(Collectors.toList()), table.getPartitionColumnTypes());
+        return partitionValues;
     }
 
     public TablePartitionValues getPartitionValues(HMSExternalTable table, HoodieTableMetaClient tableMetaClient)
@@ -106,14 +130,9 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                 if (lastTimestamp <= lastUpdateTimestamp) {
                     return partitionValues;
                 }
-                List<String> partitionNames;
-                if (lastUpdateTimestamp == 0) {
-                    partitionNames = getAllPartitionNames(tableMetaClient);
-                } else {
-                    partitionNames = getPartitionNamesInRange(timeline, String.valueOf(lastUpdateTimestamp),
-                            String.valueOf(lastTimestamp));
-                }
+                List<String> partitionNames = getAllPartitionNames(tableMetaClient);
                 List<String> partitionColumnsList = Arrays.asList(partitionColumns.get());
+                partitionValues.cleanPartitions();
                 partitionValues.addPartitions(partitionNames,
                         partitionNames.stream().map(p -> parsePartitionValues(partitionColumnsList, p))
                                 .collect(Collectors.toList()), table.getPartitionColumnTypes());

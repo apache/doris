@@ -149,12 +149,18 @@ public class HudiScanNode extends HiveScanNode {
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
-    private List<HivePartition> getPrunedPartitions(HoodieTableMetaClient metaClient) throws AnalysisException {
+    private List<HivePartition> getPrunedPartitions(
+            HoodieTableMetaClient metaClient, Option<String> snapshotTimestamp) throws AnalysisException {
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
                     .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
-            TablePartitionValues partitionValues = processor.getPartitionValues(hmsTable, metaClient);
+            TablePartitionValues partitionValues;
+            if (snapshotTimestamp.isPresent()) {
+                partitionValues = processor.getSnapshotPartitionValues(hmsTable, metaClient, snapshotTimestamp.get());
+            } else {
+                partitionValues = processor.getPartitionValues(hmsTable, metaClient);
+            }
             if (partitionValues != null) {
                 // 2. prune partitions by expr
                 partitionValues.readLock().lock();
@@ -232,14 +238,17 @@ public class HudiScanNode extends HiveScanNode {
 
         HoodieTimeline timeline = hudiClient.getCommitsAndCompactionTimeline().filterCompletedInstants();
         String queryInstant;
+        Option<String> snapshotTimestamp;
         if (desc.getRef().getTableSnapshot() != null) {
             queryInstant = desc.getRef().getTableSnapshot().getTime();
+            snapshotTimestamp = Option.of(queryInstant);
         } else {
             Option<HoodieInstant> snapshotInstant = timeline.lastInstant();
             if (!snapshotInstant.isPresent()) {
                 return Collections.emptyList();
             }
             queryInstant = snapshotInstant.get().getTimestamp();
+            snapshotTimestamp = Option.empty();
         }
         // Non partition table will get one dummy partition
         UserGroupInformation ugi = HiveMetaStoreClientHelper.getUserGroupInformation(
@@ -248,12 +257,13 @@ public class HudiScanNode extends HiveScanNode {
         if (ugi != null) {
             try {
                 partitions = ugi.doAs(
-                        (PrivilegedExceptionAction<List<HivePartition>>) () -> getPrunedPartitions(hudiClient));
+                        (PrivilegedExceptionAction<List<HivePartition>>) () -> getPrunedPartitions(hudiClient,
+                                snapshotTimestamp));
             } catch (Exception e) {
                 throw new UserException(e);
             }
         } else {
-            partitions = getPrunedPartitions(hudiClient);
+            partitions = getPrunedPartitions(hudiClient, snapshotTimestamp);
         }
         return partitions.parallelStream().flatMap(partition -> {
             String globPath;

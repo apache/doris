@@ -58,16 +58,26 @@ public abstract class HudiPartitionProcessor {
         return newTableMetadata.getAllPartitionPaths();
     }
 
+    public List<String> getPartitionNamesBeforeOrEquals(HoodieTimeline timeline, String timestamp) {
+        return new ArrayList<>(HoodieInputFormatUtils.getWritePartitionPaths(
+                timeline.findInstantsBeforeOrEquals(timestamp).getInstants().stream().map(instant -> {
+                    try {
+                        return TimelineUtils.getCommitMetadata(instant, timeline);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e.getMessage(), e);
+                    }
+                }).collect(Collectors.toList())));
+    }
+
     public List<String> getPartitionNamesInRange(HoodieTimeline timeline, String startTimestamp, String endTimestamp) {
         return new ArrayList<>(HoodieInputFormatUtils.getWritePartitionPaths(
-                timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants().stream()
-                        .map(instant -> {
-                            try {
-                                return TimelineUtils.getCommitMetadata(instant, timeline);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e.getMessage(), e);
-                            }
-                        }).collect(Collectors.toList())));
+                timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants().stream().map(instant -> {
+                    try {
+                        return TimelineUtils.getCommitMetadata(instant, timeline);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e.getMessage(), e);
+                    }
+                }).collect(Collectors.toList())));
     }
 
     public static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
