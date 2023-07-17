@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.AnalyticExpr;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
@@ -1788,19 +1789,16 @@ public class SingleNodePlanner {
         for (Expr e : viewPredicates) {
             e.setIsOnClauseConjunct(false);
         }
+        inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
         QueryStmt queryStmt = inlineViewRef.getQueryStmt();
         if (queryStmt instanceof SetOperationStmt) {
-            // registerConjuncts for every set operand
             SetOperationStmt setOperationStmt = (SetOperationStmt) queryStmt;
             for (SetOperationStmt.SetOperand setOperand : setOperationStmt.getOperands()) {
                 setOperand.getAnalyzer().registerConjuncts(
-                    Expr.substituteList(viewPredicates, setOperand.getSmap(),
-                            setOperand.getAnalyzer(), false),
-                    inlineViewRef.getAllTupleIds());
+                        Expr.substituteList(viewPredicates, setOperand.getSmap(),
+                                setOperand.getAnalyzer(), false),
+                        inlineViewRef.getAllTupleIds());
             }
-        } else {
-            inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates,
-                    inlineViewRef.getAllTupleIds());
         }
 
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
@@ -2591,6 +2589,7 @@ public class SingleNodePlanner {
     private void pushDownPredicates(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
         // Push down predicates according to the semantic requirements of SQL.
         pushDownPredicatesPastSort(analyzer, stmt);
+        pushDownPredicatesPastWindows(analyzer, stmt);
         pushDownPredicatesPastAggregation(analyzer, stmt);
     }
 
@@ -2610,6 +2609,27 @@ public class SingleNodePlanner {
 
         // Push down predicates to sort's child until they are assigned successfully.
         if (putPredicatesOnWindows(stmt, analyzer, pushDownPredicates)) {
+            return;
+        }
+        if (putPredicatesOnAggregation(stmt, analyzer, pushDownPredicates)) {
+            return;
+        }
+        putPredicatesOnTargetTupleIds(stmt.getTableRefIds(), analyzer, predicates);
+    }
+
+    private void pushDownPredicatesPastWindows(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        final AnalyticInfo analyticInfo = stmt.getAnalyticInfo();
+        if (analyticInfo == null || analyticInfo.getCommonPartitionExprs().size() == 0) {
+            return;
+        }
+        final List<Expr> predicates = getBoundPredicates(analyzer, analyticInfo.getOutputTupleDesc());
+        if (predicates.size() <= 0) {
+            return;
+        }
+
+        // Push down predicates to Windows' child until they are assigned successfully.
+        final List<Expr> pushDownPredicates = getPredicatesBoundedByGroupbysSourceExpr(predicates, analyzer, stmt);
+        if (pushDownPredicates.size() <= 0) {
             return;
         }
         if (putPredicatesOnAggregation(stmt, analyzer, pushDownPredicates)) {
@@ -2692,6 +2712,10 @@ public class SingleNodePlanner {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);
+                }
+                if (sourceExpr instanceof AnalyticExpr) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
                 }
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
