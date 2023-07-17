@@ -27,6 +27,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -81,6 +82,7 @@ public class CatalogsProcDir implements ProcDirInterface {
         List<Long> catalogIds = env.getCatalogMgr().getCatalogIds();
         // get info
         List<List<Comparable>> catalogInfos = Lists.newArrayList();
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         for (long catalogId : catalogIds) {
             CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogId);
             if (catalog == null) {
@@ -90,6 +92,8 @@ public class CatalogsProcDir implements ProcDirInterface {
             catalogInfo.add(catalog.getId());
             catalogInfo.add(catalog.getName());
             catalogInfo.add(catalog.getDbNames().size());
+            long lastSyncTime = catalog.getLastSyncTime();
+            catalogInfo.add(lastSyncTime > 0 ? simpleDateFormat.format(lastSyncTime) : "");
             catalogInfos.add(catalogInfo);
         }
 
