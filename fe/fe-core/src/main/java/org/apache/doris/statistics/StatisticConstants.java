@@ -84,6 +84,8 @@ public class StatisticConstants {
 
     public static List<String> STATISTICS_DB_BLACK_LIST = new ArrayList<>();
 
+    public static int ANALYZE_TASK_RETRY_TIMES = 5;
+
     static {
         STATISTICS_DB_BLACK_LIST.add(SystemInfoService.DEFAULT_CLUSTER
                 + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
