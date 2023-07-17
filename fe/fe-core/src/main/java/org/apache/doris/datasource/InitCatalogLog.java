@@ -65,6 +65,9 @@ public class InitCatalogLog implements Writable {
     @SerializedName(value = "type")
     private Type type;
 
+    @SerializedName(value = "lastSyncTime")
+    private long lastSyncTime;
+
     public InitCatalogLog() {
         refreshCount = 0;
         createCount = 0;

@@ -68,6 +68,9 @@ public class InitDatabaseLog implements Writable {
     @SerializedName(value = "type")
     private Type type;
 
+    @SerializedName(value = "lastSyncTime")
+    protected long lastSyncTime;
+
     public InitDatabaseLog() {
         refreshCount = 0;
         createCount = 0;
