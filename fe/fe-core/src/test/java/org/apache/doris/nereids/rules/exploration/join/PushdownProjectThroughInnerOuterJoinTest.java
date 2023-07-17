@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-class PushdownProjectThroughInnerJoinTest implements MemoPatternMatchSupported {
+class PushdownProjectThroughInnerOuterJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
@@ -59,7 +59,7 @@ class PushdownProjectThroughInnerJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughInnerJoin.INSTANCE.buildRules())
+                .applyExploration(PushdownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
@@ -90,7 +90,7 @@ class PushdownProjectThroughInnerJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughInnerJoin.INSTANCE.buildRules())
+                .applyExploration(PushdownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
@@ -121,7 +121,7 @@ class PushdownProjectThroughInnerJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughInnerJoin.INSTANCE.buildRules())
+                .applyExploration(PushdownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
                 .printlnOrigin()
                 .printlnExploration()
                 .matchesExploration(
@@ -158,7 +158,7 @@ class PushdownProjectThroughInnerJoinTest implements MemoPatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyExploration(PushdownProjectThroughInnerJoin.INSTANCE.buildRules())
+                .applyExploration(PushdownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
                 .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
 }

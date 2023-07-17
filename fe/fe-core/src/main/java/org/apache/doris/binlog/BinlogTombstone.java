@@ -71,8 +71,8 @@ public class BinlogTombstone {
         tableVersionMap.put(tableId, tableRecord);
     }
 
-    public void addTableRecord(long tableId, UpsertRecord.TableRecord record) {
-        tableVersionMap.put(tableId, record);
+    public void addTableRecord(Map<Long, UpsertRecord.TableRecord> records) {
+        tableVersionMap.putAll(records);
     }
 
     public boolean isDbBinlogTomstone() {
@@ -89,6 +89,10 @@ public class BinlogTombstone {
 
     public long getCommitSeq() {
         return commitSeq;
+    }
+
+    public void setCommitSeq(long seq) {
+        commitSeq = seq;
     }
 
     public Map<Long, UpsertRecord.TableRecord> getTableVersionMap() {

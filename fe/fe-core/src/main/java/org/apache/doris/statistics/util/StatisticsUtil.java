@@ -148,12 +148,12 @@ public class StatisticsUtil {
                 .collect(Collectors.toList());
     }
 
-    public static List<ColumnStatistic> deserializeToColumnStatistics(List<ResultRow> resultBatches)
+    public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches)
             throws Exception {
         if (CollectionUtils.isEmpty(resultBatches)) {
-            return Collections.emptyList();
+            return null;
         }
-        return resultBatches.stream().map(ColumnStatistic::fromResultRow).collect(Collectors.toList());
+        return ColumnStatistic.fromResultRow(resultBatches);
     }
 
     public static List<Histogram> deserializeToHistogramStatistics(List<ResultRow> resultBatches)
@@ -577,7 +577,8 @@ public class StatisticsUtil {
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(hivePartitions, true);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitions(
+                hivePartitions, true);
         long totalSize = 0;
         // Calculate the total file size.
         for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {

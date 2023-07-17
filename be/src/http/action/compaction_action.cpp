@@ -37,6 +37,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/full_compaction.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -89,7 +90,8 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     // check compaction_type equals 'base' or 'cumulative'
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     if (compaction_type != PARAM_COMPACTION_BASE &&
-        compaction_type != PARAM_COMPACTION_CUMULATIVE) {
+        compaction_type != PARAM_COMPACTION_CUMULATIVE &&
+        compaction_type != PARAM_COMPACTION_FULL) {
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
 
@@ -226,6 +228,19 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
             } else {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                             << ", table=" << tablet->full_name();
+            }
+        }
+    } else if (compaction_type == PARAM_COMPACTION_FULL) {
+        FullCompaction full_compaction(tablet);
+        res = full_compaction.compact();
+        if (!res) {
+            if (res.is<FULL_NO_SUITABLE_VERSION>()) {
+                // Ignore this error code.
+                VLOG_NOTICE << "failed to init full compaction due to no suitable version,"
+                            << "tablet=" << tablet->full_name();
+            } else {
+                LOG(WARNING) << "failed to do full compaction. res=" << res
                              << ", table=" << tablet->full_name();
             }
         }

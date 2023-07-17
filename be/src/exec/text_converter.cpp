@@ -33,6 +33,7 @@
 #include "runtime/types.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -42,7 +43,8 @@
 
 namespace doris {
 
-TextConverter::TextConverter(char escape_char) : _escape_char(escape_char) {}
+TextConverter::TextConverter(char escape_char, char array_delimiter)
+        : _escape_char(escape_char), _array_delimiter(array_delimiter) {}
 
 void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
                                         vectorized::MutableColumnPtr* column_ptr, const char* data,
@@ -276,6 +278,193 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)
                 ->get_data()
                 .resize_fill(origin_size + rows, value);
+        break;
+    }
+    case TYPE_ARRAY: {
+        std::function<vectorized::Array(int, int, char, const TypeDescriptor&)> func =
+                [&](int left, int right, char split,
+                    const TypeDescriptor& type) -> vectorized::Array {
+            vectorized::Array array;
+            int fr = left;
+            for (int i = left; i <= right + 1; i++) {
+                auto Sub_type = type.children[0];
+                if (i <= right && data[i] != split && data[i] != _array_delimiter) {
+                    continue;
+                }
+                if (Sub_type.type == TYPE_ARRAY) {
+                    array.push_back(func(fr, i - 1, split + 1, Sub_type));
+                } else {
+                    StringParser::ParseResult local_parse_result = StringParser::PARSE_SUCCESS;
+                    switch (Sub_type.type) {
+                    case TYPE_HLL: {
+                        DCHECK(false) << "not support type: "
+                                      << "array<HyperLogLog>\n";
+                        break;
+                    }
+                    case TYPE_STRING:
+                    case TYPE_VARCHAR:
+                    case TYPE_CHAR: {
+                        size_t sz = i - fr;
+                        if (need_escape) {
+                            unescape_string_on_spot(data + fr, &sz);
+                        }
+                        array.push_back(std::string(data + fr, sz));
+                        break;
+                    }
+                    case TYPE_BOOLEAN: {
+                        bool num = StringParser::string_to_bool(data + fr, i - fr,
+                                                                &local_parse_result);
+                        array.push_back((uint8_t)num);
+                        break;
+                    }
+                    case TYPE_TINYINT: {
+                        int8_t num = StringParser::string_to_int<int8_t>(data + fr, i - fr,
+                                                                         &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_SMALLINT: {
+                        int16_t num = StringParser::string_to_int<int16_t>(data + fr, i - fr,
+                                                                           &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_INT: {
+                        int32_t num = StringParser::string_to_int<int32_t>(data + fr, i - fr,
+                                                                           &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_BIGINT: {
+                        int64_t num = StringParser::string_to_int<int64_t>(data + fr, i - fr,
+                                                                           &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_LARGEINT: {
+                        __int128 num = StringParser::string_to_int<__int128>(data + fr, i - fr,
+                                                                             &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_FLOAT: {
+                        float num = StringParser::string_to_float<float>(data + fr, i - fr,
+                                                                         &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_DOUBLE: {
+                        double num = StringParser::string_to_float<double>(data + fr, i - fr,
+                                                                           &local_parse_result);
+                        array.push_back(num);
+                        break;
+                    }
+                    case TYPE_DATE: {
+                        vectorized::VecDateTimeValue ts_slot;
+                        if (!ts_slot.from_date_str(data + fr, i - fr)) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        ts_slot.cast_to_date();
+                        array.push_back(*reinterpret_cast<int64_t*>(&ts_slot));
+                        break;
+                    }
+                    case TYPE_DATEV2: {
+                        vectorized::DateV2Value<vectorized::DateV2ValueType> ts_slot;
+                        if (!ts_slot.from_date_str(data + fr, i - fr)) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        uint32_t int_val = ts_slot.to_date_int_val();
+                        array.push_back(int_val);
+                        break;
+                    }
+                    case TYPE_DATETIME: {
+                        vectorized::VecDateTimeValue ts_slot;
+                        if (!ts_slot.from_date_str(data + fr, i - fr)) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        ts_slot.to_datetime();
+                        array.push_back((int64_t)ts_slot);
+                        break;
+                    }
+                    case TYPE_DATETIMEV2: {
+                        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> ts_slot;
+                        if (!ts_slot.from_date_str(data + fr, i - fr)) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        uint64_t int_val = ts_slot.to_date_int_val();
+                        array.push_back(int_val);
+                        break;
+                    }
+                    case TYPE_DECIMALV2: {
+                        DecimalV2Value decimal_slot;
+                        if (decimal_slot.parse_from_str(data + fr, i - fr)) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        array.push_back(decimal_slot.value());
+                        break;
+                    }
+                    case TYPE_DECIMAL32: {
+                        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                        int32_t value = StringParser::string_to_decimal<int32_t>(
+                                data + fr, i - fr, Sub_type.precision, Sub_type.scale, &result);
+                        if (result != StringParser::PARSE_SUCCESS) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        array.push_back(value);
+                        break;
+                    }
+                    case TYPE_DECIMAL64: {
+                        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                        int64_t value = StringParser::string_to_decimal<int64_t>(
+                                data + fr, i - fr, Sub_type.precision, Sub_type.scale, &result);
+                        if (result != StringParser::PARSE_SUCCESS) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        array.push_back(value);
+                        break;
+                    }
+                    case TYPE_DECIMAL128I: {
+                        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+                        vectorized::Int128 value =
+                                StringParser::string_to_decimal<vectorized::Int128>(
+                                        data + fr, i - fr, Sub_type.precision, Sub_type.scale,
+                                        &result);
+                        if (result != StringParser::PARSE_SUCCESS) {
+                            local_parse_result = StringParser::PARSE_FAILURE;
+                            break;
+                        }
+                        array.push_back(value);
+                        break;
+                    }
+                    default: {
+                        DCHECK(false) << "bad slot type: array<" << Sub_type << ">";
+                        break;
+                    }
+                    }
+
+                    if (local_parse_result != StringParser::PARSE_SUCCESS) {
+                        parse_result = local_parse_result;
+                        return array;
+                    }
+                }
+                fr = i + 1;
+            }
+            return array;
+        };
+
+        auto array = func(0, len - 1, '\002', slot_desc->type());
+
+        for (int i = 0; i < rows; i++) {
+            reinterpret_cast<vectorized::ColumnArray*>(col_ptr)->insert(array);
+        }
+
         break;
     }
     default:

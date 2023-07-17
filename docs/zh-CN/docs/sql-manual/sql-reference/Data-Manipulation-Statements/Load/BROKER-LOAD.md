@@ -90,7 +90,7 @@ WITH BROKER broker_name
 
   - `PARTITION(p1, p2, ...)`
 
-    可以指定仅导入表的某些分区。不再分区范围内的数据将被忽略。
+    可以指定仅导入表的某些分区。不在分区范围内的数据将被忽略。
 
   - `COLUMNS TERMINATED BY`
 

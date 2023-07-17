@@ -71,6 +71,11 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test14  """ select * from test12 order by id; """
         order_qt_wkb_test  """ select * from wkb_test order by id; """
         order_qt_dt_test  """ select * from dt_test order by 1; """
+        order_qt_json_test  """ select * from json_test order by 1; """
+        order_qt_jsonb_test  """ select * from jsonb_test order by 1; """
+        order_qt_filter1  """ select * from test10 where 1 = 1  order by id; """
+        order_qt_filter2  """ select * from test10 where id = 1 order by id; """
+        order_qt_filter3  """ select * from test10 where 1 = 1 and id = 1 order by id; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();

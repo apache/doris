@@ -55,6 +55,9 @@ suite("test_clickhouse_jdbc_catalog", "p0") {
         sql  """ insert into internal.${internal_db_name}.${inDorisTable} select * from student; """
         order_qt_in_tb  """ select id, name, age from internal.${internal_db_name}.${inDorisTable} order by id; """
         order_qt_system  """ show tables from `system`; """
+        order_qt_filter  """ select k1,k2 from type where 1 = 1 order by 1 ; """
+        order_qt_filter2  """ select k1,k2 from type where 1 = 1 and  k1 = true order by 1 ; """
+        order_qt_filter3  """ select k1,k2 from type where k1 = true order by 1 ; """
 
         sql """ drop catalog if exists ${catalog_name} """
     }

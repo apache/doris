@@ -689,7 +689,8 @@ enum TMetadataType {
   ICEBERG,
   BACKENDS,
   WORKLOAD_GROUPS,
-  FRONTENDS
+  FRONTENDS,
+  CATALOGS
 }
 
 enum TIcebergQueryType {

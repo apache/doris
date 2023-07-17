@@ -17,10 +17,13 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -28,7 +31,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -54,6 +57,9 @@ import java.util.Optional;
  * e.g.
  *   ALTER TABLE stats_test.example_tbl MODIFY COLUMN age
  *   SET STATS ('row_count'='6001215');
+ *
+ * Note: partition stats injection is mainly convenient for test cost estimation,
+ * and can be removed after the related functions are completed.
  */
 public class AlterColumnStatsStmt extends DdlStmt {
 
@@ -71,15 +77,17 @@ public class AlterColumnStatsStmt extends DdlStmt {
     private final TableName tableName;
     private final String columnName;
     private final Map<String, String> properties;
+    private final PartitionNames optPartitionNames;
 
-    private final List<String> partitionNames = Lists.newArrayList();
+    private final List<Long> partitionIds = Lists.newArrayList();
     private final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
     public AlterColumnStatsStmt(TableName tableName, String columnName,
-            Map<String, String> properties) {
+            Map<String, String> properties, PartitionNames optPartitionNames) {
         this.tableName = tableName;
         this.columnName = columnName;
         this.properties = properties == null ? Collections.emptyMap() : properties;
+        this.optPartitionNames = optPartitionNames;
     }
 
     public TableName getTableName() {
@@ -90,8 +98,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
         return columnName;
     }
 
-    public List<String> getPartitionNames() {
-        return partitionNames;
+    public List<Long> getPartitionIds() {
+        return partitionIds;
     }
 
     public Map<StatsType, String> getStatsTypeToValue() {
@@ -109,11 +117,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
         // check table name
         tableName.analyze(analyzer);
 
-        // disallow external catalog
-        Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
-
         // check partition & column
-        checkColumnNames();
+        checkPartitionAndColumn();
 
         // check properties
         Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
@@ -138,12 +143,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
         });
     }
 
-    /**
-     * TODO(wzt): Support for external tables
-     */
-    private void checkColumnNames() throws AnalysisException {
-        Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-        Table table = db.getTableOrAnalysisException(tableName.getTbl());
+    private void checkPartitionAndColumn() throws AnalysisException {
+        CatalogIf catalog = analyzer.getEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        DatabaseIf db = catalog.getDbOrAnalysisException(tableName.getDb());
+        TableIf table = db.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() != Table.TableType.OLAP) {
             throw new AnalysisException("Only OLAP table statistics are supported");
@@ -153,6 +156,22 @@ public class AlterColumnStatsStmt extends DdlStmt {
         if (olapTable.getColumn(columnName) == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.getColumnNameRegex());
+        }
+
+        if (optPartitionNames != null) {
+            if (olapTable.getPartitionInfo().getType().equals(PartitionType.UNPARTITIONED)) {
+                throw new AnalysisException("Not a partitioned table: " + olapTable.getName());
+            }
+
+            optPartitionNames.analyze(analyzer);
+            List<String> partitionNames = optPartitionNames.getPartitionNames();
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName);
+                if (partition == null) {
+                    throw new AnalysisException("Partition does not exist: " + partitionName);
+                }
+                partitionIds.add(partition.getId());
+            }
         }
     }
 
@@ -168,7 +187,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
         sb.append(new PrintableMap<>(properties,
                 " = ", true, false));
         sb.append(")");
-
+        if (optPartitionNames != null) {
+            sb.append(" ");
+            sb.append(optPartitionNames.toSql());
+        }
         return sb.toString();
     }
 
