@@ -42,7 +42,8 @@ public class MergeLimits extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalLimit(logicalLimit())
-                .when(upperLimit -> upperLimit.getPhase().equals(upperLimit.child().getPhase()))
+                .when(upperLimit -> upperLimit.getPhase().equals(upperLimit.child().getPhase())
+                        || !upperLimit.child().isSplit())
                 .then(upperLimit -> {
                     LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
                     return new LogicalLimit<>(
