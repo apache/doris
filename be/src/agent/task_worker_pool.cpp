@@ -445,7 +445,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                         tablet_meta_info.compaction_policy);
                 need_to_save = true;
             }
-            if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes && tablet_meta_info.time_series_compaction_goal_size_mbytes != -1) {
+            if (tablet_meta_info.__isset.time_series_compaction_goal_size_mbytes &&
+                tablet_meta_info.time_series_compaction_goal_size_mbytes != -1) {
                 tablet->tablet_meta()
                         ->mutable_tablet_schema()
                         ->set_time_series_compaction_goal_size_mbytes(
@@ -459,7 +460,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                         tablet_meta_info.time_series_compaction_goal_size_mbytes);
                 need_to_save = true;
             }
-            if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold && tablet_meta_info.time_series_compaction_file_count_threshold != -1) {
+            if (tablet_meta_info.__isset.time_series_compaction_file_count_threshold &&
+                tablet_meta_info.time_series_compaction_file_count_threshold != -1) {
                 tablet->tablet_meta()
                         ->mutable_tablet_schema()
                         ->set_time_series_compaction_file_count_threshold(
@@ -473,7 +475,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
                         tablet_meta_info.time_series_compaction_file_count_threshold);
                 need_to_save = true;
             }
-            if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds && tablet_meta_info.time_series_compaction_time_threshold_seconds != -1) {
+            if (tablet_meta_info.__isset.time_series_compaction_time_threshold_seconds &&
+                tablet_meta_info.time_series_compaction_time_threshold_seconds != -1) {
                 tablet->tablet_meta()
                         ->mutable_tablet_schema()
                         ->set_time_series_compaction_time_threshold_seconds(
