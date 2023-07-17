@@ -688,8 +688,7 @@ public class DeleteHandler implements Writable {
             // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause
-            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
-                    || column.getDataType().isFloatingPointType()) {
+            if (column.isSequenceColumn() || column.getDataType().isFloatingPointType()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
                 throw new DdlException("Column[" + columnName + "] is not key column or storage model "
                         + "is not duplicate or column type is float or double.");
