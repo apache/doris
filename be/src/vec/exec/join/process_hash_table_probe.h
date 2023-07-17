@@ -88,7 +88,7 @@ struct ProcessHashTableProbe {
     std::unique_ptr<Arena> _arena;
     std::vector<StringRef> _probe_keys;
 
-    std::vector<uint32_t> _items_counts;
+    std::vector<uint32_t> _probe_indexs;
     std::vector<int8_t> _build_block_offsets;
     std::vector<int> _build_block_rows;
     std::vector<std::pair<int8_t, int>> _build_blocks_locs;
