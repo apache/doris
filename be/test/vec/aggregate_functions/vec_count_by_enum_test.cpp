@@ -17,6 +17,7 @@
 // under the License.
 
 #include <gtest/gtest.h>
+#include <rapidjson/document.h>
 
 #include "common/logging.h"
 #include "gtest/gtest.h"
@@ -40,7 +41,6 @@ public:
     void SetUp() {
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         DataTypes data_types = {
-                std::make_shared<DataTypeString>(),
                 std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
         };
         Array array;
@@ -88,16 +88,21 @@ TEST_F(VCountByEnumTest, testEmpty) {
 }
 
 TEST_F(VCountByEnumTest, testSample) {
-    const int batch_size = 1;
+    const int batch_size = 5;
     auto column_f1 = ColumnString::create();
     column_f1->insert("F");
-//    column_f1->insert("F");
-//    column_f1->insert("M");
-//    column_f1->insert(Null());
-//    column_f1->insert(Null());
+    column_f1->insert("F");
+    column_f1->insert("M");
+    column_f1->insert(NULL);
+    column_f1->insert(NULL);
     ColumnPtr column_f1_ptr = std::move(column_f1);
+    auto null_map = ColumnVector<uint8_t>::create();
+    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
+    for (int i = 0; i < offs.size(); ++i) {
+        null_map->insert(offs[i]);
+    }
 
-    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, ColumnUInt8::create(column_f1_ptr->size()));
+    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -118,145 +123,151 @@ TEST_F(VCountByEnumTest, testSample) {
     agg_function->insert_result_into(place2, *column_result2);
     auto& result2 = assert_cast<ColumnString&>(*column_result2);
 
-    LOG(INFO) << "result2 : " << result2.get_data_at(0);
-    EXPECT_EQ(result2.get_data_at(0).to_string(), "[]");
+    rapidjson::Document document;
+    document.Parse(result2.get_data_at(0).to_string().c_str());
+    const rapidjson::Value& item0 = document[0];
+    EXPECT_EQ(item0["cbe"]["M"].GetInt(), 1);
+    EXPECT_EQ(item0["cbe"]["F"].GetInt(), 2);
+    EXPECT_EQ(item0["notnull"].GetInt(), 3);
+    EXPECT_EQ(item0["null"].GetInt(), 2);
+    EXPECT_EQ(item0["all"].GetInt(), 5);
 
     agg_function->destroy(place);
     agg_function->destroy(place2);
 }
 
-//TEST_F(VCountByEnumTestTest, testNoMerge) {
-//    const int batch_size = 4;
-//
-//    auto column_event1 = ColumnVector<UInt8>::create();
-//    column_event1->insert(0);
-//    column_event1->insert(1);
-//    column_event1->insert(0);
-//    column_event1->insert(0);
-//
-//    auto column_event2 = ColumnVector<UInt8>::create();
-//    column_event2->insert(0);
-//    column_event2->insert(0);
-//    column_event2->insert(1);
-//    column_event2->insert(0);
-//
-//    auto column_event3 = ColumnVector<UInt8>::create();
-//    column_event3->insert(0);
-//    column_event3->insert(0);
-//    column_event3->insert(0);
-//    column_event3->insert(1);
-//
-//    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
-//    AggregateDataPtr place = memory.get();
-//    agg_function->create(place);
-//    const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
-//    for (int i = 0; i < batch_size; i++) {
-//        agg_function->add(place, column, i, nullptr);
-//    }
-//
-//    auto column_result =
-//            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
-//    agg_function->insert_result_into(place, *column_result);
-//    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
-//                           .get_data();
-//    for (int i = 0; i < result.size(); i++) {
-//        EXPECT_EQ(result[i], 1);
-//    }
-//    EXPECT_EQ(column_result->get_offsets()[-1], 0);
-//    EXPECT_EQ(column_result->get_offsets()[0], 3);
-//    EXPECT_EQ(column_result->get_offsets().size(), 1);
-//    agg_function->destroy(place);
-//}
-//
-//TEST_F(VCountByEnumTestTest, testSerialize) {
-//    const int batch_size = 2;
-//
-//    auto column_event1 = ColumnVector<UInt8>::create();
-//    column_event1->insert(0);
-//    column_event1->insert(1);
-//
-//    auto column_event2 = ColumnVector<UInt8>::create();
-//    column_event2->insert(0);
-//    column_event2->insert(0);
-//
-//    auto column_event3 = ColumnVector<UInt8>::create();
-//    column_event3->insert(0);
-//    column_event3->insert(0);
-//
-//    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
-//    AggregateDataPtr place = memory.get();
-//    agg_function->create(place);
-//    const IColumn* column[3] = {column_event1.get(), column_event2.get(), column_event3.get()};
-//    for (int i = 0; i < batch_size; i++) {
-//        agg_function->add(place, column, i, nullptr);
-//    }
-//
-//    ColumnString buf;
-//    VectorBufferWriter buf_writer(buf);
-//    agg_function->serialize(place, buf_writer);
-//    buf_writer.commit();
-//    agg_function->destroy(place);
-//
-//    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
-//    AggregateDataPtr place2 = memory2.get();
-//    agg_function->create(place2);
-//
-//    VectorBufferReader buf_reader(buf.get_data_at(0));
-//    agg_function->deserialize(place2, buf_reader, nullptr);
-//
-//    auto column_result =
-//            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
-//    agg_function->insert_result_into(place2, *column_result);
-//    auto& result = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result).get_data())
-//                           .get_data();
-//    for (int i = 0; i < result.size(); i++) {
-//        if (i == 0) {
-//            EXPECT_EQ(result[i], 1);
-//        } else {
-//            EXPECT_EQ(result[i], 0);
-//        }
-//    }
-//
-//    auto column_event4 = ColumnVector<UInt8>::create();
-//    column_event4->insert(0);
-//    column_event4->insert(0);
-//
-//    auto column_event5 = ColumnVector<UInt8>::create();
-//    column_event5->insert(0);
-//    column_event5->insert(1);
-//
-//    auto column_event6 = ColumnVector<UInt8>::create();
-//    column_event6->insert(0);
-//    column_event6->insert(0);
-//
-//    std::unique_ptr<char[]> memory3(new char[agg_function->size_of_data()]);
-//    AggregateDataPtr place3 = memory3.get();
-//    agg_function->create(place3);
-//    const IColumn* column2[3] = {column_event4.get(), column_event5.get(), column_event6.get()};
-//    for (int i = 0; i < batch_size; i++) {
-//        agg_function->add(place3, column2, i, nullptr);
-//    }
-//
-//    agg_function->merge(place2, place3, nullptr);
-//
-//    auto column_result2 =
-//            ColumnArray::create(((DataTypePtr)std::make_shared<DataTypeUInt8>())->create_column());
-//    agg_function->insert_result_into(place2, *column_result2);
-//    auto& result2 = assert_cast<ColumnUInt8&>(assert_cast<ColumnArray&>(*column_result2).get_data())
-//                            .get_data();
-//    for (int i = 0; i < result2.size(); i++) {
-//        if (i == result2.size() - 1) {
-//            EXPECT_EQ(result2[i], 0);
-//        } else {
-//            EXPECT_EQ(result2[i], 1);
-//        }
-//    }
-//
-//    EXPECT_EQ(column_result2->get_offsets()[-1], 0);
-//    EXPECT_EQ(column_result2->get_offsets()[0], 3);
-//    EXPECT_EQ(column_result2->get_offsets().size(), 1);
-//
-//    agg_function->destroy(place2);
-//    agg_function->destroy(place3);
-//}
+TEST_F(VCountByEnumTest, testNoMerge) {
+    const int batch_size = 5;
+    auto column_f1 = ColumnString::create();
+    column_f1->insert("F");
+    column_f1->insert("F");
+    column_f1->insert("M");
+    column_f1->insert(NULL);
+    column_f1->insert(NULL);
+    ColumnPtr column_f1_ptr = std::move(column_f1);
+    auto null_map = ColumnVector<uint8_t>::create();
+    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
+    for (int i = 0; i < offs.size(); ++i) {
+        null_map->insert(offs[i]);
+    }
+
+    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* column[1] = {nullable_column_f1.get()};
+    for (int i = 0; i < batch_size; i++) {
+        agg_function->add(place, column, i, nullptr);
+    }
+
+    auto column_result =
+            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    agg_function->insert_result_into(place, *column_result);
+    auto& result = assert_cast<ColumnString&>(*column_result);
+
+    rapidjson::Document document;
+    document.Parse(result.get_data_at(0).to_string().c_str());
+    const rapidjson::Value& item0 = document[0];
+    EXPECT_EQ(item0["cbe"]["M"].GetInt(), 1);
+    EXPECT_EQ(item0["cbe"]["F"].GetInt(), 2);
+    EXPECT_EQ(item0["notnull"].GetInt(), 3);
+    EXPECT_EQ(item0["null"].GetInt(), 2);
+    EXPECT_EQ(item0["all"].GetInt(), 5);
+
+    agg_function->destroy(place);
+}
+
+TEST_F(VCountByEnumTest, testSerialize) {
+    const int batch_size = 5;
+    auto column_f1 = ColumnString::create();
+    column_f1->insert("F");
+    column_f1->insert("F");
+    column_f1->insert("M");
+    column_f1->insert(NULL);
+    column_f1->insert(NULL);
+    ColumnPtr column_f1_ptr = std::move(column_f1);
+    auto null_map = ColumnVector<uint8_t>::create();
+    std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
+    for (int i = 0; i < offs.size(); ++i) {
+        null_map->insert(offs[i]);
+    }
+    auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* column[1] = {nullable_column_f1.get()};
+    for (int i = 0; i < batch_size; i++) {
+        agg_function->add(place, column, i, nullptr);
+    }
+
+    ColumnString buf;
+    VectorBufferWriter buf_writer(buf);
+    agg_function->serialize(place, buf_writer);
+    buf_writer.commit();
+    agg_function->destroy(place);
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place2 = memory2.get();
+    agg_function->create(place2);
+
+    VectorBufferReader buf_reader(buf.get_data_at(0));
+    agg_function->deserialize(place2, buf_reader, nullptr);
+
+    auto column_result1 =
+            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    agg_function->insert_result_into(place2, *column_result1);
+    auto& result1 = assert_cast<ColumnString&>(*column_result1);
+
+    rapidjson::Document document;
+    document.Parse(result1.get_data_at(0).to_string().c_str());
+    const rapidjson::Value& item0 = document[0];
+    EXPECT_EQ(item0["cbe"]["M"].GetInt(), 1);
+    EXPECT_EQ(item0["cbe"]["F"].GetInt(), 2);
+    EXPECT_EQ(item0["notnull"].GetInt(), 3);
+    EXPECT_EQ(item0["null"].GetInt(), 2);
+    EXPECT_EQ(item0["all"].GetInt(), 5);
+
+    auto column_f1_2 = ColumnString::create();
+    column_f1_2->insert("F");
+    column_f1_2->insert("F");
+    column_f1_2->insert("M");
+    column_f1_2->insert(NULL);
+    column_f1_2->insert(NULL);
+    ColumnPtr column_f1_2_ptr = std::move(column_f1_2);
+    auto null_map_2 = ColumnVector<uint8_t>::create();
+    std::vector<uint8_t> offs_2 = {0, 0, 0, 1, 1};
+    for (int i = 0; i < offs.size(); ++i) {
+        null_map_2->insert(offs_2[i]);
+    }
+    auto nullable_column_f1_2 = ColumnNullable::create(column_f1_2_ptr, std::move(null_map_2));
+
+    std::unique_ptr<char[]> memory3(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place3 = memory3.get();
+    agg_function->create(place3);
+    const IColumn* column2[1] = {nullable_column_f1_2.get()};
+    for (int i = 0; i < batch_size; i++) {
+        agg_function->add(place3, column2, i, nullptr);
+    }
+
+    agg_function->merge(place2, place3, nullptr);
+
+    auto column_result2 =
+            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    agg_function->insert_result_into(place2, *column_result2);
+    auto& result2 = assert_cast<ColumnString&>(*column_result2);
+
+    rapidjson::Document document2;
+    document2.Parse(result2.get_data_at(0).to_string().c_str());
+    const rapidjson::Value& item0_2 = document2[0];
+    EXPECT_EQ(item0_2["cbe"]["M"].GetInt(), 2);
+    EXPECT_EQ(item0_2["cbe"]["F"].GetInt(), 4);
+    EXPECT_EQ(item0_2["notnull"].GetInt(), 6);
+    EXPECT_EQ(item0_2["null"].GetInt(), 4);
+    EXPECT_EQ(item0_2["all"].GetInt(), 10);
+
+    agg_function->destroy(place2);
+    agg_function->destroy(place3);
+}
 } // namespace doris::vectorized
