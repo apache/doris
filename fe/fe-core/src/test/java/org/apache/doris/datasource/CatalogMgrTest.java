@@ -253,7 +253,7 @@ public class CatalogMgrTest extends TestWithFeService {
         ShowCatalogStmt showDetailStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showDetailCatalog);
         showResultSet = mgr.showCatalogs(showDetailStmt);
 
-        Assert.assertEquals(6, showResultSet.getResultRows().size());
+        Assert.assertEquals(9, showResultSet.getResultRows().size());
         for (List<String> row : showResultSet.getResultRows()) {
             Assertions.assertEquals(2, row.size());
             if (row.get(0).equalsIgnoreCase("type")) {
