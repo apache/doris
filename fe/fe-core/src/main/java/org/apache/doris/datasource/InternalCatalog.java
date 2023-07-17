@@ -1867,6 +1867,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         return partition;
     }
 
+    private ReplicaAllocation getReplicaAllocForCreatingOlapTable(Map<String, String> properties) throws UserException {
+        if (Config.force_olap_table_replication_num > 0) {
+            return new ReplicaAllocation((short) Config.force_olap_table_replication_num);
+        }
+        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        if (replicaAlloc.isNotSet()) {
+            replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        }
+        return replicaAlloc;
+    }
+
     // Create olap table and related base index synchronously.
     private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
@@ -1885,10 +1896,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         checkAutoIncColumns(baseSchema, keysType);
 
         // analyze replica allocation
-        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(stmt.getProperties(), "");
-        if (replicaAlloc.isNotSet()) {
-            replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
-        }
+        ReplicaAllocation replicaAlloc = getReplicaAllocForCreatingOlapTable(stmt.getProperties());
 
         long bufferSize = IdGeneratorUtil.getBufferSizeForCreateTable(stmt, replicaAlloc);
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);

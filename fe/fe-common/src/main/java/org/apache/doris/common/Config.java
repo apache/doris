@@ -2035,4 +2035,13 @@ public class Config extends ConfigBase {
     @ConfField
     public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于强制设定内表的副本数，如果改参数大于零，则用户在建表时指定的副本数将被忽略，而使用本参数设置的值。"
+                    + "同时，建表语句中指定的副本标签等参数会被忽略。该参数建议仅用于测试环境",
+            "Used to force the number of replicas of the internal table. If the parameter is greater than zero, "
+                    + "the number of replicas specified by the user when creating the table will be ignored, "
+                    + "and the value set by this parameter will be used. At the same time, the replica tags "
+                    + "and other parameters specified in the create table statement will be ignored. "
+                    + "This parameter is recommended to be used only in the test environment"})
+    public static int force_olap_table_replication_num = 0;
 }
