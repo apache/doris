@@ -153,7 +153,7 @@ public interface CatalogIf<T extends DatabaseIf> {
     String getComment();
 
     default long getLastSyncTime() {
-        return -1l;
+        return -1L;
     }
 
     default CatalogLog constructEditLog() {
