@@ -37,7 +37,7 @@ import java.util.List;
  */
 public class CatalogsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("CatalogIds").add("CatalogName").add("DatabaseNum")
+            .add("CatalogIds").add("CatalogName").add("DatabaseNum").add("lastSyncTime")
             .build();
 
     private Env env;

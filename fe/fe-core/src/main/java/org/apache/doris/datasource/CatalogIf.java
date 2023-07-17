@@ -152,6 +152,10 @@ public interface CatalogIf<T extends DatabaseIf> {
 
     String getComment();
 
+    default long getLastSyncTime() {
+        return -1l;
+    }
+
     default CatalogLog constructEditLog() {
         CatalogLog log = new CatalogLog();
         log.setCatalogId(getId());
