@@ -71,6 +71,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -98,12 +99,12 @@ public abstract class AbstractSelectMaterializedIndexRule {
         OlapTable table = scan.getTable();
 
         Set<String> requiredMvColumnNames = requiredScanOutput.stream()
-                    .map(s -> normalizeName(Column.getNameWithoutMvPrefix(s.getName())))
-                    .collect(Collectors.toSet());
+                .map(s -> normalizeName(Column.getNameWithoutMvPrefix(s.getName())))
+                .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
 
         Set<String> mvColNames = table.getSchemaByIndexId(index.getId(), true).stream()
                 .map(c -> normalizeName(parseMvColumnToSql(c.getNameWithoutMvPrefix())))
-                .collect(Collectors.toSet());
+                .collect(Collectors.toCollection(() -> new TreeSet<String>(String.CASE_INSENSITIVE_ORDER)));
 
         return mvColNames.containsAll(requiredMvColumnNames)
                 || requiredExpr.stream()
