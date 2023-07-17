@@ -133,7 +133,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const std::string& result = this->data(place).get();
-        assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }
 };
 
