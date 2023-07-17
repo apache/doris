@@ -375,6 +375,7 @@ public class TabletScheduler extends MasterDaemon {
                 if (Config.disable_balance && tabletCtx.getType() == Type.BALANCE) {
                     finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
                             "config disable balance");
+                    continue;
                 }
                 scheduleTablet(tabletCtx, batchTask);
             } catch (SchedException e) {
