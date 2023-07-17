@@ -694,6 +694,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayDropExternalTable(log);
         Env.getCurrentEnv().getEditLog().logDropExternalTable(log);
     }
@@ -719,6 +720,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             db.dropTable(table.getName());
+            db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
         }
@@ -768,6 +770,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableName(tableName);
         log.setTableId(Env.getCurrentEnv().getNextId());
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayCreateExternalTableFromEvent(log);
         Env.getCurrentEnv().getEditLog().logCreateExternalTable(log);
     }
@@ -788,6 +791,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             db.replayCreateTableFromEvent(log.getTableName(), log.getTableId());
+            db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
         }
