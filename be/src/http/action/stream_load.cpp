@@ -572,6 +572,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             request.__set_trim_double_quotes(false);
         }
     }
+    if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
+        if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
+            request.__set_enable_profile(true);
+        } else {
+            request.__set_enable_profile(false);
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load
