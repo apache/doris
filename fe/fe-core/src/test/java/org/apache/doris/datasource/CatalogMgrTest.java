@@ -322,7 +322,7 @@ public class CatalogMgrTest extends TestWithFeService {
 
         CatalogIf hms = mgr2.getCatalog(MY_CATALOG);
         properties = hms.getProperties();
-        Assert.assertEquals(6, properties.size());
+        Assert.assertEquals(9, properties.size());
         Assert.assertEquals("hms", properties.get("type"));
         Assert.assertEquals("thrift://172.16.5.9:9083", properties.get("hive.metastore.uris"));
 
