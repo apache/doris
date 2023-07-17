@@ -371,10 +371,11 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                     continue;
                 }
                 all_writers_mem.emplace_back(kv.second, item.first, std::move(item.second));
-                size_t pos = all_writers_mem.size() - 1;
-                tablets_mem_heap.emplace(std::get<2>(all_writers_mem[pos]).begin(),
-                                         std::get<2>(all_writers_mem[pos]).end(), pos);
             }
+        }
+        for (size_t i = 0; i < all_writers_mem.size(); i++) {
+            tablets_mem_heap.emplace(std::get<2>(all_writers_mem[i]).begin(),
+                                     std::get<2>(all_writers_mem[i]).end(), i);
         }
 
         // reduce 1/10 memory every time
