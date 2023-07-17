@@ -1401,39 +1401,39 @@ Status IRuntimeFilter::serialize(PPublishFilterRequestV2* request, void** data, 
 
 Status IRuntimeFilter::create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
                                       ObjectPool* pool,
-                                      std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
+                                      std::unique_ptr<RuntimePredicateWrapper>& wrapper) {
     return _create_wrapper(state, param, pool, wrapper);
 }
 
 Status IRuntimeFilter::create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
                                       ObjectPool* pool,
-                                      std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
+                                      std::unique_ptr<RuntimePredicateWrapper>& wrapper) {
     return _create_wrapper(state, param, pool, wrapper);
 }
 
 Status IRuntimeFilter::create_wrapper(QueryContext* query_ctx,
                                       const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
-                                      std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
+                                      std::unique_ptr<RuntimePredicateWrapper>& wrapper) {
     int filter_type = param->request->filter_type();
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
     }
-    wrapper->reset(new RuntimePredicateWrapper(query_ctx, pool, column_type, get_type(filter_type),
-                                               param->request->filter_id()));
+    wrapper.reset(new RuntimePredicateWrapper(query_ctx, pool, column_type, get_type(filter_type),
+                                              param->request->filter_id()));
 
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
-        return (*wrapper)->assign(&param->request->in_filter());
+        return wrapper->assign(&param->request->in_filter());
     }
     case PFilterType::BLOOM_FILTER: {
         DCHECK(param->request->has_bloom_filter());
-        return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
+        return wrapper->assign(&param->request->bloom_filter(), param->data);
     }
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
-        return (*wrapper)->assign(&param->request->minmax_filter());
+        return wrapper->assign(&param->request->minmax_filter());
     }
     default:
         return Status::InvalidArgument("unknown filter type");
@@ -1454,27 +1454,27 @@ Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
 
 template <class T>
 Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
-                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
+                                       std::unique_ptr<RuntimePredicateWrapper>& wrapper) {
     int filter_type = param->request->filter_type();
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
     }
-    wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
-                                               param->request->filter_id()));
+    wrapper.reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
+                                              param->request->filter_id()));
 
     switch (filter_type) {
     case PFilterType::IN_FILTER: {
         DCHECK(param->request->has_in_filter());
-        return (*wrapper)->assign(&param->request->in_filter());
+        return wrapper->assign(&param->request->in_filter());
     }
     case PFilterType::BLOOM_FILTER: {
         DCHECK(param->request->has_bloom_filter());
-        return (*wrapper)->assign(&param->request->bloom_filter(), param->data);
+        return wrapper->assign(&param->request->bloom_filter(), param->data);
     }
     case PFilterType::MINMAX_FILTER: {
         DCHECK(param->request->has_minmax_filter());
-        return (*wrapper)->assign(&param->request->minmax_filter());
+        return wrapper->assign(&param->request->minmax_filter());
     }
     default:
         return Status::InvalidArgument("unknown filter type");
@@ -1821,7 +1821,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
         set_ignored_msg(*msg);
     }
     std::unique_ptr<RuntimePredicateWrapper> wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, param, _pool, &wrapper));
+    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, param, _pool, wrapper));
     auto origin_type = _wrapper->get_real_type();
     RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
     if (origin_type != _wrapper->get_real_type()) {
@@ -1841,7 +1841,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
     }
 
     std::unique_ptr<RuntimePredicateWrapper> tmp_wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_query_ctx, param, _pool, &tmp_wrapper));
+    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_query_ctx, param, _pool, tmp_wrapper));
     auto origin_type = _wrapper->get_real_type();
     RETURN_IF_ERROR(_wrapper->merge(tmp_wrapper.get()));
     if (origin_type != _wrapper->get_real_type()) {

@@ -325,7 +325,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                            std::to_string(request->filter_id()));
         }
     }
-    // iter->second = pair{CntlVal,SpinLock}
     cntVal = iter->second.first;
     {
         std::lock_guard<SpinLock> l(*iter->second.second);
@@ -333,7 +332,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, &params, pool, holder.getHandle()));
-        RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
+        RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle().get()));
         cntVal->arrive_id.insert(UniqueId(request->fragment_id()));
         merged_size = cntVal->arrive_id.size();
         // TODO: avoid log when we had acquired a lock

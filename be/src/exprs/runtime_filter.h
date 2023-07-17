@@ -271,13 +271,13 @@ public:
     // for ut
     static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
                                  ObjectPool* pool,
-                                 std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+                                 std::unique_ptr<RuntimePredicateWrapper>& wrapper);
     static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
                                  ObjectPool* pool,
-                                 std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+                                 std::unique_ptr<RuntimePredicateWrapper>& wrapper);
     static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
                                  ObjectPool* pool,
-                                 std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+                                 std::unique_ptr<RuntimePredicateWrapper>& wrapper);
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
     Status update_filter(const UpdateRuntimeFilterParams* param);
@@ -319,7 +319,7 @@ protected:
 
     template <class T>
     static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
-                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
+                                  std::unique_ptr<RuntimePredicateWrapper>& wrapper);
 
     void _set_push_down() { _is_push_down = true; }
 
@@ -412,7 +412,7 @@ public:
     using WrapperPtr = std::unique_ptr<RuntimePredicateWrapper>;
     RuntimeFilterWrapperHolder();
     ~RuntimeFilterWrapperHolder();
-    WrapperPtr* getHandle() { return &_wrapper; }
+    WrapperPtr& getHandle() { return _wrapper; }
 
 private:
     WrapperPtr _wrapper;
