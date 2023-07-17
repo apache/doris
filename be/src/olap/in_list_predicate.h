@@ -381,6 +381,8 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
+            // IN predicate can not use ngram bf, just return true to accept
+            if (bf->is_ngram_bf()) return true;
             HybridSetBase::IteratorBase* iter = _values->begin();
             while (iter->has_next()) {
                 if constexpr (std::is_same_v<T, StringRef>) {
@@ -408,7 +410,9 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return PT == PredicateType::IN_LIST; }
+    bool can_do_bloom_filter(bool ngram) const override {
+        return PT == PredicateType::IN_LIST && !ngram;
+    }
 
 private:
     template <typename LeftT, typename RightT>

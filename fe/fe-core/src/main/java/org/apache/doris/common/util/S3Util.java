@@ -87,9 +87,21 @@ public class S3Util {
             if (pos == -1) {
                 throw new RuntimeException("No '://' found in location: " + location);
             }
-            location = "s3" + location.substring(pos);
+            if (isHdfsOnOssEndpoint(location)) {
+                // if hdfs service is enabled on oss, use oss location
+                // example: oss://examplebucket.cn-shanghai.oss-dls.aliyuncs.com/dir/file/0000.orc
+                location = "oss" + location.substring(pos);
+            } else {
+                location = "s3" + location.substring(pos);
+            }
         }
         return new Path(location);
+    }
+
+    public static boolean isHdfsOnOssEndpoint(String location) {
+        // example: cn-shanghai.oss-dls.aliyuncs.com contains the "oss-dls.aliyuncs".
+        // https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
+        return location.contains("oss-dls.aliyuncs");
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, CloudCredential credential) {

@@ -51,6 +51,7 @@ public class Frontend implements Writable {
     private int rpcPort;
 
     private long replayedJournalId;
+    private long lastStartupTime;
     private long lastUpdateTime;
     private String heartbeatErrMsg = "";
 
@@ -114,6 +115,10 @@ public class Frontend implements Writable {
         return heartbeatErrMsg;
     }
 
+    public long getLastStartupTime() {
+        return lastStartupTime;
+    }
+
     public long getLastUpdateTime() {
         return lastUpdateTime;
     }
@@ -138,6 +143,7 @@ public class Frontend implements Writable {
             replayedJournalId = hbResponse.getReplayedJournalId();
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
+            lastStartupTime = hbResponse.getFeStartTime();
             isChanged = true;
         } else {
             if (isAlive) {

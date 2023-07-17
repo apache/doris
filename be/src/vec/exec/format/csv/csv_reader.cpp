@@ -82,7 +82,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _file_reader(nullptr),
           _line_reader(nullptr),
           _line_reader_eof(false),
-          _text_converter(nullptr),
+          _text_converter(new(std::nothrow) TextConverter('\\')),
           _decompressor(nullptr),
           _skip_lines(0),
           _io_ctx(io_ctx) {
@@ -91,7 +91,6 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _file_compress_type = _params.compress_type;
     _size = _range.size;
 
-    _text_converter.reset(new (std::nothrow) TextConverter('\\', _array_delimiter[0]));
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
     _init_system_properties();
     _init_file_description();
@@ -107,7 +106,7 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _file_slot_descs(file_slot_descs),
           _line_reader(nullptr),
           _line_reader_eof(false),
-          _text_converter(nullptr),
+          _text_converter(new(std::nothrow) TextConverter('\\')),
           _decompressor(nullptr),
           _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
@@ -166,8 +165,7 @@ Status CsvReader::init_reader(bool is_load) {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
-                                                        _state->fragment_instance_id()));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
