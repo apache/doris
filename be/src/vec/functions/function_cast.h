@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 #include <stddef.h>
@@ -122,12 +123,12 @@ struct TimeCast {
     // Some examples of conversions.
     // '300' -> 00:03:00 '20:23' ->  20:23:00 '20:23:24' -> 20:23:24
     template <typename T>
-    static bool try_parse_time(char* s, size_t len, T& x) {
+    static bool try_parse_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
         /// TODO: Maybe we can move Timecast to the io_helper.
-        if (try_as_time(s, len, x)) {
+        if (try_as_time(s, len, x, local_time_zone)) {
             return true;
         } else {
-            if (VecDateTimeValue dv {}; dv.from_date_str(s, len)) {
+            if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
                 // can be parse as a datetime
                 x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
                 return true;
@@ -137,7 +138,7 @@ struct TimeCast {
     }
 
     template <typename T>
-    static bool try_as_time(char* s, size_t len, T& x) {
+    static bool try_as_time(char* s, size_t len, T& x, const cctz::time_zone& local_time_zone) {
         char* first_char = s;
         char* end_char = s + len;
         int hour = 0, minute = 0, second = 0;
@@ -188,7 +189,7 @@ struct TimeCast {
             if (!parse_from_str_to_int(first_char, len, from)) {
                 return false;
             }
-            return try_parse_time(from, x);
+            return try_parse_time(from, x, local_time_zone);
         }
         // minute second must be < 60
         if (minute >= 60 || second >= 60) {
@@ -199,7 +200,8 @@ struct TimeCast {
     }
     // Cast from number
     template <typename T, typename S>
-    static bool try_parse_time(T from, S& x) {
+    //requires {std::is_arithmetic_v<T> && std::is_arithmetic_v<S>}
+    static bool try_parse_time(T from, S& x, const cctz::time_zone& local_time_zone) {
         int64 seconds = from / 100;
         int64 hour = 0, minute = 0, second = 0;
         second = from - 100 * seconds;
@@ -388,7 +390,8 @@ struct ConvertImpl {
                     col_null_map_to = ColumnUInt8::create(size);
                     vec_null_map_to = &col_null_map_to->get_data();
                     for (size_t i = 0; i < size; ++i) {
-                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(vec_from[i], vec_to[i]);
+                        (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
+                                vec_from[i], vec_to[i], context->state()->timezone_obj());
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -820,7 +823,8 @@ struct NameToDateTime {
 };
 
 template <typename DataType, typename Additions = void*, typename FromDataType = void*>
-bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateLUTImpl*,
+bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
+                    const cctz::time_zone& local_time_zone,
                     Additions additions [[maybe_unused]] = Additions()) {
     if constexpr (IsDateTimeType<DataType>) {
         return try_read_datetime_text(x, rb);
@@ -845,7 +849,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
         auto len = rb.count();
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
-        return TimeCast::try_parse_time(s, len, x);
+        return TimeCast::try_parse_time(s, len, x, local_time_zone);
     }
 
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -1277,9 +1281,6 @@ struct ConvertThroughParsing {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
-        const DateLUTImpl* local_time_zone [[maybe_unused]] = nullptr;
-        const DateLUTImpl* utc_time_zone [[maybe_unused]] = nullptr;
-
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
 
@@ -1332,16 +1333,18 @@ struct ConvertThroughParsing {
 
                         bool parsed;
                         if constexpr (IsDataTypeDecimal<ToDataType>) {
-                            parsed = try_parse_impl<ToDataType>(
-                                    vec_to[i], read_buffer, local_time_zone, vec_to.get_scale());
+                            parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
+                                                                context->state()->timezone_obj(),
+                                                                vec_to.get_scale());
                         } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
                             auto type = check_and_get_data_type<DataTypeDateTimeV2>(
                                     block.get_by_position(result).type.get());
                             parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer,
-                                                                local_time_zone, type->get_scale());
+                                                                context->state()->timezone_obj(),
+                                                                type->get_scale());
                         } else {
                             parsed = try_parse_impl<ToDataType, void*, FromDataType>(
-                                    vec_to[i], read_buffer, local_time_zone);
+                                    vec_to[i], read_buffer, context->state()->timezone_obj());
                         }
                         (*vec_null_map_to)[i] = !parsed || !is_all_read(read_buffer);
                         if constexpr (is_load_ && is_strict_insert_) {

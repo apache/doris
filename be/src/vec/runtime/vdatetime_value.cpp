@@ -20,15 +20,20 @@
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <ctype.h>
+#include <glog/logging.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 // IWYU pragma: no_include <bits/chrono.h>
+#include <algorithm>
+#include <cctype>
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
+#include <string_view>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "util/timezone_utils.h"
 
 namespace doris::vectorized {
@@ -46,6 +51,28 @@ uint8_t mysql_week_mode(uint32_t mode) {
         mode ^= WEEK_FIRST_WEEKDAY;
     }
     return mode;
+}
+
+static bool have_offset(const std::string_view& arg) {
+    DCHECK(arg.length() > 6);
+    const static re2::RE2 HAS_OFFSET_PART("[\\+\\-]\\d{2}:\\d{2}");
+    return RE2::FullMatch(arg.substr(arg.length() - 6), HAS_OFFSET_PART);
+}
+static bool have_zone_name(const std::string_view& arg) {
+    for (auto v : arg) {
+        if (std::isupper(v) && v != 'T') {
+            return true;
+        }
+    }
+    return false;
+}
+static int timezone_split_pos(const std::string_view& arg) {
+    int split = arg.length() - 1;
+    for (; !std::isalpha(arg[split]); split--) {
+    }
+    for (; split >= 0 && (std::isupper(arg[split]) || arg[split] == '/'); split--) {
+    }
+    return split + 1;
 }
 
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -70,6 +97,42 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
+    return from_date_str_base(date_str, len, 0);
+}
+//parse timezone to get offset
+bool VecDateTimeValue::from_date_str(const char* date_str, int len,
+                                     const cctz::time_zone& local_time_zone) {
+    auto str = std::string_view(date_str, len);
+    long diff = 0;
+    if (have_offset(str) || have_zone_name(str)) {
+        std::string_view str_tz;
+        if (have_zone_name(str)) {
+            int split = timezone_split_pos(str);
+            if (split <= 0) {
+                return false;
+            }
+            str_tz = str.substr(split);
+            str = str.substr(0, split);
+        } else {
+            if (str[str.length() - 6] != '-' && str[str.length() - 6] != '+') {
+                return false;
+            }
+            str_tz = str.substr(str.length() - 6);
+            str = str.substr(0, str.length() - 6);
+        }
+        cctz::time_zone time_zone;
+        if (!TimezoneUtils::find_cctz_time_zone(std::string {str_tz}, time_zone)) {
+            return false;
+        }
+        auto given = cctz::convert(cctz::civil_second {}, time_zone);
+        auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
+        diff = std::chrono::duration_cast<std::chrono::seconds>(local - given).count();
+    }
+
+    return from_date_str_base(date_str, len, diff);
+}
+
+bool VecDateTimeValue::from_date_str_base(const char* date_str, int len, long sec_offset) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -179,9 +242,14 @@ bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
         }
     }
 
-    if (num_field < 3) return false;
-    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                    date_val[5], _type);
+    if (num_field < 3) {
+        return false;
+    }
+    if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
+                                  date_val[5], _type)) {
+        return false;
+    }
+    return date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, sec_offset, false});
 }
 
 // [0, 101) invalid
@@ -1834,7 +1902,44 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
+bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
+    return from_date_str_base(date_str, len, scale, 0);
+}
+//parse timezone to get offset
+template <typename T>
+bool DateV2Value<T>::from_date_str(const char* date_str, int len,
+                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
+    auto str = std::string_view(date_str, len);
+    long diff = 0;
+    if (have_offset(str) || have_zone_name(str)) {
+        std::string_view str_tz;
+        if (have_zone_name(str)) {
+            int split = timezone_split_pos(str);
+            if (split <= 0) {
+                return false;
+            }
+            str_tz = str.substr(split);
+            str = str.substr(0, split);
+        } else {
+            if (str[str.length() - 6] != '-' && str[str.length() - 6] != '+') {
+                return false;
+            }
+            str_tz = str.substr(str.length() - 6);
+            str = str.substr(0, str.length() - 6);
+        }
+        cctz::time_zone time_zone;
+        if (!TimezoneUtils::find_cctz_time_zone(std::string {str_tz}, time_zone)) {
+            return false;
+        }
+        auto given = cctz::convert(cctz::civil_second {}, time_zone);
+        auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
+        diff = std::chrono::duration_cast<std::chrono::seconds>(local - given).count();
+    }
+
+    return from_date_str_base(date_str, len, scale, diff);
+}
+template <typename T>
+bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale, long sec_offset) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -1964,13 +2069,18 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         }
     }
 
-    if (num_field < 3) return false;
+    if (num_field < 3) {
+        return false;
+    }
     if (is_invalid(date_val[0], date_val[1], date_val[2], 0, 0, 0, 0)) {
         return false;
     }
     format_datetime(date_val, carry_bits);
-    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
-                                    date_val[5], date_val[6]);
+    if (!check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
+                                  date_val[5], date_val[6])) {
+        return false;
+    }
+    return date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, sec_offset, false});
 }
 
 template <typename T>
