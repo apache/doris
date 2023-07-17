@@ -41,16 +41,6 @@ under the License.
 
 # Multi Catalog
 
-- Fix the issue that synchronizing hive metadata caused FE replay edit log to fail.
-- Fix `refresh catalog` operation causing FE OOM.
-- Fix the issue that jdbc catalog cannot handle `0000-00-00` correctly.
-
-- Fixed the issue that the kerberos ticket cannot be refreshed automatically.
-
-- Optimize the partition pruning performance of hive.
-- Fix the inconsistent behavior of trino and presto in jdbc catalog.
-- Fix the issue that hdfs short-circuit read could not be used to improve query efficiency in some environments.
-- Fix the issue that the iceberg table on CHDFS could not be read.
 - 修复了同步 Hive 元数据时 FE 回放编辑日志失败的问题；
 - 修复了`refresh catalog`操作导致 FE OOM 的问题；
 - 修复了 JDBC Catalog 目录无法正确处理`0000-00-00`的问题；
@@ -68,16 +58,6 @@ under the License.
 - 修复 jemalloc 在某些情况下可能导致 BE 崩溃的问题。
 
 # 其他
-
-- Fix several java udf related issues.
-- Fix the issue that the `recover table` operation incorrectly triggered the creation of dynamic partitions.
-- Fix timezone when importing orc files via broker load.
-- Fix the issue that the newly added `PERCENT` keyword caused the replay metadata of the routine load job to fail.
-- Fix the issue that the `truncate` operation failed to acts on a non-partitioned table.
-- Fix the issue that the mysql connection was lost due to the `show snapshot` operation.
-- Optimize the lock logic to reduce the probability of lock timeout errors when creating tables.
-- Add session variable `have_query_cache` to be compatible with some old mysql clients.
-- Optimize the error message when encountering an error of loading.
 
 - 修复了部分 Java UDF 相关问题；
 - 修复了`recover table`操作错误地触发动态分区创建的问题；
