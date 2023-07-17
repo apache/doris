@@ -33,6 +33,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -45,6 +46,7 @@ public class TablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
             .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
+            .add("LastSyncTime")
             .build();
 
     private DatabaseIf db;
@@ -83,6 +85,7 @@ public class TablesProcDir implements ProcDirInterface {
         // get info
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
         List<TableIf> tableList = db.getTables();
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         for (TableIf table : tableList) {
             List<Comparable> tableInfo = new ArrayList<Comparable>();
             int partitionNum = 1;
@@ -128,8 +131,8 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add(FeConstants.null_string);
                     tableInfo.add(replicaCount);
                 }
-
-
+                long lastSyncTime = table.getLastSyncTime();
+                tableInfo.add(lastSyncTime > 0 ? simpleDateFormat.format(lastSyncTime) : "UNRECORDED");
                 tableInfos.add(tableInfo);
             } finally {
                 table.readUnlock();

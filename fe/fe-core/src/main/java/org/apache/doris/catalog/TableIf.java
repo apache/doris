@@ -228,5 +228,9 @@ public interface TableIf {
     default boolean isManagedTable() {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
     }
+
+    default long getLastSyncTime() {
+        return -1L;
+    }
 }
 

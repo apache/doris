@@ -38,7 +38,7 @@ import java.util.List;
  */
 public class CatalogsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("CatalogIds").add("CatalogName").add("DatabaseNum").add("lastSyncTime")
+            .add("CatalogIds").add("CatalogName").add("DatabaseNum").add("LastSyncTime")
             .build();
 
     private Env env;
@@ -93,7 +93,7 @@ public class CatalogsProcDir implements ProcDirInterface {
             catalogInfo.add(catalog.getName());
             catalogInfo.add(catalog.getDbNames().size());
             long lastSyncTime = catalog.getLastSyncTime();
-            catalogInfo.add(lastSyncTime > 0 ? simpleDateFormat.format(lastSyncTime) : "");
+            catalogInfo.add(lastSyncTime > 0 ? simpleDateFormat.format(lastSyncTime) : "UNRECORDED");
             catalogInfos.add(catalogInfo);
         }
 
