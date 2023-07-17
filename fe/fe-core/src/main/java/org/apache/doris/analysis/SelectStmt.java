@@ -758,6 +758,9 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("only support duplicate key or MOW model");
             return false;
         }
+        if (!olapTable.getEnableLightSchemaChange()) {
+            return false;
+        }
         if (getOrderByElements() != null) {
             if (!evaluateOrderBy) {
                 // Need evaluate orderby, if sort node was eliminated then this optmization
