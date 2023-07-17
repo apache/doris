@@ -43,6 +43,16 @@ import java.util.Optional;
  * Rules to push {@link org.apache.doris.nereids.trees.plans.logical.LogicalLimit} down.
  * <p>
  * Limit can't be push down if it has a valid offset info.
+
+ * the plan tree will be transformed to:
+ * Limit
+ *      - A
+ *          - B
+
+ * Limit
+ *      - A
+ *          - Limit(Local)
+ *              - B
  */
 public class PushdownLimit implements RewriteRuleFactory {
 
