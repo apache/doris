@@ -351,6 +351,7 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -679,6 +680,8 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
+    bool from_date_str_base(const char* str, int len, long sec_offset);
+
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
 
@@ -801,6 +804,8 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len, int scale = -1);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
+                       int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
@@ -1157,6 +1162,8 @@ private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
+
+    bool from_date_str_base(const char* str, int len, int scale, long sec_offset);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
