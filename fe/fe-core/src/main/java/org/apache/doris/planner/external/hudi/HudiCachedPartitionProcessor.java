@@ -93,10 +93,9 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
             partitionValues.readLock().lock();
             try {
                 long lastUpdateTimestamp = partitionValues.getLastUpdateTimestamp();
-                if (lastTimestamp == lastUpdateTimestamp) {
+                if (lastTimestamp <= lastUpdateTimestamp) {
                     return partitionValues;
                 }
-                assert (lastTimestamp > lastUpdateTimestamp);
             } finally {
                 partitionValues.readLock().unlock();
             }
@@ -104,10 +103,9 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
             partitionValues.writeLock().lock();
             try {
                 long lastUpdateTimestamp = partitionValues.getLastUpdateTimestamp();
-                if (lastTimestamp == lastUpdateTimestamp) {
+                if (lastTimestamp <= lastUpdateTimestamp) {
                     return partitionValues;
                 }
-                assert (lastTimestamp > lastUpdateTimestamp);
                 List<String> partitionNames;
                 if (lastUpdateTimestamp == 0) {
                     partitionNames = getAllPartitionNames(tableMetaClient);
