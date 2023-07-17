@@ -69,8 +69,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected long timestamp;
     @SerializedName(value = "dbName")
     protected String dbName;
-    @SerializedName(value = "lastSyncTime")
-    protected long lastSyncTime;
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
 
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
@@ -344,8 +344,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *
      * @return
      */
-    public List<Column> initSchemaAndUpdateSyncTime() {
-        lastSyncTime = System.currentTimeMillis();
+    public List<Column> initSchemaAndUpdateTime() {
+        lastUpdateTime = System.currentTimeMillis();
         return initSchema();
     }
 

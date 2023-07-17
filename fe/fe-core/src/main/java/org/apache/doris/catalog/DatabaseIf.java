@@ -236,7 +236,7 @@ public interface DatabaseIf<T extends TableIf> {
 
     CatalogIf getCatalog();
 
-    default long getLastSyncTime() {
+    default long getLastUpdateTime() {
         return -1L;
     }
 }

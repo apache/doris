@@ -229,7 +229,7 @@ public interface TableIf {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
     }
 
-    default long getLastSyncTime() {
+    default long getLastUpdateTime() {
         return -1L;
     }
 }

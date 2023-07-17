@@ -31,7 +31,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -44,7 +43,7 @@ public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("Size").add("Quota")
             .add("LastConsistencyCheckTime").add("ReplicaCount").add("ReplicaQuota")
-            .add("TransactionQuota").add("LastSyncTime")
+            .add("TransactionQuota").add("LastUpdateTime")
             .build();
 
     private Env env;
@@ -95,7 +94,6 @@ public class DbsProcDir implements ProcDirInterface {
 
         // get info
         List<List<Comparable>> dbInfos = new ArrayList<>();
-        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         for (String dbName : dbNames) {
             DatabaseIf db = catalog.getDbNullable(dbName);
             if (db == null) {
@@ -124,8 +122,8 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(replicaCount);
                 dbInfo.add(replicaQuota);
                 dbInfo.add(transactionQuota);
-                long lastSyncTime = db.getLastSyncTime();
-                dbInfo.add(lastSyncTime > 0 ? simpleDateFormat.format(lastSyncTime) : "UNRECORDED");
+                long lastUpdateTime = db.getLastUpdateTime();
+                dbInfo.add(lastUpdateTime > 0 ? TimeUtils.longToTimeString(lastUpdateTime) : "UNRECORDED");
             } finally {
                 db.readUnlock();
             }

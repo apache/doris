@@ -84,8 +84,8 @@ public abstract class ExternalCatalog
     private boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
-    @SerializedName(value = "lastSyncTime")
-    protected long lastSyncTime;
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -256,8 +256,8 @@ public abstract class ExternalCatalog
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         long currentTime = System.currentTimeMillis();
-        lastSyncTime = currentTime;
-        initCatalogLog.setLastSyncTime(lastSyncTime);
+        lastUpdateTime = currentTime;
+        initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
@@ -280,7 +280,7 @@ public abstract class ExternalCatalog
         if (db.isPresent()) {
             Optional<? extends ExternalTable> table = db.get().getTable(tblName);
             if (table.isPresent()) {
-                return table.get().initSchemaAndUpdateSyncTime();
+                return table.get().initSchemaAndUpdateTime();
             }
         }
         // return one column with unsupported type.
@@ -396,12 +396,12 @@ public abstract class ExternalCatalog
         props.remove("comment");
     }
 
-    public long getLastSyncTime() {
-        return lastSyncTime;
+    public long getlastUpdateTime() {
+        return lastUpdateTime;
     }
 
-    public void setLastSyncTime(long lastSyncTime) {
-        this.lastSyncTime = lastSyncTime;
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
     }
 
     @Override
@@ -438,7 +438,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
-        lastSyncTime = log.getLastSyncTime();
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
