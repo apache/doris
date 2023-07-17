@@ -24,6 +24,8 @@
 #include <algorithm>
 
 #include "common/status.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -116,6 +118,29 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 _data_string.push_back({});
                 _string_nulls.push_back(true);
                 break;
+            }
+        }
+        // Must set _data_string at the end, so that we can
+        // save the real addr of string in `_backup_string` to `_data_string`.
+        for (auto& str : _backup_string) {
+            _data_string.emplace_back(str);
+        }
+        break;
+    }
+    case ExplodeJsonArrayType::JSON: {
+        _data_string.clear();
+        _backup_string.clear();
+        _string_nulls.clear();
+        for (auto& v : document.GetArray()) {
+            if (v.IsObject()) {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                v.Accept(writer);
+                _backup_string.emplace_back(buffer.GetString(), buffer.GetSize());
+                _string_nulls.push_back(false);
+            } else {
+                _data_string.push_back({});
+                _string_nulls.push_back(true);
             }
         }
         // Must set _data_string at the end, so that we can

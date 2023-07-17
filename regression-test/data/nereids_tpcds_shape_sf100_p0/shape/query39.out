@@ -14,7 +14,7 @@ CteAnchor[cteId= ( CTEId#3=] )
 ----------------------PhysicalOlapScan[inventory]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter(((inv.d_moy = 1) OR (inv.d_moy = 2))(date_dim.d_year = 1998))
+--------------------------filter(d_moy IN (1, 2)(date_dim.d_year = 1998))
 ----------------------------PhysicalOlapScan[date_dim]
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
