@@ -68,8 +68,6 @@ enum TPrimitiveType {
   DOUBLE,
   DATE,
   DATETIME,
-  IPV4,
-  IPV6,
   BINARY,
   DECIMAL_DEPRACTED, // not used now, only for place holder
   // CHAR(n). Currently only supported in UDAs
@@ -96,7 +94,9 @@ enum TPrimitiveType {
   UNSUPPORTED,
   VARIANT,
   LAMBDA_FUNCTION,
-  AGG_STATE
+  AGG_STATE,
+  IPV4,
+  IPV6
 }
 
 enum TTypeNodeType {

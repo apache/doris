@@ -232,6 +232,10 @@ public abstract class DataType implements AbstractDataType {
                 return QuantileStateType.INSTANCE;
             case "json":
                 return JsonType.INSTANCE;
+            case "ipv4":
+                return IPv4Type.INSTANCE;
+            case "ipv6":
+                return IPv6Type.INSTANCE;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -333,6 +337,10 @@ public abstract class DataType implements AbstractDataType {
             List<DataType> types = catalogType.getSubTypes().stream().map(t -> fromCatalogType(t))
                     .collect(Collectors.toList());
             return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
+        } else if (type.isIPv4()) {
+            return IPv4Type.INSTANCE;
+        } else if (type.isIPv6()) {
+            return IPv6Type.INSTANCE;
         }
         throw new AnalysisException("Nereids do not support type: " + type);
     }
