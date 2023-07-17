@@ -164,6 +164,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
         _tablet->set_last_cumu_compaction_success_time(UnixMillis());
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(UnixMillis());
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        _tablet->set_last_full_compaction_success_time(UnixMillis());
     }
 
     int64_t current_max_version;
