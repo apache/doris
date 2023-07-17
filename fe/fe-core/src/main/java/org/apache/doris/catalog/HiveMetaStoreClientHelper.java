@@ -922,10 +922,7 @@ public class HiveMetaStoreClientHelper {
         return hudiSchema;
     }
 
-    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
-        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-
-        Configuration conf = getConfiguration(table);
+    public static UserGroupInformation getUserGroupInformation(Configuration conf) {
         UserGroupInformation ugi = null;
         String authentication = conf.get(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, null);
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
@@ -945,6 +942,14 @@ public class HiveMetaStoreClientHelper {
                 ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
             }
         }
+        return ugi;
+    }
+
+    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
+        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
+
+        Configuration conf = getConfiguration(table);
+        UserGroupInformation ugi = getUserGroupInformation(conf);
         HoodieTableMetaClient metaClient;
         if (ugi != null) {
             try {

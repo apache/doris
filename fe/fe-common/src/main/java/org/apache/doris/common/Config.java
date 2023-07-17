@@ -1700,6 +1700,10 @@ public class Config extends ConfigBase {
         "Max number of hive partition values to return while list partitions, -1 means no limitation."})
     public static short max_hive_list_partition_num = -1;
 
+    @ConfField(mutable = false, masterOnly = false, description = {"远程文件系统缓存的最大数量",
+        "Max cache number of remote file system."})
+    public static long max_remote_file_system_cache_num = 100;
+
     /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
