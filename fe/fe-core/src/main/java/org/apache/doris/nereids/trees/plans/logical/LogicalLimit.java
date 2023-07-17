@@ -117,6 +117,10 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         return ImmutableList.of();
     }
 
+    public LogicalLimit<Plan> withLimitPhase(LimitPhase phase) {
+        return new LogicalLimit<>(limit, offset, phase, child());
+    }
+
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalLimit<>(limit, offset, phase, groupExpression, Optional.of(getLogicalProperties()), child());

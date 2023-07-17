@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -62,7 +63,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                 // limit -> join
                 logicalLimit(logicalJoin(any(), any())).whenNot(Limit::hasValidOffset)
                         .then(limit -> {
-                            Plan newJoin = pushLimitThroughJoin(limit, limit.child());
+                            Plan newJoin = pushLimitThroughJoin(limit.withLimitPhase(LimitPhase.LOCAL), limit.child());
                             if (newJoin == null || limit.child().children().equals(newJoin.children())) {
                                 return null;
                             }
@@ -75,7 +76,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                         .then(limit -> {
                             LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
                             LogicalJoin<Plan, Plan> join = project.child();
-                            Plan newJoin = pushLimitThroughJoin(limit, join);
+                            Plan newJoin = pushLimitThroughJoin(limit.withLimitPhase(LimitPhase.LOCAL), join);
                             if (newJoin == null || join.children().equals(newJoin.children())) {
                                 return null;
                             }
@@ -111,10 +112,11 @@ public class PushdownLimit implements RewriteRuleFactory {
                 logicalLimit(logicalUnion(multi()).when(union -> union.getQualifier() == Qualifier.ALL))
                         .whenNot(Limit::hasValidOffset)
                         .then(limit -> {
+                            LogicalLimit<Plan> localLimit = limit.withLimitPhase(LimitPhase.LOCAL);
                             LogicalUnion union = limit.child();
                             ImmutableList<Plan> newUnionChildren = union.children()
                                     .stream()
-                                    .map(child -> limit.withChildren(child))
+                                    .map(localLimit::withChildren)
                                     .collect(ImmutableList.toImmutableList());
                             if (union.children().equals(newUnionChildren)) {
                                 return null;
@@ -125,12 +127,11 @@ public class PushdownLimit implements RewriteRuleFactory {
                 // limit -> sort ==> topN
                 logicalLimit(logicalSort())
                         .then(limit -> {
-                            LogicalSort sort = limit.child();
-                            LogicalTopN topN = new LogicalTopN(sort.getOrderKeys(),
+                            LogicalSort<Plan> sort = limit.child();
+                            return new LogicalTopN<>(sort.getOrderKeys(),
                                     limit.getLimit(),
                                     limit.getOffset(),
                                     sort.child(0));
-                            return topN;
                         }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
                 //limit->proj->sort ==> proj->topN
                 logicalLimit(logicalProject(logicalSort()))
