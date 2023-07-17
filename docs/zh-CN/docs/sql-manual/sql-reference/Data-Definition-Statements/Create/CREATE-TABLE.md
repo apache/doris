@@ -35,8 +35,8 @@ under the License.
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
 (
-    column_definition_list,
-    [index_definition_list]
+    column_definition_list
+    [, index_definition_list]
 )
 [engine_type]
 [keys_type]
