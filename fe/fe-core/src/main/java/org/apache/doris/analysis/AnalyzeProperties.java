@@ -24,6 +24,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +41,14 @@ public class AnalyzeProperties {
     public static final String PROPERTY_NUM_BUCKETS = "num.buckets";
     public static final String PROPERTY_ANALYSIS_TYPE = "analysis.type";
     public static final String PROPERTY_PERIOD_SECONDS = "period.seconds";
+
+    public static final AnalyzeProperties DEFAULT_PROP = new AnalyzeProperties(new HashMap<String, String>() {
+        {
+            put(AnalyzeProperties.PROPERTY_SYNC, "false");
+            put(AnalyzeProperties.PROPERTY_AUTOMATIC, "false");
+            put(AnalyzeProperties.PROPERTY_ANALYSIS_TYPE, AnalysisType.FUNDAMENTALS.toString());
+        }
+    });
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROPERTY_SYNC)
