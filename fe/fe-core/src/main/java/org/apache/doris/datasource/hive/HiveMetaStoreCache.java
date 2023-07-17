@@ -74,6 +74,7 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.utils.FileUtils;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
@@ -339,7 +340,8 @@ public class HiveMetaStoreCache {
             for (int i = 0; i < partitionColumns.size(); i++) {
                 sb.append(partitionColumns.get(i).getName());
                 sb.append("=");
-                sb.append(key.getValues().get(i));
+                // Partition value may contain special character, like / and so on. Need to encode.
+                sb.append(FileUtils.escapePathName(key.getValues().get(i)));
                 sb.append("/");
             }
             sb.delete(sb.length() - 1, sb.length());
