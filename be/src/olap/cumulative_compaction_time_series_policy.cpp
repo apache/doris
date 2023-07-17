@@ -136,7 +136,8 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
         }
 
         // check if the rowset has already been compacted
-        if (!is_delete && rs->version().first != 0 && rs->version().first == rs->version().second) {
+        // [2-11] : rowset has been compacted
+        if (!is_delete && rs->version().first == rs->version().second) {
             *ret_cumulative_point = rs->version().first;
             break;
         }
