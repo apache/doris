@@ -608,9 +608,9 @@ public class PropertyAnalyzer {
         if (properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
             compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
             properties.remove(PROPERTIES_COMPACTION_POLICY);
-            if (!compactionPolicy.equals("time_series")) {
+            if (!compactionPolicy.equals("time_series") && !compactionPolicy.equals("size_based")) {
                 throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
-                        + " must be `time_series`");
+                        + " must be time_series or size_based");
             }
         }
 

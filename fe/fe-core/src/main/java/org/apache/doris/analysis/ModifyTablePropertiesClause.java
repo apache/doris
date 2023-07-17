@@ -183,9 +183,9 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
             String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
             if (!Strings.isNullOrEmpty(compactionPolicy)
-                    && !compactionPolicy.equals("time_series")) {
+                    && !compactionPolicy.equals("time_series") && !compactionPolicy.equals("size_based")) {
                 throw new AnalysisException(
-                        "Table compaction policy only support for time_series");
+                        "Table compaction policy only support for time_series or size_based");
             }
             this.needTableStable = false;
             setCompactionPolicy(compactionPolicy);

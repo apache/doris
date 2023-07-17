@@ -2138,8 +2138,9 @@ public class SchemaChangeHandler extends AlterHandler {
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
         String compactionPolicy = properties.get(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY);
-        if (!Strings.isNullOrEmpty(compactionPolicy) && !compactionPolicy.equals("time_series")) {
-            throw new UserException("Table compaction Policy only support for time series");
+        if (!Strings.isNullOrEmpty(compactionPolicy) && !compactionPolicy.equals("time_series")
+                                                            && !compactionPolicy.equals("size_based")) {
+            throw new UserException("Table compaction Policy only support for time series or size_based");
         }
 
         // if (isInMemory < 0 && storagePolicyId < 0) {
