@@ -67,7 +67,7 @@ If `swap` is `false`, do as follows:
 
 ### Example
 
-1. Swap `tbl1` with `tbl2` without deleting the `tbl1` table
+1. Swap `tbl1` with `tbl2` without deleting the `tbl1` table (Note: If you delete it, you will actually delete tbl1 and rename tbl2 to tbl1.)
 
 ```sql
 ALTER TABLE tbl1 REPLACE WITH TABLE tbl2
