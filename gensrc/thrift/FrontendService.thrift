@@ -419,9 +419,9 @@ struct TFeResult {
 }
 
 struct TMasterOpRequest {
-    1: optional string user
-    2: optional string db
-    3: optional string sql 
+    1: required string user
+    2: required string db
+    3: required string sql 
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
     6: optional i64 execMemLimit // deprecated, move into query_options
