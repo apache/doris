@@ -1204,8 +1204,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // read 100 rows to estimate average row size
         nrows_read_limit = 100;
     }
-    _read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
-                           _lazy_materialization_read || _opts.record_rowids);
+    RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _current_batch_rows_read,
+                                           _lazy_materialization_read || _opts.record_rowids));
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
