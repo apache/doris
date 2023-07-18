@@ -507,6 +507,26 @@ public enum PrimitiveType {
         builder.put(TIMEV2, TIMEV2);
         builder.put(TIMEV2, DOUBLE);
 
+        builder.put(BOOLEAN, CHAR);
+        builder.put(TINYINT, CHAR);
+        builder.put(SMALLINT, CHAR);
+        builder.put(CHAR, CHAR);
+        builder.put(INT, CHAR);
+        builder.put(BIGINT, CHAR);
+        builder.put(LARGEINT, CHAR);
+        builder.put(FLOAT, CHAR);
+        builder.put(DOUBLE, CHAR);
+        builder.put(DATE, CHAR);
+        builder.put(DATETIME, CHAR);
+        builder.put(DATEV2, CHAR);
+        builder.put(DATETIMEV2, CHAR);
+        builder.put(DECIMALV2, CHAR);
+        builder.put(DECIMAL32, CHAR);
+        builder.put(DECIMAL64, CHAR);
+        builder.put(DECIMAL128, CHAR);
+        builder.put(VARCHAR, CHAR);
+        builder.put(STRING, CHAR);
+
         implicitCastMap = builder.build();
     }
 
