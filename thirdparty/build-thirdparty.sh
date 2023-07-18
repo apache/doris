@@ -1434,23 +1434,25 @@ build_jemalloc() {
 
 # libunwind
 build_libunwind() {
-    check_if_source_exist "${LIBUNWIND_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        check_if_source_exist "${LIBUNWIND_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
 
-    # We should enable optimizations (otherwise it will be too slow in debug)
-    # and disable sanitizers (otherwise infinite loop may happen)
-    # close exceptions and rtti can improve the operating efficiency of the program
-    # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
-    # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
-    # -nostdinc++ only required for gcc compilation
-    cflags='-std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti'
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}"
+        # We should enable optimizations (otherwise it will be too slow in debug)
+        # and disable sanitizers (otherwise infinite loop may happen)
+        # close exceptions and rtti can improve the operating efficiency of the program
+        # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
+        # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
+        # -nostdinc++ only required for gcc compilation
+        cflags='-std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti'
+        CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}"
 
-    make -j "${PARALLEL}"
-    make install
+        make -j "${PARALLEL}"
+        make install
+    fi
 }
 
 # benchmark
