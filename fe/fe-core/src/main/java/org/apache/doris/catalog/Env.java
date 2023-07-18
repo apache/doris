@@ -4042,7 +4042,7 @@ public class Env {
                 }
             } else {
                 // set to an already exist colocate group, check if this table can be added to this group.
-                groupSchema.checkColocateSchema(table);
+                groupSchema.checkColocateSchema(table, true);
             }
 
             Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
