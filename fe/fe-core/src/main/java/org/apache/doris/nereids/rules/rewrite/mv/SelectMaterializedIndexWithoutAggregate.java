@@ -183,11 +183,10 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         }
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
-            List<MaterializedIndex> candidates = scan.getTable().getVisibleIndex().stream()
-                    .filter(index -> index.getId() != baseIndexId)
-                    .filter(index -> !indexHasAggregate(index, scan))
-                    .filter(index -> containAllRequiredColumns(index, scan,
-                            requiredScanOutputSupplier.get(), requiredExpr))
+            List<MaterializedIndex> candidates = scan
+                    .getTable().getVisibleIndex().stream().filter(index -> index.getId() != baseIndexId)
+                    .filter(index -> !indexHasAggregate(index, scan)).filter(index -> containAllRequiredColumns(index,
+                            scan, requiredScanOutputSupplier.get(), requiredExpr, predicatesSupplier.get()))
                     .collect(Collectors.toList());
             long bestIndex = selectBestIndex(candidates, scan, predicatesSupplier.get());
             return scan.withMaterializedIndexSelected(PreAggStatus.on(), bestIndex);
@@ -207,9 +206,8 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             // So only base index and indexes that have all the keys could be used.
             List<MaterializedIndex> candidates = table.getVisibleIndex().stream()
                     .filter(index -> table.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeySize)
-                    .filter(index -> containAllRequiredColumns(
-                            index, scan, requiredScanOutputSupplier.get(),
-                            predicatesSupplier.get()))
+                    .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get(),
+                            requiredExpr, predicatesSupplier.get()))
                     .collect(Collectors.toList());
 
             if (candidates.size() == 1) {
