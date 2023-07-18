@@ -1434,6 +1434,9 @@ build_jemalloc() {
 
 # libunwind
 build_libunwind() {
+    # https://github.com/libunwind/libunwind
+    # https://github.com/libunwind/libunwind/issues/189
+    # https://stackoverflow.com/questions/27842377/building-libunwind-for-mac
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         check_if_source_exist "${LIBUNWIND_SOURCE}"
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
