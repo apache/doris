@@ -119,6 +119,7 @@ public abstract class TestWithFeService {
     protected String dorisHome;
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
+    protected boolean needCleanDir = true;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
 
@@ -140,7 +141,9 @@ public abstract class TestWithFeService {
         runAfterAll();
         Env.getCurrentEnv().clear();
         StatementScopeIdGenerator.clear();
-        cleanDorisFeDir();
+        if (needCleanDir) {
+            cleanDorisFeDir();
+        }
     }
 
     @BeforeEach

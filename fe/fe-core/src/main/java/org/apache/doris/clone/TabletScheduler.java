@@ -179,7 +179,8 @@ public class TabletScheduler extends MasterDaemon {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.
                 // and we should check if backend is alive. If backend is dead when upgrading, this backend
                 // will never report its path hash, and tablet scheduler is blocked.
-                LOG.info("not all backends have path info");
+                LOG.info("backend {}:{} with id {} doesn't have path info.", backend.getHost(),
+                        backend.getBePort(), backend.getId());
                 return false;
             }
         }
