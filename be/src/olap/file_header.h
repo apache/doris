@@ -215,9 +215,13 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
             olap_adler32(olap_adler32_init(), buf.get(), _fixed_file_header.protobuf_length);
 
     if (real_protobuf_checksum != _fixed_file_header.protobuf_checksum) {
+        // When compiling using gcc there woule be error like:
+        // Cannot bind packed field '_FixedFileHeaderV2::protobuf_checksum' to 'unsigned int&'
+        // so we need to using unary operator+ to evaluate one value to pass
+        // to status to successfully compile.
         return Status::Error<ErrorCode::CHECKSUM_ERROR>(
                 "checksum is not match. file={}, expect={}, actual={}",
-                file_reader->path().native(), _fixed_file_header.protobuf_checksum,
+                file_reader->path().native(), +_fixed_file_header.protobuf_checksum,
                 real_protobuf_checksum);
     }
 
