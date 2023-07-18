@@ -47,7 +47,7 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class CalcDeleteBitmapToken {
 public:
     explicit CalcDeleteBitmapToken(std::unique_ptr<ThreadPoolToken> thread_token)
-            : _thread_token(std::move(thread_token)), _status(ErrorCode::OK) {}
+            : _thread_token(std::move(thread_token)), _status(Status::OK()) {}
 
     Status submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                   const segment_v2::SegmentSharedPtr& cur_segment,
@@ -69,7 +69,7 @@ private:
 
     // Records the current status of the calc delete bitmap job.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<int> _status;
+    Status _status;
 };
 
 // CalcDeleteBitmapExecutor is responsible for calc delete bitmap concurrently.

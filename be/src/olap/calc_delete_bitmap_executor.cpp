@@ -34,9 +34,9 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
                                      const segment_v2::SegmentSharedPtr& cur_segment,
                                      const std::vector<RowsetSharedPtr>& target_rowsets,
                                      int64_t end_version, RowsetWriter* rowset_writer) {
-    auto s = _status.load();
-    if (s != OK) {
-        return Status::Error(s);
+    {
+        std::shared_lock rlock(_lock);
+        RETURN_IF_ERROR(_status);
     }
 
     DeleteBitmapPtr bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
@@ -51,24 +51,24 @@ Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
                          << " seg_id: " << cur_segment->id() << " version: " << end_version;
-            this->_status.store(st.code());
+            std::lock_guard wlock(_lock);
+            if (_status.ok()) {
+                _status = st;
+            }
         }
     });
 }
 
 Status CalcDeleteBitmapToken::wait() {
     _thread_token->wait();
-    auto s = _status.load();
-    return s == OK ? Status::OK() : Status::Error(s);
+    // all tasks complete here, don't need lock;
+    return _status;
 }
 
 Status CalcDeleteBitmapToken::get_delete_bitmap(DeleteBitmapPtr res_bitmap) {
-    auto s = _status.load();
-    if (s != OK) {
-        return Status::Error(s);
-    }
-
     std::lock_guard wlock(_lock);
+    RETURN_IF_ERROR(_status);
+
     for (auto bitmap : _delete_bitmaps) {
         res_bitmap->merge(*bitmap);
     }
