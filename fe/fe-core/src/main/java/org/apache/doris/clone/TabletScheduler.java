@@ -229,6 +229,11 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.DISABLED;
         }
 
+        // REPAIR has higher priority than BALANCE.
+        // Suppose adding a BALANCE tablet successfully, then adding this tablet's REPAIR ctx will fail.
+        // But we set allTabletTypes[tabletId] to REPAIR. Later Poll this tablet from pending list,
+        // and reset its type as allTabletTypes[tabletId], then its type will convert to REPAIR.
+
         long tabletId = tablet.getTabletId();
         boolean contains = allTabletTypes.containsKey(tabletId);
         if (contains && !force) {
@@ -247,9 +252,12 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.LIMIT_EXCEED;
         }
 
+        if (!contains || tablet.getType() == TabletSchedCtx.Type.REPAIR) {
+            allTabletTypes.put(tabletId, tablet.getType());
+        }
+
         pendingTablets.offer(tablet);
         if (!contains) {
-            allTabletTypes.put(tabletId, tablet.getType());
             LOG.info("Add tablet to pending queue, tablet id {}, type {}, status {}, priority {}",
                     tablet.getTabletId(), tablet.getType(), tablet.getTabletStatus(),
                     tablet.getPriority());
