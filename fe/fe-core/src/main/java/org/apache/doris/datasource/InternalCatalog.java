@@ -1516,7 +1516,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy, idGeneratorBuffer,
                     olapTable.disableAutoCompaction(), olapTable.enableSingleReplicaCompaction(),
                     olapTable.skipWriteIndexOnLoad(), olapTable.storeRowColumn(), olapTable.isDynamicSchema(),
-                    binlogConfig, dataProperty.isStorageMediumSpecified());
+                    binlogConfig);
 
             // check again
             olapTable = db.getOlapTableOrDdlException(tableName);
@@ -1743,8 +1743,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             DataSortInfo dataSortInfo, boolean enableUniqueKeyMergeOnWrite, String storagePolicy,
             IdGeneratorBuffer idGeneratorBuffer, boolean disableAutoCompaction,
             boolean enableSingleReplicaCompaction, boolean skipWriteIndexOnLoad,
-            boolean storeRowColumn, boolean isDynamicSchema, BinlogConfig binlogConfig,
-            boolean isStorageMediumSpecified) throws DdlException {
+            boolean storeRowColumn, boolean isDynamicSchema, BinlogConfig binlogConfig) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1783,7 +1782,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc, tabletMeta,
-                    tabletIdSet, idGeneratorBuffer, isStorageMediumSpecified);
+                    tabletIdSet, idGeneratorBuffer);
 
             boolean ok = false;
             String errMsg = null;
@@ -2276,8 +2275,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
-                        storeRowColumn, isDynamicSchema, binlogConfigForTask,
-                        partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified());
+                        storeRowColumn, isDynamicSchema, binlogConfigForTask);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -2342,8 +2340,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             storageFormat, partitionInfo.getTabletType(entry.getValue()), compressionType,
                             olapTable.getDataSortInfo(), olapTable.getEnableUniqueKeyMergeOnWrite(), storagePolicy,
                             idGeneratorBuffer, olapTable.disableAutoCompaction(),
-                            olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad, storeRowColumn,
-                            isDynamicSchema, binlogConfigForTask, dataProperty.isStorageMediumSpecified());
+                            olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
+                            storeRowColumn, isDynamicSchema, binlogConfigForTask);
                 }
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
@@ -2526,7 +2524,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     @VisibleForTesting
     public void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc, TabletMeta tabletMeta,
-            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer, boolean isStorageMediumSpecified)
+            Set<Long> tabletIdSet, IdGeneratorBuffer idGeneratorBuffer)
             throws DdlException {
         ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;
@@ -2578,21 +2576,19 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
                                 .getBeIdRoundRobinForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        nextIndexs, isStorageMediumSpecified);
+                                        nextIndexs);
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
                                 .getBeIdRoundRobinForReplicaCreation(replicaAlloc, null,
-                                        nextIndexs, isStorageMediumSpecified);
+                                        nextIndexs);
                     }
                 } else {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        isStorageMediumSpecified);
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium());
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
-                                .selectBackendIdsForReplicaCreation(replicaAlloc, null,
-                                        isStorageMediumSpecified);
+                                .selectBackendIdsForReplicaCreation(replicaAlloc, null);
                     }
                 }
 
@@ -2765,8 +2761,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getPartitionInfo().getDataProperty(oldPartitionId).getStoragePolicy(),
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.enableSingleReplicaCompaction(), olapTable.skipWriteIndexOnLoad(),
-                        olapTable.storeRowColumn(), olapTable.isDynamicSchema(), binlogConfig,
-                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified());
+                        olapTable.storeRowColumn(), olapTable.isDynamicSchema(), binlogConfig);
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

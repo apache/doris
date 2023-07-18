@@ -130,12 +130,24 @@ public class BeSelectionPolicy {
 
         if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
                 || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
-                backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
-                storageMedium)) {
+                backend.getLocationTag())) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }
             return false;
+        }
+
+        if (storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)) {
+            // current storage medium not match, try another medium
+            TStorageMedium tStorageMedium =
+                    (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
+            if (!backend.hasSpecifiedStorageMedium(tStorageMedium)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Backend [{}] is not match by storage medium rule after retry, policy: [{}]",
+                            backend.getHost(), this);
+                }
+                return false;
+            }
         }
 
         if (checkDiskUsage) {
