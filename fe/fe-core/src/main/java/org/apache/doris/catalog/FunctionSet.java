@@ -510,6 +510,9 @@ public class FunctionSet<T> {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
             argsType.add(type);
+            if (type.isDatetime()) {
+                type = ((ScalarType) type).upgradeDatetime();
+            }
         }
         addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
                 fnName, retType, nullableMode, argsType, varArgs,

@@ -433,6 +433,11 @@ public class ScalarType extends Type {
         return type;
     }
 
+    // for parse microsecond correctly
+    public ScalarType upgradeDatetime() {
+        return createDatetimeV2Type(-1);
+    }
+
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createDateType() {
         if (Config.enable_date_conversion) {
