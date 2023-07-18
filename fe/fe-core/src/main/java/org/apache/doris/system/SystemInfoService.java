@@ -495,7 +495,7 @@ public class SystemInfoService {
 
     public Map<Tag, List<Long>> getBeIdRoundRobinForReplicaCreation(
             ReplicaAllocation replicaAlloc, TStorageMedium storageMedium,
-            Map<Tag, Integer> nextIndexs, boolean isStorageMediumSpecified) throws DdlException {
+            Map<Tag, Integer> nextIndexs) throws DdlException {
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
@@ -512,14 +512,6 @@ public class SystemInfoService {
             List<Long> beIds = selectBackendIdsRoundRobinByPolicy(policy, entry.getValue(), nextIndex);
             nextIndexs.put(entry.getKey(), nextIndex + beIds.size());
 
-            if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
-                // retry select backend using different storage medium
-                TStorageMedium tStorageMedium =
-                        (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
-                policy = builder.setStorageMedium(tStorageMedium).build();
-                beIds = selectBackendIdsByPolicy(policy, entry.getValue());
-            }
-            // after retry select backend using different storage medium
             if (beIds.isEmpty()) {
                 throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
             }
@@ -540,7 +532,7 @@ public class SystemInfoService {
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
@@ -565,14 +557,6 @@ public class SystemInfoService {
 
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
-                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
-                    // retry select backend using different storage medium
-                    TStorageMedium tStorageMedium =
-                            (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
-                    policy = builder.setStorageMedium(tStorageMedium).build();
-                    beIds = selectBackendIdsByPolicy(policy, entry.getValue());
-                }
-                // after retry select backend using different storage medium
                 if (beIds.isEmpty()) {
                     LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
