@@ -2021,7 +2021,7 @@ public class Config extends ConfigBase {
     public static int hive_stats_partition_sample_size = 3000;
 
     @ConfField
-    public static boolean enable_full_auto_analyze = true;
+    public static boolean enable_full_auto_analyze = false;
 
     @ConfField
     public static String full_auto_analyze_start_time = "00:00:00";

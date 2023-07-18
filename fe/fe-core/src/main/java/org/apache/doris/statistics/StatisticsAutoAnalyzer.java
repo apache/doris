@@ -67,12 +67,12 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             return;
         }
 
-        if (!Config.enable_full_auto_analyze) {
-            analyzePeriodically();
-            analyzeAutomatically();
-        } else {
-            analyzeAll();
-        }
+        // if (!Config.enable_full_auto_analyze) {
+        //     analyzePeriodically();
+        //     analyzeAutomatically();
+        // } else {
+        //     analyzeAll();
+        // }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
