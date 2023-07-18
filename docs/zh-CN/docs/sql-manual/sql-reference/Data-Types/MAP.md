@@ -40,6 +40,10 @@ MAP
 
 由K, V类型元素组成的map，不能作为key列使用。目前支持在Duplicate，Unique 模型的表中使用。
 
+需要手动开启支持，默认关闭.
+```
+admin set frontend config("enable_map_type" = "true");
+```
 K,V 支持的类型有：
 
 ```
