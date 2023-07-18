@@ -8,12 +8,60 @@
 -- !select --
 
 -- !select --
-103	4	d
+103	4	d	1.4
 
 -- !select --
-103	4	d
+103	4	d	1.4
 
 -- !select --
+
+-- !select_float_in --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+1.5	\N
+\N	\N
+
+-- !select_float_in2 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+1.5	\N
+\N	\N
+
+-- !select_float_in3 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+1.5	\N
+\N	\N
+
+-- !select_float_in4 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+1.5	\N
+\N	\N
+
+-- !select_float_in5 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+1.5	\N
+\N	\N
+
+-- !select_float_in6 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+1.5	\N
+\N	\N
 
 -- !select --
 c
@@ -52,6 +100,90 @@ d
 a
 b
 d
+
+-- !select_not_null_in_null --
+100	true
+101	\N
+102	\N
+103	\N
+
+-- !select_not_null_in_null2 --
+100	\N
+101	\N
+102	\N
+103	\N
+
+-- !select_not_null_in_null3 --
+a	true
+b	\N
+c	\N
+d	\N
+
+-- !select_not_null_in_null4 --
+a	\N
+b	\N
+c	\N
+d	\N
+
+-- !select_not_null_not_in_null --
+100	false
+101	\N
+102	\N
+103	\N
+
+-- !select_not_null_not_in_null2 --
+100	\N
+101	\N
+102	\N
+103	\N
+
+-- !select_not_null_not_in_null3 --
+a	false
+b	\N
+c	\N
+d	\N
+
+-- !select_not_null_not_in_null4 --
+a	\N
+b	\N
+c	\N
+d	\N
+
+-- !select_not_null_float_in --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+
+-- !select_not_null_float_in2 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+
+-- !select_not_null_float_in3 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+
+-- !select_not_null_float_in4 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+
+-- !select_not_null_float_in5 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
+
+-- !select_not_null_float_in6 --
+1.1	\N
+1.2	\N
+1.3	\N
+1.4	\N
 
 -- !select --
 2
