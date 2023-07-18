@@ -179,8 +179,9 @@ public class HiveMetaStoreCache {
         Map<Long, List<UniqueId>> idToUniqueIdsMap = Maps.newHashMapWithExpectedSize(partitionNames.size());
         long idx = 0;
         for (String partitionName : partitionNames) {
+            String decodedPartitionName;
             try {
-                partitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
+                decodedPartitionName = URLDecoder.decode(partitionName, StandardCharsets.UTF_8.name());
             } catch (UnsupportedEncodingException e) {
                 // It should not be here
                 throw new RuntimeException(e);
@@ -188,7 +189,7 @@ public class HiveMetaStoreCache {
             long partitionId = idx++;
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types);
             idToPartitionItem.put(partitionId, listPartitionItem);
-            partitionNameToIdMap.put(partitionName, partitionId);
+            partitionNameToIdMap.put(decodedPartitionName, partitionId);
         }
 
         Map<UniqueId, Range<PartitionKey>> uidToPartitionRange = null;
@@ -219,7 +220,14 @@ public class HiveMetaStoreCache {
         for (String part : parts) {
             String[] kv = part.split("=");
             Preconditions.checkState(kv.length == 2, partitionName);
-            values.add(new PartitionValue(kv[1], HIVE_DEFAULT_PARTITION.equals(kv[1])));
+            String decodedValue = null;
+            try {
+                decodedValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
+            } catch (UnsupportedEncodingException e) {
+                // It should not be here
+                throw new RuntimeException(e);
+            }
+            values.add(new PartitionValue(decodedValue, HIVE_DEFAULT_PARTITION.equals(decodedValue)));
         }
         try {
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types);
