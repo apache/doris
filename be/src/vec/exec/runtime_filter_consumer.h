@@ -45,6 +45,8 @@ protected:
     // Append late-arrival runtime filters to the vconjunct_ctx.
     Status _append_rf_into_conjuncts(const VExprSPtrs& vexprs);
 
+    void _init_profile(RuntimeProfile* profile);
+
     void _prepare_rf_timer(RuntimeProfile* profile);
 
     // For runtime filters

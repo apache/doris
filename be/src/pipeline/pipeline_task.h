@@ -134,7 +134,22 @@ public:
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
 
-    bool is_pending_finish() { return _source->is_pending_finish() || _sink->is_pending_finish(); }
+    bool is_pending_finish() {
+        bool source_ret = _source->is_pending_finish();
+        if (source_ret) {
+            return true;
+        } else {
+            this->set_src_pending_finish_time();
+        }
+
+        bool sink_ret = _sink->is_pending_finish();
+        if (sink_ret) {
+            return true;
+        } else {
+            this->set_dst_pending_finish_time();
+        }
+        return false;
+    }
 
     bool source_can_read() { return _source->can_read(); }
 
@@ -143,8 +158,6 @@ public:
     }
 
     bool sink_can_write() { return _sink->can_write(); }
-
-    bool can_steal() const { return _can_steal; }
 
     Status finalize();
 
@@ -193,6 +206,42 @@ public:
     void set_core_id(int core_id) { this->_core_id = core_id; }
     int get_core_id() const { return this->_core_id; }
 
+    void set_begin_execute_time() {
+        if (!_is_first_time_to_execute) {
+            _begin_execute_time = _pipeline_task_watcher.elapsed_time();
+            _is_first_time_to_execute = true;
+        }
+    }
+
+    void set_eos_time() {
+        if (!_is_eos) {
+            _eos_time = _pipeline_task_watcher.elapsed_time();
+            _is_eos = true;
+        }
+    }
+
+    void set_src_pending_finish_time() {
+        if (!_is_src_pending_finish_over) {
+            _src_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
+            _is_src_pending_finish_over = true;
+        }
+    }
+
+    void set_dst_pending_finish_time() {
+        if (!_is_dst_pending_finish_over) {
+            _dst_pending_finish_over_time = _pipeline_task_watcher.elapsed_time();
+            _is_dst_pending_finish_over = true;
+        }
+    }
+
+    void set_close_pipeline_time() {
+        if (!_is_close_pipeline) {
+            _close_pipeline_time = _pipeline_task_watcher.elapsed_time();
+            _is_close_pipeline = true;
+            COUNTER_SET(_close_pipeline_timer, _close_pipeline_time);
+        }
+    }
+
 private:
     void _finish_p_dependency() {
         for (const auto& p : _pipeline->_parents) {
@@ -214,7 +263,6 @@ private:
 
     bool _prepared;
     bool _opened;
-    bool _can_steal;
     RuntimeState* _state;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
@@ -252,6 +300,8 @@ private:
     RuntimeProfile::Counter* _schedule_counts;
     MonotonicStopWatch _wait_source_watcher;
     RuntimeProfile::Counter* _wait_source_timer;
+    MonotonicStopWatch _wait_bf_watcher;
+    RuntimeProfile::Counter* _wait_bf_timer;
     MonotonicStopWatch _wait_sink_watcher;
     RuntimeProfile::Counter* _wait_sink_timer;
     MonotonicStopWatch _wait_worker_watcher;
@@ -261,5 +311,36 @@ private:
     RuntimeProfile::Counter* _wait_schedule_timer;
     RuntimeProfile::Counter* _yield_counts;
     RuntimeProfile::Counter* _core_change_times;
+
+    // The monotonic time of the entire lifecycle of the pipelinetask, almost synchronized with the pipfragmentctx
+    // There are several important time points:
+    // 1 first time pipelinetask to execute
+    // 2 task eos
+    // 3 src pending finish over
+    // 4 dst pending finish over
+    // 5 close pipeline time, we mark this beacause pending finish state may change
+    MonotonicStopWatch _pipeline_task_watcher;
+    // time 1
+    bool _is_first_time_to_execute = false;
+    RuntimeProfile::Counter* _begin_execute_timer;
+    int64_t _begin_execute_time = 0;
+    // time 2
+    bool _is_eos = false;
+    RuntimeProfile::Counter* _eos_timer;
+    int64_t _eos_time = 0;
+    //time 3
+    bool _is_src_pending_finish_over = false;
+    RuntimeProfile::Counter* _src_pending_finish_over_timer;
+    int64_t _src_pending_finish_over_time = 0;
+    // time 4
+    bool _is_dst_pending_finish_over = false;
+    RuntimeProfile::Counter* _dst_pending_finish_over_timer;
+    int64_t _dst_pending_finish_over_time = 0;
+    // time 5
+    bool _is_close_pipeline = false;
+    RuntimeProfile::Counter* _close_pipeline_timer;
+    int64_t _close_pipeline_time = 0;
+
+    RuntimeProfile::Counter* _pip_task_total_timer;
 };
 } // namespace doris::pipeline

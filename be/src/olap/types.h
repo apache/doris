@@ -296,7 +296,8 @@ public:
 
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "ArrayTypeInfo not support from_string");
     }
 
     std::string to_string(const void* src) const override {
@@ -378,7 +379,8 @@ public:
 
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "MapTypeInfo not support from_string");
     }
 
     std::string to_string(const void* src) const override {
@@ -564,7 +566,8 @@ public:
 
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "StructTypeInfo not support from_string");
     }
 
     std::string to_string(const void* src) const override {
@@ -1028,7 +1031,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
                                                                  9, scale, &result);
 
         if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>::from_string meet PARSE_FAILURE");
         }
         *reinterpret_cast<int32_t*>(buf) = (int32_t)value;
         return Status::OK();
@@ -1052,7 +1056,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
         int64_t value = StringParser::string_to_decimal<int64_t>(scan_key.c_str(), scan_key.size(),
                                                                  18, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>::from_string meet PARSE_FAILURE");
         }
         *reinterpret_cast<int64_t*>(buf) = (int64_t)value;
         return Status::OK();
@@ -1076,7 +1081,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
         int128_t value = StringParser::string_to_decimal<int128_t>(
                 scan_key.c_str(), scan_key.size(), 38, scale, &result);
         if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I>::from_string meet PARSE_FAILURE");
         }
         *reinterpret_cast<PackedInt128*>(buf) = value;
         return Status::OK();
@@ -1272,9 +1278,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
                               const int scale) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
-            LOG(WARNING) << "the len of value string is too long, len=" << value_len
-                         << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "the len of value string is too long, len={}, max_len={}", value_len,
+                    OLAP_VARCHAR_MAX_LENGTH);
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
@@ -1338,9 +1344,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR>
                               const int scale) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
-            LOG(WARNING) << "the len of value string is too long, len=" << value_len
-                         << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "the len of value string is too long, len={}, max_len={}", value_len,
+                    OLAP_VARCHAR_MAX_LENGTH);
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
@@ -1362,9 +1368,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING>
                               const int scale) {
         size_t value_len = scan_key.length();
         if (value_len > config::string_type_length_soft_limit_bytes) {
-            LOG(WARNING) << "the len of value string is too long, len=" << value_len
-                         << ", max_len=" << config::string_type_length_soft_limit_bytes;
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>();
+            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                    "the len of value string is too long, len={}, max_len={}", value_len,
+                    config::string_type_length_soft_limit_bytes);
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
@@ -1390,7 +1396,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         // TODO support schema change
-        return Status::Error<ErrorCode::INVALID_SCHEMA>();
+        return Status::Error<ErrorCode::INVALID_SCHEMA>(
+                "FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> not support from_string");
     }
 
     static void set_to_min(void* buf) {

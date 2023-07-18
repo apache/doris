@@ -1085,31 +1085,25 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
         auto block_size = 0;
         auto& visited_iter =
                 std::get<ForwardIterator<Mapped>>(_join_node->_outer_join_pull_visited_iter);
-
-        auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
-            block_size++;
-            for (size_t j = 0; j < right_col_len; ++j) {
-                auto& column = *_build_blocks[offset].get_by_position(j).column;
-                mcol[j + right_col_idx]->insert_from(column, row_num);
-            }
+        _build_blocks_locs.resize(_batch_size);
+        auto register_build_loc = [&](int8_t offset, int32_t row_nums) {
+            _build_blocks_locs[block_size++] = std::pair<int8_t, int>(offset, row_nums);
         };
 
         if (visited_iter.ok()) {
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                    insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+                    register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                 }
             } else {
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         if (visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     } else {
                         if (!visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     }
                 }
@@ -1126,8 +1120,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         visited_iter = mapped.begin();
                         for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                         if (visited_iter.ok()) {
                             // block_size >= _batch_size, quit for loop
@@ -1138,8 +1131,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
                         visited_iter = mapped.begin();
                         for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                         if (visited_iter.ok()) {
                             // block_size >= _batch_size, quit for loop
@@ -1152,13 +1144,11 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         if (visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     } else {
                         if (!visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     }
                 }
@@ -1167,6 +1157,41 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     break;
                 }
             }
+        }
+        _build_blocks_locs.resize(block_size);
+
+        auto insert_build_rows = [&](int8_t offset) {
+            for (size_t j = 0; j < right_col_len; ++j) {
+                auto& column = *_build_blocks[offset].get_by_position(j).column;
+                mcol[j + right_col_idx]->insert_indices_from(
+                        column, _build_block_rows.data(),
+                        _build_block_rows.data() + _build_block_rows.size());
+            }
+        };
+        if (_build_blocks.size() > 1) {
+            std::sort(_build_blocks_locs.begin(), _build_blocks_locs.end(),
+                      [](const auto a, const auto b) { return a.first > b.first; });
+            auto start = 0, end = 0;
+            while (start < _build_blocks_locs.size()) {
+                while (end < _build_blocks_locs.size() &&
+                       _build_blocks_locs[start].first == _build_blocks_locs[end].first) {
+                    end++;
+                }
+                auto offset = _build_blocks_locs[start].first;
+                _build_block_rows.resize(end - start);
+                for (int i = 0; start + i < end; i++) {
+                    _build_block_rows[i] = _build_blocks_locs[start + i].second;
+                }
+                start = end;
+                insert_build_rows(offset);
+            }
+        } else if (_build_blocks.size() == 1) {
+            const auto size = _build_blocks_locs.size();
+            _build_block_rows.resize(_build_blocks_locs.size());
+            for (int i = 0; i < size; i++) {
+                _build_block_rows[i] = _build_blocks_locs[i].second;
+            }
+            insert_build_rows(0);
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero

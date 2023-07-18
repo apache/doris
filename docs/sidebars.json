@@ -208,12 +208,14 @@
                         "lakehouse/multi-catalog/hudi",
                         "lakehouse/multi-catalog/paimon",
                         "lakehouse/multi-catalog/dlf",
+                        "lakehouse/multi-catalog/max_compute",
                         "lakehouse/multi-catalog/es",
                         "lakehouse/multi-catalog/jdbc"
                     ]
                 },
                 "lakehouse/file",
                 "lakehouse/filecache",
+                "lakehouse/external_statistics",
                 "lakehouse/faq",
                 "lakehouse/fs_benchmark_tool"
             ]
@@ -709,7 +711,8 @@
                                 "sql-manual/sql-functions/table-functions/iceberg_meta",
                                 "sql-manual/sql-functions/table-functions/backends",
                                 "sql-manual/sql-functions/table-functions/frontends",
-                                "sql-manual/sql-functions/table-functions/workload-group"
+                                "sql-manual/sql-functions/table-functions/workload-group",
+				"sql-manual/sql-functions/table-functions/catalogs"
                             ]
                         },
                         {
@@ -1263,6 +1266,7 @@
             "items": [
                 "releasenotes/release-2.0-beta",
                 "releasenotes/release-2.0.0Alpha1",
+	        "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",

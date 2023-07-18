@@ -24,6 +24,7 @@ import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.utils.UdfUtils.JavaUdfDataType;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
+import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -50,6 +51,8 @@ public class UdfExecutor extends BaseExecutor {
     private long rowIdx;
 
     private long batchSizePtr;
+    private int evaluateIndex;
+    private MethodAccess methodAccess;
 
     /**
      * Create a UdfExecutor, using parameters from a serialized thrift object. Used by
@@ -113,166 +116,14 @@ public class UdfExecutor extends BaseExecutor {
 
     public Object[] convertBasicArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, long strOffsetAddr) {
-        switch (argTypes[argIdx]) {
-            case BOOLEAN:
-                return UdfConvert.convertBooleanArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case TINYINT:
-                return UdfConvert.convertTinyIntArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case SMALLINT:
-                return UdfConvert.convertSmallIntArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case INT:
-                return UdfConvert.convertIntArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case BIGINT:
-                return UdfConvert.convertBigIntArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case LARGEINT:
-                return UdfConvert.convertLargeIntArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case FLOAT:
-                return UdfConvert.convertFloatArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case DOUBLE:
-                return UdfConvert.convertDoubleArg(isNullable, numRows, nullMapAddr, columnAddr);
-            case CHAR:
-            case VARCHAR:
-            case STRING:
-                return UdfConvert.convertStringArg(isNullable, numRows, nullMapAddr, columnAddr, strOffsetAddr);
-            case DATE: // udaf maybe argClass[i + argClassOffset] need add +1
-                return UdfConvert.convertDateArg(argClass[argIdx], isNullable, numRows, nullMapAddr, columnAddr);
-            case DATETIME:
-                return UdfConvert.convertDateTimeArg(argClass[argIdx], isNullable, numRows, nullMapAddr, columnAddr);
-            case DATEV2:
-                return UdfConvert.convertDateV2Arg(argClass[argIdx], isNullable, numRows, nullMapAddr, columnAddr);
-            case DATETIMEV2:
-                return UdfConvert.convertDateTimeV2Arg(argClass[argIdx], isNullable, numRows, nullMapAddr, columnAddr);
-            case DECIMALV2:
-            case DECIMAL128:
-                return UdfConvert.convertDecimalArg(argTypes[argIdx].getScale(), 16L, isNullable, numRows, nullMapAddr,
-                        columnAddr);
-            case DECIMAL32:
-                return UdfConvert.convertDecimalArg(argTypes[argIdx].getScale(), 4L, isNullable, numRows, nullMapAddr,
-                        columnAddr);
-            case DECIMAL64:
-                return UdfConvert.convertDecimalArg(argTypes[argIdx].getScale(), 8L, isNullable, numRows, nullMapAddr,
-                        columnAddr);
-            default: {
-                LOG.info("Not support type: " + argTypes[argIdx].toString());
-                Preconditions.checkState(false, "Not support type: " + argTypes[argIdx].toString());
-                break;
-            }
-        }
-        return null;
+        return convertBasicArg(true, argIdx, isNullable, 0, numRows, nullMapAddr, columnAddr, strOffsetAddr);
     }
 
 
     public Object[] convertArrayArguments(int argIdx, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long nestedNullMapAddr, long dataAddr, long strOffsetAddr) {
-        Object[] argument = (Object[]) Array.newInstance(ArrayList.class, numRows);
-        for (int row = 0; row < numRows; ++row) {
-            long offsetStart = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row - 1));
-            long offsetEnd = UdfUtils.UNSAFE.getLong(null, offsetsAddr + 8L * (row));
-            int currentRowNum = (int) (offsetEnd - offsetStart);
-            switch (argTypes[argIdx].getItemType().getPrimitiveType()) {
-                case BOOLEAN: {
-                    UdfConvert
-                            .convertArrayBooleanArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                                    nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case TINYINT: {
-                    UdfConvert
-                            .convertArrayTinyIntArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                                    nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case SMALLINT: {
-                    UdfConvert
-                            .convertArraySmallIntArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                                    nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case INT: {
-                    UdfConvert.convertArrayIntArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case BIGINT: {
-                    UdfConvert.convertArrayBigIntArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case LARGEINT: {
-                    UdfConvert
-                            .convertArrayLargeIntArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                                    nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case FLOAT: {
-                    UdfConvert.convertArrayFloatArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DOUBLE: {
-                    UdfConvert.convertArrayDoubleArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case CHAR:
-                case VARCHAR:
-                case STRING: {
-                    UdfConvert.convertArrayStringArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr, strOffsetAddr);
-                    break;
-                }
-                case DATE: {
-                    UdfConvert.convertArrayDateArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DATETIME: {
-                    UdfConvert
-                            .convertArrayDateTimeArg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                                    nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DATEV2: {
-                    UdfConvert.convertArrayDateV2Arg(argument, row, currentRowNum, offsetStart, isNullable, nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DATETIMEV2: {
-                    UdfConvert.convertArrayDateTimeV2Arg(argument, row, currentRowNum, offsetStart, isNullable,
-                            nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMALV2:
-                case DECIMAL128: {
-                    UdfConvert.convertArrayDecimalArg(argTypes[argIdx].getScale(), 16L, argument, row, currentRowNum,
-                            offsetStart, isNullable,
-                            nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMAL32: {
-                    UdfConvert.convertArrayDecimalArg(argTypes[argIdx].getScale(), 4L, argument, row, currentRowNum,
-                            offsetStart, isNullable,
-                            nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                case DECIMAL64: {
-                    UdfConvert.convertArrayDecimalArg(argTypes[argIdx].getScale(), 8L, argument, row, currentRowNum,
-                            offsetStart, isNullable,
-                            nullMapAddr,
-                            nestedNullMapAddr, dataAddr);
-                    break;
-                }
-                default: {
-                    LOG.info("Not support: " + argTypes[argIdx]);
-                    Preconditions.checkState(false, "Not support type " + argTypes[argIdx].toString());
-                    break;
-                }
-            }
-        }
-        return argument;
+        return convertArrayArg(argIdx, isNullable, 0, numRows, nullMapAddr, offsetsAddr, nestedNullMapAddr, dataAddr,
+                strOffsetAddr);
     }
 
     /**
@@ -287,7 +138,7 @@ public class UdfExecutor extends BaseExecutor {
                 for (int j = 0; j < column.length; ++j) {
                     parameters[j] = inputs[j][i];
                 }
-                result[i] = method.invoke(udf, parameters);
+                result[i] = methodAccess.invoke(udf, evaluateIndex, parameters);
             }
             return result;
         } catch (Exception e) {
@@ -581,6 +432,7 @@ public class UdfExecutor extends BaseExecutor {
                 loader = ClassLoader.getSystemClassLoader();
             }
             Class<?> c = Class.forName(className, true, loader);
+            methodAccess = MethodAccess.get(c);
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getMethods();
@@ -597,6 +449,7 @@ public class UdfExecutor extends BaseExecutor {
                     continue;
                 }
                 method = m;
+                evaluateIndex = methodAccess.getIndex(UDF_FUNCTION_NAME);
                 Pair<Boolean, JavaUdfDataType> returnType;
                 if (argClass.length == 0 && parameterTypes.length == 0) {
                     // Special case where the UDF doesn't take any input args

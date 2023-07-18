@@ -35,8 +35,8 @@ This command is used to create a table. The subject of this document describes t
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
 (
-    column_definition_list,
-    [index_definition_list]
+    column_definition_list
+    [, index_definition_list]
 )
 [engine_type]
 [keys_type]
@@ -92,7 +92,7 @@ Column definition list:
         CHAR[(length)]
             Fixed-length character string. Length range: 1 ~ 255. Default is 1
         VARCHAR[(length)]
-            Variable length character string. Length range: 1 ~ 65533. Default is 1
+            Variable length character string. Length range: 1 ~ 65533. Default is 65533
         HLL (1~16385 bytes)
             HyperLogLog column type, do not need to specify the length and default value. The length is controlled within the system according to the degree of data aggregation.
             Must be used with HLL_UNION aggregation type.

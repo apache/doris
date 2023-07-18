@@ -36,7 +36,6 @@ under the License.
         <sparkbundle.version>3.2</sparkbundle.version>
         <hudi.version>0.13.0</hudi.version>
         <janino.version>3.0.16</janino.version>
-        <fasterxml.jackson.version>2.14.3</fasterxml.jackson.version>
     </properties>
 
     <dependencies>
@@ -163,7 +162,7 @@ under the License.
             <!-- version of spark's jackson module is error -->
             <groupId>com.fasterxml.jackson.module</groupId>
             <artifactId>jackson-module-scala_${scala.binary.version}</artifactId>
-            <version>${fasterxml.jackson.version}</version>
+            <version>${jackson.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.google.guava</groupId>

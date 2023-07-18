@@ -61,6 +61,7 @@ public class CreateFunctionTest {
         FeConstants.runningUnitTest = true;
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
+        connectContext.getSessionVariable().setEnableNereidsPlanner(false);
     }
 
     @AfterClass
@@ -72,6 +73,7 @@ public class CreateFunctionTest {
     @Test
     public void test() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setEnableNereidsPlanner(false);
 
         // create database db1
         createDatabase(ctx, "create database db1;");
@@ -112,7 +114,7 @@ public class CreateFunctionTest {
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
         Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(`k1`, 3), '****', right(`k1`, 4))"));
+                dorisAssert.query(queryStr).explainQuery().contains("concat(left(k1, 3), '****', right(k1, 4))"));
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
@@ -203,6 +205,7 @@ public class CreateFunctionTest {
     @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        ctx.getSessionVariable().setEnableNereidsPlanner(false);
 
         // 1. create database db2
         createDatabase(ctx, "create database db2;");
@@ -232,7 +235,7 @@ public class CreateFunctionTest {
 
         queryStr = "select id_masking(k1) from db2.tbl1";
         Assert.assertTrue(
-                dorisAssert.query(queryStr).explainQuery().contains("concat(left(`k1`, 3), '****', right(`k1`, 4))"));
+                dorisAssert.query(queryStr).explainQuery().contains("concat(left(k1, 3), '****', right(k1, 4))"));
 
         // 4. create alias function with cast
         // cast any type to decimal with specific precision and scale

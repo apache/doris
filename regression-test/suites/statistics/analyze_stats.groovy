@@ -20,6 +20,10 @@ suite("test_analyze") {
     String tbl = "analyzetestlimited_duplicate_all"
 
     sql """
+        DROP TABLE IF EXISTS `${tbl}`
+    """
+
+    sql """
           CREATE TABLE IF NOT EXISTS `${tbl}` (
             `analyzetestlimitedk3` int(11) null comment "",
             `analyzetestlimitedk0` boolean null comment "",

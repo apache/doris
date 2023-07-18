@@ -18,21 +18,74 @@
 
 package org.apache.doris.datasource.hive.event;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
+import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterDatabaseMessage;
 
 import java.util.List;
 
 /**
- * MetastoreEvent for Alter_DATABASE event type
+ * MetastoreEvent for ALTER_DATABASE event type
  */
 public class AlterDatabaseEvent extends MetastoreEvent {
+
+    private final Database dbBefore;
+    private final Database dbAfter;
+
+    // true if this alter event was due to a rename operation
+    private final boolean isRename;
+
+    // for test
+    public AlterDatabaseEvent(long eventId, String catalogName, String dbName, boolean isRename) {
+        super(eventId, catalogName, dbName, null);
+        this.isRename = isRename;
+        this.dbBefore = null;
+        this.dbAfter = null;
+    }
 
     private AlterDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ALTER_DATABASE));
+
+        try {
+            JSONAlterDatabaseMessage alterDatabaseMessage =
+                    (JSONAlterDatabaseMessage) MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
+                                .getAlterDatabaseMessage(event.getMessage());
+            dbBefore = Preconditions.checkNotNull(alterDatabaseMessage.getDbObjBefore());
+            dbAfter = Preconditions.checkNotNull(alterDatabaseMessage.getDbObjAfter());
+        } catch (Exception e) {
+            throw new MetastoreNotificationException(
+                    debugString("Unable to parse the alter database message"), e);
+        }
+        // this is a rename event if either dbName of before and after object changed
+        isRename = !dbBefore.getName().equalsIgnoreCase(dbAfter.getName());
+    }
+
+    private void processRename() throws DdlException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
+        if (catalog == null) {
+            throw new DdlException("No catalog found with name: " + catalogName);
+        }
+        if (!(catalog instanceof ExternalCatalog)) {
+            throw new DdlException("Only support ExternalCatalog Databases");
+        }
+        if (catalog.getDbNullable(dbAfter.getName()) != null) {
+            infoLog("AlterExternalDatabase canceled, because dbAfter has exist, "
+                            + "catalogName:[{}],dbName:[{}]",
+                    catalogName, dbAfter.getName());
+            return;
+        }
+        Env.getCurrentEnv().getCatalogMgr().dropExternalDatabase(dbBefore.getName(), catalogName, true);
+        Env.getCurrentEnv().getCatalogMgr().createExternalDatabase(dbAfter.getName(), catalogName, true);
+
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
@@ -40,9 +93,22 @@ public class AlterDatabaseEvent extends MetastoreEvent {
         return Lists.newArrayList(new AlterDatabaseEvent(event, catalogName));
     }
 
+    public boolean isRename() {
+        return isRename;
+    }
+
     @Override
     protected void process() throws MetastoreNotificationException {
-        // only can change properties,we do nothing
-        infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+        try {
+            if (isRename) {
+                processRename();
+                return;
+            }
+            // only can change properties,we do nothing
+            infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+        } catch (Exception e) {
+            throw new MetastoreNotificationException(
+                    debugString("Failed to process event"), e);
+        }
     }
 }

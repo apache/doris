@@ -1924,6 +1924,23 @@ public class JdbcExecutor {
         }
     }
 
+    public void copyBatchJsonResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        Object[] column = (Object[]) columnObj;
+        int firstNotNullIndex = 0;
+        if (isNullable) {
+            firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
+        if (column[firstNotNullIndex] instanceof String) {
+            stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else {
+            objectPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        }
+    }
+
     private int getFirstNotNullObject(Object[] column, int numRows, long nullMapAddr) {
         int i = 0;
         for (; i < numRows; ++i) {

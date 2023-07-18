@@ -212,7 +212,8 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
             return Status::InternalError("Unknown expr node type: {}", expr_node.node_type);
         }
     } catch (const Exception& e) {
-        return e.to_status();
+        return Status::InternalError("create expr failed, TExprNode={}, reason={}",
+                                     apache::thrift::ThriftDebugString(expr_node), e.what());
     }
     if (!expr->data_type()) {
         return Status::InvalidArgument("Unknown expr type: {}", expr_node.node_type);

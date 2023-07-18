@@ -40,7 +40,7 @@ class Block;
 
 namespace doris::vectorized {
 
-enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING };
+enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING, JSON };
 
 struct ParsedData {
     static std::string true_value;
@@ -66,6 +66,7 @@ struct ParsedData {
             _data.clear();
             _backup_double.clear();
             break;
+        case ExplodeJsonArrayType::JSON:
         case ExplodeJsonArrayType::STRING:
             _data_string.clear();
             _backup_string.clear();
@@ -82,6 +83,7 @@ struct ParsedData {
         case ExplodeJsonArrayType::INT:
         case ExplodeJsonArrayType::DOUBLE:
             return _data[offset];
+        case ExplodeJsonArrayType::JSON:
         case ExplodeJsonArrayType::STRING:
             return _string_nulls[offset] ? nullptr
                    : real                ? reinterpret_cast<void*>(_backup_string[offset].data())
@@ -92,7 +94,8 @@ struct ParsedData {
     }
 
     int64 get_value_length(ExplodeJsonArrayType type, int64_t offset) {
-        if (type == ExplodeJsonArrayType::STRING && !_string_nulls[offset]) {
+        if ((type == ExplodeJsonArrayType::STRING || type == ExplodeJsonArrayType::JSON) &&
+            !_string_nulls[offset]) {
             return _backup_string[offset].size();
         }
         return 0;

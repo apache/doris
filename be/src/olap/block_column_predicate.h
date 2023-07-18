@@ -87,7 +87,7 @@ public:
         return true;
     }
 
-    virtual bool can_do_bloom_filter() const { return false; }
+    virtual bool can_do_bloom_filter(bool ngram) const { return false; }
 
     //evaluate predicate on inverted
     virtual Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
@@ -121,7 +121,9 @@ public:
 
     void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
 
-    bool can_do_bloom_filter() const override { return _predicate->can_do_bloom_filter(); }
+    bool can_do_bloom_filter(bool ngram) const override {
+        return _predicate->can_do_bloom_filter(ngram);
+    }
 
 private:
     const ColumnPredicate* _predicate;
@@ -188,9 +190,9 @@ public:
 
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
 
-    bool can_do_bloom_filter() const override {
+    bool can_do_bloom_filter(bool ngram) const override {
         for (auto& pred : _block_column_predicate_vec) {
-            if (!pred->can_do_bloom_filter()) {
+            if (!pred->can_do_bloom_filter(ngram)) {
                 return false;
             }
         }
