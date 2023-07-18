@@ -54,7 +54,9 @@ uint8_t mysql_week_mode(uint32_t mode) {
 }
 
 static bool have_offset(const std::string_view& arg) {
-    DCHECK(arg.length() > 6);
+    if (arg.length() < 6) {
+        return false;
+    }
     const static re2::RE2 HAS_OFFSET_PART("[\\+\\-]\\d{2}:\\d{2}");
     return RE2::FullMatch(arg.substr(arg.length() - 6), HAS_OFFSET_PART);
 }
@@ -1628,7 +1630,9 @@ bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
         if (!get_date_from_daynr(day_nr)) {
             return false;
         }
-        _type = TIME_DATETIME;
+        if (_second || _minute || _hour) {
+            _type = TIME_DATETIME;
+        }
     } else if constexpr ((unit == DAY) || (unit == WEEK)) {
         // This only change day information, not change second information
         int64_t day_nr = daynr() + interval.day * sign;
@@ -1933,7 +1937,8 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len,
         }
         auto given = cctz::convert(cctz::civil_second {}, time_zone);
         auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
-        diff = std::chrono::duration_cast<std::chrono::seconds>(local - given).count();
+        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+        diff = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
     }
 
     return from_date_str_base(date_str, len, scale, diff);
