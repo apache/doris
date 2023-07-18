@@ -79,9 +79,8 @@ suite("test_delete_on_value") {
                 "function_column.sequence_col" = 'y'
             );"""
     sql """ insert into ${tableName3} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5); """
-    sql "delete from ${tableName3} where y=4;"
     test {
-        qt_sql "select * from ${tableName3} order by x;"
+        sql "delete from ${tableName3} where y=4;"
         exception "delete predicate on value column only supports Unique table and the column must not be the sequence column"
     }
 }
