@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external.hudi;
 
 import org.apache.hudi.common.config.HoodieMetadataConfig;
-import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -47,12 +46,8 @@ public abstract class HudiPartitionProcessor {
     }
 
     public List<String> getAllPartitionNames(HoodieTableMetaClient tableMetaClient) throws IOException {
-        TypedProperties configProperties = new TypedProperties();
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
-                .fromProperties(configProperties)
-                .enable(configProperties.getBoolean(HoodieMetadataConfig.ENABLE.key(),
-                        HoodieMetadataConfig.DEFAULT_METADATA_ENABLE_FOR_READERS)
-                        && HoodieTableMetadataUtil.isFilesPartitionAvailable(tableMetaClient))
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(tableMetaClient))
                 .build();
 
         HoodieTableMetadata newTableMetadata = HoodieTableMetadata.create(
@@ -60,19 +55,29 @@ public abstract class HudiPartitionProcessor {
                 tableMetaClient.getBasePathV2().toString(),
                 FileSystemViewStorageConfig.SPILLABLE_DIR.defaultValue(), true);
 
-        return newTableMetadata.getPartitionPathWithPathPrefixes(Collections.singletonList(""));
+        return newTableMetadata.getAllPartitionPaths();
+    }
+
+    public List<String> getPartitionNamesBeforeOrEquals(HoodieTimeline timeline, String timestamp) {
+        return new ArrayList<>(HoodieInputFormatUtils.getWritePartitionPaths(
+                timeline.findInstantsBeforeOrEquals(timestamp).getInstants().stream().map(instant -> {
+                    try {
+                        return TimelineUtils.getCommitMetadata(instant, timeline);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e.getMessage(), e);
+                    }
+                }).collect(Collectors.toList())));
     }
 
     public List<String> getPartitionNamesInRange(HoodieTimeline timeline, String startTimestamp, String endTimestamp) {
         return new ArrayList<>(HoodieInputFormatUtils.getWritePartitionPaths(
-                timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants().stream()
-                        .map(instant -> {
-                            try {
-                                return TimelineUtils.getCommitMetadata(instant, timeline);
-                            } catch (IOException e) {
-                                throw new RuntimeException(e.getMessage(), e);
-                            }
-                        }).collect(Collectors.toList())));
+                timeline.findInstantsInRange(startTimestamp, endTimestamp).getInstants().stream().map(instant -> {
+                    try {
+                        return TimelineUtils.getCommitMetadata(instant, timeline);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e.getMessage(), e);
+                    }
+                }).collect(Collectors.toList())));
     }
 
     public static List<String> parsePartitionValues(List<String> partitionColumns, String partitionPath) {
