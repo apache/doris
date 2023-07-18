@@ -1519,7 +1519,7 @@ public class TabletScheduler extends MasterDaemon {
             if (!(status == TabletStatus.REDUNDANT
                     || status == TabletStatus.FORCE_REDUNDANT
                     || status == TabletStatus.COLOCATE_REDUNDANT
-                    || status == REPLICA_COMPACTION_TOO_SLOW)) {
+                    || status == TabletStatus.REPLICA_COMPACTION_TOO_SLOW)) {
                 slotNum -= 2;
             }
         }
