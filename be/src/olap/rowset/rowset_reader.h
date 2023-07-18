@@ -37,18 +37,23 @@ class Block;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
+struct RowSetReaderWithSegments {
+    RowsetReaderSharedPtr rs_reader;
+    std::pair<int, int> segment_offsets;
+};
+
 class RowsetReader {
 public:
     virtual ~RowsetReader() = default;
 
-    // reader init
-    virtual Status init(RowsetReaderContext* read_context,
-                        const std::pair<int, int>& segment_offset = {0, 0}) = 0;
+    virtual Status init(RowsetReaderContext* read_context, size_t scanner_idx = 0,
+                        const RowSetReaderWithSegments& rs_reader_with_segments = {}) = 0;
 
-    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
-                                         std::vector<RowwiseIteratorUPtr>* out_iters,
-                                         const std::pair<int, int>& segment_offset = {0, 0},
-                                         bool use_cache = false) = 0;
+    virtual Status get_segment_iterators(
+            RowsetReaderContext* read_context, size_t scanner_idx,
+            std::vector<RowwiseIteratorUPtr>* out_iters,
+            const RowSetReaderWithSegments& rs_reader_with_segments = {},
+            bool use_cache = false) = 0;
     virtual void reset_read_options() = 0;
 
     virtual Status next_block(vectorized::Block* block) = 0;

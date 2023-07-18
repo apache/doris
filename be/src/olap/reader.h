@@ -93,6 +93,29 @@ public:
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
+        bool has_single_version() const {
+            return (rs_readers.size() == 1 && rs_readers[0]->rowset()->start_version() == 0 &&
+                    !rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) ||
+                   (rs_readers.size() == 2 &&
+                    rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
+                    rs_readers[1]->rowset()->start_version() == 2 &&
+                    !rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping()) ||
+                   (rs_readers_with_segments.size() == 1 &&
+                    rs_readers_with_segments[0].rs_reader->rowset()->start_version() == 0 &&
+                    !rs_readers_with_segments[0]
+                             .rs_reader->rowset()
+                             ->rowset_meta()
+                             ->is_segments_overlapping()) ||
+                   (rs_readers_with_segments.size() == 2 &&
+                    rs_readers_with_segments[0].rs_reader->rowset()->rowset_meta()->num_rows() ==
+                            0 &&
+                    rs_readers_with_segments[1].rs_reader->rowset()->start_version() == 2 &&
+                    !rs_readers_with_segments[1]
+                             .rs_reader->rowset()
+                             ->rowset_meta()
+                             ->is_segments_overlapping());
+        }
+
         TabletSharedPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
@@ -123,7 +146,8 @@ public:
         // if rs_readers_segment_offsets is not empty, means we only scan
         // [pair.first, pair.second) segment in rs_reader, only effective in dup key
         // and pipeline
-        std::vector<std::pair<int, int>> rs_readers_segment_offsets;
+        std::vector<RowSetReaderWithSegments> rs_readers_with_segments;
+        size_t scanner_idx;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;

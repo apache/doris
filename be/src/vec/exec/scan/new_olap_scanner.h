@@ -55,9 +55,12 @@ class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
                    const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   const std::vector<RowsetReaderSharedPtr>& rs_readers,
-                   const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                   RuntimeProfile* profile);
+                   RuntimeProfile* profile, size_t scanner_idx);
+
+    NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
+                   const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
+                   const std::vector<RowSetReaderWithSegments>& rs_readers_with_segments,
+                   RuntimeProfile* profile, size_t scanner_idx);
 
     Status init() override;
 
@@ -106,6 +109,7 @@ private:
     int64_t _compressed_bytes_read = 0;
     int64_t _raw_rows_read = 0;
     bool _profile_updated = false;
+    size_t _scanner_idx;
 };
 } // namespace vectorized
 } // namespace doris

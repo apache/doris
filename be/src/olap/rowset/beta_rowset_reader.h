@@ -46,12 +46,12 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    Status init(RowsetReaderContext* read_context,
-                const std::pair<int, int>& segment_offset) override;
+    Status init(RowsetReaderContext* read_context, size_t scanner_idx,
+                const RowSetReaderWithSegments& rs_reader_with_segments) override;
 
-    Status get_segment_iterators(RowsetReaderContext* read_context,
+    Status get_segment_iterators(RowsetReaderContext* read_context, size_t scanner_idx,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
-                                 const std::pair<int, int>& segment_offset,
+                                 const RowSetReaderWithSegments& rs_reader_with_segments,
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;

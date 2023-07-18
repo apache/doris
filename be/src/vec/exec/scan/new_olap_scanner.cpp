@@ -63,17 +63,31 @@ namespace doris::vectorized {
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, const TPaloScanRange& scan_range,
                                const std::vector<OlapScanRange*>& key_ranges,
-                               const std::vector<RowsetReaderSharedPtr>& rs_readers,
-                               const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                               RuntimeProfile* profile)
+                               RuntimeProfile* profile, size_t scanner_idx)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _version(-1),
           _scan_range(scan_range),
-          _key_ranges(key_ranges) {
-    DCHECK(rs_readers.size() == rs_reader_seg_offsets.size());
-    _tablet_reader_params.rs_readers = rs_readers;
-    _tablet_reader_params.rs_readers_segment_offsets = rs_reader_seg_offsets;
+          _key_ranges(key_ranges),
+          _scanner_idx(scanner_idx) {
+    _tablet_reader_params.scanner_idx = _scanner_idx;
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _is_init = false;
+}
+
+NewOlapScanner::NewOlapScanner(
+        RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
+        const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
+        const std::vector<RowSetReaderWithSegments>& rs_readers_with_segments,
+        RuntimeProfile* profile, size_t scanner_idx)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
+          _aggregation(aggregation),
+          _version(-1),
+          _scan_range(scan_range),
+          _key_ranges(key_ranges),
+          _scanner_idx(scanner_idx) {
+    _tablet_reader_params.rs_readers_with_segments = rs_readers_with_segments;
+    _tablet_reader_params.scanner_idx = _scanner_idx;
     _tablet_schema = std::make_shared<TabletSchema>();
     _is_init = false;
 }
@@ -167,7 +181,8 @@ Status NewOlapScanner::init() {
 
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
-            if (_tablet_reader_params.rs_readers.empty()) {
+            if (_tablet_reader_params.rs_readers.empty() &&
+                _tablet_reader_params.rs_readers_with_segments.empty()) {
                 const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
                 if (rowset == nullptr) {
                     std::stringstream ss;
@@ -237,20 +252,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
         const FilterPredicates& filter_predicates,
         const std::vector<FunctionFilter>& function_filters) {
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
-    bool single_version =
-            (_tablet_reader_params.rs_readers.size() == 1 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->start_version() == 0 &&
-             !_tablet_reader_params.rs_readers[0]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping()) ||
-            (_tablet_reader_params.rs_readers.size() == 2 &&
-             _tablet_reader_params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
-             _tablet_reader_params.rs_readers[1]->rowset()->start_version() == 2 &&
-             !_tablet_reader_params.rs_readers[1]
-                      ->rowset()
-                      ->rowset_meta()
-                      ->is_segments_overlapping());
+    const bool single_version = _tablet_reader_params.has_single_version();
     auto real_parent = reinterpret_cast<NewOlapScanNode*>(_parent);
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
@@ -415,6 +417,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
             rs_reader->rowset()->update_delayed_expired_timestamp(delayed_expired_timestamp);
             StorageEngine::instance()->add_quering_rowset(rs_reader->rowset());
         }
+        for (auto rs_reader : _tablet_reader_params.rs_readers_with_segments) {
+            uint64_t delayed_expired_timestamp =
+                    UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
+                    delayed_s;
+            rs_reader.rs_reader->rowset()->update_delayed_expired_timestamp(
+                    delayed_expired_timestamp);
+            StorageEngine::instance()->add_quering_rowset(rs_reader.rs_reader->rowset());
+        }
     }
 
     return Status::OK();
@@ -455,7 +465,11 @@ doris::TabletStorageType NewOlapScanner::get_storage_type() {
     for (const auto& reader : _tablet_reader_params.rs_readers) {
         local_reader += reader->rowset()->is_local();
     }
-    int total_reader = _tablet_reader_params.rs_readers.size();
+    for (const auto& reader : _tablet_reader_params.rs_readers_with_segments) {
+        local_reader += reader.rs_reader->rowset()->is_local();
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size() +
+                       _tablet_reader_params.rs_readers_with_segments.size();
 
     if (local_reader == total_reader) {
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
@@ -492,6 +506,7 @@ Status NewOlapScanner::close(RuntimeState* state) {
     // deconstructor in reader references runtime state
     // so that it will core
     _tablet_reader_params.rs_readers.clear();
+    _tablet_reader_params.rs_readers_with_segments.clear();
     _tablet_reader.reset();
 
     RETURN_IF_ERROR(VScanner::close(state));
