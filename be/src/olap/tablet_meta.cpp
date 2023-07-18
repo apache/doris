@@ -434,6 +434,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
 }
 
 Status TabletMeta::serialize(string* meta_binary) {
+    // test
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
