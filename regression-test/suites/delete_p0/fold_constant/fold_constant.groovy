@@ -30,11 +30,9 @@ suite("fold_constant") {
         """
     sql "insert into d_table values(1,curdate());"
     sql "insert into d_table values(2,'2020-01-01');"
-    qt_select "select * from d_table order by 1;"
     sql "delete from d_table where k2=curdate();"
     qt_select "select * from d_table order by 1;"
 
-    sql "insert into d_table values(3,curdate());"
     sql "insert into d_table values(4,'2020-01-01');"
     qt_select "select * from d_table order by 1;"
     sql "delete from d_table where k1=3+1;"
@@ -54,11 +52,9 @@ suite("fold_constant") {
         """
     sql "insert into d_table2 values(1,curdate());"
     sql "insert into d_table2 values(2,'2020-01-01');"
-    qt_select "select * from d_table2 order by 1;"
     sql "delete from d_table2 where k2=curdate();"
     qt_select "select * from d_table2 order by 1;"
 
-    sql "insert into d_table2 values(3,curdate());"
     sql "insert into d_table2 values(4,'2020-01-01');"
     qt_select "select * from d_table2 order by 1;"
     sql "delete from d_table2 where k1=3+1;"
