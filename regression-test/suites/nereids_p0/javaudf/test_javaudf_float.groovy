@@ -26,7 +26,7 @@ suite("nereids_test_javaudf_float") {
     sql 'set enable_fallback_to_original_planner=false'
 
     def tableName = "test_javaudf_float"
-    def jarPath = """${context.file.parent}/../jars/java-udf-case-jar-with-dependencies.jar"""
+    def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
     try {
