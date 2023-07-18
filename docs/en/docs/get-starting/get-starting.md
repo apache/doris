@@ -197,7 +197,7 @@ Go to the `apache-doris-x.x.x/be` directory
 cd apache-doris-x.x.x/be
 ```
 
-Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config.md) instructions to make adjustments.
+Modify the BE configuration file `conf/be.conf`, here we mainly modify two parameters: `priority_networks'` and `storage_root_path`, if you need more optimized configuration, please refer to [BE parameter configuration](../admin-manual/config/be-config.md) instructions to make adjustments.
 
 1. Add priority_networks parameter
 
