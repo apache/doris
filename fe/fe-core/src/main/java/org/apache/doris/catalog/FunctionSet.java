@@ -1101,6 +1101,14 @@ public class FunctionSet<T> {
         String []sumNames = {"sum", "sum_distinct"};
         for (String name : sumNames) {
             addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.BOOLEAN), Type.BIGINT, Type.BIGINT, "",
+                    "",
+                    "",
+                    null, null,
+                    "",
+                    null, false, true, false, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(name,
                     Lists.<Type>newArrayList(Type.TINYINT), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
