@@ -58,7 +58,7 @@ suite("test_partitioned_hash_join", "query,p0") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
-    sql "insert into test_partitioned_hash_join_l values (0, 10), (1, 110)";
+    sql "insert into test_partitioned_hash_join_l values (100, 1100), (0, 10), (1, 110), (255, 2550)";
 
     qt_partitioned_hash_join1 """
         select
@@ -74,6 +74,6 @@ suite("test_partitioned_hash_join", "query,p0") {
                     test_partitioned_hash_join_r
                 order by
                     kr1
-            );
+            ) order by kl1;
     """
 }
