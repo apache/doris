@@ -192,6 +192,15 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
                 if (curTotalCost.getValue() > context.getCostUpperBound()) {
                     curTotalCost = Cost.infinite();
                 }
+
+                // Prune when there are a plan has less cost when this plan is not property passer.
+                // Because the best plan of request property = plan with the lowest cost + enforcer
+                Optional<Pair<Cost, GroupExpression>> bestExprPair = groupExpression.getOwnerGroup().getLowestCostPlan(PhysicalProperties.ANY);
+                if (bestExprPair.isPresent() && bestExprPair.get().first.getValue() < curTotalCost.getValue()
+                        && requestChildrenProperties.stream().allMatch(p -> p.equals(PhysicalProperties.ANY))) {
+                    curTotalCost = Cost.infinite();
+                }
+
                 // the request child properties will be covered by the output properties
                 // that corresponding to the request properties. so if we run a costAndEnforceJob of the same
                 // group expression, that request child properties will be different of this.
