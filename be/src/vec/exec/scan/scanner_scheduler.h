@@ -63,7 +63,7 @@ public:
 
     Status init(ExecEnv* env);
 
-    Status submit(ScannerContext* ctx);
+    [[nodiscard]] Status submit(ScannerContext* ctx);
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
