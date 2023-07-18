@@ -23,6 +23,7 @@ import org.apache.doris.datasource.CacheException;
 import org.apache.doris.planner.external.TablePartitionValues;
 import org.apache.doris.planner.external.TablePartitionValues.TablePartitionKey;
 
+import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -39,10 +40,12 @@ import java.util.stream.Collectors;
 
 public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
     private final long catalogId;
+    private final Executor executor;
     private final LoadingCache<TablePartitionKey, TablePartitionValues> partitionCache;
 
     public HudiCachedPartitionProcessor(long catalogId, Executor executor) {
         this.catalogId = catalogId;
+        this.executor = executor;
         this.partitionCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_table_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build(CacheLoader.asyncReloading(
@@ -52,6 +55,10 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
                                 return new TablePartitionValues();
                             }
                         }, executor));
+    }
+
+    public Executor getExecutor() {
+        return executor;
     }
 
     @Override
@@ -75,7 +82,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
 
     public TablePartitionValues getSnapshotPartitionValues(HMSExternalTable table,
             HoodieTableMetaClient tableMetaClient, String timestamp) {
-        assert (catalogId == table.getCatalog().getId());
+        Preconditions.checkState(catalogId == table.getCatalog().getId());
         Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
         if (!partitionColumns.isPresent()) {
             return null;
@@ -100,7 +107,7 @@ public class HudiCachedPartitionProcessor extends HudiPartitionProcessor {
 
     public TablePartitionValues getPartitionValues(HMSExternalTable table, HoodieTableMetaClient tableMetaClient)
             throws CacheException {
-        assert (catalogId == table.getCatalog().getId());
+        Preconditions.checkState(catalogId == table.getCatalog().getId());
         Option<String[]> partitionColumns = tableMetaClient.getTableConfig().getPartitionFields();
         if (!partitionColumns.isPresent()) {
             return null;
