@@ -191,6 +191,10 @@ public class MasterOpExecutor {
         final TMasterOpRequest params = new TMasterOpRequest();
         //node ident
         params.setSyncJournalOnly(true);
+        // just make the protocol happy
+        params.setDb("");
+        params.setUser("");
+        params.setSql("");
         return params;
     }
 
