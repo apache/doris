@@ -61,6 +61,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.planner.external.FileQueryScanNode;
 import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -83,6 +84,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -164,6 +166,9 @@ public class Coordinator {
 
     // copied from TQueryExecRequest; constant across all fragments
     private final TDescriptorTable descTable;
+
+    // scan node id -> TFileScanRangeParams
+    private Map<Integer, TFileScanRangeParams> fileScanRangeParamsMap = Maps.newHashMap();
 
     // Why do we use query global?
     // When `NOW()` function is in sql, we need only one now(),
@@ -1937,6 +1942,11 @@ public class Coordinator {
                     k -> Sets.newHashSet());
             scanNodeIds.add(scanNode.getId().asInt());
 
+            if (scanNode instanceof FileQueryScanNode) {
+                fileScanRangeParamsMap.put(
+                        scanNode.getId().asInt(), ((FileQueryScanNode) scanNode).getFileScanRangeParams());
+            }
+
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),
@@ -2294,7 +2304,7 @@ public class Coordinator {
         return executionProfile.isAllInstancesDone();
     }
 
-    // map from an impalad host address to the per-node assigned scan ranges;
+    // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
     class FragmentScanRangeAssignment
             extends HashMap<TNetworkAddress, Map<Integer, List<TScanRangeParams>>> {
@@ -2580,6 +2590,7 @@ public class Coordinator {
          */
         public void unsetFields() {
             this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetFileScanParams();
             this.rpcParams.unsetCoord();
             this.rpcParams.unsetQueryGlobals();
             this.rpcParams.unsetResourceInfo();
@@ -2731,6 +2742,7 @@ public class Coordinator {
          */
         public void unsetFields() {
             this.rpcParams.unsetDescTbl();
+            this.rpcParams.unsetFileScanParams();
             this.rpcParams.unsetCoord();
             this.rpcParams.unsetQueryGlobals();
             this.rpcParams.unsetResourceInfo();
@@ -3148,6 +3160,8 @@ public class Coordinator {
                                 rf.getFilterId().asInt(), rf.toThrift());
                     }
                 }
+
+                params.setFileScanParams(fileScanRangeParamsMap);
                 paramsList.add(params);
             }
             return paramsList;
@@ -3186,6 +3200,8 @@ public class Coordinator {
                     if (tWorkloadGroups != null) {
                         params.setWorkloadGroups(tWorkloadGroups);
                     }
+
+                    params.setFileScanParams(fileScanRangeParamsMap);
                     res.put(instanceExecParam.host, params);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
@@ -3418,5 +3434,6 @@ public class Coordinator {
         }
     }
 }
+
 
 

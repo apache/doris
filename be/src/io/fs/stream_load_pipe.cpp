@@ -250,5 +250,12 @@ void StreamLoadPipe::cancel(const std::string& reason) {
     _put_cond.notify_all();
 }
 
+TUniqueId StreamLoadPipe::calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id) {
+    TUniqueId pipe_id;
+    pipe_id.lo = query_id.lo + fragment_id;
+    pipe_id.hi = query_id.hi;
+    return pipe_id;
+}
+
 } // namespace io
 } // namespace doris

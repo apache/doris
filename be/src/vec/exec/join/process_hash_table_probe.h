@@ -91,6 +91,7 @@ struct ProcessHashTableProbe {
     std::vector<uint32_t> _items_counts;
     std::vector<int8_t> _build_block_offsets;
     std::vector<int> _build_block_rows;
+    std::vector<std::pair<int8_t, int>> _build_blocks_locs;
     // only need set the tuple is null in RIGHT_OUTER_JOIN and FULL_OUTER_JOIN
     ColumnUInt8::Container* _tuple_is_null_left_flags;
     // only need set the tuple is null in LEFT_OUTER_JOIN and FULL_OUTER_JOIN

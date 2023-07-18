@@ -135,7 +135,12 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
 }
 
 void NewJsonReader::_init_system_properties() {
-    _system_properties.system_type = _params.file_type;
+    if (_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _range.file_type;
+    } else {
+        _system_properties.system_type = _params.file_type;
+    }
     _system_properties.properties = _params.properties;
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {
@@ -378,8 +383,7 @@ Status NewJsonReader::_open_file_reader() {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
-                                                        _state->fragment_instance_id()));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;

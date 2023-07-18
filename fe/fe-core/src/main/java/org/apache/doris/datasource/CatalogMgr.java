@@ -61,8 +61,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
@@ -1085,6 +1087,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public Map<Long, CatalogIf> getIdToCatalog() {
         return idToCatalog;
+    }
+
+    public Set<CatalogIf> getCopyOfCatalog() {
+        return new HashSet<>(idToCatalog.values());
     }
 }
 

@@ -58,6 +58,11 @@
   {% endif %}
 {%- endmacro %}
 
+{% macro doris__table_comment() -%}
+  {% set description = model.get('description', "") %}
+  COMMENT '{{description}}'
+{%- endmacro %}
+
 {% macro doris__unique_key() -%}
   {% set cols = config.get('unique_key', validator=validation.any[list, basestring]) %}
 
