@@ -54,9 +54,11 @@ public:
     ~VCollectIterator();
 
     void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse,
-              std::vector<std::pair<int, int>> rs_readers_segment_offsets);
+              size_t scanner_idx);
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
+
+    Status add_child(const RowSetSplits& rs_splits);
 
     Status build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
     // Get top row of the heap, nullptr if reach end.
@@ -332,10 +334,11 @@ private:
     bool _topn_eof = false;
     // when we use scanner pooling + query with topn_with_limit, we use it.
     std::vector<RowsetReaderSharedPtr> _rs_readers;
-    std::vector<std::pair<int, int>> _rs_readers_segment_offsets;
+    std::vector<RowSetSplits> _rs_splits;
 
     // Hold reader point to access read params, such as fetch conditions.
     TabletReader* _reader = nullptr;
+    size_t _scanner_idx;
 
     bool _skip_same;
 };

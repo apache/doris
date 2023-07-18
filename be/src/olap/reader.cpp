@@ -153,7 +153,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
-    if (read_params.rs_readers.empty()) {
+    if (read_params.rs_readers.empty() && read_params.rs_splits.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->full_name());
     }

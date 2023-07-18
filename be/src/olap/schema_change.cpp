@@ -847,7 +847,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             reader_context.delete_bitmap = &base_tablet->tablet_meta()->delete_bitmap();
             reader_context.version = Version(0, end_version);
             for (auto& rs_reader : rs_readers) {
-                res = rs_reader->init(&reader_context);
+                res = rs_reader->init(&reader_context, 0);
                 if (!res) {
                     LOG(WARNING) << "failed to init rowset reader: " << base_tablet->full_name();
                     break;
