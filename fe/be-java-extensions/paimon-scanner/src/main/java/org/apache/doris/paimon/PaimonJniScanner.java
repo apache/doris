@@ -58,7 +58,7 @@ public class PaimonJniScanner extends JniScanner {
     private List<String> paimonAllFieldNames;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
-        LOG.debug("params:{}", params);
+        LOG.debug("params:{}1", params);
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         dbName = params.get("db_name");
