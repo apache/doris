@@ -32,6 +32,7 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
@@ -156,8 +157,6 @@ public class MasterOpExecutor {
     private TMasterOpRequest buildStmtForwardParams() {
         TMasterOpRequest params = new TMasterOpRequest();
         //node ident
-        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setCluster(ctx.getClusterName());
         params.setSql(originStmt.originStmt);
         params.setStmtIdx(originStmt.idx);
@@ -190,8 +189,6 @@ public class MasterOpExecutor {
     private TMasterOpRequest buildSyncJournalParmas() {
         final TMasterOpRequest params = new TMasterOpRequest();
         //node ident
-        params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
-        params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
         return params;
     }
@@ -235,5 +232,29 @@ public class MasterOpExecutor {
 
     public void setResult(TMasterOpResult result) {
         this.result = result;
+    }
+
+    public static class ForwardToMasterException extends RuntimeException {
+
+        private static final Map<Integer, String> TYPE_MSG_MAP =
+                ImmutableMap.<Integer, String>builder()
+                        .put(TTransportException.UNKNOWN, "Unknown exception")
+                        .put(TTransportException.NOT_OPEN, "Connection is not open")
+                        .put(TTransportException.ALREADY_OPEN, "Connection has already opened up")
+                        .put(TTransportException.TIMED_OUT, "Connection timeout")
+                        .put(TTransportException.END_OF_FILE, "EOF")
+                        .put(TTransportException.CORRUPTED_DATA, "Corrupted data")
+                        .build();
+
+        private final String msg;
+
+        public ForwardToMasterException(String msg, TTransportException exception) {
+            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType());
+        }
+
+        @Override
+        public String getMessage() {
+            return msg;
+        }
     }
 }
