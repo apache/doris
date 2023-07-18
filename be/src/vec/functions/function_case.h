@@ -167,9 +167,9 @@ public:
         int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
-        int then_idx[rows_count];
-        int* __restrict then_idx_ptr = then_idx;
-        memset(then_idx_ptr, 0, sizeof(then_idx));
+        std::unique_ptr<int[]> then_idx(new int[rows_count]);
+        int* __restrict then_idx_ptr = then_idx.get();
+        memset(then_idx_ptr, 0, sizeof(int) * rows_count);
 
         for (int row_idx = 0; row_idx < column_holder.rows_count; row_idx++) {
             for (int i = 1; i < column_holder.pair_count; i++) {
@@ -197,7 +197,7 @@ public:
         }
 
         auto result_column_ptr = data_type->create_column();
-        update_result_normal(result_column_ptr, then_idx, column_holder);
+        update_result_normal(result_column_ptr, then_idx.get(), column_holder);
         block.replace_by_position(result, std::move(result_column_ptr));
         return Status::OK();
     }
@@ -213,9 +213,9 @@ public:
         int rows_count = column_holder.rows_count;
 
         // `then` data index corresponding to each row of results, 0 represents `else`.
-        uint8_t then_idx[rows_count];
-        uint8_t* __restrict then_idx_ptr = then_idx;
-        memset(then_idx_ptr, 0, sizeof(then_idx));
+        std::unique_ptr<uint8_t[]> then_idx(new uint8_t[rows_count]);
+        uint8_t* __restrict then_idx_ptr = then_idx.get();
+        memset(then_idx_ptr, 0, sizeof(uint8_t) * rows_count);
 
         auto case_column_ptr = column_holder.when_ptrs[0].value_or(nullptr);
 
@@ -252,8 +252,8 @@ public:
             }
         }
 
-        return execute_update_result<ColumnType, then_null>(data_type, result, block, then_idx,
-                                                            column_holder);
+        return execute_update_result<ColumnType, then_null>(data_type, result, block,
+                                                            then_idx.get(), column_holder);
     }
 
     template <typename ColumnType, bool then_null>
