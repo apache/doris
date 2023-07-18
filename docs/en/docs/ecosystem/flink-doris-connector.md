@@ -558,7 +558,7 @@ When using Flink Connector to import data, pay attention to two aspects. The fir
 
 12. **TApplicationException: get_next failed: out of sequence response: expected 4 but got 3**
 
-If it occurs  occasionally, it may be that the current connector version is incompatible with the Flink version. You can upgrade the Flink version or use a lower version of the connector.
+This is due to concurrency bugs in the Thrift. It is recommended that you use the latest connector and compatible Flink version possible.
 
 13. **DorisRuntimeException: Fail to abort transaction 26153 with url http://192.168.0.1:8040/api/table_name/_stream_load_2pc**
 
