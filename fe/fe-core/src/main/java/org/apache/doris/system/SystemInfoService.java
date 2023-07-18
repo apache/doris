@@ -532,7 +532,7 @@ public class SystemInfoService {
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
@@ -564,7 +564,7 @@ public class SystemInfoService {
                     beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 }
                 // after retry different storage medium, it's still empty
-                if (beIds.isEmpty()) {
+                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
                     LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
