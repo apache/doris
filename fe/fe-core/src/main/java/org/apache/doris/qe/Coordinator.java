@@ -1418,10 +1418,12 @@ public class Coordinator {
                             params.instanceExecParams.size() + destParams.perExchNumSenders.get(exchId.asInt()));
                 }
 
+                List<TPlanFragmentDestination> destinations = multiSink.getDestinations().get(i);
                 if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
                         && params.fragment.isRightChildOfBroadcastHashJoin()) {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
+
                     destParams.instanceExecParams.forEach(param -> {
                         if (destHosts.containsKey(param.host)) {
                             destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
@@ -1436,7 +1438,7 @@ public class Coordinator {
                             } catch (Exception e) {
                                 throw new RuntimeException(e);
                             }
-                            params.destinations.add(dest);
+                            destinations.add(dest);
                         }
                     });
                 } else {
@@ -1445,7 +1447,7 @@ public class Coordinator {
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
                         dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
-                        multiSink.getDestinations().get(i).add(dest);
+                        destinations.add(dest);
                     }
                 }
             }
