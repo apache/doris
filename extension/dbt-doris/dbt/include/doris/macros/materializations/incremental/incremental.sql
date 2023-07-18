@@ -61,7 +61,7 @@
             {% set backup_identifier = existing_relation.identifier ~ "__dbt_backup" %}
             {% set backup_relation = existing_relation.incorporate(path={"identifier": backup_identifier}) %}
             {% do adapter.drop_relation(backup_relation) %} {#-- likes 'drop table if exists ... ' --#}
-            {% set run_sql = doris__create_table_as(False, backup_relation, sql) %}
+            {% set run_sql = doris__create_unique_table_as(False, backup_relation, sql) %}
             {% call statement("run_sql") %}
                 {{ run_sql }}
             {% endcall %}
