@@ -61,6 +61,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
 import com.google.common.collect.ImmutableMap;
@@ -356,7 +357,7 @@ public class TabletScheduler extends MasterDaemon {
             LoadStatisticForTag loadStatistic = new LoadStatisticForTag(tag, infoService, invertedIndex);
             loadStatistic.init();
             newStatisticMap.put(tag, loadStatistic);
-            LOG.debug("update load statistic:\n{}", loadStatistic.getBrief());
+            LOG.debug("update load statistic for tag {}:\n{}", tag, loadStatistic.getBrief());
         }
 
         this.statisticMap = newStatisticMap;
@@ -1245,7 +1246,8 @@ public class TabletScheduler extends MasterDaemon {
             LoadStatisticForTag statistic = statisticMap.get(tag);
             if (statistic == null) {
                 throw new SchedException(Status.UNRECOVERABLE,
-                        String.format("tag %s does not exist.", tag));
+                        String.format("tag %s does not exist. available tags: %s", tag,
+                            Joiner.on(",").join(statisticMap.keySet().stream().limit(5).toArray())));
             }
             beStatistics = statistic.getSortedBeLoadStats(null /* sorted ignore medium */);
         } else {
@@ -1512,18 +1514,13 @@ public class TabletScheduler extends MasterDaemon {
                 break;
             }
             list.add(tablet);
-            switch (tablet.getTabletStatus()) {
-                // these task no need slot
-                case REDUNDANT:
-                case FORCE_REDUNDANT:
-                case COLOCATE_REDUNDANT:
-                case REPLICA_COMPACTION_TOO_SLOW:
-                    break;
-
-                // for a clone, it will take 2 slots: src slot and dst slot.
-                default:
-                    slotNum -= 2;
-                    break;
+            TabletStatus status = tablet.getTabletStatus();
+            // for a clone, it will take 2 slots: src slot and dst slot.
+            if (!(status == TabletStatus.REDUNDANT
+                    || status == TabletStatus.FORCE_REDUNDANT
+                    || status == TabletStatus.COLOCATE_REDUNDANT
+                    || status == REPLICA_COMPACTION_TOO_SLOW)) {
+                slotNum -= 2;
             }
         }
         return list;
