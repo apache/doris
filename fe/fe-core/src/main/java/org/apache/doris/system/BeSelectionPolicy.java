@@ -131,7 +131,7 @@ public class BeSelectionPolicy {
         if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
                 || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
                 backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
-                        storageMedium)) {
+                storageMedium)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }
