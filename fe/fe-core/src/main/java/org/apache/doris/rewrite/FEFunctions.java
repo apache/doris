@@ -364,13 +364,14 @@ public class FEFunctions {
 
     @FEFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
     public static DateLiteral toMonday(LiteralExpr arg) {
-        if (arg instanceof DateLiteral && (arg.getType().isDate() || arg.getType().isDatetime())) {
+        if (arg instanceof DateLiteral && (arg.getType().isDateLike())) {
             DateLiteral dateLiteral = ((DateLiteral) arg);
             LocalDateTime dateTime = LocalDateTime.of(
                     ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
                     0, 0, 0);
             dateTime = toMonday(dateTime);
-            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATE);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                    (arg.getType().isDateType() || arg.getType().isDatetime()) ? Type.DATE : Type.DATEV2);
         }
         return null;
     }
