@@ -60,7 +60,7 @@ public class IcebergExternalDatabase extends ExternalDatabase<IcebergExternalTab
     }
 
     @Override
-    public void replayCreateTableFromEvent(String tableName, long tableId) {
+    public void createTableForReplay(String tableName, long tableId) {
         LOG.debug("create table [{}]", tableName);
         tableNameToId.put(tableName, tableId);
         IcebergExternalTable table = new IcebergExternalTable(tableId, tableName, name,

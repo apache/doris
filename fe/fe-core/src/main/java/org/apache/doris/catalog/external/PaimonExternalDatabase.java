@@ -60,7 +60,7 @@ public class PaimonExternalDatabase extends ExternalDatabase<PaimonExternalTable
     }
 
     @Override
-    public void replayCreateTableFromEvent(String tableName, long tableId) {
+    public void createTableForReplay(String tableName, long tableId) {
         LOG.debug("create table [{}]", tableName);
         tableNameToId.put(tableName, tableId);
         PaimonExternalTable table = new PaimonExternalTable(tableId, tableName, name,
