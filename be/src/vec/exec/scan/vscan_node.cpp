@@ -65,10 +65,10 @@
 
 namespace doris::vectorized {
 
-#define RETURN_IF_PUSH_DOWN(stmt, state)     \
+#define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
-        state = stmt;                        \
-        if (!state.ok()) {                   \
+        status = stmt;                       \
+        if (!status.ok()) {                  \
             return;                          \
         }                                    \
     } else {                                 \
@@ -475,7 +475,7 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
             }
             if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
-                Status state = Status::OK();
+                Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
                             Defer mark_runtime_filter_flag {[&]() {
@@ -484,35 +484,35 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
-                                                state);
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
-                                                state);
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
-                                                state);
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
-                                                state);
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_match_predicate(cur_expr, context, slot,
                                                                            value_range, &pdt),
-                                                state);
+                                                status);
                             if (_is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
-                                        state);
+                                        status);
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bloom_filter(cur_expr, context, slot, &pdt),
-                                        state);
+                                        status);
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
                                                                 cur_expr, context, slot, &pdt),
-                                                        state);
+                                                        status);
                                 }
                             }
                         },
                         *range);
-                RETURN_IF_ERROR(state);
+                RETURN_IF_ERROR(status);
             }
 
             if (pdt == PushDownType::UNACCEPTABLE &&
