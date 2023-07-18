@@ -99,15 +99,25 @@ suite("test_outfile_parquet") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
+        def outFile = "/tmp"
+        def urlHost = ""
+        def csvFiles = ""
+        
         File path = new File(outFilePath)
         if (!path.exists()) {
             assert path.mkdirs()
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFilePath}/" FORMAT AS PARQUET;
+        def result = sql """
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/" FORMAT AS PARQUET;
         """
+
+        url = result[0][3]
+        urlHost = url.substring(8, url.indexOf("${outFile}"))
+        def filePrifix = url.split("${outFile}")[1]
+        csvFiles = "${outFile}${filePrifix}*.csv"
+        scpFiles ("root", urlHost, csvFiles, outFilePath)
 
         File[] files = path.listFiles()
         assert files.length == 1
@@ -158,5 +168,8 @@ suite("test_outfile_parquet") {
             }
             path.delete();
         }
+
+        cmd = "rm -rf ${csvFiles}"
+        sshExec ("root", urlHost, cmd)
     }
 }
