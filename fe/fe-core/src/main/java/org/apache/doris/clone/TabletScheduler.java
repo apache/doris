@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -231,8 +232,8 @@ public class TabletScheduler extends MasterDaemon {
 
         // REPAIR has higher priority than BALANCE.
         // Suppose adding a BALANCE tablet successfully, then adding this tablet's REPAIR ctx will fail.
-        // But we set allTabletTypes[tabletId] to REPAIR. Later Poll this tablet from pending list,
-        // and reset its type as allTabletTypes[tabletId], then its type will convert to REPAIR.
+        // But we set allTabletTypes[tabletId] to REPAIR. Later at the beginning of scheduling this tablet,
+        // it will reset its type as allTabletTypes[tabletId], so its type will convert to REPAIR.
 
         long tabletId = tablet.getTabletId();
         boolean contains = allTabletTypes.containsKey(tabletId);
@@ -474,6 +475,8 @@ public class TabletScheduler extends MasterDaemon {
         tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table "
                 + tbl.getName() + " does not exist"));
         try {
+            long tabletId = tabletCtx.getTabletId();
+
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
 
             OlapTableState tableState = tbl.getState();
@@ -488,8 +491,9 @@ public class TabletScheduler extends MasterDaemon {
                 throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
             }
 
-            Tablet tablet = idx.getTablet(tabletCtx.getTabletId());
+            Tablet tablet = idx.getTablet(tabletId);
             Preconditions.checkNotNull(tablet);
+            ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
 
             if (isColocateTable) {
                 GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
@@ -505,18 +509,26 @@ public class TabletScheduler extends MasterDaemon {
 
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus st = tablet.getColocateHealthStatus(
-                        partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        backendsSet);
+                        partition.getVisibleVersion(), replicaAlloc, backendsSet);
                 statusPair = Pair.of(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
             } else {
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
-                        infoService,
-                        partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        aliveBeIds);
+                        infoService, partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
+            }
+
+            if (tabletCtx.getType() != allTabletTypes.get(tabletId)) {
+                TabletSchedCtx.Type curType = tabletCtx.getType();
+                TabletSchedCtx.Type newType = allTabletTypes.get(tabletId);
+                if (curType == TabletSchedCtx.Type.BALANCE && newType == TabletSchedCtx.Type.REPAIR) {
+                    tabletCtx.setType(newType);
+                    tabletCtx.setReplicaAlloc(replicaAlloc);
+                    tabletCtx.setTag(null);
+                } else {
+                    throw new SchedException(Status.UNRECOVERABLE, "can not convert type of tablet "
+                            + tabletId + " from " + curType.name() + " to " + newType.name());
+                }
             }
 
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE && tableState != OlapTableState.NORMAL) {
@@ -1402,6 +1414,7 @@ public class TabletScheduler extends MasterDaemon {
             return;
         }
         Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
+        ReplicaAllocation replicaAlloc = null;
         tbl.readLock();
         try {
             Partition partition = tbl.getPartition(tabletCtx.getPartitionId());
@@ -1419,6 +1432,7 @@ public class TabletScheduler extends MasterDaemon {
                 return;
             }
 
+            replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
             if (isColocateTable) {
                 GroupId groupId = colocateTableIndex.getGroup(tbl.getId());
@@ -1434,17 +1448,12 @@ public class TabletScheduler extends MasterDaemon {
 
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus st = tablet.getColocateHealthStatus(
-                        partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        backendsSet);
+                        partition.getVisibleVersion(), replicaAlloc, backendsSet);
                 statusPair = Pair.of(st, Priority.HIGH);
             } else {
                 List<Long> aliveBeIds = infoService.getAllBackendIds(true);
                 statusPair = tablet.getHealthStatusWithPriority(
-                        infoService,
-                        partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        aliveBeIds);
+                        infoService, partition.getVisibleVersion(), replicaAlloc, aliveBeIds);
 
                 if (statusPair.second.ordinal() < tabletCtx.getPriority().ordinal()) {
                     statusPair.second = tabletCtx.getPriority();
@@ -1459,11 +1468,9 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         TabletSchedCtx newTabletCtx = new TabletSchedCtx(
-                TabletSchedCtx.Type.REPAIR,
-                tabletCtx.getDbId(), tabletCtx.getTblId(),
+                TabletSchedCtx.Type.REPAIR, tabletCtx.getDbId(), tabletCtx.getTblId(),
                 tabletCtx.getPartitionId(), tabletCtx.getIndexId(), tabletCtx.getTabletId(),
-                tabletCtx.getReplicaAlloc(),
-                System.currentTimeMillis());
+                replicaAlloc, System.currentTimeMillis());
 
         newTabletCtx.setTabletStatus(statusPair.first);
         newTabletCtx.setPriority(statusPair.second);
@@ -1503,7 +1510,6 @@ public class TabletScheduler extends MasterDaemon {
                 // no more tablets
                 break;
             }
-            tablet.setType(allTabletTypes.get(tablet.getTabletId()));
             list.add(tablet);
             switch (tablet.getTabletStatus()) {
                 // these task no need slot
@@ -1548,9 +1554,12 @@ public class TabletScheduler extends MasterDaemon {
             // if we have a success task, then stat must be refreshed before schedule a new task
             updateDiskBalanceLastSuccTime(tabletCtx.getSrcBackendId(), tabletCtx.getSrcPathHash());
             updateDiskBalanceLastSuccTime(tabletCtx.getDestBackendId(), tabletCtx.getDestPathHash());
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
+        } else {
+            finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
+                    request.getTaskStatus().getErrorMsgs().get(0));
         }
-        // we need this function to free slot for this migration task
-        finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
+
         return true;
     }
 

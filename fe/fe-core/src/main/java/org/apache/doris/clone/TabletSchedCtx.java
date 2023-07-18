@@ -230,6 +230,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return replicaAlloc;
     }
 
+    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
+        this.replicaAlloc = replicaAlloc;
+    }
+
     public void setTag(Tag tag) {
         this.tag = tag;
     }
