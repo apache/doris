@@ -136,8 +136,8 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
-                DCHECK_GE(_items_counts.size(), last_probe_index + probe_size);
-                column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
+                DCHECK_GE(_probe_indexs.size(), last_probe_index + probe_size);
+                column->replicate(&_probe_indexs[0], size, *mcol[i]);
             }
         } else {
             mcol[i]->insert_many_defaults(size);
@@ -216,10 +216,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                                      bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
-    if (probe_index == 0 && _items_counts.size() < probe_rows) {
-        _items_counts.resize(probe_rows);
-    }
 
+    _probe_indexs.resize(_batch_size);
     if (_build_block_rows.size() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
         _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
@@ -264,13 +262,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     if (LIKELY(current_offset < _build_block_rows.size())) {
                         _build_block_offsets[current_offset] = probe_row_match_iter->block_offset;
                         _build_block_rows[current_offset] = probe_row_match_iter->row_num;
+                        _probe_indexs[current_offset] = probe_index;
                     } else {
                         _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
                         _build_block_rows.emplace_back(probe_row_match_iter->row_num);
+                        _probe_indexs.template emplace_back(probe_index);
                     }
                     ++current_offset;
                 }
-                _items_counts[probe_index] = current_offset;
                 all_match_one &= (current_offset == 1);
                 if (!probe_row_match_iter.ok()) {
                     ++probe_index;
@@ -284,19 +283,19 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
                         if constexpr (probe_all) {
-                            _items_counts[probe_index++] = (uint32_t)1;
                             // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
                                 _build_block_offsets[current_offset] = -1;
                                 _build_block_rows[current_offset] = -1;
+                                _probe_indexs[current_offset] = probe_index;
                             } else {
                                 _build_block_offsets.emplace_back(-1);
                                 _build_block_rows.emplace_back(-1);
+                                _probe_indexs.template emplace_back(probe_index);
                             }
                             ++current_offset;
-                        } else {
-                            _items_counts[probe_index++] = (uint32_t)0;
                         }
+                        probe_index++;
                         all_match_one = false;
                         if constexpr (probe_all) {
                             if (current_offset >= _batch_size) {
@@ -415,7 +414,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 }
 
                 uint32_t count = (uint32_t)(current_offset - last_offset);
-                _items_counts[current_probe_index] = count;
+                if (LIKELY(current_offset < _probe_indexs.size())) {
+                    for (int i = last_offset; i < current_offset; ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                } else {
+                    for (int i = last_offset; i < _probe_indexs.size(); ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                    _probe_indexs.resize(current_offset, current_probe_index);
+                }
                 all_match_one &= (count == 1);
                 if (current_offset >= _batch_size) {
                     break;
@@ -451,10 +459,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         Block* output_block, size_t probe_rows, bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
-    if (probe_index == 0 && _items_counts.size() < probe_rows) {
-        _items_counts.resize(probe_rows);
-    }
     if (_build_block_rows.size() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
+        _probe_indexs.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
     }
@@ -501,9 +507,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
             for (; probe_row_match_iter.ok() && current_offset < _batch_size;
                  ++probe_row_match_iter) {
                 if (LIKELY(current_offset < _build_block_rows.size())) {
+                    _probe_indexs[current_offset] = probe_index;
                     _build_block_offsets[current_offset] = probe_row_match_iter->block_offset;
                     _build_block_rows[current_offset] = probe_row_match_iter->row_num;
                 } else {
+                    _probe_indexs.template emplace_back(probe_index);
                     _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
                     _build_block_rows.emplace_back(probe_row_match_iter->row_num);
                 }
@@ -517,7 +525,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
 
             row_count_from_last_probe = current_offset;
             all_match_one &= (current_offset == 1);
-            _items_counts[probe_index] = current_offset;
             if (!probe_row_match_iter.ok()) {
                 ++probe_index;
                 is_the_last_sub_block = true;
@@ -532,21 +539,21 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
                         if constexpr (probe_all) {
-                            _items_counts[probe_index++] = (uint32_t)1;
                             same_to_prev.emplace_back(false);
                             visited_map.emplace_back(nullptr);
                             // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
+                                _probe_indexs[current_offset] = probe_index;
                                 _build_block_offsets[current_offset] = -1;
                                 _build_block_rows[current_offset] = -1;
                             } else {
+                                _probe_indexs.template emplace_back(probe_index);
                                 _build_block_offsets.emplace_back(-1);
                                 _build_block_rows.emplace_back(-1);
                             }
                             ++current_offset;
-                        } else {
-                            _items_counts[probe_index++] = (uint32_t)0;
                         }
+                        probe_index++;
                         all_match_one = false;
                         if constexpr (probe_all) {
                             if (current_offset >= _batch_size) {
@@ -676,7 +683,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     ++probe_index;
                 }
                 uint32_t count = (uint32_t)(current_offset - last_offset);
-                _items_counts[current_probe_index] = count;
+                if (LIKELY(current_offset < _probe_indexs.size())) {
+                    for (int i = last_offset; i < current_offset; ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                } else {
+                    for (int i = last_offset; i < _probe_indexs.size(); ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                    _probe_indexs.resize(current_offset, current_probe_index);
+                }
                 all_match_one &= (count == 1);
                 if (current_offset >= _batch_size) {
                     break;
