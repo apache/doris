@@ -36,6 +36,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.FoldConstantsRule;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -119,7 +120,7 @@ public class DeleteStmt extends DdlStmt {
             ExprRewriter exprRewriter = new ExprRewriter(EXPR_NORMALIZE_RULES);
             wherePredicate = exprRewriter.rewrite(wherePredicate, analyzer);
             try {
-                analyzePredicate(wherePredicate);
+                analyzePredicate(wherePredicate, analyzer);
             } catch (Exception e) {
                 if (!(((OlapTable) targetTable).getKeysType() == KeysType.UNIQUE_KEYS)) {
                     throw new AnalysisException(e.getMessage(), e.getCause());
@@ -219,19 +220,24 @@ public class DeleteStmt extends DdlStmt {
     }
 
     @VisibleForTesting
-    void analyzePredicate(Expr predicate) throws AnalysisException {
+    void analyzePredicate(Expr predicate, Analyzer analyzer) throws AnalysisException {
         if (predicate == null) {
             throw new AnalysisException("Where clause is not set");
         }
         if (predicate instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
+            binaryPredicate.analyze(analyzer);
+            ExprRewriter exprRewriter = new ExprRewriter(FoldConstantsRule.INSTANCE);
+            binaryPredicate.setChild(1, exprRewriter.rewrite(binaryPredicate.getChild(1), analyzer, null));
             Expr leftExpr = binaryPredicate.getChild(0);
             if (!(leftExpr instanceof SlotRef)) {
-                throw new AnalysisException("Left expr of binary predicate should be column name");
+                throw new AnalysisException(
+                        "Left expr of binary predicate should be column name, predicate=" + binaryPredicate.toSql());
             }
             Expr rightExpr = binaryPredicate.getChild(1);
             if (!(rightExpr instanceof LiteralExpr)) {
-                throw new AnalysisException("Right expr of binary predicate should be value");
+                throw new AnalysisException(
+                        "Right expr of binary predicate should be value, predicate=" + binaryPredicate.toSql());
             }
             deleteConditions.add(binaryPredicate);
         } else if (predicate instanceof CompoundPredicate) {
@@ -240,8 +246,8 @@ public class DeleteStmt extends DdlStmt {
                 throw new AnalysisException("Compound predicate's op should be AND");
             }
 
-            analyzePredicate(compoundPredicate.getChild(0));
-            analyzePredicate(compoundPredicate.getChild(1));
+            analyzePredicate(compoundPredicate.getChild(0), analyzer);
+            analyzePredicate(compoundPredicate.getChild(1), analyzer);
         } else if (predicate instanceof IsNullPredicate) {
             IsNullPredicate isNullPredicate = (IsNullPredicate) predicate;
             Expr leftExpr = isNullPredicate.getChild(0);
