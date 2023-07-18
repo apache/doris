@@ -575,7 +575,7 @@ public class SelectStmt extends QueryStmt {
             }
             for (Expr expr : valueList.getFirstRow()) {
                 if (expr instanceof DefaultValueExpr) {
-                    resultExprs.add(new IntLiteral(1));
+                    resultExprs.add(new DefaultValueExpr());
                 } else {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
