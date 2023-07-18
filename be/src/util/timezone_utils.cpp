@@ -116,12 +116,14 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
             tz_parsed = cctz::load_time_zone(it->second, &ctz);
         }
         if (tz_parsed) {
+            if (split == std::string::npos) { //TODO: this is a quick fix.
+                return true;
+            }
             auto tz = (cctz::convert(cctz::civil_second {}, ctz) -
                        cctz::time_point<cctz::seconds>()) -
                       (cctz::convert(cctz::civil_second {}, offset) -
                        cctz::time_point<cctz::seconds>());
-            ctz = cctz::fixed_time_zone(
-                    cctz::seconds(std::chrono::duration_cast<std::chrono::seconds>(tz).count()));
+            ctz = cctz::fixed_time_zone(std::chrono::duration_cast<std::chrono::seconds>(tz));
             return true;
         }
     }
