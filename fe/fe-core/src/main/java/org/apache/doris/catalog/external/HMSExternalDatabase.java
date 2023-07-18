@@ -79,6 +79,7 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         Long tableId = tableNameToId.remove(tableName);
         if (tableId == null) {
             LOG.warn("replayDropTableFromEvent [{}] failed", tableName);
+            return;
         }
         idToTbl.remove(tableId);
     }
