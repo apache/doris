@@ -440,7 +440,7 @@ public class SchemaTable extends Table {
         }
 
         public Builder column(String name, ScalarType type) {
-            columns.add(new Column(name, type.getPrimitiveType(), true));
+            columns.add(new Column(name, type, true));
             return this;
         }
 
