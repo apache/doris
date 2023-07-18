@@ -300,7 +300,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (Env.getCurrentEnv().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Env.getCurrentEnv().getMaxJournalId(), System.currentTimeMillis(),
-                            Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH, ExecuteEnv.getInstance().getStartupTime());
+                            Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
+                            ExecuteEnv.getInstance().getStartupTime());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
