@@ -19,8 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
-import org.apache.doris.analysis.RefreshTableStmt;
-import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalTable;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
@@ -37,7 +38,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-public class RefreshTableTest extends TestWithFeService {
+public class RefreshDbTest extends TestWithFeService {
     private static Env env;
     private ConnectContext rootCtx;
 
@@ -65,29 +66,43 @@ public class RefreshTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testRefreshTable() throws Exception {
+    public void testRefreshDatabase() throws Exception {
         CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
-        TestExternalTable table = (TestExternalTable) test1.getDbNullable("db1").getTable("tbl11").get();
-        Assertions.assertFalse(table.isObjectCreated());
-        long l1 = table.getLastUpdateTime();
+        TestExternalDatabase db1 = (TestExternalDatabase) test1.getDbNullable("db1");
+        long l1 = db1.getLastUpdateTime();
         Assertions.assertTrue(l1 == 0);
+        TestExternalTable table = db1.getTable("tbl11").get();
+        long l2 = db1.getLastUpdateTime();
+        Assertions.assertTrue(l2 > l1);
+        Assertions.assertFalse(table.isObjectCreated());
         table.makeSureInitialized();
         Assertions.assertTrue(table.isObjectCreated());
-        long l2 = table.getLastUpdateTime();
-        Assertions.assertTrue(l2 == l1);
-        RefreshTableStmt refreshTableStmt = new RefreshTableStmt(new TableName("test1", "db1", "tbl11"));
+        RefreshDbStmt refreshDbStmt = new RefreshDbStmt("test1", "db1", null);
         try {
-            DdlExecutor.execute(Env.getCurrentEnv(), refreshTableStmt);
+            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
         } catch (Exception e) {
             // Do nothing
         }
-        Assertions.assertFalse(table.isObjectCreated());
-        long l3 = table.getLastUpdateTime();
+        long l3 = db1.getLastUpdateTime();
         Assertions.assertTrue(l3 == l2);
-        table.getFullSchema();
-        // only table.getFullSchema() can change table.lastUpdateTime
-        long l4 = table.getLastUpdateTime();
+        Assertions.assertTrue(table.isObjectCreated());
+        test1.getDbNullable("db1").getTables();
+        Assertions.assertFalse(table.isObjectCreated());
+        try {
+            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
+        } catch (Exception e) {
+            // Do nothing
+        }
+        Assertions.assertFalse(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
+        table.makeSureInitialized();
+        long l4 = db1.getLastUpdateTime();
         Assertions.assertTrue(l4 > l3);
+        Assertions.assertTrue(((ExternalDatabase) test1.getDbNullable("db1")).isInitialized());
+        try {
+            DdlExecutor.execute(Env.getCurrentEnv(), refreshDbStmt);
+        } catch (Exception e) {
+            // Do nothing
+        }
     }
 
     public static class RefreshTableProvider implements TestExternalCatalog.TestCatalogProvider {
