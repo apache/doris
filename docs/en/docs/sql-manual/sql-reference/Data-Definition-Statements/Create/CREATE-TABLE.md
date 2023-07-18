@@ -35,8 +35,8 @@ This command is used to create a table. The subject of this document describes t
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
 (
-    column_definition_list,
-    [index_definition_list]
+    column_definition_list
+    [, index_definition_list]
 )
 [engine_type]
 [keys_type]
