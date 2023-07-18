@@ -88,6 +88,18 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
                 }
                 rowList.set(1, typeStr.toString());
             }
+            if (column.getOriginType().isDecimalV3()) {
+                StringBuilder typeStr = new StringBuilder("DECIMAL");
+                ScalarType sType = (ScalarType) column.getOriginType();
+                int scale = sType.getScalarScale();
+                int precision = sType.getScalarPrecision();
+                // not default
+                if (scale > 0 && precision != 9) {
+                    typeStr.append("(").append(precision).append(", ").append(scale)
+                            .append(")");
+                }
+                rowList.set(1, typeStr.toString());
+            }
             result.addRow(rowList);
         }
         return result;
