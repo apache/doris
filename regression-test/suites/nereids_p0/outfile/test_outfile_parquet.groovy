@@ -25,6 +25,10 @@ suite("test_outfile_parquet") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 
+    def outFile = "/tmp"
+    def urlHost = ""
+    def csvFiles = ""
+
     def dbName = "test_outfile_parquet"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "USE $dbName"
@@ -99,10 +103,6 @@ suite("test_outfile_parquet") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
-        def outFile = "/tmp"
-        def urlHost = ""
-        def csvFiles = ""
-        
         File path = new File(outFilePath)
         if (!path.exists()) {
             assert path.mkdirs()
