@@ -44,7 +44,7 @@ using FixedFileHeader = struct _FixedFileHeader {
     uint32_t protobuf_length;
     // Checksum of Protobuf part
     uint32_t protobuf_checksum;
-};
+} __attribute__((packed));
 
 using FixedFileHeaderV2 = struct _FixedFileHeaderV2 {
     uint64_t magic_number;
@@ -57,7 +57,7 @@ using FixedFileHeaderV2 = struct _FixedFileHeaderV2 {
     uint64_t protobuf_length;
     // Checksum of Protobuf part
     uint32_t protobuf_checksum;
-};
+} __attribute__((packed));
 
 template <typename MessageType, typename ExtraType = uint32_t>
 class FileHeader {
