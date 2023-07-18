@@ -444,6 +444,7 @@ Status TabletMeta::serialize(string* meta_binary) {
 }
 
 Status TabletMeta::deserialize(const string& meta_binary) {
+    // test
     TabletMetaPB tablet_meta_pb;
     bool parsed = tablet_meta_pb.ParseFromString(meta_binary);
     if (!parsed) {
