@@ -18,12 +18,15 @@
 
 #include "util/timezone_utils.h"
 
+#include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <re2/stringpiece.h>
 
 #include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <string>
+
+#include "common/exception.h"
 
 namespace doris {
 
@@ -60,6 +63,7 @@ void TimezoneUtils::load_timezone_names() {
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
     auto timezone_lower = boost::algorithm::to_lower_copy(timezone);
     re2::StringPiece value;
+    // +08:00
     if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,
                                           1)) {
         bool positive = value[0] != '-';
@@ -78,17 +82,50 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         offset *= positive ? 1 : -1;
         ctz = cctz::fixed_time_zone(cctz::seconds(offset));
         return true;
-    } else if (timezone_lower == "cst") {
-        // Supports offset and region timezone type, "CST" use here is compatibility purposes.
-        ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
-        return true;
-    } else {
-        auto it = timezone_names_map_.find(timezone_lower);
-        if (it == timezone_names_map_.end()) {
-            return false;
+    } else { // not only offset, GMT or GMT+8
+        // split tz_name and offset
+        int split = timezone_lower.find('+') != std::string::npos ? timezone_lower.find('+')
+                                                                  : timezone_lower.find('-');
+        cctz::time_zone offset;
+        if (split != std::string::npos) {
+            auto offset_str = timezone_lower.substr(split);
+            timezone_lower = timezone_lower.substr(0, split);
+            int offset_hours = 0;
+            try {
+                offset_hours = std::stoi(offset_str);
+            } catch ([[maybe_unused]] Exception& e) {
+                LOG(INFO) << "Unable to cast " << timezone << " as timezone";
+                return false;
+            }
+            offset = cctz::fixed_time_zone(cctz::seconds(offset_hours * 60 * 60));
         }
-        return cctz::load_time_zone(it->second, &ctz);
+
+        bool tz_parsed = false;
+        if (timezone_lower == "cst") {
+            // Supports offset and region timezone type, "CST" use here is compatibility purposes.
+            ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
+            tz_parsed = true;
+        } else if (timezone_lower == "z") {
+            ctz = cctz::utc_time_zone();
+            tz_parsed = true;
+        } else {
+            auto it = timezone_names_map_.find(timezone_lower);
+            if (it == timezone_names_map_.end()) {
+                return false;
+            }
+            tz_parsed = cctz::load_time_zone(it->second, &ctz);
+        }
+        if (tz_parsed) {
+            auto tz = (cctz::convert(cctz::civil_second {}, ctz) -
+                       cctz::time_point<cctz::seconds>()) -
+                      (cctz::convert(cctz::civil_second {}, offset) -
+                       cctz::time_point<cctz::seconds>());
+            ctz = cctz::fixed_time_zone(
+                    cctz::seconds(std::chrono::duration_cast<std::chrono::seconds>(tz).count()));
+            return true;
+        }
     }
+    return false;
 }
 
 } // namespace doris

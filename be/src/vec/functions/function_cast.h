@@ -519,7 +519,7 @@ struct ConvertImplGenericToString {
         return execute(block, arguments, result);
     }
 };
-
+//this is for data in compound type
 template <typename StringColumnType>
 struct ConvertImplGenericFromString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -835,12 +835,12 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb,
     }
 
     if constexpr (IsDateV2Type<DataType>) {
-        return try_read_date_v2_text(x, rb);
+        return try_read_date_v2_text(x, rb, local_time_zone);
     }
 
     if constexpr (IsDateTimeV2Type<DataType>) {
         UInt32 scale = additions;
-        return try_read_datetime_v2_text(x, rb, scale);
+        return try_read_datetime_v2_text(x, rb, local_time_zone, scale);
     }
 
     if constexpr (std::is_same_v<DataTypeString, FromDataType> &&
