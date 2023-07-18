@@ -53,7 +53,7 @@
 
 namespace doris::vectorized {
 
-ScannerScheduler::ScannerScheduler() {}
+ScannerScheduler::ScannerScheduler() = default;
 
 ScannerScheduler::~ScannerScheduler() {
     if (!_is_init) {
@@ -135,6 +135,9 @@ Status ScannerScheduler::init(ExecEnv* env) {
 }
 
 Status ScannerScheduler::submit(ScannerContext* ctx) {
+    if (ctx->done()) {
+        return Status::EndOfFile("ScannerContext is done");
+    }
     if (ctx->queue_idx == -1) {
         ctx->queue_idx = (_queue_idx++ % QUEUE_NUM);
     }
@@ -163,7 +166,6 @@ void ScannerScheduler::_schedule_thread(int queue_id) {
         // If ctx is done, no need to schedule it again.
         // But should notice that there may still scanners running in scanner pool.
     }
-    return;
 }
 
 [[maybe_unused]] static void* run_scanner_bthread(void* arg) {
