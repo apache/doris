@@ -1,0 +1,87 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_delete_on_value") {
+
+    def tableName = "test_delete_on_value"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE ${tableName} (
+            `x` BIGINT NOT NULL,
+            `y` BIGINT NULL,
+            `z` BIGINT NULL)
+            ENGINE=OLAP
+            UNIQUE KEY(`x`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`x`) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true"
+            );"""
+    sql """ insert into ${tableName} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5),(6,6,6),(7,7,7),(8,8,8),(9,9,9); """
+    qt_sql "select * from ${tableName} order by x;"
+    sql "delete from ${tableName} where y=4;"
+    qt_sql "select * from ${tableName} order by x;"
+    sql "delete from ${tableName} where z>=3 and z<=7;"
+    qt_sql "select * from ${tableName} order by x;"
+    sql "insert into ${tableName} values(4,4,4),(5,5,5);"
+    qt_sql "select * from ${tableName} order by x;"
+    sql "delete from ${tableName} where y=5;"
+    qt_sql "select * from ${tableName} order by x;"
+
+
+    def tableName2 = "test_delete_on_value2"
+    sql """ DROP TABLE IF EXISTS ${tableName2} """
+    sql """ CREATE TABLE ${tableName2} (
+            `x` BIGINT NOT NULL,
+            `y` BIGINT REPLACE_IF_NOT_NULL NULL,
+            `z` BIGINT REPLACE_IF_NOT_NULL NULL)
+            ENGINE=OLAP
+            AGGREGATE KEY(`x`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`x`) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1"
+            );"""
+    sql """ insert into ${tableName2} values(1,1,1); """
+    test {
+        sql "delete from ${tableName} where y=4;"
+        exception "delete predicate on value column only supports Unique table"
+    }
+
+
+    def tableName3 = "test_delete_on_value3"
+    sql """ DROP TABLE IF EXISTS ${tableName3} """
+    sql """ CREATE TABLE ${tableName3} (
+            `x` BIGINT NOT NULL,
+            `y` BIGINT NULL,
+            `z` BIGINT NULL)
+            ENGINE=OLAP
+            UNIQUE KEY(`x`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`x`) BUCKETS 4
+            PROPERTIES (
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "true",
+                "function_column.sequence_col" = 'y'
+            );"""
+    sql """ insert into ${tableName3} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5); """
+    sql "delete from ${tableName3} where y=4;"
+    test {
+        qt_sql "select * from ${tableName3} order by x;"
+        exception "delete predicate on value column only supports Unique table and the column must not be the sequence column"
+    }
+}

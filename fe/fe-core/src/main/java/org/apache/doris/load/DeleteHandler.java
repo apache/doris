@@ -688,10 +688,20 @@ public class DeleteHandler implements Writable {
             // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
             // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
             // floating-point numbers, floating-point number not allowed in where clause
-            if (column.isSequenceColumn() || column.getDataType().isFloatingPointType()) {
+            if (column.getDataType().isFloatingPointType()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column or storage model "
-                        + "is not duplicate or column type is float or double.");
+                throw new DdlException("Column[" + columnName + "] type is float or double.");
+            }
+            LOG.warn("table {}, keysType: {}, column: {}, isSequenceColumn: {}, isKey: {}", table.getName(),
+                        table.getKeysType(), columnName, column.isSequenceColumn(), column.isKey());
+            if (!column.isKey()) {
+                if (table.getKeysType() == KeysType.AGG_KEYS) {
+                    throw new DdlException("delete predicate on value column only supports Unique table"
+                            + "Table[" + table.getName() + "] is Aggregate table.");
+                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS && column.isSequenceColumn()) {
+                    throw new DdlException("delete predicate on value column only supports Unique table and the column"
+                            + "must not be the sequence column. Column[" + columnName + "] is sequence column.");
+                }
             }
 
             if (condition instanceof BinaryPredicate) {
