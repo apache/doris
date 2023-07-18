@@ -439,7 +439,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
                 conjuncts.addAll(splitAndCompoundPredicateToConjuncts(vconjunct.getChild(1)));
             }
         }
-        if (conjuncts.isEmpty()) {
+        if (vconjunct != null && conjuncts.isEmpty()) {
             conjuncts.add(vconjunct);
         }
         return conjuncts;

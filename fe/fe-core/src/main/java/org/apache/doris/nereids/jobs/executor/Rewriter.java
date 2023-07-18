@@ -266,6 +266,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(
                             new SelectMaterializedIndexWithAggregate(),
                             new SelectMaterializedIndexWithoutAggregate(),
+                            new EliminateFilter(),
                             new PushdownFilterThroughProject(),
                             new MergeProjects(),
                             new PruneOlapScanTablet()
