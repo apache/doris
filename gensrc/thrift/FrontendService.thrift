@@ -443,9 +443,9 @@ struct TFeResult {
 }
 
 struct TMasterOpRequest {
-    1: required string user
-    2: required string db
-    3: required string sql
+    1: optional string user
+    2: optional string db
+    3: optional string sql
     // Deprecated
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
