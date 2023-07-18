@@ -47,7 +47,8 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinNode* join_node
           _rows_returned_counter(join_node->_rows_returned_counter),
           _search_hashtable_timer(join_node->_search_hashtable_timer),
           _build_side_output_timer(join_node->_build_side_output_timer),
-          _probe_side_output_timer(join_node->_probe_side_output_timer) {}
+          _probe_side_output_timer(join_node->_probe_side_output_timer),
+          _probe_process_hashtable_timer(join_node->_probe_process_hashtable_timer) {}
 
 template <int JoinOpType>
 template <bool have_other_join_conjunct>
@@ -1070,6 +1071,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                                                                     Block* output_block,
                                                                     bool* eos) {
     using Mapped = typename HashTableType::Mapped;
+    SCOPED_TIMER(_probe_process_hashtable_timer);
     if constexpr (std::is_same_v<Mapped, RowRefListWithFlag> ||
                   std::is_same_v<Mapped, RowRefListWithFlags>) {
         hash_table_ctx.init_once();

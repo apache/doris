@@ -102,6 +102,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Void> implements CustomR
         join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
         Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(join);
         List<Expression> hashConjuncts = updateExpressions(join.getHashJoinConjuncts(), exprIdSlotMap);
+        // because other join compute on join's output on be, so we need to change slot to join's output
+        exprIdSlotMap = join.getOutputSet().stream()
+                .collect(Collectors.toMap(NamedExpression::getExprId, s -> s));
         List<Expression> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), exprIdSlotMap);
         return join.withJoinConjuncts(hashConjuncts, otherConjuncts).recomputeLogicalProperties();
     }
