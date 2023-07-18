@@ -524,7 +524,7 @@ public class NativeInsertStmt extends InsertStmt {
                 final List<Expr> resultExprs = queryStmt.getResultExprs();
                 Preconditions.checkState(resultExprs.isEmpty(), "result exprs should be empty.");
                 for (int i = 0; i < rowSize; i++) {
-                    resultExprs.add(new DefaultValueExpr());
+                    resultExprs.add(new IntLiteral(1));
                     final DefaultValueExpr defaultValueExpr = new DefaultValueExpr();
                     valueList.getFirstRow().add(defaultValueExpr);
                     colLabels.add(defaultValueExpr.toColumnLabel());
@@ -543,7 +543,8 @@ public class NativeInsertStmt extends InsertStmt {
         realTargetColumnNames = targetColumns.stream().map(Column::getName).collect(Collectors.toList());
         Map<String, Expr> slotToIndex = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (int i = 0; i < queryStmt.getResultExprs().size(); i++) {
-            if (!(queryStmt.getResultExprs().get(i) instanceof DefaultValueExpr)) {
+            Expr expr = queryStmt.getResultExprs().get(i);
+            if (!(expr instanceof IntLiteral && ((IntLiteral) expr).getValue() == 1)) {
                 slotToIndex.put(realTargetColumnNames.get(i), queryStmt.getResultExprs().get(i)
                         .checkTypeCompatibility(targetTable.getColumn(realTargetColumnNames.get(i)).getType()));
             }
