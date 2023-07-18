@@ -843,11 +843,11 @@ public class Coordinator {
                     PipelineExecContexts ctxs = beToPipelineExecCtxs.get(pipelineExecContext.backend.getId());
                     if (ctxs == null) {
                         ctxs = new PipelineExecContexts(pipelineExecContext.backend.getId(),
-                                pipelineExecContext.brpcAddress, twoPhaseExecution);
+                                pipelineExecContext.brpcAddress, twoPhaseExecution,
+                                entry.getValue().getFragmentNumOnHost());
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
                     }
                     ctxs.addContext(pipelineExecContext);
-                    ctxs.setInstanceNumber(entry.getValue().getFragmentNumOnHost());
 
                     ++backendIdx;
                 }
@@ -2975,18 +2975,16 @@ public class Coordinator {
         ScopedSpan scopedSpan = new ScopedSpan();
         int instanceNumber;
 
-        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
+        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
+                int instanceNumber) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
+            this.instanceNumber = instanceNumber;
         }
 
         public void addContext(PipelineExecContext ctx) {
             this.ctxs.add(ctx);
-        }
-
-        public void setInstanceNumber(int instanceNumber) {
-            this.instanceNumber = instanceNumber;
         }
 
         public int getInstanceNumber() {
