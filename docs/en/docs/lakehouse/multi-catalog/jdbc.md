@@ -56,7 +56,7 @@ Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse
 
 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 
-3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
+3. HTTP address. For example, `https://repo1.maven.org/maven2/mysql/mysql-connector-java/5.1.34/mysql-connector-java-5.1.34.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 :::
 
 :::tip
