@@ -2267,7 +2267,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             "Database " + db.getFullName() + " create unpartitioned table " + tableName + " increasing "
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
                 }
-                createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
+                Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
+                        olapTable.getId(),
                         olapTable.getBaseIndexId(), partitionId, partitionName, olapTable.getIndexIdToMeta(),
                         partitionDistributionInfo, partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicaAllocation(partitionId), versionInfo, bfColumns, bfFpp, tabletIdSet,
@@ -2276,6 +2277,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         idGeneratorBuffer, olapTable.disableAutoCompaction(),
                         olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
                         storeRowColumn, isDynamicSchema, binlogConfigForTask);
+                olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -2332,7 +2334,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
 
-                    createPartitionWithIndices(db.getClusterName(), db.getId(),
+                    Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                             olapTable.getId(), olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
                             olapTable.getIndexIdToMeta(), partitionDistributionInfo,
                             dataProperty.getStorageMedium(), partitionInfo.getReplicaAllocation(entry.getValue()),
@@ -2342,6 +2344,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             idGeneratorBuffer, olapTable.disableAutoCompaction(),
                             olapTable.enableSingleReplicaCompaction(), skipWriteIndexOnLoad,
                             storeRowColumn, isDynamicSchema, binlogConfigForTask);
+                    olapTable.addPartition(partition);
                 }
             } else {
                 throw new DdlException("Unsupported partition method: " + partitionInfo.getType().name());
