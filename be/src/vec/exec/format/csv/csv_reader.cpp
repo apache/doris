@@ -88,7 +88,12 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
           _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
-    _file_compress_type = _params.compress_type;
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _size = _range.size;
 
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
@@ -110,7 +115,12 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _decompressor(nullptr),
           _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
-    _file_compress_type = _params.compress_type;
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _size = _range.size;
     _init_system_properties();
     _init_file_description();
@@ -119,7 +129,12 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
 CsvReader::~CsvReader() = default;
 
 void CsvReader::_init_system_properties() {
-    _system_properties.system_type = _params.file_type;
+    if (_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _range.file_type;
+    } else {
+        _system_properties.system_type = _params.file_type;
+    }
     _system_properties.properties = _params.properties;
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {

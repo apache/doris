@@ -231,11 +231,24 @@ public class DynamicPartitionUtil {
         Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
     }
 
-    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, Database db) throws DdlException {
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
+            Database db) throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
+
         Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
+        if (hotPartitionNum <= 0) {
+            return;
+        }
+
+        try {
+            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD);
+        } catch (DdlException e) {
+            throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
+                    + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "
+                    + "in ssd. Please check the replication num,replication tag and storage medium.");
+        }
     }
 
     private static void checkHotPartitionNum(String val) throws DdlException {
@@ -600,28 +613,33 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
 
+        int hotPartitionNum = 0;
+        if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.HOT_PARTITION_NUM);
+            checkHotPartitionNum(val);
+            hotPartitionNum = Integer.parseInt(val);
+            properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
+        }
+
         // check replication_allocation first, then replciation_num
+        ReplicaAllocation replicaAlloc = null;
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
-            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
-            checkReplicaAllocation(replicaAlloc, db);
+            replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
             String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
             checkReplicationNum(val, db);
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+            replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
-                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
+                    replicaAlloc.toCreateStmt());
         } else {
-            checkReplicaAllocation(olapTable.getDefaultReplicaAllocation(), db);
+            replicaAlloc = olapTable.getDefaultReplicaAllocation();
         }
+        checkReplicaAllocation(replicaAlloc, hotPartitionNum, db);
 
-        if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
-            String val = properties.get(DynamicPartitionProperty.HOT_PARTITION_NUM);
-            checkHotPartitionNum(val);
-            properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
-            analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
-        }
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
             String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
             checkReservedHistoryPeriodValidate(reservedHistoryPeriods,

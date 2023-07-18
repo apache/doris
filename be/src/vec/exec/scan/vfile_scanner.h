@@ -89,7 +89,7 @@ protected:
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;
-    const TFileScanRangeParams& _params;
+    const TFileScanRangeParams* _params;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 

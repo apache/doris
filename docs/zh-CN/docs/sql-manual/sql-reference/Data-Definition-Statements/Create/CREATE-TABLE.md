@@ -35,8 +35,8 @@ under the License.
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
 (
-    column_definition_list,
-    [index_definition_list]
+    column_definition_list
+    [, index_definition_list]
 )
 [engine_type]
 [keys_type]
@@ -101,7 +101,7 @@ distribution_desc
         SUM：求和。适用数值类型。
         MIN：求最小值。适合数值类型。
         MAX：求最大值。适合数值类型。
-        REPLACE：替换。对于维度列相同的行，指标列会按照导入的先后顺序，后倒入的替换先导入的。
+        REPLACE：替换。对于维度列相同的行，指标列会按照导入的先后顺序，后导入的替换先导入的。
         REPLACE_IF_NOT_NULL：非空值替换。和 REPLACE 的区别在于对于null值，不做替换。这里要注意的是字段默认值要给NULL，而不能是空字符串，如果是空字符串，会给你替换成空字符串。
         HLL_UNION：HLL 类型的列的聚合方式，通过 HyperLogLog 算法聚合。
         BITMAP_UNION：BIMTAP 类型的列的聚合方式，进行位图的并集聚合。

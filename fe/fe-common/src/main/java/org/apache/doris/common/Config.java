@@ -1445,12 +1445,6 @@ public class Config extends ConfigBase {
     public static int cbo_default_sample_percentage = 10;
 
     /*
-     * if true, will allow the system to collect statistics automatically
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_auto_collect_statistics = true;
-
-    /*
      * the system automatically checks the time interval for statistics
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -2025,4 +2019,20 @@ public class Config extends ConfigBase {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
+
+    @ConfField
+    public static boolean enable_full_auto_analyze = true;
+
+    @ConfField
+    public static String full_auto_analyze_start_time = "00:00:00";
+
+    @ConfField
+    public static String full_auto_analyze_end_time = "23:59:59";
+
+    @ConfField
+    public static int statistics_sql_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
+
 }
