@@ -4042,9 +4042,7 @@ public class Env {
                 }
             } else {
                 // set to an already exist colocate group, check if this table can be added to this group.
-                // We add a table with many partitions to the colocate group,
-                // we need to check whether all partitions comply with the colocate group specification
-                groupSchema.checkColocateSchema(table, true);
+                groupSchema.checkColocateSchema(table);
             }
 
             Map<Tag, List<List<Long>>> backendsPerBucketSeq = null;

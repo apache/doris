@@ -70,13 +70,11 @@ public class ColocateGroupSchema implements Writable {
         return distributionColTypes;
     }
 
-    public void checkColocateSchema(OlapTable tbl, boolean checkAllPartitions) throws DdlException {
-        if (checkAllPartitions) {
-            for (Partition partition : tbl.getAllPartitions()) {
-                checkDistribution(partition.getDistributionInfo());
-            }
-        } else {
-            checkDistribution(tbl.getDefaultDistributionInfo());
+    public void checkColocateSchema(OlapTable tbl) throws DdlException {
+        // We add a table with many partitions to the colocate group,
+        // we need to check whether all partitions comply with the colocate group specification
+        for (Partition partition : tbl.getAllPartitions()) {
+            checkDistribution(partition.getDistributionInfo());
         }
         checkReplicaAllocation(tbl.getPartitionInfo());
     }
