@@ -27,13 +27,12 @@ import org.junit.jupiter.api.Assertions;
 
 import java.util.List;
 
-public class ModifyStorageMediumTest extends TestWithFeService {
+public class CreateTableElasticOnStorageMediumTest extends TestWithFeService {
 
     @Override
     protected void runAfterAll() throws Exception {
         Env.getCurrentEnv().clear();
     }
-
 
     public void setStorageMediumToSSDTest() throws Exception {
         SystemInfoService clusterInfo = Env.getCurrentEnv().getClusterInfo();
