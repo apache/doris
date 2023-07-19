@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.nereids.trees.expressions.CTEId;
+
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -28,11 +30,18 @@ import java.util.stream.Collectors;
 public class MultiCastPlanFragment extends PlanFragment {
     private final List<ExchangeNode> destNodeList = Lists.newArrayList();
 
-    public MultiCastPlanFragment(PlanFragment planFragment) {
+    private final CTEId cteId;
+
+    public MultiCastPlanFragment(PlanFragment planFragment, CTEId cteId) {
         super(planFragment.getFragmentId(), planFragment.getPlanRoot(), planFragment.getDataPartition(),
                 planFragment.getBuilderRuntimeFilterIds(), planFragment.getTargetRuntimeFilterIds());
+        this.cteId = cteId;
         this.outputPartition = DataPartition.RANDOM;
         this.children.addAll(planFragment.getChildren());
+    }
+
+    public CTEId getCteId() {
+        return cteId;
     }
 
     public void addToDest(ExchangeNode exchangeNode) {

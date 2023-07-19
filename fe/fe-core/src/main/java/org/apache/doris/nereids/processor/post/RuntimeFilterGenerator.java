@@ -39,16 +39,13 @@ import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -147,6 +144,16 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer scan, CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan, slot)));
+        Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
+        CTEId cteId = scan.getCteId();
+        if (!processedCTE.contains(cteId)) {
+            PhysicalCTEProducer cteProducer = context.getRuntimeFilterContext()
+                    .getCteProduceMap().get(cteId);
+            PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
+            // handle cte internal
+            inputPlanNode.accept(this, context);
+            processedCTE.add(cteId);
+        }
         return scan;
     }
 
@@ -194,7 +201,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             TRuntimeFilterType type = TRuntimeFilterType.BITMAP;
             Set<Slot> targetSlots = bitmapContains.child(1).getInputSlots();
             for (Slot targetSlot : targetSlots) {
-                if (!checkCanPushDownFromJoinType(join, ctx, targetSlot)) {
+                if (!checkPushDownPreconditions(join, ctx, targetSlot)) {
                     continue;
                 }
                 Slot olapScanSlot = aliasTransferMap.get(targetSlot).second;
@@ -251,7 +258,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return buildColStats.isUnKnown ? -1 : Math.max(1, (long) buildColStats.ndv);
     }
 
-    private static Slot checkTargetChild(Expression leftChild) {
+    public static Slot checkTargetChild(Expression leftChild) {
         Expression expression = ExpressionUtils.getExpressionCoveredByCast(leftChild);
         return expression instanceof Slot ? ((Slot) expression) : null;
     }
@@ -262,8 +269,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                 .collect(Collectors.toList());
-        // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
-        //   we will support it in later version.
         for (int i = 0; i < join.getHashJoinConjuncts().size(); i++) {
             EqualTo equalTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
                     (EqualTo) join.getHashJoinConjuncts().get(i), join.left().getOutputSet()));
@@ -272,112 +277,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (type == TRuntimeFilterType.BITMAP) {
                     continue;
                 }
-                if (join.left() instanceof PhysicalUnion
-                        || join.left() instanceof PhysicalIntersect
-                        || join.left() instanceof PhysicalExcept) {
-                    doPushDownIntoSetOperation(join, ctx, equalTo, type, i);
-                } else {
-                    doPushDownBasic(join, context, ctx, equalTo, type, i);
-                }
-            }
-        }
-    }
-
-    private void doPushDownBasic(PhysicalHashJoin<? extends Plan, ? extends Plan> join, CascadesContext context,
-            RuntimeFilterContext ctx, EqualTo equalTo, TRuntimeFilterType type, int exprOrder) {
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
-        // currently, we can ensure children in the two side are corresponding to the equal_to's.
-        // so right maybe an expression and left is a slot
-        Slot unwrappedSlot = checkTargetChild(equalTo.left());
-        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-        // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!checkCanPushDownFromJoinType(join, ctx, unwrappedSlot)) {
-            return;
-        }
-        Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
-        PhysicalRelation scan = aliasTransferMap.get(unwrappedSlot).first;
-
-        Preconditions.checkState(olapScanSlot != null && scan != null);
-
-        if (scan instanceof PhysicalCTEConsumer) {
-            Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
-            CTEId cteId = ((PhysicalCTEConsumer) scan).getCteId();
-            if (!processedCTE.contains(cteId)) {
-                PhysicalCTEProducer cteProducer = context.getRuntimeFilterContext()
-                        .getCteProduceMap().get(cteId);
-                PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
-                // process cte producer self recursively
-                inputPlanNode.accept(this, context);
-                processedCTE.add(cteId);
-            }
-        } else {
-            // in-filter is not friendly to pipeline
-            if (type == TRuntimeFilterType.IN_OR_BLOOM
-                    && ctx.getSessionVariable().getEnablePipelineEngine()
-                    && hasRemoteTarget(join, scan)) {
-                type = TRuntimeFilterType.BLOOM;
-            }
-            long buildSideNdv = getBuildSideNdv(join, equalTo);
-            RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                    equalTo.right(), ImmutableList.of(olapScanSlot), type, exprOrder, join, buildSideNdv);
-            ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
-            ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first.getRelationId(), olapScanSlot);
-        }
-    }
-
-    private void doPushDownIntoSetOperation(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
-            RuntimeFilterContext ctx, EqualTo equalTo, TRuntimeFilterType type, int exprOrder) {
-        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
-        List<Slot> targetList = new ArrayList<>();
-        int projIndex = -1;
-        for (int j = 0; j < join.left().children().size(); j++) {
-            PhysicalPlan child = (PhysicalPlan) join.left().child(j);
-            if (child instanceof PhysicalProject) {
-                PhysicalProject project = (PhysicalProject) child;
-                Slot leftSlot = checkTargetChild(equalTo.left());
-                if (leftSlot == null) {
-                    break;
-                }
-                for (int k = 0; projIndex < 0 && k < project.getProjects().size(); k++) {
-                    NamedExpression expr = (NamedExpression) project.getProjects().get(k);
-                    if (expr.getName().equals(leftSlot.getName())) {
-                        projIndex = k;
-                        break;
-                    }
-                }
-                Preconditions.checkState(projIndex >= 0
-                        && projIndex < project.getProjects().size());
-
-                NamedExpression targetExpr = (NamedExpression) project.getProjects().get(projIndex);
-
-                SlotReference origSlot = null;
-                if (targetExpr instanceof Alias) {
-                    origSlot = (SlotReference) targetExpr.child(0);
-                } else {
-                    origSlot = (SlotReference) targetExpr;
-                }
-                Slot olapScanSlot = aliasTransferMap.get(origSlot).second;
-                if (!checkCanPushDownFromJoinType(join, ctx, olapScanSlot)) {
-                    continue;
-                }
-                PhysicalRelation scan = aliasTransferMap.get(origSlot).first;
-                if (type == TRuntimeFilterType.IN_OR_BLOOM
-                        && ctx.getSessionVariable().getEnablePipelineEngine()
-                        && hasRemoteTarget(join, scan)) {
-                    type = TRuntimeFilterType.BLOOM;
-                }
-                targetList.add(olapScanSlot);
-                ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
-                ctx.setTargetsOnScanNode(aliasTransferMap.get(origSlot).first.getRelationId(), olapScanSlot);
-            }
-        }
-        if (!targetList.isEmpty()) {
-            long buildSideNdv = getBuildSideNdv(join, equalTo);
-            RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                    equalTo.right(), targetList, type, exprOrder, join, buildSideNdv);
-            for (int j = 0; j < targetList.size(); j++) {
-                ctx.setTargetExprIdToFilter(targetList.get(j).getExprId(), filter);
+                long buildSideNdv = getBuildSideNdv(join, equalTo);
+                join.pushDownRuntimeFilter(context, generator, join, equalTo.right(),
+                        equalTo.left(), type, buildSideNdv, i);
             }
         }
     }
@@ -580,7 +482,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Slot unwrappedSlot = checkTargetChild(equalTo.left());
         // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
         // contains join with denied join type. for example: a left join b on a.id = b.id
-        if (!checkCanPushDownFromJoinType(join, ctx, unwrappedSlot)) {
+        if (!checkPushDownPreconditions(join, ctx, unwrappedSlot)) {
             return;
         }
         Slot cteSlot = aliasTransferMap.get(unwrappedSlot).second;
@@ -626,8 +528,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
     }
 
-    private boolean checkCanPushDownFromJoinType(AbstractPhysicalJoin physicalJoin,
-            RuntimeFilterContext ctx, Slot slot) {
+    /**
+     * Check runtime filter push down pre-conditions, such as builder side join type, etc.
+     */
+    public static boolean checkPushDownPreconditions(AbstractPhysicalJoin physicalJoin,
+                                                       RuntimeFilterContext ctx, Slot slot) {
         Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         if (slot == null || !aliasTransferMap.containsKey(slot)) {
             return false;
@@ -688,7 +593,28 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
     }
 
-    private boolean hasRemoteTarget(AbstractPlan join, AbstractPlan scan) {
+    /**
+     * Check whether plan root contains cte consumer descendant.
+     */
+    public static boolean hasCTEConsumerDescendant(PhysicalPlan root) {
+        if (root instanceof PhysicalCTEConsumer) {
+            return true;
+        } else if (root.children().size() == 1) {
+            return hasCTEConsumerDescendant((PhysicalPlan) root.child(0));
+        } else {
+            for (Object child : root.children()) {
+                if (hasCTEConsumerDescendant((PhysicalPlan) child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Check whether runtime filter target is remote or local
+     */
+    public static boolean hasRemoteTarget(AbstractPlan join, AbstractPlan scan) {
         if (scan instanceof PhysicalCTEConsumer) {
             return true;
         } else {

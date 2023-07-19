@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -28,8 +32,11 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -130,4 +137,41 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
         return children.size();
     }
 
+    @Override
+    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
+                                         AbstractPhysicalJoin builderNode,
+                                         Expression src, Expression probeExpr,
+                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        boolean pushedDown = false;
+        int projIndex = -1;
+        for (int i = 0; i < this.children().size(); i++) {
+            AbstractPhysicalPlan child = (AbstractPhysicalPlan) this.child(i);
+            // TODO: replace this special logic with dynamic handling
+            if (child instanceof PhysicalDistribute) {
+                child = (AbstractPhysicalPlan) child.child(0);
+            }
+            if (child instanceof PhysicalProject) {
+                PhysicalProject project = (PhysicalProject) child;
+                Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
+                if (probeSlot == null) {
+                    break;
+                }
+                for (int j = 0; projIndex < 0 && j < project.getProjects().size(); j++) {
+                    NamedExpression expr = (NamedExpression) project.getProjects().get(j);
+                    if (expr.getName().equals(probeSlot.getName())) {
+                        projIndex = j;
+                        break;
+                    }
+                }
+                Preconditions.checkState(projIndex >= 0 && projIndex < project.getProjects().size());
+                NamedExpression newProbeExpr = (NamedExpression) project.getProjects().get(projIndex);
+                if (newProbeExpr instanceof Alias) {
+                    newProbeExpr = (NamedExpression) newProbeExpr.child(0);
+                }
+                pushedDown |= child.pushDownRuntimeFilter(context, generator, builderNode, src,
+                        newProbeExpr, type, buildSideNdv, exprOrder);
+            }
+        }
+        return pushedDown;
+    }
 }
