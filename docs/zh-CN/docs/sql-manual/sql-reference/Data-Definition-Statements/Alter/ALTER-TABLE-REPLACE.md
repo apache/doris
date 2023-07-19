@@ -77,7 +77,7 @@ ALTER TABLE tbl1 REPLACE WITH TABLE tbl2;
 ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'true') ;
 ```
 
-2将 `tbl1` 与 `tbl2` 进行交换，删除 `tbl2` 表（保留名为`tbl1`,数据为`tbl2`的表）
+2. 将 `tbl1` 与 `tbl2` 进行交换，删除 `tbl2` 表（保留名为`tbl1`,数据为`tbl2`的表）
 
 ```sql
 ALTER TABLE tbl1 REPLACE WITH TABLE tbl2 PROPERTIES('swap' = 'false') ;
