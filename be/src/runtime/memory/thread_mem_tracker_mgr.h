@@ -173,12 +173,12 @@ inline void ThreadMemTrackerMgr::consume(int64_t size) {
     }
     // Large memory alloc should use allocator.h
     // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
-    if (size > 4294967296) { // 4G
-        _stop_consume = true;
-        LOG(WARNING) << fmt::format("MemHook alloc large memory: {}, stacktrace:\n{}", size,
-                                    get_stack_trace());
-        _stop_consume = false;
-    }
+    // if (size > 1024l * 1024 * 1024 && !doris::config::disable_memory_gc) { // 1G
+    //     _stop_consume = true;
+    //     LOG(WARNING) << fmt::format("MemHook alloc large memory: {}, stacktrace:\n{}", size,
+    //                                 get_stack_trace());
+    //     _stop_consume = false;
+    // }
 }
 
 inline void ThreadMemTrackerMgr::flush_untracked_mem() {
