@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
@@ -31,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.ParseUtil;
@@ -588,7 +590,7 @@ public class CreateTableStmt extends DdlStmt {
 
         if (CollectionUtils.isNotEmpty(indexDefs)) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            Set<List<String>> distinctCol = new HashSet<>();
+            Set<Pair<IndexType, List<String>>> distinctCol = new HashSet<>();
 
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
@@ -613,13 +615,14 @@ public class CreateTableStmt extends DdlStmt {
                         indexDef.getColumns(), indexDef.getIndexType(),
                         indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
-                distinctCol.add(indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList()));
+                distinctCol.add(Pair.of(indexDef.getIndexType(),
+                        indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList())));
             }
             if (distinct.size() != indexes.size()) {
                 throw new AnalysisException("index name must be unique.");
             }
             if (distinctCol.size() != indexes.size()) {
-                throw new AnalysisException("same index columns have multiple index name is not allowed.");
+                throw new AnalysisException("same index columns have multiple same type index is not allowed.");
             }
         }
     }
