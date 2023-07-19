@@ -907,7 +907,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TMasterOpResult result = new TMasterOpResult();
             result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
             // just make the protocol happy
-            result.setPacket((byte[]) null);
+            result.setPacket("".getBytes());
             return result;
         }
 
