@@ -156,6 +156,8 @@ public class DatabaseTransactionMgr {
 
     private long lockReportingThresholdMs = Config.lock_reporting_threshold_ms;
 
+    private long preCommitTime = 0;
+
     protected void readLock() {
         this.transactionLock.readLock().lock();
     }
@@ -849,6 +851,11 @@ public class DatabaseTransactionMgr {
         } finally {
             readUnlock();
         }
+
+        if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            return;
+        }
+
         // add all commit errors and publish errors to a single set
         if (errorReplicaIds == null) {
             errorReplicaIds = Sets.newHashSet();
@@ -1052,6 +1059,10 @@ public class DatabaseTransactionMgr {
         }
         // update transaction state version
         long commitTime = System.currentTimeMillis();
+        if (preCommitTime == commitTime || preCommitTime == 0) {
+            commitTime += 1;
+        }
+        preCommitTime = commitTime;
         transactionState.setCommitTime(commitTime);
         if (MetricRepo.isInit) {
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(commitTime - transactionState.getPrepareTime());
@@ -1088,7 +1099,12 @@ public class DatabaseTransactionMgr {
             return;
         }
         // update transaction state version
-        transactionState.setCommitTime(System.currentTimeMillis());
+        long commitTime = System.currentTimeMillis();
+        if (preCommitTime == commitTime || preCommitTime == 0) {
+            commitTime += 1;
+        }
+        preCommitTime = commitTime;
+        transactionState.setCommitTime(commitTime);
         transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
 
         Iterator<TableCommitInfo> tableCommitInfoIterator

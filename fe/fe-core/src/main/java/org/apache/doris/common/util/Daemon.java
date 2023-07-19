@@ -98,10 +98,18 @@ public class Daemon extends Thread {
         this.intervalMs = intervalMs;
     }
 
+    public boolean isStop() {
+        return isStop.get();
+    }
+
+    public boolean isStart() {
+        return isStart.get();
+    }
+
     /**
      * implement in child
      */
-    protected void runOneCycle() {
+    protected void runOneCycle() throws Exception {
 
     }
 

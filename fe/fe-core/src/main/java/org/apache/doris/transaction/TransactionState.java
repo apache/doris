@@ -44,12 +44,15 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -254,6 +257,10 @@ public class TransactionState implements Writable {
     // no need to persist.
     private String errMsg = "";
 
+    private List<Long> sortedTableIdList;
+
+    private boolean hasDispatched = false;
+
     public TransactionState() {
         this.dbId = -1;
         this.tableIdList = Lists.newArrayList();
@@ -311,6 +318,14 @@ public class TransactionState implements Writable {
         this.publishVersionTime = System.currentTimeMillis();
     }
 
+    public boolean canDispatch() {
+        return  !hasDispatched && transactionStatus == TransactionStatus.COMMITTED;
+    }
+
+    public void setHasDispatched(boolean hasDispatched) {
+        this.hasDispatched = hasDispatched;
+    }
+
     public void updateSendTaskTime() {
         this.publishVersionTime = System.currentTimeMillis();
     }
@@ -357,6 +372,22 @@ public class TransactionState implements Writable {
 
     public long getFinishTime() {
         return finishTime;
+    }
+
+    public List<Long> getSortTables() {
+        if (Objects.isNull(sortedTableIdList)) {
+            sortedTableIdList = Lists.newArrayList(getTableIdList());
+            Collections.sort(sortedTableIdList);
+        }
+        return sortedTableIdList;
+    }
+
+    public boolean isVisible() {
+        return transactionStatus == TransactionStatus.VISIBLE;
+    }
+
+    public boolean isAborted() {
+        return transactionStatus == TransactionStatus.ABORTED;
     }
 
     public String getReason() {

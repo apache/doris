@@ -162,11 +162,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
     }
 
     public void readUnlock() {
+        long nanoTime = System.nanoTime();
         this.rwLock.readLock().unlock();
+        LOG.debug("table {} get read lock spent {} ms", getId(), (nanoTime - System.nanoTime()) / 1000000L);
     }
 
     public void writeLock() {
+        long nanoTime = System.nanoTime();
         this.rwLock.writeLock().lock();
+        LOG.debug("table {} get write lock spent {} ms", getId(), (nanoTime - System.nanoTime()) / 1000000L);
     }
 
     public boolean writeLockIfExist() {
