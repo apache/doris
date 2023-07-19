@@ -696,12 +696,8 @@ public class DeleteHandler implements Writable {
                         table.getKeysType(), columnName, column.isSequenceColumn(), column.isKey());
             if (!column.isKey()) {
                 if (table.getKeysType() == KeysType.AGG_KEYS) {
-                    throw new DdlException("delete predicate on value column only supports Unique table"
-                            + "Table[" + table.getName() + "] is Aggregate table.");
-                } else if (table.getKeysType() == KeysType.UNIQUE_KEYS
-                        && table.getSequenceMapCol().equals(columnName)) {
-                    throw new DdlException("delete predicate on value column only supports Unique table and the column"
-                            + "must not be the sequence column. Column[" + columnName + "] is sequence column.");
+                    throw new DdlException("delete predicate on value column only supports Unique table and"
+                            + "Duplicate table" + "Table[" + table.getName() + "] is Aggregate table.");
                 }
             }
 

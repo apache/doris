@@ -61,26 +61,4 @@ suite("test_delete_on_value") {
         sql "delete from ${tableName} where y=4;"
         exception "delete predicate on value column only supports Unique table"
     }
-
-
-    def tableName3 = "test_delete_on_value3"
-    sql """ DROP TABLE IF EXISTS ${tableName3} """
-    sql """ CREATE TABLE ${tableName3} (
-            `x` BIGINT NOT NULL,
-            `y` BIGINT NULL,
-            `z` BIGINT NULL)
-            ENGINE=OLAP
-            UNIQUE KEY(`x`)
-            COMMENT 'OLAP'
-            DISTRIBUTED BY HASH(`x`) BUCKETS 4
-            PROPERTIES (
-                "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true",
-                "function_column.sequence_col" = 'y'
-            );"""
-    sql """ insert into ${tableName3} values(1,1,1),(2,2,2),(3,3,3),(4,4,4),(5,5,5); """
-    test {
-        sql "delete from ${tableName3} where y=4;"
-        exception "delete predicate on value column only supports Unique table and the column must not be the sequence column"
-    }
 }
