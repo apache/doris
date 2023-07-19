@@ -277,6 +277,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -284,6 +285,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDef;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DistributionDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDef;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDef;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -1740,7 +1743,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Object visitCreateTable(CreateTableContext ctx) {
-        return super.visitCreateTable(ctx);
+        List<ColumnDef> cols = visitColumnDefs(ctx.columnDefs());
+        DistributionDesc desc = new DistributionDesc();
+        Map<String, String> properties = visitPropertySeq(ctx.propertySeq());
+        return new CreateTableCommand(null, new CreateTableInfo());
     }
 
     @Override

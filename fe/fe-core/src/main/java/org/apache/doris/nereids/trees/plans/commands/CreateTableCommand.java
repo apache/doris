@@ -18,18 +18,24 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * create table command
  */
 public class CreateTableCommand extends Command implements ForwardWithSync {
-    private final LogicalPlan ctasQuery;
+    private final Optional<LogicalPlan> ctasQuery;
+    private final CreateTableInfo createTableInfo;
 
-    public CreateTableCommand(LogicalPlan ctasQuery) {
+    public CreateTableCommand(Optional<LogicalPlan> ctasQuery, CreateTableInfo createTableInfo) {
         super(PlanType.CREATE_TABLE_COMMAND);
         this.ctasQuery = ctasQuery;
+        this.createTableInfo = Objects.requireNonNull(createTableInfo);
     }
 
     @Override

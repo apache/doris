@@ -17,8 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import java.util.List;
+
 /**
  * table info in creating table.
  */
 public class CreateTableInfo {
+    private final String dbName;
+    private final String tableName;
+    private final List<ColumnDef> columns;
+    private final List<IndexDef> indexes;
+    private final String engineName;
+    // private final KeysType keyType;
+    private final List<String> keys;
+    private final String comment;
+    // private final List<PartitionInfo> partitions;
+    private final DistributionDesc distribution;
+    private final List<RollupDef> rollups;
+    private final Map<String, String> properties;
+    
+    public CreateTableInfo(String dbName, String tableName, List<ColumnDef> columns, List<IndexDef> indexes,
+            String engineName, List<String> keys, String comment, DistributionDesc distribution,
+            List<RollupDef> rollups, Map<String, String> properties) {
+    }
 }
