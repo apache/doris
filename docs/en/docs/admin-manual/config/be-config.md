@@ -958,7 +958,7 @@ BaseCompaction:546859:
 * Description: Whether to use mmap to allocate memory
 * Default value: false
 
-#### `memtable_memory_refresh_interval_ms`
+#### `memtable_mem_tracker_refresh_interval_ms`
 
 * Description: Sleep time in milliseconds between memtbale flush mgr refresh iterations
 * Default value: 100
