@@ -48,6 +48,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -115,11 +116,19 @@ public class Memo {
     public void removePhysicalExpression() {
         groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
 
-        for (Group group : groups.values()) {
+        Iterator<Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<GroupId, Group> entry = iterator.next();
+            Group group = entry.getValue();
+
             group.clearPhysicalExpressions();
             group.clearLowestCostPlans();
             group.removeParentPhysicalExpressions();
             group.setExplored(false);
+
+            if (group.getLogicalExpressions().isEmpty() && group.getPhysicalExpressions().isEmpty()) {
+                iterator.remove();
+            }
         }
 
         // logical groupExpression reset ruleMask
@@ -614,12 +623,11 @@ public class Memo {
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
      * <p>
      * the scenario is:
-     * ```
+     * <pre>
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
-     * ```
-     * <p>
+     * </pre>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -766,9 +774,9 @@ public class Memo {
         Preconditions.checkArgument(n > 0, "the n %d must be greater than 0 in nthPlan", n);
         List<Pair<Long, Double>> plans = rankGroup(root, PhysicalProperties.GATHER);
         plans = plans.stream().filter(
-                p -> !p.second.equals(Double.NaN)
-                        && !p.second.equals(Double.POSITIVE_INFINITY)
-                        && !p.second.equals(Double.NEGATIVE_INFINITY))
+                        p -> !p.second.equals(Double.NaN)
+                                && !p.second.equals(Double.POSITIVE_INFINITY)
+                                && !p.second.equals(Double.NEGATIVE_INFINITY))
                 .collect(Collectors.toList());
         // This is big heap, it always pops the element with larger cost or larger id.
         PriorityQueue<Pair<Long, Double>> pq = new PriorityQueue<>((l, r) -> Math.abs(l.second - r.second) < threshold
