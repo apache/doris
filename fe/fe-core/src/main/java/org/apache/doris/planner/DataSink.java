@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.planner.external.odbc.OdbcTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TExplainLevel;
 
