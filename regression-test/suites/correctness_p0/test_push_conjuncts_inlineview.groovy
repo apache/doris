@@ -60,6 +60,21 @@ suite("test_push_conjuncts_inlineview") {
         contains "4:VSELECT"
     }
 
+explain {
+        sql("""SELECT *
+                FROM 
+                    (SELECT `a_key` AS `a_key`
+                    FROM 
+                        (SELECT `b`.`a_key` AS `a_key`
+                        FROM 
+                            (SELECT `a`.`a_key` AS `a_key`
+                            FROM `push_conjunct_table` a) b
+                            GROUP BY  1 ) t2 ) t1
+                        WHERE a_key = '123';""")
+        notContains "having"
+        contains "= '123'"
+    }
+
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
 }
 

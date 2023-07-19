@@ -2799,7 +2799,8 @@ public class SingleNodePlanner {
                 }
                 GroupByClause groupByClause = stmt.getGroupByClause();
                 List<Expr> exprs = groupByClause.getGroupingExprs();
-                if (!exprs.contains(sourceExpr)) {
+                final Expr srcExpr = sourceExpr;
+                if (!exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
                     isAllSlotReferToGroupBys = false;
                     break;
                 }
