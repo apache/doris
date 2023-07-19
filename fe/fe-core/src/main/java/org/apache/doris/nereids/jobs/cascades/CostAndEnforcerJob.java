@@ -141,7 +141,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
             // Calculate cost
             if (curChildIndex == 0 && prevChildIndex == -1) {
                 curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
-                groupExpression.setCost(curNodeCost.getValue());
+                groupExpression.setCost(curNodeCost);
                 curTotalCost = curNodeCost;
             }
 
@@ -256,7 +256,7 @@ public class CostAndEnforcerJob extends Job implements Cloneable {
 
         // recompute cost after adjusting property
         curNodeCost = CostCalculator.calculateCost(groupExpression, requestChildrenProperties);
-        groupExpression.setCost(curNodeCost.getValue());
+        groupExpression.setCost(curNodeCost);
         curTotalCost = curNodeCost;
         for (int i = 0; i < outputChildrenProperties.size(); i++) {
             PhysicalProperties childProperties = outputChildrenProperties.get(i);

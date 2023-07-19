@@ -34,14 +34,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -53,7 +50,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.stream.Collectors;
@@ -736,17 +732,8 @@ public class Memo {
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
             builder.append("\n\n").append(group);
-            builder.append("  stats=").append(group.getStatistics()).append("\n");
-            Statistics stats = group.getStatistics();
-            if (stats != null && !group.getLogicalExpressions().isEmpty()) {
-                Plan plan = group.getLogicalExpressions().get(0).getPlan();
-                if (plan instanceof LogicalOlapScan || plan instanceof LogicalFileScan) {
-                    for (Entry e : stats.columnStatistics().entrySet()) {
-                        builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
-                    }
-                }
-            }
-
+            builder.append("  stats").append("\n");
+            builder.append(group.getStatistics().detail("    "));
             builder.append("  lowest Plan(cost, properties, plan, childrenRequires)");
             group.getAllProperties().forEach(
                     prop -> {
