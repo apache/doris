@@ -30,7 +30,9 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
-import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
+import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
+import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
+import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -64,12 +66,15 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Supplier;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -78,8 +83,6 @@ import java.util.function.Consumer;
 public class PlanChecker {
     private final ConnectContext connectContext;
     private CascadesContext cascadesContext;
-
-    private Plan parsedPlan;
 
     private PhysicalPlan physicalPlan;
 
@@ -108,7 +111,7 @@ public class PlanChecker {
     public PlanChecker checkParse(String sql, Consumer<PlanParseChecker> consumer) {
         PlanParseChecker checker = new PlanParseChecker(sql);
         consumer.accept(checker);
-        parsedPlan = checker.parsedSupplier.get();
+        checker.parsedSupplier.get();
         return this;
     }
 
@@ -126,7 +129,12 @@ public class PlanChecker {
 
     public PlanChecker analyze(Plan plan) {
         this.cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+        Set<String> originDisableRules = connectContext.getSessionVariable().getDisableNereidsRules();
+        Set<String> disableRuleWithAuth = Sets.newHashSet(originDisableRules);
+        disableRuleWithAuth.add(RuleType.RELATION_AUTHENTICATION.name());
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", disableRuleWithAuth));
         this.cascadesContext.newAnalyzer().analyze();
+        connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
         this.cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
@@ -145,14 +153,12 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker setRewritePlanFromMemo() {
-        this.cascadesContext.setRewritePlan(this.cascadesContext.getMemo().copyOut());
-        return this;
-    }
-
     public PlanChecker customRewrite(CustomRewriter customRewriter) {
-        new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE).execute(cascadesContext.getCurrentJobContext());
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(Rewriter.custom(RuleType.TEST_REWRITE, () -> customRewriter)))
+                .execute();
         cascadesContext.toMemo();
+        MemoValidator.validate(cascadesContext.getMemo());
         return this;
     }
 
@@ -160,14 +166,11 @@ public class PlanChecker {
         return applyTopDown(ruleFactory.buildRules());
     }
 
-    public PlanChecker applyTopDown(CustomRewriter customRewriter) {
-        cascadesContext.topDownRewrite(customRewriter);
-        MemoValidator.validate(cascadesContext.getMemo());
-        return this;
-    }
-
     public PlanChecker applyTopDown(List<Rule> rule) {
-        cascadesContext.topDownRewrite(rule);
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
+                .execute();
+        cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
     }
@@ -178,7 +181,7 @@ public class PlanChecker {
      * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
-    public PlanChecker applyTopDown(PatternMatcher patternMatcher) {
+    public PlanChecker applyTopDownInMemo(PatternMatcher patternMatcher) {
         cascadesContext.topDownRewrite(new OneRewriteRuleFactory() {
             @Override
             public Rule build() {
@@ -190,7 +193,19 @@ public class PlanChecker {
     }
 
     public PlanChecker applyBottomUp(RuleFactory rule) {
-        cascadesContext.bottomUpRewrite(rule);
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(Rewriter.bottomUp(rule)))
+                .execute();
+        cascadesContext.toMemo();
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker applyBottomUp(List<Rule> rule) {
+        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
+                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteBottomUpJob::new, true)))
+                .execute();
+        cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
     }
@@ -201,7 +216,7 @@ public class PlanChecker {
      * @param patternMatcher the rule dsl, such as: logicalOlapScan().then(olapScan -> olapScan)
      * @return this checker, for call chaining of follow-up check
      */
-    public PlanChecker applyBottomUp(PatternMatcher patternMatcher) {
+    public PlanChecker applyBottomUpInMemo(PatternMatcher patternMatcher) {
         cascadesContext.bottomUpRewrite(new OneRewriteRuleFactory() {
             @Override
             public Rule build() {
@@ -213,7 +228,7 @@ public class PlanChecker {
     }
 
     public PlanChecker rewrite() {
-        new Rewriter(cascadesContext).execute();
+        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         cascadesContext.toMemo();
         return this;
     }

@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -63,7 +63,7 @@ public class RuntimeFilterContext {
     private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
 
     // olap scan node that contains target of a runtime filter.
-    private final Map<ObjectId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
+    private final Map<RelationId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
 
     private final List<org.apache.doris.planner.RuntimeFilter> legacyFilters = Lists.newArrayList();
 
@@ -157,7 +157,7 @@ public class RuntimeFilterContext {
         }
     }
 
-    public void setTargetsOnScanNode(ObjectId id, Slot slot) {
+    public void setTargetsOnScanNode(RelationId id, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
     }
 
@@ -186,7 +186,7 @@ public class RuntimeFilterContext {
         return targetExprIdToFilter;
     }
 
-    public Map<ObjectId, List<Slot>> getTargetOnOlapScanNodeMap() {
+    public Map<RelationId, List<Slot>> getTargetOnOlapScanNodeMap() {
         return targetOnOlapScanNodeMap;
     }
 

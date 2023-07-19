@@ -64,20 +64,19 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
-import javax.annotation.Nullable;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
 
-    private CustomTableResolver customTableResolver;
+    private final Optional<CustomTableResolver> customTableResolver;
 
     public BindRelation() {
-        this(null);
+        this(Optional.empty());
     }
 
-    public BindRelation(@Nullable CustomTableResolver customTableResolver) {
+    public BindRelation(Optional<CustomTableResolver> customTableResolver) {
         this.customTableResolver = customTableResolver;
     }
 
@@ -122,13 +121,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // check if it is a CTE's name
         CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
         if (cteContext != null) {
-            Optional<LogicalPlan> analyzedCte = cteContext.getReuse(tableName);
+            Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTEPlan(tableName);
             if (analyzedCte.isPresent()) {
-                LogicalCTEConsumer logicalCTEConsumer =
-                        new LogicalCTEConsumer(Optional.empty(), Optional.empty(),
-                                analyzedCte.get(), cteContext.getCteId(), tableName);
-                cascadesContext.putCTEIdToConsumer(logicalCTEConsumer);
-                return logicalCTEConsumer;
+                return new LogicalCTEConsumer(unboundRelation.getRelationId(),
+                        cteContext.getCteId(), tableName, analyzedCte.get());
             }
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
@@ -137,12 +133,14 @@ public class BindRelation extends OneAnalysisRuleFactory {
         if (cascadesContext.getTables() != null) {
             table = cascadesContext.getTableByName(tableName);
         }
-        if (customTableResolver != null) {
-            table = customTableResolver.apply(tableQualifier);
-        }
         if (table == null) {
-            // In some cases even if we have already called the "cascadesContext.getTableByName",
-            // it also gets the null. So, we just check it in the catalog again for safety.
+            if (customTableResolver.isPresent()) {
+                table = customTableResolver.get().apply(tableQualifier);
+            }
+        }
+        // In some cases even if we have already called the "cascadesContext.getTableByName",
+        // it also gets the null. So, we just check it in the catalog again for safety.
+        if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
 
@@ -154,9 +152,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        if (customTableResolver != null) {
-            table = customTableResolver.apply(tableQualifier);
+        if (customTableResolver.isPresent()) {
+            table = customTableResolver.get().apply(tableQualifier);
         }
+        // In some cases even if we have already called the "cascadesContext.getTableByName",
+        // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
@@ -167,10 +167,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation);
         if (!CollectionUtils.isEmpty(partIds)) {
-            scan = new LogicalOlapScan(RelationUtil.newRelationId(),
+            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds, unboundRelation.getHints());
         } else {
-            scan = new LogicalOlapScan(RelationUtil.newRelationId(),
+            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints());
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
@@ -212,15 +212,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
                     }
                 }
-                return new LogicalFileScan(RelationUtil.newRelationId(),
+                return new LogicalFileScan(unboundRelation.getRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));
             case SCHEMA:
-                return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
+                return new LogicalSchemaScan(unboundRelation.getRelationId(),
+                        table, ImmutableList.of(dbName));
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
-                return new LogicalJdbcScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
+                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, ImmutableList.of(dbName));
             case ES_EXTERNAL_TABLE:
-                return new LogicalEsScan(RelationUtil.newRelationId(),
+                return new LogicalEsScan(unboundRelation.getRelationId(),
                     (EsExternalTable) table, ImmutableList.of(dbName));
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
@@ -241,7 +242,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
-        CascadesContext viewContext = CascadesContext.newRewriteContext(
+        CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();
 
