@@ -757,6 +757,8 @@ Status SegmentWriter::finalize_columns_data() {
     if (_has_key) {
         _row_count = _num_rows_written;
     } else {
+        DCHECK(_row_count == _num_rows_written)
+                << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
         if (_row_count != _num_rows_written) {
             std::stringstream ss;
             ss << "_row_count != _num_rows_written:" << _row_count << " vs. " << _num_rows_written;
