@@ -127,28 +127,21 @@ public class HMSExternalTable extends ExternalTable {
         return dlaType != DLAType.UNKNOWN;
     }
 
-    protected synchronized void makeSureInitialized() {
-        super.makeSureInitialized();
-        if (!objectCreated) {
-            remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
-            if (remoteTable == null) {
-                dlaType = DLAType.UNKNOWN;
+    @Override
+    protected void doInitialize() {
+        remoteTable = ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
+        if (remoteTable == null) {
+            dlaType = DLAType.UNKNOWN;
+        } else {
+            if (supportedIcebergTable()) {
+                dlaType = DLAType.ICEBERG;
+            } else if (supportedHoodieTable()) {
+                dlaType = DLAType.HUDI;
+            } else if (supportedHiveTable()) {
+                dlaType = DLAType.HIVE;
             } else {
-                if (supportedIcebergTable()) {
-                    dlaType = DLAType.ICEBERG;
-                } else if (supportedHoodieTable()) {
-                    dlaType = DLAType.HUDI;
-                } else if (supportedHiveTable()) {
-                    dlaType = DLAType.HIVE;
-                } else {
-                    dlaType = DLAType.UNKNOWN;
-                }
+                dlaType = DLAType.UNKNOWN;
             }
-            // set version to 0L if table has been initialized
-            version = 0L;
-            // set versionTime to current ts so cache will miss
-            versionTime = System.currentTimeMillis();
-            objectCreated = true;
         }
     }
 

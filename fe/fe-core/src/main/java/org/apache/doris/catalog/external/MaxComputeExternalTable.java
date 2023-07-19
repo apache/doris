@@ -55,12 +55,8 @@ public class MaxComputeExternalTable extends ExternalTable {
     }
 
     @Override
-    protected synchronized void makeSureInitialized() {
-        super.makeSureInitialized();
-        if (!objectCreated) {
-            odpsTable = ((MaxComputeExternalCatalog) catalog).getClient().tables().get(name);
-            objectCreated = true;
-        }
+    protected void doInitialize() {
+        odpsTable = ((MaxComputeExternalCatalog) catalog).getClient().tables().get(name);
     }
 
     @Override

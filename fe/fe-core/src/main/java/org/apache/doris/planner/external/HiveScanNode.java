@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -120,8 +121,9 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         // record version and version time at the end of init phase
-        tableVersion = hmsTable.getVersion();
-        tableVersionTime = hmsTable.getVersionTime();
+        Pair<Long, Long> versionInfo = hmsTable.getVersionInfo();
+        tableVersion = versionInfo.first;
+        tableVersionTime = versionInfo.second;
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {

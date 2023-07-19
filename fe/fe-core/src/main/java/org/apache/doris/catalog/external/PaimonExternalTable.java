@@ -52,13 +52,6 @@ public class PaimonExternalTable extends ExternalTable {
         return ((PaimonExternalCatalog) catalog).getPaimonCatalogType();
     }
 
-    protected synchronized void makeSureInitialized() {
-        super.makeSureInitialized();
-        if (!objectCreated) {
-            objectCreated = true;
-        }
-    }
-
     public Table getOriginTable() {
         if (originTable == null) {
             originTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);

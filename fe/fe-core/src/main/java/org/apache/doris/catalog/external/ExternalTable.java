@@ -25,11 +25,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
+import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -79,13 +81,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     // -1: table has not been initialized
-    // 0: table has been initialized
-    // >0: event id of hms event
-    protected volatile long version = -1L;
+    // 0: table has just been initialized
+    // >0: current table version
+    protected long version = -1L;
 
     // -1: table has not been initialized
-    // >0: event time of update time (milliseconds)
-    protected volatile long versionTime = -1L;
+    // >0: current version time
+    protected long versionTime = -1L;
 
     /**
      * No args constructor for persist.
@@ -120,7 +122,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
-    protected void makeSureInitialized() {
+    protected synchronized void makeSureInitialized() {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
             ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
@@ -128,6 +130,18 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         } catch (AnalysisException e) {
             Util.logAndThrowRuntimeException(LOG, String.format("Exception to get db %s", dbName), e);
         }
+
+        if (!objectCreated) {
+            doInitialize();
+            // set version to 0L if table has been initialized
+            // set versionTime to current ts so cache will miss
+            refreshVersion(0L, System.currentTimeMillis());
+            objectCreated = true;
+        }
+    }
+
+    protected void doInitialize() {
+        // default do nothing
     }
 
     @Override
@@ -304,18 +318,24 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
-    public long getVersionTime() {
-        return versionTime;
-    }
-
-    public long getVersion() {
-        return version;
+    public Pair<Long, Long> getVersionInfo() {
+        readLock();
+        try {
+            return Pair.of(version, versionTime);
+        } finally {
+            readUnlock();
+        }
     }
 
     public void refreshVersion(long version, long versionTime) {
-        if (version != -1L) {
-            this.version = version;
-            this.versionTime = versionTime;
+        if (version != -1L && versionTime != -1L) {
+            writeLock();
+            try {
+                this.version = version;
+                this.versionTime = versionTime;
+            } finally {
+                writeUnlock();
+            }
         }
     }
 

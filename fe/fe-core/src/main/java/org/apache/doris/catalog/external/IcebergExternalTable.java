@@ -51,13 +51,6 @@ public class IcebergExternalTable extends ExternalTable {
         return ((IcebergExternalCatalog) catalog).getIcebergCatalogType();
     }
 
-    protected synchronized void makeSureInitialized() {
-        super.makeSureInitialized();
-        if (!objectCreated) {
-            objectCreated = true;
-        }
-    }
-
     @Override
     public List<Column> initSchema() {
         Schema schema = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema();
