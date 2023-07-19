@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -55,14 +56,16 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
         }
 
         if (relationsToCheck.contains(relation.getClass())) {
-            String dbName =
-                    !relation.getQualifier().isEmpty() ? relation.getQualifier().get(0) : null;
-            String tableName = relation.getTable().getName();
-            if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, dbName,
+            TableIf table = relation.getTable();
+            String tableName = table.getName();
+            String dbName = table.getDatabase().getFullName();
+            String ctlName = table.getDatabase().getCatalog().getName();
+            // TODO: 2023/7/19 checkColumnsPriv 
+            if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, ctlName, dbName,
                     tableName, PrivPredicate.SELECT)) {
                 String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        dbName + ": " + tableName);
+                        ctlName + ": " + dbName + ": " + tableName);
                 throw new AnalysisException(message);
             }
         }
