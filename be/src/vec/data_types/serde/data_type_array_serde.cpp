@@ -49,7 +49,7 @@ void DataTypeArraySerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbVa
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                arrow::ArrayBuilder* array_builder, int start,
                                                int end) const {
     auto& array_column = static_cast<const ColumnArray&>(column);
@@ -58,8 +58,13 @@ void DataTypeArraySerDe::write_column_to_arrow(const IColumn& column, const UInt
     auto& builder = assert_cast<arrow::ListBuilder&>(*array_builder);
     auto nested_builder = builder.value_builder();
     for (size_t array_idx = start; array_idx < end; ++array_idx) {
+        if (null_map && (*null_map)[array_idx]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+            continue;
+        }
         checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
-        nested_serde->write_column_to_arrow(nested_data, null_map, nested_builder,
+        nested_serde->write_column_to_arrow(nested_data, nullptr, nested_builder,
                                             offsets[array_idx - 1], offsets[array_idx]);
     }
 }

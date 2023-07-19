@@ -306,7 +306,7 @@ public class PlanReceiver implements AbstractReceiver {
             }
             hasGenerated.add(groupExpression);
 
-            // process child first
+            // process child first, plan's child may be changed due to mergeGroup
             Plan physicalPlan = groupExpression.getPlan();
             for (Group child : groupExpression.children()) {
                 makeLogicalExpression(child);
@@ -316,12 +316,12 @@ public class PlanReceiver implements AbstractReceiver {
             if (physicalPlan instanceof PhysicalProject) {
                 PhysicalProject physicalProject = (PhysicalProject) physicalPlan;
                 logicalPlan = new LogicalProject<>(physicalProject.getProjects(),
-                        physicalProject.child(0));
+                        new GroupPlan(groupExpression.child(0)));
             } else if (physicalPlan instanceof AbstractPhysicalJoin) {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
                         physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
-                        physicalJoin.child(0), physicalJoin.child(1));
+                        groupExpression.children().stream().map(g -> new GroupPlan(g)).collect(Collectors.toList()));
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }

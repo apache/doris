@@ -196,15 +196,17 @@ void ColumnStruct::update_hashes_with_value(std::vector<SipHash>& hashes,
     SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
-void ColumnStruct::update_xxHash_with_value(size_t n, uint64_t& hash) const {
+void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                            const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_xxHash_with_value(n, hash);
+        column->update_xxHash_with_value(start, end, hash, nullptr);
     }
 }
 
-void ColumnStruct::update_crc_with_value(size_t n, uint64_t& crc) const {
+void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                         const uint8_t* __restrict null_data) const {
     for (const auto& column : columns) {
-        column->update_crc_with_value(n, crc);
+        column->update_crc_with_value(start, end, hash, nullptr);
     }
 }
 
@@ -292,18 +294,12 @@ ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
     return ColumnStruct::create(new_columns);
 }
 
-void ColumnStruct::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                             size_t begin, int count_sz) const {
-    size_t col_size = count_sz < 0 ? size() : count_sz;
-    if (0 == col_size) {
-        return;
-    }
-
+void ColumnStruct::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnStruct&>(column);
     res.columns.resize(columns.size());
 
     for (size_t i = 0; i != columns.size(); ++i) {
-        columns[i]->replicate(counts, target_size, *res.columns[i], begin, count_sz);
+        columns[i]->replicate(indexs, target_size, *res.columns[i]);
     }
 }
 

@@ -140,22 +140,6 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannelMgr::open_partition(const OpenPartitionRequest& params) {
-    UniqueId load_id(params.id());
-    std::shared_ptr<LoadChannel> channel;
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _load_channels.find(load_id);
-        if (it != _load_channels.end()) {
-            channel = it->second;
-        } else {
-            return Status::InternalError("unknown load id, load id=" + load_id.to_string());
-        }
-    }
-    RETURN_IF_ERROR(channel->open_partition(params));
-    return Status::OK();
-}
-
 static void dummy_deleter(const CacheKey& key, void* value) {}
 
 Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
@@ -371,10 +355,11 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                     continue;
                 }
                 all_writers_mem.emplace_back(kv.second, item.first, std::move(item.second));
-                size_t pos = all_writers_mem.size() - 1;
-                tablets_mem_heap.emplace(std::get<2>(all_writers_mem[pos]).begin(),
-                                         std::get<2>(all_writers_mem[pos]).end(), pos);
             }
+        }
+        for (size_t i = 0; i < all_writers_mem.size(); i++) {
+            tablets_mem_heap.emplace(std::get<2>(all_writers_mem[i]).begin(),
+                                     std::get<2>(all_writers_mem[i]).end(), i);
         }
 
         // reduce 1/10 memory every time
@@ -394,7 +379,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                 break;
             }
             tablets_mem_heap.pop();
-            if (std::get<0>(tablet_mem_item)++ != std::get<1>(tablet_mem_item)) {
+            if (++std::get<0>(tablet_mem_item) != std::get<1>(tablet_mem_item)) {
                 tablets_mem_heap.push(tablet_mem_item);
             }
         }

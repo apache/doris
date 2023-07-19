@@ -86,6 +86,8 @@ suite("test_external_catalog_hive", "p2") {
         sql """ use tpch_1000_orc; """
         q03()
 
+        // test #21598
+        qt_pr21598 """select count(*) from( (SELECT r_regionkey AS key1, r_name AS name, pday AS pday FROM (SELECT r_regionkey, r_name, replace(r_comment, ' ', 'aaaa') AS pday FROM ${catalog_name}.tpch_1000_parquet.region) t2))x;"""
 
         // test remember last used database after switch / rename catalog
         sql """switch ${catalog_name};"""

@@ -122,8 +122,8 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
-        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
-        return Status::Error<INTERNAL_ERROR>();
+        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
+                                             tablet->full_name());
     }
 
     if (stats_output != nullptr) {
@@ -254,8 +254,8 @@ Status Merger::vertical_compact_one_group(
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
-        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
-        return Status::Error<INTERNAL_ERROR>();
+        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
+                                             tablet->full_name());
     }
 
     if (is_key && stats_output != nullptr) {
@@ -299,8 +299,8 @@ Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType rea
         block.clear_column_data();
     }
     if (StorageEngine::instance()->stopped()) {
-        LOG(INFO) << "tablet " << tablet->full_name() << "failed to do compaction, engine stopped";
-        return Status::Error<INTERNAL_ERROR>();
+        return Status::Error<INTERNAL_ERROR>("tablet {} failed to do compaction, engine stopped",
+                                             tablet->full_name());
     }
 
     if (is_key && stats_output != nullptr) {

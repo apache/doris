@@ -22,8 +22,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -35,19 +36,19 @@ import java.util.Optional;
 /**
  * Logical scan for external jdbc catalog and jdbc table.
  */
-public class LogicalJdbcScan extends LogicalRelation {
+public class LogicalJdbcScan extends LogicalCatalogRelation {
 
     /**
      * Constructor for LogicalJdbcScan.
      */
-    public LogicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier,
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_JDBC_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
     }
 
-    public LogicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier) {
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty());
     }
 
@@ -68,19 +69,18 @@ public class LogicalJdbcScan extends LogicalRelation {
 
     @Override
     public LogicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
+        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
             Optional.of(getLogicalProperties()));
     }
 
     @Override
-    public LogicalJdbcScan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
-            logicalProperties);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalJdbcScan(this, context);
     }
-
 }

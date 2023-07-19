@@ -106,8 +106,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// memory mode
-// performance or compact
+// performance moderate or or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -165,6 +164,10 @@ DECLARE_mString(process_full_gc_size);
 // used memory and the exec_mem_limit will be canceled.
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
+
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
+DECLARE_mBool(disable_memory_gc);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
@@ -354,6 +357,12 @@ DECLARE_Bool(disable_storage_row_cache);
 DECLARE_String(pk_storage_page_cache_limit);
 // data page size for primary key index
 DECLARE_Int32(primary_key_data_page_size);
+
+// inc_rowset snapshot rs sweep time interval
+DECLARE_mInt32(data_page_cache_stale_sweep_time_sec);
+DECLARE_mInt32(index_page_cache_stale_sweep_time_sec);
+// great impact on the performance of MOW, so it can be longer.
+DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
@@ -965,10 +974,10 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 
 // inverted index searcher cache
-// cache entry stay time after lookup, default 1h
+// cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 // cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DECLARE_mInt32(index_cache_entry_no_visit_gc_time_s);
+DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -1045,6 +1054,13 @@ DECLARE_Int32(rocksdb_max_write_buffer_number);
 
 // Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
 DECLARE_mBool(allow_invalid_decimalv2_literal);
+// the max expiration time of kerberos ticket.
+// If a hdfs filesytem with kerberos authentication live longer
+// than this time, it will be expired.
+DECLARE_mInt64(kerberos_expiration_time_seconds);
+
+// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
+DECLARE_mString(get_stack_trace_tool);
 
 #ifdef BE_TEST
 // test s3

@@ -67,6 +67,13 @@ public class AggStateType extends DataType {
         return result;
     }
 
+    /**
+     * check the left agg state type can be cast to the right.
+     */
+    public static boolean canCastTo(AggStateType lhs, AggStateType rhs) {
+        throw new UnsupportedOperationException("currently cast for agg_state type is unsupported");
+    }
+
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(t -> t.toCatalogDataType()).collect(Collectors.toList());

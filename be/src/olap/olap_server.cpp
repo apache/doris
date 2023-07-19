@@ -1216,6 +1216,11 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
                                            bool is_recovery) {
     if (!is_recovery) {
         TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
+                      << tablet_id;
+            return;
+        }
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
@@ -1259,7 +1264,6 @@ void StorageEngine::_async_publish_callback() {
                 if (!tablet) {
                     LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
                                  << tablet_id;
-                    // TODO(liaoxin) remove pending publish info from db
                     tablet_iter = _async_publish_tasks.erase(tablet_iter);
                     continue;
                 }

@@ -179,4 +179,9 @@ public class Histogram {
         Bucket lastBucket = buckets.get(buckets.size() - 1);
         return lastBucket.preSum + lastBucket.count;
     }
+
+    @Override
+    public String toString() {
+        return serializeToJson(this);
+    }
 }

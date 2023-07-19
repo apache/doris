@@ -46,6 +46,7 @@ public class ExplainCommand extends Command implements NoForward {
         REWRITTEN_PLAN(true),
         OPTIMIZED_PLAN(true),
         SHAPE_PLAN(true),
+        MEMO_PLAN(true),
         ALL_PLAN(true)
         ;
 

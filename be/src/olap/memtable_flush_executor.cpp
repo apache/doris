@@ -26,6 +26,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/memtable.h"
+#include "olap/rowset/rowset_writer.h"
+#include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 
@@ -35,21 +37,23 @@ using namespace ErrorCode;
 class MemtableFlushTask final : public Runnable {
 public:
     MemtableFlushTask(FlushToken* flush_token, std::unique_ptr<MemTable> memtable,
-                      int64_t submit_task_time)
+                      int32_t segment_id, int64_t submit_task_time)
             : _flush_token(flush_token),
               _memtable(std::move(memtable)),
+              _segment_id(segment_id),
               _submit_task_time(submit_task_time) {}
 
     ~MemtableFlushTask() override = default;
 
     void run() override {
-        _flush_token->_flush_memtable(_memtable.get(), _submit_task_time);
+        _flush_token->_flush_memtable(_memtable.get(), _segment_id, _submit_task_time);
         _memtable.reset();
     }
 
 private:
     FlushToken* _flush_token;
     std::unique_ptr<MemTable> _memtable;
+    int32_t _segment_id;
     int64_t _submit_task_time;
 };
 
@@ -66,10 +70,14 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     auto s = _flush_status.load();
     if (s != OK) {
-        return Status::Error(s);
+        return Status::Error(s, "FlushToken meet error");
+    }
+    if (mem_table->empty()) {
+        return Status::OK();
     }
     int64_t submit_task_time = MonotonicNanos();
-    auto task = std::make_shared<MemtableFlushTask>(this, std::move(mem_table), submit_task_time);
+    auto task = std::make_shared<MemtableFlushTask>(
+            this, std::move(mem_table), _rowset_writer->allocate_segment_id(), submit_task_time);
     _stats.flush_running_count++;
     return _flush_token->submit(std::move(task));
 }
@@ -81,10 +89,30 @@ void FlushToken::cancel() {
 Status FlushToken::wait() {
     _flush_token->wait();
     auto s = _flush_status.load();
-    return s == OK ? Status::OK() : Status::Error(s);
+    return s == OK ? Status::OK() : Status::Error(s, "FlushToken meet error");
 }
 
-void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
+Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
+                  << ", memsize: " << memtable->memory_usage()
+                  << ", rows: " << memtable->stat().raw_rows;
+    int64_t duration_ns;
+    SCOPED_RAW_TIMER(&duration_ns);
+    std::unique_ptr<vectorized::Block> block = memtable->to_block();
+    {
+        SCOPED_CONSUME_MEM_TRACKER(memtable->flush_mem_tracker());
+        SKIP_MEMORY_CHECK(RETURN_IF_ERROR(
+                _rowset_writer->flush_memtable(block.get(), segment_id, flush_size)));
+    }
+    _memtable_stat += memtable->stat();
+    DorisMetrics::instance()->memtable_flush_total->increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    VLOG_CRITICAL << "after flush memtable for tablet: " << memtable->tablet_id()
+                  << ", flushsize: " << *flush_size;
+    return Status::OK();
+}
+
+void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t submit_task_time) {
     uint64_t flush_wait_time_ns = MonotonicNanos() - submit_task_time;
     _stats.flush_wait_time_ns += flush_wait_time_ns;
     // If previous flush has failed, return directly
@@ -95,7 +123,10 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
     MonotonicStopWatch timer;
     timer.start();
     size_t memory_usage = memtable->memory_usage();
-    Status s = memtable->flush();
+
+    int64_t flush_size;
+    Status s = _do_flush_memtable(memtable, segment_id, &flush_size);
+
     if (!s) {
         LOG(WARNING) << "Flush memtable failed with res = " << s;
         // If s is not ok, ignore the code, just use other code is ok
@@ -109,12 +140,12 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
                   << "(ns), flush memtable cost: " << timer.elapsed_time()
                   << "(ns), running count: " << _stats.flush_running_count
                   << ", finish count: " << _stats.flush_finish_count
-                  << ", mem size: " << memory_usage << ", disk size: " << memtable->flush_size();
+                  << ", mem size: " << memory_usage << ", disk size: " << flush_size;
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_running_count--;
     _stats.flush_size_bytes += memtable->memory_usage();
-    _stats.flush_disk_size_bytes += memtable->flush_size();
+    _stats.flush_disk_size_bytes += flush_size;
 }
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
@@ -135,30 +166,31 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
-Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* flush_token,
-                                                 RowsetTypePB rowset_type, bool should_serial,
+Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>& flush_token,
+                                                 RowsetWriter* rowset_writer, bool should_serial,
                                                  bool is_high_priority) {
     if (!is_high_priority) {
-        if (rowset_type == BETA_ROWSET && !should_serial) {
+        if (rowset_writer->type() == BETA_ROWSET && !should_serial) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-            flush_token->reset(
+            flush_token.reset(
                     new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
         } else {
             // alpha rowset do not support flush in CONCURRENT.
-            flush_token->reset(
+            flush_token.reset(
                     new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     } else {
-        if (rowset_type == BETA_ROWSET && !should_serial) {
+        if (rowset_writer->type() == BETA_ROWSET && !should_serial) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-            flush_token->reset(new FlushToken(
+            flush_token.reset(new FlushToken(
                     _high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
         } else {
             // alpha rowset do not support flush in CONCURRENT.
-            flush_token->reset(new FlushToken(
+            flush_token.reset(new FlushToken(
                     _high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     }
+    flush_token->set_rowset_writer(rowset_writer);
     return Status::OK();
 }
 

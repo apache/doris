@@ -35,16 +35,17 @@ under the License.
 ### example
 
 ```
-mysql> select bitmap_count(bitmap_not(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4'))) cnt;
-+------+
-| cnt  |
-+------+
-|    0 |
-+------+
+mysql> select bitmap_to_string(bitmap_not(bitmap_from_string('2,3'),bitmap_from_string('1,2,3,4')));
++----------------------------------------------------------------------------------------+
+| bitmap_to_string(bitmap_not(bitmap_from_string('2,3'), bitmap_from_string('1,2,3,4'))) |
++----------------------------------------------------------------------------------------+
+|                                                                                        |
++----------------------------------------------------------------------------------------+
+1 row in set (0.01 sec)
 
 mysql> select bitmap_to_string(bitmap_not(bitmap_from_string('2,3,5'),bitmap_from_string('1,2,3,4')));
 +----------------------------------------------------------------------------------------+
-| bitmap_to_string(bitmap_xor(bitmap_from_string('2,3,5'), bitmap_from_string('1,2,3,4'))) |
+| bitmap_to_string(bitmap_not(bitmap_from_string('2,3,5'), bitmap_from_string('1,2,3,4'))) |
 +----------------------------------------------------------------------------------------+
 | 5                                                                                      |
 +----------------------------------------------------------------------------------------+

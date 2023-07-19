@@ -37,6 +37,7 @@ import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
@@ -71,6 +72,7 @@ import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
@@ -159,6 +161,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -224,6 +227,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -241,7 +245,6 @@ import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -308,7 +311,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
-        return withExplain(plan, ctx.explain());
+        return withExplain(withOutFile(plan, ctx.outFileClause()), ctx.explain());
     }
 
     @Override
@@ -332,7 +335,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitUpdate(UpdateContext ctx) {
         LogicalPlan query = withCheckPolicy(new UnboundRelation(
-                RelationUtil.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
+                StatementScopeIdGenerator.newRelationId(), visitMultipartIdentifier(ctx.tableName)));
         query = withTableAlias(query, ctx.tableAlias());
         if (ctx.fromClause() != null) {
             query = withRelations(query, ctx.fromClause().relation());
@@ -351,7 +354,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
         List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
         LogicalPlan query = withTableAlias(withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableName)), ctx.tableAlias());
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName)), ctx.tableAlias());
         if (ctx.USING() != null) {
             query = withRelations(query, ctx.relation());
         }
@@ -579,7 +582,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         LogicalPlan checkedRelation = withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart, relationHints));
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
+                        tableId, partitionNames, isTempPart, relationHints));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -610,7 +614,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 String value = parseTVFPropertyItem(argument.value);
                 map.put(key, value);
             }
-            LogicalPlan relation = new UnboundTVFRelation(RelationUtil.newRelationId(),
+            LogicalPlan relation = new UnboundTVFRelation(StatementScopeIdGenerator.newRelationId(),
                     functionName, new TVFProperties(map.build()));
             return withTableAlias(relation, ctx.tableAlias());
         });
@@ -677,7 +681,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException(e.getMessage(), ctx);
             }
         }
-        return literal;
+        return literal.alias(ctx.getText());
     }
 
     @Override
@@ -1054,7 +1058,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String functionName = ctx.functionIdentifier().getText();
+            String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
 
@@ -1082,7 +1086,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
             } else {
-                UnboundFunction function = new UnboundFunction(functionName, isDistinct, params);
+                String dbName = null;
+                if (ctx.functionIdentifier().dbName != null) {
+                    dbName = ctx.functionIdentifier().dbName.getText();
+                }
+                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
                 if (ctx.windowSpec() != null) {
                     if (isDistinct) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
@@ -1427,6 +1435,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         });
     }
 
+    private LogicalPlan withOutFile(LogicalPlan plan, OutFileClauseContext ctx) {
+        if (ctx == null) {
+            return plan;
+        }
+        String format = "csv";
+        if (ctx.format != null) {
+            format = ctx.format.getText();
+        }
+        Map<String, String> properties = Maps.newHashMap();
+        for (TvfPropertyContext argument : ctx.properties) {
+            String key = parseConstant(argument.key.constant());
+            String value = parseConstant(argument.value.constant());
+            properties.put(key, value);
+        }
+        Literal filePath = (Literal) visit(ctx.filePath);
+        return new LogicalFileSink<>(filePath.getStringValue(), format, properties, plan);
+    }
+
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
         if (ctx == null) {
             return inputPlan;
@@ -1463,7 +1489,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return ParserUtils.withOrigin(selectCtx, () -> {
             // fromClause does not exists.
             List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-            return new UnboundOneRowRelation(RelationUtil.newRelationId(), projects);
+            return new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(), projects);
         });
     }
 
@@ -1856,10 +1882,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private String parseTVFPropertyItem(TvfPropertyItemContext item) {
         if (item.constant() != null) {
-            Object constant = visit(item.constant());
-            if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
-                return ((Literal) constant).getStringValue();
-            }
+            return parseConstant(item.constant());
         }
         return item.getText();
     }
@@ -1882,6 +1905,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (planTypeContext.SHAPE() != null) {
             return ExplainLevel.SHAPE_PLAN;
+        }
+        if (planTypeContext.MEMO() != null) {
+            return ExplainLevel.MEMO_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
     }
@@ -1909,5 +1935,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         throw new ParseException("Unsupported function with order expressions" + ctx.getText(), ctx);
+    }
+
+    private String parseConstant(ConstantContext context) {
+        Object constant = visit(context);
+        if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
+            return ((Literal) constant).getStringValue();
+        }
+        return context.getText();
     }
 }

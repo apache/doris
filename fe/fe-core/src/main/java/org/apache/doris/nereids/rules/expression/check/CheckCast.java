@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -46,6 +47,8 @@ public class CheckCast extends AbstractExpressionRewriteRule {
     private boolean check(DataType originalType, DataType targetType) {
         if (originalType.isArrayType() && targetType.isArrayType()) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
+        } else if (originalType.isAggStateType() && targetType.isAggStateType()) {
+            return AggStateType.canCastTo(((AggStateType) originalType), ((AggStateType) targetType));
         } else if (originalType.isMapType()) {
             // TODO support map cast check when we support map
             return false;
@@ -59,20 +62,16 @@ public class CheckCast extends AbstractExpressionRewriteRule {
 
     /**
      * forbid this original and target type
-     *   1. boolean to date, datev2, datetime, datetimev2
-     *   2. original type is object type
-     *   3. target type is object type
-     *   4. original type is same with target type
-     *   5. target type is null type
+     *   1. original type is object type
+     *   2. target type is object type
+     *   3. original type is same with target type
+     *   4. target type is null type
      */
     private boolean checkPrimitiveType(DataType originalType, DataType targetType) {
         if (!originalType.isPrimitive() || !targetType.isPrimitive()) {
             return false;
         }
         if (originalType.equals(targetType)) {
-            return false;
-        }
-        if (originalType.isBooleanType() && targetType.isDateLikeType()) {
             return false;
         }
         if (originalType.isNullType()) {

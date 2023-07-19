@@ -26,6 +26,8 @@
 #include "common/status.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
 
@@ -88,7 +90,7 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                        arrow::ArrayBuilder* array_builder, int start,
                                        int end) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
@@ -99,6 +101,20 @@ public:
 protected:
     bool _return_object_as_string = false;
 };
+
+/// Invert values since Arrow interprets 1 as a non-null value, while doris as a null
+inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start, size_t end) {
+    NullMap res;
+    if (!null_bytemap) {
+        return res;
+    }
+
+    res.reserve(end - start);
+    for (size_t i = start; i < end; ++i) {
+        res.emplace_back(!(*null_bytemap)[i]);
+    }
+    return res;
+}
 
 inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
                              const std::string& format_name) {

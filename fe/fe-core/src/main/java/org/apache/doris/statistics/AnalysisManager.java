@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeDBStmt;
+import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.DropAnalyzeJobStmt;
@@ -162,6 +163,14 @@ public class AnalysisManager extends Daemon implements Writable {
 
     public void createAnalysisJobs(AnalyzeDBStmt analyzeDBStmt, boolean proxy) throws DdlException {
         DatabaseIf<TableIf> db = analyzeDBStmt.getDb();
+        List<AnalysisInfo> analysisInfos = buildAnalysisInfosForDB(db, analyzeDBStmt.getAnalyzeProperties());
+        if (!analyzeDBStmt.isSync()) {
+            sendJobId(analysisInfos, proxy);
+        }
+    }
+
+    public List<AnalysisInfo> buildAnalysisInfosForDB(DatabaseIf<TableIf> db, AnalyzeProperties analyzeProperties)
+            throws DdlException {
         List<TableIf> tbls = db.getTables();
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         db.readLock();
@@ -171,9 +180,9 @@ public class AnalysisManager extends Daemon implements Writable {
                 if (table instanceof View) {
                     continue;
                 }
-                TableName tableName = new TableName(analyzeDBStmt.getCtlIf().getName(), db.getFullName(),
+                TableName tableName = new TableName(db.getCatalog().getName(), db.getFullName(),
                         table.getName());
-                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeDBStmt.getAnalyzeProperties(), tableName,
+                AnalyzeTblStmt analyzeTblStmt = new AnalyzeTblStmt(analyzeProperties, tableName,
                         table.getBaseSchema().stream().map(
                                 Column::getName).collect(
                                 Collectors.toList()), db.getId(), table);
@@ -187,13 +196,10 @@ public class AnalysisManager extends Daemon implements Writable {
             for (AnalyzeTblStmt analyzeTblStmt : analyzeStmts) {
                 analysisInfos.add(buildAndAssignJob(analyzeTblStmt));
             }
-            if (!analyzeDBStmt.isSync()) {
-                sendJobId(analysisInfos, proxy);
-            }
         } finally {
             db.readUnlock();
         }
-
+        return analysisInfos;
     }
 
     // Each analyze stmt corresponding to an analysis job.
@@ -245,7 +251,7 @@ public class AnalysisManager extends Daemon implements Writable {
     }
 
     // Analysis job created by the system
-    public void createAnalysisJob(AnalysisInfo info) throws DdlException {
+    public void createSystemAnalysisJob(AnalysisInfo info) throws DdlException {
         AnalysisInfo jobInfo = buildAnalysisJobInfo(info);
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
@@ -258,11 +264,6 @@ public class AnalysisManager extends Daemon implements Writable {
         if (!jobInfo.jobType.equals(JobType.SYSTEM)) {
             persistAnalysisJob(jobInfo);
             analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-        }
-        try {
-            updateTableStats(jobInfo);
-        } catch (Throwable e) {
-            LOG.warn("Failed to update Table statistics in job: {}", info.toString());
         }
 
         analysisTaskInfos.values().forEach(taskScheduler::schedule);
@@ -622,6 +623,13 @@ public class AnalysisManager extends Daemon implements Writable {
                 logCreateAnalysisJob(job);
             } else {
                 job.state = AnalysisState.FINISHED;
+                if (job.jobType.equals(JobType.SYSTEM)) {
+                    try {
+                        updateTableStats(job);
+                    } catch (Throwable e) {
+                        LOG.warn("Failed to update Table statistics in job: {}", info.toString());
+                    }
+                }
                 logCreateAnalysisJob(job);
             }
             analysisJobIdToTaskMap.remove(job.jobId);
@@ -711,6 +719,9 @@ public class AnalysisManager extends Daemon implements Writable {
         StatisticsRepository.dropStatistics(tblId, cols);
         for (String col : cols) {
             Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+        }
+        if (dropStatsStmt.dropTableRowCount()) {
+            StatisticsRepository.dropExternalTableStatistics(tblId);
         }
     }
 

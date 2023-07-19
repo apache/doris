@@ -22,12 +22,18 @@ import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
 import org.apache.avro.Schema.Field;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
+import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class HudiUtils {
+    private static final SimpleDateFormat defaultDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+
     public static String fromAvroHudiTypeToHiveTypeString(Schema avroSchema) {
         Schema.Type columnType = avroSchema.getType();
         LogicalType logicalType = avroSchema.getLogicalType();
@@ -65,6 +71,9 @@ public class HudiUtils {
                     int scale = ((LogicalTypes.Decimal) logicalType).getScale();
                     return String.format("decimal(%s,%s)", precision, scale);
                 } else {
+                    if (columnType == Schema.Type.BYTES) {
+                        return "binary";
+                    }
                     return "string";
                 }
             case ARRAY:
@@ -162,5 +171,33 @@ public class HudiUtils {
                 break;
         }
         return Type.UNSUPPORTED;
+    }
+
+    /**
+     * Convert different query instant time format to the commit time format.
+     * Currently we support three kinds of instant time format for time travel query:
+     * 1、yyyy-MM-dd HH:mm:ss
+     * 2、yyyy-MM-dd
+     * This will convert to 'yyyyMMdd000000'.
+     * 3、yyyyMMddHHmmss
+     */
+    public static String formatQueryInstant(String queryInstant) throws ParseException {
+        int instantLength = queryInstant.length();
+        if (instantLength == 19 || instantLength == 23) { // for yyyy-MM-dd HH:mm:ss[.SSS]
+            if (instantLength == 19) {
+                queryInstant += ".000";
+            }
+            return HoodieInstantTimeGenerator.getInstantForDateString(queryInstant);
+        } else if (instantLength == HoodieInstantTimeGenerator.SECS_INSTANT_ID_LENGTH
+                || instantLength == HoodieInstantTimeGenerator.MILLIS_INSTANT_ID_LENGTH) { // for yyyyMMddHHmmss[SSS]
+            HoodieActiveTimeline.parseDateFromInstantTime(queryInstant); // validate the format
+            return queryInstant;
+        } else if (instantLength == 10) { // for yyyy-MM-dd
+            return HoodieActiveTimeline.formatDate(defaultDateFormat.parse(queryInstant));
+        } else {
+            throw new IllegalArgumentException("Unsupported query instant time format: " + queryInstant
+                    + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
+                    + "or 'yyyy-MM-dd' or 'yyyyMMddHHmmss[SSS]'");
+        }
     }
 }

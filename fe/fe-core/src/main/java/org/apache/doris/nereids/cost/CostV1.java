@@ -105,7 +105,7 @@ class CostV1 implements Cost {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(cost).append("[").append((long) cpuCost).append("/")
+        sb.append("[").append((long) cpuCost).append("/")
                 .append((long) memoryCost).append("/").append((long) networkCost)
                 .append("/").append((long) penalty).append("]");
         return sb.toString();

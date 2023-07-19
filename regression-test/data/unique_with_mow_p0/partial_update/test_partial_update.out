@@ -3,3 +3,11 @@
 1	doris	200	123	1
 2	doris2	400	223	1
 
+-- !partial_update_in_one_stream_load --
+1	doris	444	123	1
+2	doris2	555	223	1
+
+-- !partial_update_in_one_stream_load --
+1	doris	1111	123	1
+2	doris2	2222	223	1
+

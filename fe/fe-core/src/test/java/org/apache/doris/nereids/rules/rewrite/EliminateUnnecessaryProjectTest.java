@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.IntegerType;
@@ -59,7 +60,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
-                .applyTopDown(new EliminateUnnecessaryProject())
+                .customRewrite(new EliminateUnnecessaryProject())
                 .matchesFromRoot(logicalFilter(logicalProject()));
     }
 
@@ -70,7 +71,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
-                .applyTopDown(new EliminateUnnecessaryProject())
+                .customRewrite(new EliminateUnnecessaryProject())
                 .matchesFromRoot(logicalOlapScan());
     }
 
@@ -81,19 +82,20 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), necessaryProject)
-                .applyTopDown(new EliminateUnnecessaryProject())
+                .customRewrite(new EliminateUnnecessaryProject())
                 .matchesFromRoot(logicalProject());
     }
 
     @Test
     void testEliminateProjectWhenEmptyRelationChild() {
-        LogicalPlan unnecessaryProject = new LogicalPlanBuilder(new LogicalEmptyRelation(ImmutableList.of(
-                new SlotReference("k1", IntegerType.INSTANCE),
-                new SlotReference("k2", IntegerType.INSTANCE))))
+        LogicalPlan unnecessaryProject = new LogicalPlanBuilder(new LogicalEmptyRelation(new RelationId(1),
+                ImmutableList.of(
+                        new SlotReference("k1", IntegerType.INSTANCE),
+                        new SlotReference("k2", IntegerType.INSTANCE))))
                 .project(ImmutableList.of(1, 0))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), unnecessaryProject)
-                .applyTopDown(new EliminateUnnecessaryProject())
+                .customRewrite(new EliminateUnnecessaryProject())
                 .matchesFromRoot(logicalEmptyRelation());
     }
 

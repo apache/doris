@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -96,6 +97,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
      * ******************************************************************************************** */
 
     @Override
+    public PhysicalProperties visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, PlanContext context) {
+        return PhysicalProperties.GATHER;
+    }
+
+    @Override
     public PhysicalProperties visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink,
             PlanContext context) {
         return PhysicalProperties.GATHER;
@@ -114,7 +120,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalCTEConsumer(
             PhysicalCTEConsumer cteConsumer, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 0);
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.MUST_SHUFFLE;
     }
 
     @Override
@@ -345,7 +351,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             for (int j = 0; j < setOperation.getChildOutput(i).size(); j++) {
                 int offset = distributionSpecHash.getExprIdToEquivalenceSet()
                         .getOrDefault(setOperation.getChildOutput(i).get(j).getExprId(), -1);
-                if (offset > 0) {
+                if (offset >= 0) {
                     offsetsOfCurrentChild[offset] = j;
                 } else {
                     return PhysicalProperties.ANY;

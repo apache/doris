@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
@@ -86,7 +88,7 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .map(e -> e.accept(this, context)).collect(Collectors.toList()));
 
         // bind function
-        FunctionRegistry functionRegistry = context.cascadesContext.getConnectContext().getFunctionRegistry();
+        FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
         String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
@@ -103,9 +105,15 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                     .accept(this, context);
         }
 
-        FunctionBuilder builder = functionRegistry.findFunctionBuilder(functionName, arguments);
+        FunctionBuilder builder = functionRegistry.findFunctionBuilder(unboundFunction.getDbName(),
+                functionName, arguments);
         BoundFunction boundFunction = builder.build(functionName, arguments);
-        return TypeCoercionUtils.processBoundFunction(boundFunction);
+        if (builder instanceof AliasUdfBuilder) {
+            // we do type coercion in build function in alias function, so it's ok to return directly.
+            return boundFunction;
+        } else {
+            return TypeCoercionUtils.processBoundFunction(boundFunction);
+        }
     }
 
     /**
