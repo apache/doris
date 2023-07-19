@@ -28,12 +28,12 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
@@ -44,8 +44,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -119,17 +117,6 @@ public class PlanEqualsTest {
                 new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
                 new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
                 left, right);
-        Assertions.assertNotEquals(unexpected, actual);
-    }
-
-    @Test
-    public void testLogicalOlapScan() {
-        LogicalOlapScan actual = PlanConstructor.newLogicalOlapScanWithSameId(0, "table", 0);
-
-        LogicalOlapScan expected = PlanConstructor.newLogicalOlapScanWithSameId(0, "table", 0);
-        Assertions.assertEquals(expected, actual);
-
-        LogicalOlapScan unexpected = PlanConstructor.newLogicalOlapScanWithSameId(1, "table", 0);
         Assertions.assertNotEquals(unexpected, actual);
     }
 
@@ -250,24 +237,25 @@ public class PlanEqualsTest {
             @Mocked LogicalProperties logicalProperties,
             @Mocked OlapTable olapTable,
             @Mocked DistributionSpecHash distributionSpecHash) {
+
         List<Long> selectedTabletId = Lists.newArrayList();
         for (Partition partition : olapTable.getAllPartitions()) {
             selectedTabletId.addAll(partition.getBaseIndex().getTabletIdsInOrder());
         }
 
-        ObjectId id = RelationUtil.newRelationId();
+        RelationId id = StatementScopeIdGenerator.newRelationId();
 
         PhysicalOlapScan actual = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
-                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties);
 
         PhysicalOlapScan expected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("a"),
-                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                1L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties);
         Assertions.assertEquals(expected, actual);
 
         PhysicalOlapScan unexpected = new PhysicalOlapScan(id, olapTable, Lists.newArrayList("b"),
-                olapTable.getBaseIndexId(), selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
+                12345L, selectedTabletId, olapTable.getPartitionIds(), distributionSpecHash,
                 PreAggStatus.on(), ImmutableList.of(), Optional.empty(), logicalProperties);
         Assertions.assertNotEquals(unexpected, actual);
     }

@@ -19,9 +19,6 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.CTEContext;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
@@ -261,17 +258,6 @@ public class Memo {
                 : Optional.empty();
 
         return planWithChildren.withGroupExpression(groupExpression);
-    }
-
-    /**
-     * Utility function to create a new {@link CascadesContext} with this Memo.
-     */
-    public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(null, this, statementContext, PhysicalProperties.ANY);
-    }
-
-    public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(null, this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
