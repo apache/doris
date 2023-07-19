@@ -478,7 +478,8 @@ public class Coordinator {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
+                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port),
+                        ctxs.getInstanceNumber());
             }
         } else {
             for (BackendExecStates states : beToExecStates.values()) {
@@ -842,7 +843,8 @@ public class Coordinator {
                     PipelineExecContexts ctxs = beToPipelineExecCtxs.get(pipelineExecContext.backend.getId());
                     if (ctxs == null) {
                         ctxs = new PipelineExecContexts(pipelineExecContext.backend.getId(),
-                                pipelineExecContext.brpcAddress, twoPhaseExecution);
+                                pipelineExecContext.brpcAddress, twoPhaseExecution,
+                                entry.getValue().getFragmentNumOnHost());
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
                     }
                     ctxs.addContext(pipelineExecContext);
@@ -2996,15 +2998,22 @@ public class Coordinator {
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         ScopedSpan scopedSpan = new ScopedSpan();
+        int instanceNumber;
 
-        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
+        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
+                int instanceNumber) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
+            this.instanceNumber = instanceNumber;
         }
 
         public void addContext(PipelineExecContext ctx) {
             this.ctxs.add(ctx);
+        }
+
+        public int getInstanceNumber() {
+            return instanceNumber;
         }
 
         /**
