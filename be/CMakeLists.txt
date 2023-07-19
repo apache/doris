@@ -254,8 +254,10 @@ set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/li
 add_library(jemalloc_arrow STATIC IMPORTED)
 set_target_properties(jemalloc_arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
 
-add_library(libunwind STATIC IMPORTED)
-set_target_properties(libunwind PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libunwind.a)
+if (USE_UNWIND)
+    add_library(libunwind STATIC IMPORTED)
+    set_target_properties(libunwind PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libunwind.a)
+endif()
 
 add_library(brotlicommon STATIC IMPORTED)
 set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
@@ -803,7 +805,6 @@ set(COMMON_THIRDPARTY
     fmt
     jemalloc
     jemalloc_arrow
-    libunwind
     brotlicommon
     brotlidec
     brotlienc
@@ -892,6 +893,10 @@ endif()
 
 if (WITH_MYSQL)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} mysql)
+endif()
+
+if (USE_UNWIND)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} libunwind)
 endif()
 
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} orc)

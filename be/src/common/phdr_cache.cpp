@@ -18,7 +18,9 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/base/phdr_cache.cpp
 // and modified by Doris
 
+#if defined(__clang__)
 #pragma clang diagnostic ignored "-Wreserved-identifier"
+#endif
 
 /// This code was based on the code by Fedor Korotkiy https://www.linkedin.com/in/fedor-korotkiy-659a1838/
 

@@ -22,6 +22,7 @@
 
 #if defined(__ELF__) && !defined(__FreeBSD__)
 
+#include <assert.h>
 #include <common/elf.h>
 #include <common/multi_version.h>
 

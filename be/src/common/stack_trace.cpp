@@ -46,12 +46,14 @@ namespace {
 /// But we use atomic just in case, so it is possible to be modified at runtime.
 std::atomic<bool> show_addresses = true;
 
+#if defined(__ELF__) && !defined(__FreeBSD__)
 void writePointerHex(const void* ptr, std::stringstream& buf) {
     buf.write("0x", 2);
     char hex_str[2 * sizeof(ptr)];
     doris::vectorized::write_hex_uint_lowercase(reinterpret_cast<uintptr_t>(ptr), hex_str);
     buf.write(hex_str, 2 * sizeof(ptr));
 }
+#endif
 
 bool shouldShowAddress(const void* addr) {
     /// If the address is less than 4096, most likely it is a nullptr dereference with offset,

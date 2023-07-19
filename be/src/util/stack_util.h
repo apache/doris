@@ -48,8 +48,8 @@ std::string get_stack_trace_by_glibc();
 
 // use StackTraceCache, PHDRCache speed up, is customizable and has some optimizations.
 // TODO:
-//  1. currently support `linux __x86_64__, __APPLE__, __arm__, __powerpc__`, not supported `__FreeBSD__`
-//     Note: `__APPLE__, __arm__, __powerpc__` not been verified
+//  1. currently support linux __x86_64__, __arm__, __powerpc__, not supported __FreeBSD__, APPLE
+//     Note: __arm__, __powerpc__ not been verified
 //  2. Support signal handle
 //  3. libunwid support unw_backtrace for jemalloc
 //  4. Use of undefined compile option USE_MUSL for later
