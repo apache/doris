@@ -19,10 +19,18 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -30,7 +38,8 @@ import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Maps;
 
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.concurrent.GuardedBy;
@@ -42,29 +51,31 @@ public class StatementContext {
 
     private ConnectContext connectContext;
 
+    @GuardedBy("this")
+    private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
+
     private OriginStatement originStatement;
+    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the plan is command, create a
+    // LogicalPlanAdapter with the logical plan in the command.
+    private StatementBase parsedStatement;
+    private ColumnAliasGenerator columnAliasGenerator;
 
     private int maxNAryInnerJoin = 0;
-
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
 
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
-
     private final IdGenerator<ObjectId> objectIdGenerator = ObjectId.createGenerator();
-
+    private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
 
-    @GuardedBy("this")
-    private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
-
-    // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the plan is command, create a
-    // LogicalPlanAdapter with the logical plan in the command.
-    private StatementBase parsedStatement;
-
-    private Set<String> columnNames;
-
-    private ColumnAliasGenerator columnAliasGenerator;
+    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
+    private final Map<CTEId, Set<NamedExpression>> cteIdToProjects = new HashMap<>();
+    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<CTEId, Set<RelationId>> cteIdToConsumerUnderProjects = new HashMap<>();
+    // Used to update consumer's stats
+    private final Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
+    private final Map<CTEId, LogicalPlan> rewrittenCtePlan = new HashMap<>();
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
@@ -91,7 +102,7 @@ public class StatementContext {
         return originStatement;
     }
 
-    public void setMaxNArayInnerJoin(int maxNAryInnerJoin) {
+    public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
         if (maxNAryInnerJoin > this.maxNAryInnerJoin) {
             this.maxNAryInnerJoin = maxNAryInnerJoin;
         }
@@ -129,6 +140,10 @@ public class StatementContext {
         return objectIdGenerator.getNextId();
     }
 
+    public RelationId getNextRelationId() {
+        return relationIdGenerator.getNextId();
+    }
+
     public void setParsedStatement(StatementBase parsedStatement) {
         this.parsedStatement = parsedStatement;
     }
@@ -143,17 +158,9 @@ public class StatementContext {
         return supplier.get();
     }
 
-    public Set<String> getColumnNames() {
-        return columnNames == null ? new HashSet<>() : columnNames;
-    }
-
-    public void setColumnNames(Set<String> columnNames) {
-        this.columnNames = columnNames;
-    }
-
     public ColumnAliasGenerator getColumnAliasGenerator() {
         return columnAliasGenerator == null
-            ? columnAliasGenerator = new ColumnAliasGenerator(this)
+            ? columnAliasGenerator = new ColumnAliasGenerator()
             : columnAliasGenerator;
     }
 
@@ -163,5 +170,29 @@ public class StatementContext {
 
     public StatementBase getParsedStatement() {
         return parsedStatement;
+    }
+
+    public Map<CTEId, Set<LogicalCTEConsumer>> getCteIdToConsumers() {
+        return cteIdToConsumers;
+    }
+
+    public Map<CTEId, Set<NamedExpression>> getCteIdToProjects() {
+        return cteIdToProjects;
+    }
+
+    public Map<RelationId, Set<Expression>> getConsumerIdToFilters() {
+        return consumerIdToFilters;
+    }
+
+    public Map<CTEId, Set<RelationId>> getCteIdToConsumerUnderProjects() {
+        return cteIdToConsumerUnderProjects;
+    }
+
+    public Map<CTEId, List<Pair<Map<Slot, Slot>, Group>>> getCteIdToConsumerGroup() {
+        return cteIdToConsumerGroup;
+    }
+
+    public Map<CTEId, LogicalPlan> getRewrittenCtePlan() {
+        return rewrittenCtePlan;
     }
 }

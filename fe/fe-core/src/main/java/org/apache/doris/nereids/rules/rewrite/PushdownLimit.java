@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -134,7 +135,8 @@ public class PushdownLimit implements RewriteRuleFactory {
                         }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
                 logicalLimit(logicalOneRowRelation())
                         .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
-                                ? limit.child() : new LogicalEmptyRelation(limit.child().getOutput()))
+                                ? limit.child() : new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
+                                limit.child().getOutput()))
                         .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
                 logicalLimit(logicalEmptyRelation())
                         .then(UnaryNode::child)

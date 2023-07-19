@@ -22,7 +22,8 @@ import org.apache.doris.catalog.OlapTable;
 import java.util.List;
 
 /** OlapScan */
-public interface OlapScan extends Scan {
+public interface OlapScan {
+
     OlapTable getTable();
 
     long getSelectedIndexId();
@@ -39,10 +40,10 @@ public interface OlapScan extends Scan {
         }
 
         OlapTable olapTable = getTable();
-        Integer selectTabletNumInPartitions = getSelectedPartitionIds().stream()
-                .map(partitionId -> olapTable.getPartition(partitionId))
+        int selectTabletNumInPartitions = getSelectedPartitionIds().stream()
+                .map(olapTable::getPartition)
                 .map(partition -> partition.getDistributionInfo().getBucketNum())
-                .reduce((b1, b2) -> b1 + b2)
+                .reduce(Integer::sum)
                 .orElse(0);
         if (selectTabletNumInPartitions > 0) {
             return selectTabletNumInPartitions;
@@ -52,7 +53,7 @@ public interface OlapScan extends Scan {
         return olapTable.getAllPartitions()
                 .stream()
                 .map(partition -> partition.getDistributionInfo().getBucketNum())
-                .reduce((b1, b2) -> b1 + b2)
+                .reduce(Integer::sum)
                 .orElse(0);
     }
 }
