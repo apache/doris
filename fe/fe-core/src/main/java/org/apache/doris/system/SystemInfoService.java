@@ -558,13 +558,13 @@ public class SystemInfoService {
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 // first time empty, retry with different storage medium
-                if (beIds.isEmpty()) {
+                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     policy = builder.setStorageMedium(storageMedium).build();
                     beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 }
                 // after retry different storage medium, it's still empty
-                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
+                if (beIds.isEmpty()) {
                     LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
                             + ", replication num: " + entry.getValue()
