@@ -93,6 +93,7 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_active_threads, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
 
 std::string to_load_error_http_path(const std::string& file_name) {
@@ -329,12 +330,15 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
 
     REGISTER_HOOK_METRIC(fragment_thread_pool_queue_size,
                          [this]() { return _thread_pool->get_queue_size(); });
+    REGISTER_HOOK_METRIC(fragment_thread_pool_active_threads,
+                         [this]() { return _thread_pool->num_active_threads(); });
     CHECK(s.ok()) << s.to_string();
 }
 
 FragmentMgr::~FragmentMgr() {
     DEREGISTER_HOOK_METRIC(plan_fragment_count);
     DEREGISTER_HOOK_METRIC(fragment_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(fragment_thread_pool_active_threads);
     _stop_background_threads_latch.count_down();
     if (_cancel_thread) {
         _cancel_thread->join();

@@ -211,6 +211,7 @@ public:
     UIntGauge* download_cache_thread_pool_thread_num;
     UIntGauge* download_cache_thread_pool_queue_size;
     UIntGauge* fragment_thread_pool_queue_size;
+    UIntGauge* fragment_thread_pool_active_threads;
 
     // Upload metrics
     UIntGauge* upload_total_byte;
