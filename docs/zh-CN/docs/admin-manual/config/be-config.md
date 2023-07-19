@@ -973,7 +973,7 @@ BaseCompaction:546859:
 
 #### `memtable_mem_tracker_refresh_interval_ms`
 
-* 描述：memtable主动下刷时刷新内存统计的睡眠时间
+* 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
 * 默认值：100
 
 #### `download_cache_buffer_size`
