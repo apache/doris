@@ -23,11 +23,14 @@ import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class S3ClientBEProperties {
+    private static final Logger LOG = LogManager.getLogger(S3ClientBEProperties.class);
 
     /**
      *  convert FE properties to BE S3 client properties
@@ -35,8 +38,10 @@ public class S3ClientBEProperties {
      */
     public static Map<String, String> getBeFSProperties(Map<String, String> properties) {
         if (properties.containsKey(MinioProperties.ENDPOINT)) {
-            // minio does not have region, use an arbitrary one.
-            properties.put(MinioProperties.REGION, "us-east-1");
+            if (!properties.containsKey(MinioProperties.REGION)) {
+                LOG.warn("Region has not set, use default s3 region: 'us-east-1'.");
+                properties.put(MinioProperties.REGION, "us-east-1");
+            }
             return getBeAWSPropertiesFromS3(S3Properties.prefixToS3(properties));
         } else if (properties.containsKey(S3Properties.ENDPOINT)) {
             // s3,oss,cos,obs use this.
