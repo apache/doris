@@ -103,6 +103,8 @@ public:
         _query_statistics = statistics;
     }
 
+    virtual bool can_write() { return true; }
+
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().

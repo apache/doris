@@ -63,7 +63,8 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _field_idx(-1),
           _is_materialized(tdesc.isMaterialized),
           _is_key(tdesc.is_key),
-          _need_materialize(tdesc.need_materialize) {}
+          _need_materialize(tdesc.need_materialize),
+          _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false) {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -78,7 +79,8 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
-          _need_materialize(true) {}
+          _need_materialize(true),
+          _is_auto_increment(pdesc.is_auto_increment()) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
@@ -94,6 +96,7 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
+    pslot->set_is_auto_increment(_is_auto_increment);
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {

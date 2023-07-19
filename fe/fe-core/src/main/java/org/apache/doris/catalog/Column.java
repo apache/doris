@@ -508,6 +508,7 @@ public class Column implements Writable, GsonPostProcessable {
 
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
+        tColumn.setIsAutoIncrement(this.isAutoInc);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);

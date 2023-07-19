@@ -25,16 +25,22 @@
 #include <fmt/format.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -42,12 +48,18 @@
 #include <unordered_map>
 #include <utility>
 
+#ifdef __x86_64__
+#include <immintrin.h>
+#endif
+
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
+#include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -66,6 +78,7 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -86,6 +99,7 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -986,6 +1000,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
+    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
+                                        _state->batch_size());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
@@ -1114,6 +1130,10 @@ void VOlapTableSink::_send_batch_process() {
     }
 }
 
+bool VOlapTableSink::can_write() {
+    return !_block_convertor->is_waiting_for_autoinc_ids();
+}
+
 size_t VOlapTableSink::get_pending_bytes() const {
     size_t mem_consumption = 0;
     for (const auto& index_channel : _channels) {
@@ -1213,7 +1233,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            state, input_block, block, _output_vexpr_ctxs, has_filtered_rows));
+            state, input_block, block, _output_vexpr_ctxs, rows, eos, has_filtered_rows));
 
     // clear and release the references of columns
     input_block->clear();
