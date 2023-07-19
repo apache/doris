@@ -24,7 +24,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -368,7 +367,6 @@ public class ConnectProcessor {
                 .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
                 .setSqlHash(ctx.getSqlHash());
 
-        Exception nereidsParseException = null;
         List<StatementBase> stmts = null;
 
         if (ctx.getSessionVariable().isEnableNereidsPlanner()) {
@@ -384,7 +382,6 @@ public class ConnectProcessor {
                 }
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
-                nereidsParseException = e;
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), originStmt);
             }
