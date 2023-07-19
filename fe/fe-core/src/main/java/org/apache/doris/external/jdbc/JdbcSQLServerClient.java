@@ -63,6 +63,7 @@ public class JdbcSQLServerClient extends JdbcClient {
             }
             case "date":
                 return ScalarType.createDateV2Type();
+            case "timestamp":
             case "datetime":
             case "datetime2":
             case "smalldatetime": {
