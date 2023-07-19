@@ -210,7 +210,7 @@ public class CacheAnalyzer {
         long olapScanNodeSize = scanNodes.stream().filter(node -> node instanceof OlapScanNode).count();
         long hiveScanNodeSize = scanNodes.stream().filter(node -> node instanceof HiveScanNode).count();
         if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
-            LOG.debug("only support olap/hive table or federated query, other types are not supported now, "
+            LOG.debug("only support olap/hive table with non-federated query, other types are not supported now, "
                         + "queryId {}", DebugUtil.printId(queryId));
             return CacheMode.None;
         }
