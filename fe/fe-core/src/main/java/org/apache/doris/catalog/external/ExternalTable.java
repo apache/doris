@@ -78,14 +78,17 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected ExternalCatalog catalog;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
-    // -1: table has not been initialized
-    // 0: table has just been initialized
-    // >0: current table version
-    protected long version = -1L;
-
-    // -1: table has not been initialized
-    // >0: current version time
-    protected long versionTime = -1L;
+    /**
+     * version:
+     *  -1: table has not been initialized
+     *  0: table has just been initialized
+     *  >0: current table version
+     *
+     * versionTime:
+     *  -1: table has not been initialized
+     *  >0: current version time
+     * */
+    protected volatile Pair<Long, Long> versionInfo = Pair.of(-1L, -1L);
 
     /**
      * No args constructor for persist.
@@ -317,23 +320,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Pair<Long, Long> getVersionInfo() {
-        readLock();
-        try {
-            return Pair.of(version, versionTime);
-        } finally {
-            readUnlock();
-        }
+        return versionInfo;
     }
 
     public void refreshVersion(long version, long versionTime) {
         if (version != -1L && versionTime != -1L) {
-            writeLock();
-            try {
-                this.version = version;
-                this.versionTime = versionTime;
-            } finally {
-                writeUnlock();
-            }
+            this.versionInfo = Pair.of(version, versionTime);
         }
     }
 
