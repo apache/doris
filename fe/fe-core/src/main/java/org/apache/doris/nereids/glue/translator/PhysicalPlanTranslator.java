@@ -873,7 +873,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanNode planNode = inputFragment.getPlanRoot();
-        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode
+                || planNode instanceof UnionNode || planNode instanceof RepeatNode) {
             // the three nodes don't support conjuncts, need create a SelectNode to filter data
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
             addConjunctsToPlanNode(filter, selectNode, context);
