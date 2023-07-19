@@ -279,8 +279,8 @@ void Daemon::memory_gc_thread() {
 void Daemon::memtable_flush_mgr_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(
-                   config::memtable_flush_mgr_memory_refresh_sleep_time_ms)) &&
+    while (!_stop_background_threads_latch.wait_for(
+                   std::chrono::milliseconds(config::memtable_memory_refresh_interval_ms)) &&
            !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
             doris::ExecEnv::GetInstance()->memtable_flush_mgr()->refresh_mem_tracker();

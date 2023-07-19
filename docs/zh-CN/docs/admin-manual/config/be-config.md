@@ -971,7 +971,7 @@ BaseCompaction:546859:
 * 描述：是否使用mmap分配内存
 * 默认值：false
 
-#### `memtable_flush_mgr_memory_refresh_sleep_time_ms`
+#### `memtable_memory_refresh_interval_ms`
 
 * 描述：memtable主动下刷时刷新内存统计的睡眠时间
 * 默认值：100
