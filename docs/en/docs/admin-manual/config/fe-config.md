@@ -1563,7 +1563,7 @@ Whether it is a configuration item unique to the Master FE node: true
 
 The maximum number of threads in the data synchronization job thread pool. There is only one thread pool in the entire FE, which is used to process all data synchronization tasks in the FE that send data to the BE. The implementation of the thread pool is in the `SyncTaskPool` class.
 
-Default: 10
+Default: `64*1024*1024` (64M)
 
 Is it possible to dynamically configure: false
 
