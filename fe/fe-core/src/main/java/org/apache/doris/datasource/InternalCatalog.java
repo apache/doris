@@ -2138,6 +2138,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 ColocateGroupSchema groupSchema = Env.getCurrentColocateIndex().getGroupSchema(fullGroupName);
                 if (groupSchema != null) {
                     // group already exist, check if this table can be added to this group
+                    // because this is creating olap table, the partition has not been created at this time,
+                    // we only need to check whether the table conforms to the colocate group specification.
                     groupSchema.checkColocateSchema(olapTable, false);
                     groupSchema.checkDynamicPartition(properties, olapTable.getDefaultDistributionInfo());
                 }
