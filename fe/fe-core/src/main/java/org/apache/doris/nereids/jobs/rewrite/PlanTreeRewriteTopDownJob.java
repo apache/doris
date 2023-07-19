@@ -21,6 +21,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 
 import java.util.List;
 import java.util.Objects;
@@ -59,7 +60,10 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
             for (int i = children.size() - 1; i >= 0; i--) {
                 RewriteJobContext childRewriteJobContext = new RewriteJobContext(
                         children.get(i), newRewriteJobContext, i, false);
-                pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, rules));
+                // NOTICE: this relay on pull up cte anchor
+                if (!(rewriteJobContext.plan instanceof LogicalCTEAnchor)) {
+                    pushJob(new PlanTreeRewriteTopDownJob(childRewriteJobContext, context, rules));
+                }
             }
         } else {
             // All the children part are already visited. Just link the children plan to the current node.

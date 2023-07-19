@@ -19,13 +19,13 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -33,14 +33,13 @@ import org.apache.doris.statistics.Statistics;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 /**
  * Physical jdbc scan for external catalog.
  */
-public class PhysicalJdbcScan extends PhysicalRelation {
+public class PhysicalJdbcScan extends PhysicalCatalogRelation {
 
     private final TableIf table;
     private final DistributionSpec distributionSpec;
@@ -49,7 +48,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalJdbcScan.
      */
-    public PhysicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier, DistributionSpec distributionSpec,
+    public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier, DistributionSpec distributionSpec,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, Set<Expression> conjuncts) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, qualifier, groupExpression, logicalProperties);
         this.table = table;
@@ -60,7 +59,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     /**
      * Constructor for PhysicalJdbcScan.
      */
-    public PhysicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier,
+    public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
             Set<Expression> conjuncts) {
@@ -81,37 +80,20 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass() || !super.equals(o)) {
-            return false;
-        }
-        PhysicalJdbcScan that = ((PhysicalJdbcScan) o);
-        return Objects.equals(table, that.table);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id, table);
-    }
-
-    @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitPhysicalJdbcScan(this, context);
     }
 
     @Override
     public PhysicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalJdbcScan(id, table, qualifier, distributionSpec,
+        return new PhysicalJdbcScan(relationId, table, qualifier, distributionSpec,
             groupExpression, getLogicalProperties(), conjuncts);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalJdbcScan(id, table, qualifier, distributionSpec,
+        return new PhysicalJdbcScan(relationId, table, qualifier, distributionSpec,
             groupExpression, logicalProperties.get(), conjuncts);
     }
 
@@ -123,7 +105,7 @@ public class PhysicalJdbcScan extends PhysicalRelation {
     @Override
     public PhysicalJdbcScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                            Statistics statistics) {
-        return new PhysicalJdbcScan(id, table, qualifier, distributionSpec, groupExpression,
+        return new PhysicalJdbcScan(relationId, table, qualifier, distributionSpec, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, conjuncts);
     }
 

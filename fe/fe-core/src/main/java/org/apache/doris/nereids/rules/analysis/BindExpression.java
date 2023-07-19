@@ -484,7 +484,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(project -> bindSlot(project, ImmutableList.of(), ctx.cascadesContext))
                             .map(project -> bindFunction(project, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    return new LogicalOneRowRelation(projects);
+                    return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
@@ -508,27 +508,18 @@ public class BindExpression implements AnalysisRuleFactory {
                     }
                     // we need to do cast before set operation, because we maybe use these slot to do shuffle
                     // so, we must cast it before shuffle to get correct hash code.
-                    List<List<Expression>> castExpressions = setOperation.collectCastExpressions();
+                    List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
                     ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
-                    for (int i = 0; i < castExpressions.size(); i++) {
-                        if (castExpressions.stream().allMatch(SlotReference.class::isInstance)) {
+                    for (int i = 0; i < childrenProjections.size(); i++) {
+                        if (childrenProjections.stream().allMatch(SlotReference.class::isInstance)) {
                             newChildren.add(setOperation.child(i));
                         } else {
-                            List<NamedExpression> projections = castExpressions.get(i).stream()
-                                    .map(e -> {
-                                        if (e instanceof SlotReference) {
-                                            return (SlotReference) e;
-                                        } else {
-                                            return new Alias(e, e.toSql());
-                                        }
-                                    }).collect(ImmutableList.toImmutableList());
-                            LogicalProject<Plan> logicalProject = new LogicalProject<>(projections,
-                                    setOperation.child(i));
-                            newChildren.add(logicalProject);
+                            newChildren.add(new LogicalProject<>(childrenProjections.get(i), setOperation.child(i)));
                         }
                     }
-                    List<NamedExpression> newOutputs = setOperation.buildNewOutputs(castExpressions.get(0));
-                    return setOperation.withNewOutputs(newOutputs).withChildren(newChildren.build());
+                    setOperation = (LogicalSetOperation) setOperation.withChildren(newChildren.build());
+                    List<NamedExpression> newOutputs = setOperation.buildNewOutputs();
+                    return setOperation.withNewOutputs(newOutputs);
                 })
             ),
             RuleType.BINDING_GENERATE_SLOT.build(
@@ -618,7 +609,6 @@ public class BindExpression implements AnalysisRuleFactory {
             .collect(Collectors.toList());
     }
 
-    @SuppressWarnings("unchecked")
     private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext) {
         return bindSlot(expr, input, cascadesContext, true, true);
     }
@@ -700,7 +690,7 @@ public class BindExpression implements AnalysisRuleFactory {
         if (!(function instanceof TableValuedFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getId(), (TableValuedFunction) function);
+        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) function);
     }
 
     private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {

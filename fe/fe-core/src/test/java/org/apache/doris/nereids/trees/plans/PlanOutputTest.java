@@ -20,11 +20,13 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -50,7 +52,7 @@ public class PlanOutputTest {
     @Test
     public void testLazyComputeOutput() {
         // not throw exception when create new UnboundRelation
-        UnboundRelation relationPlan = new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("a"));
+        UnboundRelation relationPlan = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), ImmutableList.of("a"));
 
         try {
             // throw exception when getOutput

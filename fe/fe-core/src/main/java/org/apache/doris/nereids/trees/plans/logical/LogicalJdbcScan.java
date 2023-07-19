@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -40,14 +41,14 @@ import java.util.Set;
 /**
  * Logical scan for external jdbc catalog and jdbc table.
  */
-public class LogicalJdbcScan extends LogicalRelation {
+public class LogicalJdbcScan extends LogicalCatalogRelation {
 
     private final Set<Expression> conjuncts;
 
     /**
      * Constructor for LogicalJdbcScan.
      */
-    public LogicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier,
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties,
                            Set<Expression> conjuncts) {
@@ -56,8 +57,8 @@ public class LogicalJdbcScan extends LogicalRelation {
         this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
     }
 
-    public LogicalJdbcScan(ObjectId id, TableIf table, List<String> qualifier) {
-        this(id, table, qualifier, Optional.empty(), Optional.empty(), ImmutableSet.of());
+    public LogicalJdbcScan(RelationId id, TableIf table, List<String> qualifier) {
+        this(id, table, qualifier, Optional.empty(), Optional.empty(),ImmutableSet.of());
     }
 
     @Override
@@ -77,19 +78,19 @@ public class LogicalJdbcScan extends LogicalRelation {
 
     @Override
     public LogicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
+        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
             Optional.of(getLogicalProperties()), conjuncts);
     }
 
     public LogicalJdbcScan withConjuncts(Set<Expression> conjuncts) {
-        return new LogicalJdbcScan(id, table, qualifier, groupExpression,
+        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression,
             Optional.of(getLogicalProperties()), conjuncts);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalJdbcScan(id, table, qualifier, groupExpression, logicalProperties, conjuncts);
+        return new LogicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties, conjuncts);
     }
 
     @Override

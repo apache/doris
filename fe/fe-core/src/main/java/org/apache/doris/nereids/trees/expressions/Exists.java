@@ -34,11 +34,12 @@ import java.util.Optional;
  * Exists subquery expression.
  */
 public class Exists extends SubqueryExpr implements LeafExpression {
+
     private final boolean isNot;
 
     public Exists(LogicalPlan subquery, boolean isNot) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
-        this.isNot = Objects.requireNonNull(isNot, "isNot can not be null");
+        this.isNot = isNot;
     }
 
     public Exists(LogicalPlan subquery, List<Slot> correlateSlots, boolean isNot) {
@@ -52,7 +53,7 @@ public class Exists extends SubqueryExpr implements LeafExpression {
         super(Objects.requireNonNull(subquery, "subquery can not be null"),
                 Objects.requireNonNull(correlateSlots, "subquery can not be null"),
                 typeCoercionExpr);
-        this.isNot = Objects.requireNonNull(isNot, "isNot can not be null");
+        this.isNot = isNot;
     }
 
     public boolean isNot() {

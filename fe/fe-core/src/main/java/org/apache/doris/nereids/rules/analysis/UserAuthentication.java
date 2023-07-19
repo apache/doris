@@ -27,6 +27,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -37,14 +38,15 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalRelation()
-                .thenApply(ctx -> checkPermission(ctx.root, ctx.connectContext))
+                .when(CatalogRelation.class::isInstance)
+                .thenApply(ctx -> checkPermission((CatalogRelation) ctx.root, ctx.connectContext))
                 .toRule(RuleType.RELATION_AUTHENTICATION);
     }
 
-    private Plan checkPermission(LogicalRelation relation, ConnectContext connectContext) {
+    private Plan checkPermission(CatalogRelation relation, ConnectContext connectContext) {
         // do not check priv when replaying dump file
         if (connectContext.getSessionVariable().isPlayNereidsDump()) {
-            return relation;
+            return null;
         }
         TableIf table = relation.getTable();
         if (table == null) {

@@ -20,6 +20,10 @@ package org.apache.doris.nereids.datasets.tpch;
 public abstract class TPCHTestBase extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
+        // The internal table for TPCHTestBase is constructed in order to facilitate
+        // the execution of certain tests that require the invocation of a deriveStats job.
+        // This deriveStats job is responsible for retrieving statistics from the aforementioned
+        // internal table.
         createDatabase("tpch");
         connectContext.setDatabase("default_cluster:tpch");
         TPCHUtils.createTables(this);
