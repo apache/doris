@@ -237,7 +237,7 @@ public class CacheAnalyzer {
         }
         if (enableSqlCache()
                 && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
-            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+            LOG.debug("sql cache time: {},{},{}", now, latestTable.latestTime,
                     Config.cache_last_version_interval_second * 1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);

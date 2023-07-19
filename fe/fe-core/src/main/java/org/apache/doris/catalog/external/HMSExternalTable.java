@@ -146,7 +146,8 @@ public class HMSExternalTable extends ExternalTable {
             }
             // set version to 0L if table has been initialized
             version = 0L;
-            versionTime = System.nanoTime();
+            // set versionTime to current ts so cache will miss
+            versionTime = System.currentTimeMillis();
             objectCreated = true;
         }
     }

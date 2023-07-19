@@ -645,12 +645,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public void replayRefreshExternalTable(ExternalObjectLog log) {
         Pair<ExternalDatabase, ExternalTable> dbTablePair = getExternalDbTblPair(log);
         if (dbTablePair != null) {
+            ExternalDatabase db = dbTablePair.first;
+            ExternalTable table = dbTablePair.second;
             // no need to refresh table version
             // because `objectCreated` of this table will set to false
-            dbTablePair.second.unsetObjectCreated();
+            table.unsetObjectCreated();
             Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .invalidateTableCache(log.getCatalogId(), dbTablePair.first.getFullName(),
-                                dbTablePair.second.getName());
+                    .invalidateTableCache(log.getCatalogId(), db.getFullName(), table.getName());
         }
     }
 

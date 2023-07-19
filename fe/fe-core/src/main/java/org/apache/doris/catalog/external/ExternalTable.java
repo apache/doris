@@ -84,8 +84,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected volatile long version = -1L;
 
     // -1: table has not been initialized
-    // 0: table has been initialized
-    // >0: event time of hms event
+    // >0: event time of update time (milliseconds)
     protected volatile long versionTime = -1L;
 
     /**

@@ -80,7 +80,7 @@ public class DropPartitionEvent extends MetastorePartitionEvent {
             }
             Env.getCurrentEnv().getCatalogMgr()
                     .dropExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames,
-                                this.getEventId(), this.event.getEventTime(), true);
+                                this.getEventId(), this.event.getEventTime() * 1000, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);
