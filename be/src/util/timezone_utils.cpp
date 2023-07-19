@@ -116,9 +116,10 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
             tz_parsed = cctz::load_time_zone(it->second, &ctz);
         }
         if (tz_parsed) {
-            if (split == std::string::npos) { //TODO: this is a quick fix.
+            if (split == std::string::npos) { // GMT only
                 return true;
             }
+            // GMT+8
             auto tz = (cctz::convert(cctz::civil_second {}, ctz) -
                        cctz::time_point<cctz::seconds>()) -
                       (cctz::convert(cctz::civil_second {}, offset) -
