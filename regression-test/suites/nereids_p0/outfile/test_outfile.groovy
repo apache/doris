@@ -191,7 +191,7 @@ suite("test_outfile") {
         scpFiles ("root", urlHost, csvFiles, outFilePath)
 
         File[] files = path.listFiles()
-        assert files.length == 1 // one is outfile, the other is SUCCESS file
+        assert files.length == 1
         File dataFile = files[0]
         List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8)
         assertEquals(2, outLines.size())
