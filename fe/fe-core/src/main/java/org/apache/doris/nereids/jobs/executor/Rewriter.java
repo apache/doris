@@ -86,6 +86,7 @@ import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.rules.rewrite.SplitLimit;
+import org.apache.doris.nereids.rules.rewrite.TranslateJdbcConjuncts;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAgg;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinAggProject;
 import org.apache.doris.nereids.rules.rewrite.TransposeSemiJoinLogicalJoin;
@@ -262,7 +263,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             //       PhysicalLimits with gather exchange
                             new SplitLimit(),
                             new PruneOlapScanPartition(),
-                            new PruneFileScanPartition()
+                            new PruneFileScanPartition(),
+                            new TranslateJdbcConjuncts()
                     )
             ),
             topic("MV optimization",

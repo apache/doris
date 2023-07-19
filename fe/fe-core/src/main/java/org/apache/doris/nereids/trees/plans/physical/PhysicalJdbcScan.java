@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -30,18 +31,22 @@ import org.apache.doris.statistics.Statistics;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Physical jdbc scan for external catalog.
  */
 public class PhysicalJdbcScan extends PhysicalCatalogRelation {
 
+    private final Set<Expression> conjuncts;
+
     /**
      * Constructor for PhysicalJdbcScan.
      */
     public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, Set<Expression> conjuncts) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, table, qualifier, groupExpression, logicalProperties);
+        this.conjuncts = conjuncts;
     }
 
     /**
@@ -49,9 +54,11 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
      */
     public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            Set<Expression> conjuncts) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, table, qualifier, groupExpression,
                 logicalProperties, physicalProperties, statistics);
+        this.conjuncts = conjuncts;
     }
 
     @Override
@@ -70,19 +77,23 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
 
     @Override
     public PhysicalJdbcScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, getLogicalProperties());
+        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, getLogicalProperties(), conjuncts);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties.get());
+        return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression, logicalProperties.get(), conjuncts);
     }
 
     @Override
     public PhysicalJdbcScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                            Statistics statistics) {
         return new PhysicalJdbcScan(relationId, table, qualifier, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics);
+                getLogicalProperties(), physicalProperties, statistics, conjuncts);
+    }
+
+    public Set<Expression> getConjuncts() {
+        return this.conjuncts;
     }
 }
