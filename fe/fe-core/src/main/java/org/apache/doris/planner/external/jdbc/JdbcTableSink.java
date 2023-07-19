@@ -15,9 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.planner.external.jdbc;
 
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.planner.DataPartition;
+import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
