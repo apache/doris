@@ -219,7 +219,8 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private static class TBatch {
-        public List<TransactionState> states ;
+        public List<TransactionState> states;
+
         public TBatch() {
             this.states = Lists.newLinkedList();
         }
@@ -290,7 +291,9 @@ public class PublishVersionDaemon extends MasterDaemon {
                         publishItem.setRunning(true);
                         result = publishItem;
                         idx = index;
-                        LOG.debug("{} get {} publish transactions. current index : {}/{}", Thread.currentThread().getName(), publishItem.getTables(), idx == 0 ? size - 1 : idx - 1, size);
+                        LOG.debug("{} get {} publish transactions. current index : {}/{}",
+                                Thread.currentThread().getName(), publishItem.getTables(),
+                                idx == 0 ? size - 1 : idx - 1, size);
                         break;
                     }
                     if (index == idx) {
@@ -383,10 +386,10 @@ public class PublishVersionDaemon extends MasterDaemon {
                     Iterator<TransactionState> it = states.iterator();
                     while (it.hasNext()) {
                         TransactionState state = it.next();
-                        LOG.debug("{} get transaction state txn id {} | {}", getName(), state.getTransactionId(), state.getTransactionStatus());
                         tryFinishTransaction(state);
-                        if (state.isVisible() || state.isAborted()){
-                            LOG.debug("{} remove transaction state txn id {} | {}", getName(), state.getTransactionId(), state.getTransactionStatus());
+                        if (state.isVisible() || state.isAborted()) {
+                            LOG.debug("{} remove transaction state txn id {} | {}", getName(),
+                                    state.getTransactionId(), state.getTransactionStatus());
                             it.remove();
                         } else {
                             break;
@@ -536,7 +539,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                 long nanoTime = System.nanoTime();
                 globalTransactionMgr.finishTransaction(transactionState.getDbId(),
                         transactionState.getTransactionId(), publishErrorReplicaIds);
-                LOG.debug("finish transaction {} spent {} ms", transactionState.getTransactionId(), (System.nanoTime() - nanoTime) / 1000000L);
+                LOG.debug("finish transaction {} spent {} ms", transactionState.getTransactionId(),
+                        (System.nanoTime() - nanoTime) / 1000000L);
             } catch (Exception e) {
                 LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
             }
