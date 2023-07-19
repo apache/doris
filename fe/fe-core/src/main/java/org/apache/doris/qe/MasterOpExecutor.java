@@ -197,6 +197,10 @@ public class MasterOpExecutor {
         params.setClientNodeHost(Env.getCurrentEnv().getSelfNode().getHost());
         params.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         params.setSyncJournalOnly(true);
+        // just make the protocol happy
+        params.setDb("");
+        params.setUser("");
+        params.setSql("");
         return params;
     }
 

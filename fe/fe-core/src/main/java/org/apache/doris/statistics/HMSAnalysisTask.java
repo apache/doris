@@ -57,6 +57,25 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
             + "${tblId} AS tbl_id, "
             + "${idxId} AS idx_id, "
             + "'${colId}' AS col_id, "
+            + "NULL AS part_id, "
+            + "COUNT(1) AS row_count, "
+            + "NDV(`${colName}`) AS ndv, "
+            + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
+            + "MIN(`${colName}`) AS min, "
+            + "MAX(`${colName}`) AS max, "
+            + "${dataSizeFunction} AS data_size, "
+            + "NOW() "
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
+
+    private static final String ANALYZE_SQL_PARTITION_TEMPLATE = "INSERT INTO "
+            + "${internalDB}.${columnStatTbl}"
+            + " SELECT "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
+            + "${catalogId} AS catalog_id, "
+            + "${dbId} AS db_id, "
+            + "${tblId} AS tbl_id, "
+            + "${idxId} AS idx_id, "
+            + "'${colId}' AS col_id, "
             + "${partId} AS part_id, "
             + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
@@ -104,7 +123,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         if (isPartitionOnly) {
             for (String partId : partitionNames) {
                 StringBuilder sb = new StringBuilder();
-                sb.append(ANALYZE_TABLE_COUNT_TEMPLATE);
+                sb.append(ANALYZE_SQL_PARTITION_TEMPLATE);
                 sb.append(" where ");
                 String[] splits = partId.split("/");
                 for (int i = 0; i < splits.length; i++) {
@@ -122,7 +141,7 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
                 StatisticsRepository.persistTableStats(params);
             }
         } else {
-            Map<String, String> params = buildTableStatsParams("NULL");
+            Map<String, String> params = buildTableStatsParams(null);
             List<InternalQueryResult.ResultRow> columnResult =
                     StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                     .replace(ANALYZE_TABLE_COUNT_TEMPLATE));
@@ -226,8 +245,11 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
     private Map<String, String> buildTableStatsParams(String partId) {
         Map<String, String> commonParams = new HashMap<>();
         String id = StatisticsUtil.constructId(tbl.getId(), -1);
-        if (!partId.equals("NULL")) {
+        if (partId == null) {
+            commonParams.put("partId", "NULL");
+        } else {
             id = StatisticsUtil.constructId(id, partId);
+            commonParams.put("partId", "\'" + partId + "\'");
         }
         commonParams.put("id", id);
         commonParams.put("catalogId", String.valueOf(catalog.getId()));
@@ -235,7 +257,6 @@ public class HMSAnalysisTask extends BaseAnalysisTask {
         commonParams.put("tblId", String.valueOf(tbl.getId()));
         commonParams.put("indexId", "-1");
         commonParams.put("idxId", "-1");
-        commonParams.put("partId", "\'" + partId + "\'");
         commonParams.put("catalogName", catalog.getName());
         commonParams.put("dbName", db.getFullName());
         commonParams.put("tblName", tbl.getName());

@@ -358,6 +358,12 @@ DECLARE_String(pk_storage_page_cache_limit);
 // data page size for primary key index
 DECLARE_Int32(primary_key_data_page_size);
 
+// inc_rowset snapshot rs sweep time interval
+DECLARE_mInt32(data_page_cache_stale_sweep_time_sec);
+DECLARE_mInt32(index_page_cache_stale_sweep_time_sec);
+// great impact on the performance of MOW, so it can be longer.
+DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
+
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
 
@@ -972,10 +978,10 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 
 // inverted index searcher cache
-// cache entry stay time after lookup, default 1h
+// cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 // cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DECLARE_mInt32(index_cache_entry_no_visit_gc_time_s);
+DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data

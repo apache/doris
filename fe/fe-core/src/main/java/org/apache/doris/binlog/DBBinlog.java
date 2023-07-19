@@ -21,15 +21,17 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TBinlog;
+import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -52,21 +54,74 @@ public class DBBinlog {
     // need UpsertRecord to add timestamps for gc
     private List<Pair<Long, Long>> timestamps;
 
-    public DBBinlog(long dbId) {
+    private List<TBinlog> tableDummyBinlogs;
+
+    public DBBinlog(TBinlog binlog) {
         lock = new ReentrantReadWriteLock();
-        this.dbId = dbId;
+        this.dbId = binlog.getDbId();
+
         // allBinlogs treeset order by commitSeq
-        allBinlogs = new TreeSet<TBinlog>((o1, o2) -> {
-            if (o1.getCommitSeq() < o2.getCommitSeq()) {
-                return -1;
-            } else if (o1.getCommitSeq() > o2.getCommitSeq()) {
-                return 1;
-            } else {
-                return 0;
+        allBinlogs = Sets.newTreeSet(Comparator.comparingLong(TBinlog::getCommitSeq));
+        tableDummyBinlogs = Lists.newArrayList();
+        tableBinlogMap = Maps.newHashMap();
+        timestamps = Lists.newArrayList();
+
+        TBinlog dummy;
+        if (binlog.getType() == TBinlogType.DUMMY) {
+            dummy = binlog;
+        } else {
+            dummy = BinlogUtils.newDummyBinlog(dbId, -1);
+        }
+        allBinlogs.add(dummy);
+    }
+
+    public static DBBinlog recoverDbBinlog(TBinlog dbDummy, List<TBinlog> tableDummies, boolean dbBinlogEnable) {
+        DBBinlog dbBinlog = new DBBinlog(dbDummy);
+        for (TBinlog tableDummy : tableDummies) {
+            long tableId = tableDummy.getBelong();
+            if (!dbBinlogEnable && !BinlogUtils.tableEnabledBinlog(dbBinlog.getDbId(), tableId)) {
+                continue;
             }
-        });
-        tableBinlogMap = new HashMap<Long, TableBinlog>();
-        timestamps = new ArrayList<Pair<Long, Long>>();
+            dbBinlog.tableBinlogMap.put(tableId, new TableBinlog(tableDummy, tableId));
+            dbBinlog.tableDummyBinlogs.add(tableDummy);
+        }
+
+        return dbBinlog;
+    }
+
+    // not thread safety, do this without lock
+    public void recoverBinlog(TBinlog binlog, boolean dbBinlogEnable) {
+        List<Long> tableIds = binlog.getTableIds();
+
+        if (binlog.getTimestamp() > 0 && dbBinlogEnable) {
+            timestamps.add(Pair.of(binlog.getCommitSeq(), binlog.getTimestamp()));
+        }
+
+        allBinlogs.add(binlog);
+
+        if (tableIds == null) {
+            return;
+        }
+
+        for (long tableId : tableIds) {
+            TableBinlog tableBinlog = getTableBinlog(binlog, tableId, dbBinlogEnable);
+            if (tableBinlog == null) {
+                continue;
+            }
+            tableBinlog.recoverBinlog(binlog);
+        }
+    }
+
+    private TableBinlog getTableBinlog(TBinlog binlog, long tableId, boolean dbBinlogEnable) {
+        TableBinlog tableBinlog = tableBinlogMap.get(tableId);
+        if (tableBinlog == null) {
+            if (dbBinlogEnable || BinlogUtils.tableEnabledBinlog(dbId, tableId)) {
+                tableBinlog = new TableBinlog(binlog, tableId);
+                tableBinlogMap.put(tableId, tableBinlog);
+                tableDummyBinlogs.add(tableBinlog.getDummyBinlog());
+            }
+        }
+        return tableBinlog;
     }
 
     public void addBinlog(TBinlog binlog, boolean dbBinlogEnable) {
@@ -83,16 +138,34 @@ public class DBBinlog {
                 return;
             }
 
+            // HACK: for metadata fix
+            if (!binlog.isSetType()) {
+                return;
+            }
+            switch (binlog.getType()) {
+                case CREATE_TABLE:
+                    return;
+                case DROP_TABLE:
+                    return;
+                default:
+                    break;
+            }
+
             for (long tableId : tableIds) {
-                TableBinlog tableBinlog = tableBinlogMap.get(tableId);
-                if (tableBinlog == null) {
-                    tableBinlog = new TableBinlog(tableId);
-                    tableBinlogMap.put(tableId, tableBinlog);
+                TableBinlog tableBinlog = getTableBinlog(binlog, tableId, dbBinlogEnable);
+                if (tableBinlog != null) {
+                    tableBinlog.addBinlog(binlog);
                 }
-                tableBinlog.addBinlog(binlog);
             }
         } finally {
             lock.writeLock().unlock();
+        }
+
+        lock.readLock().lock();
+        try {
+            LOG.info("[deadlinefen] after add, db {} binlogs: {}, dummys: {}", dbId, allBinlogs, tableDummyBinlogs);
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
@@ -100,7 +173,7 @@ public class DBBinlog {
         return dbId;
     }
 
-    public Pair<TStatus, TBinlog> getBinlog(long tableId, long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -110,16 +183,35 @@ public class DBBinlog {
                     status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
                     return Pair.of(status, null);
                 }
-                return tableBinlog.getBinlog(commitSeq);
+                return tableBinlog.getBinlog(prevCommitSeq);
             }
 
-            return BinlogUtils.getBinlog(allBinlogs, commitSeq);
+            return BinlogUtils.getBinlog(allBinlogs, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }
     }
 
-    public List<BinlogTombstone> gc() {
+    public Pair<TStatus, Long> getBinlogLag(long tableId, long prevCommitSeq) {
+        TStatus status = new TStatus(TStatusCode.OK);
+        lock.readLock().lock();
+        try {
+            if (tableId >= 0) {
+                TableBinlog tableBinlog = tableBinlogMap.get(tableId);
+                if (tableBinlog == null) {
+                    status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_TABLE);
+                    return Pair.of(status, null);
+                }
+                return tableBinlog.getBinlogLag(prevCommitSeq);
+            }
+
+            return BinlogUtils.getBinlogLag(allBinlogs, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public BinlogTombstone gc() {
         // check db
         Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
@@ -128,33 +220,55 @@ public class DBBinlog {
         }
 
         boolean dbBinlogEnable = db.getBinlogConfig().isEnable();
+        BinlogTombstone tombstone;
         if (dbBinlogEnable) {
-            // db binlog is enable, only one binlogTombstones
+            // db binlog is enabled, only one binlogTombstones
             long ttlSeconds = db.getBinlogConfig().getTtlSeconds();
-            long currentSeconds = System.currentTimeMillis() / 1000;
-            long expireSeconds = currentSeconds - ttlSeconds;
-            long expireMs = expireSeconds * 1000;
+            long expiredMs = BinlogUtils.getExpiredMs(ttlSeconds);
 
-            BinlogTombstone tombstone = dbBinlogEnableGc(expireMs);
-            List<BinlogTombstone> tombstones = new ArrayList<BinlogTombstone>();
-            if (tombstone != null) {
-                tombstones.add(tombstone);
-            }
-            return tombstones;
+            tombstone = dbBinlogEnableGc(expiredMs);
         } else {
-            return dbBinlogDisableGc(db);
+            tombstone = dbBinlogDisableGc(db);
         }
+
+        return tombstone;
     }
 
-    private List<BinlogTombstone> dbBinlogDisableGc(Database db) {
-        List<BinlogTombstone> tombstones = new ArrayList<BinlogTombstone>();
-        List<TableBinlog> tableBinlogs = null;
+    private BinlogTombstone collectTableTombstone(List<BinlogTombstone> tableTombstones) {
+        if (tableTombstones.isEmpty()) {
+            return null;
+        }
 
-        lock.writeLock().lock();
+        List<Long> tableIds = Lists.newArrayList();
+        long largestExpiredCommitSeq = -1;
+        BinlogTombstone dbTombstone = new BinlogTombstone(dbId, tableIds, -1);
+        for (BinlogTombstone tableTombstone : tableTombstones) {
+            long commitSeq = tableTombstone.getCommitSeq();
+            if (largestExpiredCommitSeq < commitSeq) {
+                largestExpiredCommitSeq = commitSeq;
+            }
+            Map<Long, UpsertRecord.TableRecord> tableVersionMap = tableTombstone.getTableVersionMap();
+            if (tableVersionMap.size() > 1) {
+                LOG.warn("tableVersionMap size is greater than 1. tableVersionMap: {}", tableVersionMap);
+            }
+            tableIds.addAll(tableTombstone.getTableIds());
+            dbTombstone.addTableRecord(tableVersionMap);
+        }
+
+        dbTombstone.setCommitSeq(largestExpiredCommitSeq);
+
+        return dbTombstone;
+    }
+
+    private BinlogTombstone dbBinlogDisableGc(Database db) {
+        List<BinlogTombstone> tombstones = Lists.newArrayList();
+        List<TableBinlog> tableBinlogs;
+
+        lock.readLock().lock();
         try {
-            tableBinlogs = new ArrayList<TableBinlog>(tableBinlogMap.values());
+            tableBinlogs = Lists.newArrayList(tableBinlogMap.values());
         } finally {
-            lock.writeLock().unlock();
+            lock.readLock().unlock();
         }
 
         for (TableBinlog tableBinlog : tableBinlogs) {
@@ -163,70 +277,110 @@ public class DBBinlog {
                 tombstones.add(tombstone);
             }
         }
-        return tombstones;
-    }
+        BinlogTombstone tombstone = collectTableTombstone(tombstones);
+        if (tombstone != null) {
+            removeExpiredMetaData(tombstone.getCommitSeq());
 
-    private BinlogTombstone dbBinlogEnableGc(long expireMs) {
-        // find commitSeq from timestamps, if commitSeq's timestamp is less than expireSeconds, then remove it
-        long largestExpiredCommitSeq = -1;
-        TBinlog tombstoneBinlog = null;
-        List<Long> tableIds = null;
-        List<TableBinlog> tableBinlogs = null;
-
-        lock.writeLock().lock();
-        try {
-            Iterator<Pair<Long, Long>> iterator = timestamps.iterator();
-            while (iterator.hasNext()) {
-                Pair<Long, Long> pair = iterator.next();
-                if (pair.second < expireMs) {
-                    largestExpiredCommitSeq = pair.first;
-                    iterator.remove();
-                } else {
-                    break;
-                }
-            }
-
-            Iterator<TBinlog> binlogIterator = allBinlogs.iterator();
-            while (binlogIterator.hasNext()) {
-                TBinlog binlog = binlogIterator.next();
-                if (binlog.getCommitSeq() <= largestExpiredCommitSeq) {
-                    tombstoneBinlog = binlog;
-                    binlogIterator.remove();
-                } else {
-                    break;
-                }
-            }
-
-            tableIds = new ArrayList<Long>(tableBinlogMap.keySet());
-            tableBinlogs = new ArrayList<TableBinlog>(tableBinlogMap.values());
-        } finally {
-            lock.writeLock().unlock();
-        }
-        LOG.info("gc binlog. dbId: {}, expireMs: {}, largestExpiredCommitSeq: {}",
-                dbId, expireMs, largestExpiredCommitSeq);
-        if (tombstoneBinlog == null) {
-            return null;
-        }
-
-        BinlogTombstone tombstone = new BinlogTombstone(dbId, tableIds, tombstoneBinlog.getCommitSeq());
-        for (TableBinlog tableBinlog : tableBinlogs) {
-            BinlogTombstone binlogTombstone = tableBinlog.gc(largestExpiredCommitSeq);
-            if (binlogTombstone == null) {
-                continue;
-            }
-
-            Map<Long, UpsertRecord.TableRecord> tableVersionMap = binlogTombstone.getTableVersionMap();
-            if (tableVersionMap.size() > 1) {
-                LOG.warn("tableVersionMap size is greater than 1. tableVersionMap: {}", tableVersionMap);
-            }
-            for (Map.Entry<Long, UpsertRecord.TableRecord> entry : tableVersionMap.entrySet()) {
-                long tableId = entry.getKey();
-                UpsertRecord.TableRecord record = entry.getValue();
-                tombstone.addTableRecord(tableId, record);
+            lock.readLock().lock();
+            try {
+                LOG.info("[deadlinefen] after gc, db {} binlogs: {}, tombstone.seq: {}, dummys: {}",
+                        dbId, allBinlogs, tombstone.getCommitSeq(), tableDummyBinlogs);
+            } finally {
+                lock.readLock().unlock();
             }
         }
 
         return tombstone;
+    }
+
+    private void removeExpiredMetaData(long largestExpiredCommitSeq) {
+        lock.writeLock().lock();
+        try {
+            Iterator<TBinlog> binlogIter = allBinlogs.iterator();
+            TBinlog dummy = binlogIter.next();
+            boolean foundFirstUsingBinlog = false;
+            long lastCommitSeq = -1;
+
+            while (binlogIter.hasNext()) {
+                TBinlog binlog = binlogIter.next();
+                long commitSeq = binlog.getCommitSeq();
+                if (commitSeq <= largestExpiredCommitSeq) {
+                    if (binlog.table_ref <= 0) {
+                        binlogIter.remove();
+                        if (!foundFirstUsingBinlog) {
+                            lastCommitSeq = commitSeq;
+                        }
+                    } else {
+                        foundFirstUsingBinlog = true;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if (lastCommitSeq != -1) {
+                dummy.setCommitSeq(lastCommitSeq);
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private BinlogTombstone dbBinlogEnableGc(long expiredMs) {
+        // step 1: get current tableBinlog info and expiredCommitSeq
+        long expiredCommitSeq = -1;
+        lock.readLock().lock();
+        try {
+            Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
+            while (timeIter.hasNext()) {
+                Pair<Long, Long> pair = timeIter.next();
+                if (pair.second <= expiredMs) {
+                    expiredCommitSeq = pair.first;
+                    timeIter.remove();
+                } else {
+                    break;
+                }
+            }
+
+            Iterator<TBinlog> binlogIter = allBinlogs.iterator();
+            TBinlog dummy = binlogIter.next();
+            dummy.setCommitSeq(expiredCommitSeq);
+
+            while (binlogIter.hasNext()) {
+                TBinlog binlog = binlogIter.next();
+                if (binlog.getCommitSeq() <= expiredCommitSeq) {
+                    binlogIter.remove();
+                } else {
+                    break;
+                }
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+
+        if (expiredCommitSeq == -1) {
+            return null;
+        }
+
+        // step 2: gc every tableBinlog in dbBinlog, get table tombstone to complete db tombstone
+        List<BinlogTombstone> tableTombstones = Lists.newArrayList();
+        for (TableBinlog tableBinlog : tableBinlogMap.values()) {
+            // step 2.1: gc tableBinlog，and get table tombstone
+            BinlogTombstone tableTombstone = tableBinlog.gc(expiredCommitSeq);
+            if (tableTombstone != null) {
+                tableTombstones.add(tableTombstone);
+            }
+        }
+
+        lock.readLock().lock();
+        try {
+            LOG.info("[deadlinefen] after gc, db {} binlogs: {}, tombstone.seq: {}, dummys: {}",
+                    dbId, allBinlogs, expiredCommitSeq, tableDummyBinlogs);
+        } finally {
+            lock.readLock().unlock();
+        }
+
+        return collectTableTombstone(tableTombstones);
     }
 
     public void replayGc(BinlogTombstone tombstone) {
@@ -234,6 +388,7 @@ public class DBBinlog {
             dbBinlogEnableReplayGc(tombstone);
         } else {
             dbBinlogDisableReplayGc(tombstone);
+            removeExpiredMetaData(tombstone.getCommitSeq());
         }
     }
 
@@ -242,11 +397,11 @@ public class DBBinlog {
 
         lock.writeLock().lock();
         try {
-            Iterator<Pair<Long, Long>> iterator = timestamps.iterator();
-            while (iterator.hasNext()) {
-                Pair<Long, Long> pair = iterator.next();
-                if (pair.first <= largestExpiredCommitSeq) {
-                    iterator.remove();
+            Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
+            while (timeIter.hasNext()) {
+                long commitSeq = timeIter.next().first;
+                if (commitSeq <= largestExpiredCommitSeq) {
+                    timeIter.remove();
                 } else {
                     break;
                 }
@@ -269,11 +424,11 @@ public class DBBinlog {
     }
 
     public void dbBinlogDisableReplayGc(BinlogTombstone tombstone) {
-        List<TableBinlog> tableBinlogs = null;
+        List<TableBinlog> tableBinlogs;
 
         lock.writeLock().lock();
         try {
-            tableBinlogs = new ArrayList<TableBinlog>(tableBinlogMap.values());
+            tableBinlogs = Lists.newArrayList(tableBinlogMap.values());
         } finally {
             lock.writeLock().unlock();
         }
@@ -282,7 +437,7 @@ public class DBBinlog {
             return;
         }
 
-        Set<Long> tableIds = new HashSet<Long>(tombstone.getTableIds());
+        Set<Long> tableIds = Sets.newHashSet(tombstone.getTableIds());
         long largestExpiredCommitSeq = tombstone.getCommitSeq();
         for (TableBinlog tableBinlog : tableBinlogs) {
             if (tableIds.contains(tableBinlog.getTableId())) {
@@ -293,6 +448,7 @@ public class DBBinlog {
 
     // not thread safety, do this without lock
     public void getAllBinlogs(List<TBinlog> binlogs) {
+        binlogs.addAll(tableDummyBinlogs);
         binlogs.addAll(allBinlogs);
     }
 

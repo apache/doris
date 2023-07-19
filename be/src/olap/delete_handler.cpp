@@ -38,7 +38,6 @@
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;
-using std::numeric_limits;
 using std::vector;
 using std::string;
 using std::stringstream;
@@ -48,8 +47,6 @@ using std::regex_error;
 using std::regex_match;
 using std::smatch;
 
-using google::protobuf::RepeatedPtrField;
-
 namespace doris {
 using namespace ErrorCode;
 
@@ -57,16 +54,16 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
                                                 const std::vector<TCondition>& conditions,
                                                 DeletePredicatePB* del_pred) {
     if (conditions.empty()) {
-        LOG(WARNING) << "invalid parameters for store_cond."
-                     << " condition_size=" << conditions.size();
-        return Status::Error<DELETE_INVALID_PARAMETERS>();
+        return Status::Error<DELETE_INVALID_PARAMETERS>(
+                "invalid parameters for store_cond. condition_size={}", conditions.size());
     }
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
         if (check_condition_valid(schema, condition) != Status::OK()) {
             LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
-            return Status::Error<DELETE_INVALID_CONDITION>();
+            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
+                                                           ThriftDebugString(condition));
         }
     }
 
@@ -101,7 +98,7 @@ std::string DeleteHandler::construct_sub_predicates(const TCondition& condition)
     } else if (op == ">") {
         op += ">";
     }
-    string condition_str = "";
+    string condition_str;
     if ("IS" == op) {
         condition_str = condition.column_name + " " + op + " " + condition.condition_values[0];
     } else {
@@ -172,8 +169,8 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     // Check whether the column exists
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
-        LOG(WARNING) << "field is not existent. [field_index=" << field_index << "]";
-        return Status::Error<DELETE_INVALID_CONDITION>();
+        return Status::Error<DELETE_INVALID_CONDITION>("field is not existent. [field_index={}]",
+                                                       field_index);
     }
 
     // Delete condition should only applied on key columns or duplicate key table, and
@@ -183,24 +180,23 @@ Status DeleteHandler::check_condition_valid(const TabletSchema& schema, const TC
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS) ||
         column.type() == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
         column.type() == FieldType::OLAP_FIELD_TYPE_FLOAT) {
-        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
-                        "is float or double.";
-        return Status::Error<DELETE_INVALID_CONDITION>();
+        return Status::Error<DELETE_INVALID_CONDITION>(
+                "field is not key column, or storage model is not duplicate, or data type is float "
+                "or double.");
     }
 
     // Check operator and operands size are matched.
     if ("*=" != cond.condition_op && "!*=" != cond.condition_op &&
         cond.condition_values.size() != 1) {
-        LOG(WARNING) << "invalid condition value size. [size=" << cond.condition_values.size()
-                     << "]";
-        return Status::Error<DELETE_INVALID_CONDITION>();
+        return Status::Error<DELETE_INVALID_CONDITION>("invalid condition value size. [size={}]",
+                                                       cond.condition_values.size());
     }
 
     // Check each operand is valid
     for (const auto& condition_value : cond.condition_values) {
         if (!is_condition_value_valid(column, cond.condition_op, condition_value)) {
-            LOG(WARNING) << "invalid condition value. [value=" << condition_value << "]";
-            return Status::Error<DELETE_INVALID_CONDITION>();
+            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition value. [value={}]",
+                                                           condition_value);
         }
     }
 
@@ -266,8 +262,8 @@ Status DeleteHandler::init(TabletSchemaSPtr tablet_schema,
         for (const auto& sub_predicate : delete_condition.sub_predicates()) {
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
-                LOG(WARNING) << "fail to parse condition. [condition=" << sub_predicate << "]";
-                return Status::Error<DELETE_INVALID_PARAMETERS>();
+                return Status::Error<DELETE_INVALID_PARAMETERS>(
+                        "fail to parse condition. condition={}", sub_predicate);
             }
             condition.__set_column_unique_id(
                     delete_pred_related_schema->column(condition.column_name).unique_id());

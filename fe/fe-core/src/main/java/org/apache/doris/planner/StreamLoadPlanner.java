@@ -251,7 +251,7 @@ public class StreamLoadPlanner {
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete();
 
@@ -307,12 +307,18 @@ public class StreamLoadPlanner {
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
         params.setQueryGlobals(queryGlobals);
+        params.setTableName(destTable.getName());
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
 
+    // single table plan fragmentInstanceIndex is 1(default value)
     public TPipelineFragmentParams planForPipeline(TUniqueId loadId) throws UserException {
+        return this.planForPipeline(loadId, 1);
+    }
+
+    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
@@ -447,7 +453,7 @@ public class StreamLoadPlanner {
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete();
 
@@ -461,6 +467,7 @@ public class StreamLoadPlanner {
         TPipelineFragmentParams pipParams = new TPipelineFragmentParams();
         pipParams.setProtocolVersion(PaloInternalServiceVersion.V1);
         pipParams.setFragment(fragment.toThrift());
+        pipParams.setFragmentId(fragmentInstanceIdIndex);
 
         pipParams.setDescTbl(analyzer.getDescTbl().toThrift());
         pipParams.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
@@ -470,7 +477,7 @@ public class StreamLoadPlanner {
         pipParams.setNumSenders(1);
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
-        localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + 1));
+        localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
 
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
@@ -504,8 +511,7 @@ public class StreamLoadPlanner {
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
         pipParams.setQueryGlobals(queryGlobals);
-
-        // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
+        pipParams.setTableName(destTable.getName());
         return pipParams;
     }
 

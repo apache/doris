@@ -98,6 +98,10 @@ public class RestoreStmt extends AbstractBackupStmt {
         return jobInfo;
     }
 
+    public void disableDynamicPartition() {
+        setProperty(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, "false");
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (repoName.equals(Repository.KEEP_ON_LOCAL_REPO_NAME)) {

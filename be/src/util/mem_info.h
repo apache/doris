@@ -42,6 +42,8 @@
 
 namespace doris {
 
+class RuntimeProfile;
+
 // Provides the amount of physical memory available.
 // Populated from /proc/meminfo.
 // TODO: Combine mem-info, cpu-info and disk-info into hardware-info/perf_counters ?
@@ -165,13 +167,11 @@ public:
 
     static std::string debug_string();
 
-    static void process_cache_gc(int64_t& freed_mem);
     static bool process_minor_gc();
     static bool process_full_gc();
 
     static int64_t tg_hard_memory_limit_gc();
-
-    static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory);
+    static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory, RuntimeProfile* profile);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.

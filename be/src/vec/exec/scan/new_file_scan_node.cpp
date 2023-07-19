@@ -49,6 +49,12 @@ Status NewFileScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status NewFileScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VScanNode::prepare(state));
+    if (state->get_query_ctx() != nullptr &&
+        state->get_query_ctx()->file_scan_range_params_map.count(id()) > 0) {
+        TFileScanRangeParams& params = state->get_query_ctx()->file_scan_range_params_map[id()];
+        _input_tuple_id = params.src_tuple_id;
+        _output_tuple_id = params.dest_tuple_id;
+    }
     return Status::OK();
 }
 
@@ -74,7 +80,10 @@ void NewFileScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         _scan_ranges.shrink_to_fit();
         LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << _scan_ranges.size();
     }
-    if (scan_ranges.size() > 0) {
+    if (scan_ranges.size() > 0 &&
+        scan_ranges[0].scan_range.ext_scan_range.file_scan_range.__isset.params) {
+        // for compatibility.
+        // in new implement, the tuple id is set in prepare phase
         _input_tuple_id =
                 scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params.src_tuple_id;
         _output_tuple_id =

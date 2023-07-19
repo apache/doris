@@ -166,3 +166,15 @@ CREATE TABLE catalog_pg_test.dt_test (
     ts_field TIMESTAMP(3),
     tzt_field TIMESTAMPTZ(3)
 );
+
+CREATE TABLE catalog_pg_test.json_test (
+    id serial PRIMARY KEY,
+    type varchar(10),
+    value json
+);
+
+CREATE TABLE catalog_pg_test.jsonb_test (
+    id serial PRIMARY KEY,
+    type varchar(10),
+    value jsonb
+);

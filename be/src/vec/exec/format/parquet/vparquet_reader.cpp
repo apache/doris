@@ -213,11 +213,11 @@ Status ParquetReader::_open_file() {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
-        reader_options.modification_time =
+        _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
-                io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
+                _profile, _system_properties, _file_description, reader_options, &_file_system,
+                &_file_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
@@ -269,7 +269,12 @@ Status ParquetReader::open() {
 }
 
 void ParquetReader::_init_system_properties() {
-    _system_properties.system_type = _scan_params.file_type;
+    if (_scan_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _scan_range.file_type;
+    } else {
+        _system_properties.system_type = _scan_params.file_type;
+    }
     _system_properties.properties = _scan_params.properties;
     _system_properties.hdfs_params = _scan_params.hdfs_params;
     if (_scan_params.__isset.broker_addresses) {
@@ -836,15 +841,22 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         auto& statistic = meta_data.statistics;
         bool is_all_null =
                 (statistic.__isset.null_count && statistic.null_count == meta_data.num_values);
-        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min);
+        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min) ||
+                              (statistic.__isset.max_value && statistic.__isset.min_value);
         if ((!is_set_min_max) && (!is_all_null)) {
             continue;
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
-        *filter_group =
-                ParquetPredicate::filter_by_stats(slot_iter->second, col_schema, is_set_min_max,
-                                                  statistic.min, statistic.max, is_all_null, *_ctz);
+        if (statistic.__isset.min_value) {
+            *filter_group = ParquetPredicate::filter_by_stats(
+                    slot_iter->second, col_schema, is_set_min_max, statistic.min_value,
+                    statistic.max_value, is_all_null, *_ctz, true);
+        } else {
+            *filter_group = ParquetPredicate::filter_by_stats(
+                    slot_iter->second, col_schema, is_set_min_max, statistic.min, statistic.max,
+                    is_all_null, *_ctz, false);
+        }
         if (*filter_group) {
             break;
         }

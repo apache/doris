@@ -37,6 +37,7 @@ import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
 import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
 import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
+import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
 import org.apache.doris.nereids.DorisParser.Date_addContext;
@@ -71,6 +72,7 @@ import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
+import org.apache.doris.nereids.DorisParser.OutFileClauseContext;
 import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
@@ -224,6 +226,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -308,7 +311,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitStatementDefault(StatementDefaultContext ctx) {
         LogicalPlan plan = plan(ctx.query());
-        return withExplain(plan, ctx.explain());
+        return withExplain(withOutFile(plan, ctx.outFileClause()), ctx.explain());
     }
 
     @Override
@@ -677,7 +680,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 throw new ParseException(e.getMessage(), ctx);
             }
         }
-        return literal;
+        return literal.alias(ctx.getText());
     }
 
     @Override
@@ -1054,7 +1057,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
-            String functionName = ctx.functionIdentifier().getText();
+            String functionName = ctx.functionIdentifier().functionNameIdentifier().getText();
             boolean isDistinct = ctx.DISTINCT() != null;
             List<Expression> params = visit(ctx.expression(), Expression.class);
 
@@ -1082,7 +1085,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 }
                 throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
             } else {
-                UnboundFunction function = new UnboundFunction(functionName, isDistinct, params);
+                String dbName = null;
+                if (ctx.functionIdentifier().dbName != null) {
+                    dbName = ctx.functionIdentifier().dbName.getText();
+                }
+                UnboundFunction function = new UnboundFunction(dbName, functionName, isDistinct, params);
                 if (ctx.windowSpec() != null) {
                     if (isDistinct) {
                         throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
@@ -1425,6 +1432,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
             return new ExplainCommand(explainLevel, inputPlan);
         });
+    }
+
+    private LogicalPlan withOutFile(LogicalPlan plan, OutFileClauseContext ctx) {
+        if (ctx == null) {
+            return plan;
+        }
+        String format = "csv";
+        if (ctx.format != null) {
+            format = ctx.format.getText();
+        }
+        Map<String, String> properties = Maps.newHashMap();
+        for (TvfPropertyContext argument : ctx.properties) {
+            String key = parseConstant(argument.key.constant());
+            String value = parseConstant(argument.value.constant());
+            properties.put(key, value);
+        }
+        Literal filePath = (Literal) visit(ctx.filePath);
+        return new LogicalFileSink<>(filePath.getStringValue(), format, properties, plan);
     }
 
     private LogicalPlan withQueryOrganization(LogicalPlan inputPlan, QueryOrganizationContext ctx) {
@@ -1856,10 +1881,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private String parseTVFPropertyItem(TvfPropertyItemContext item) {
         if (item.constant() != null) {
-            Object constant = visit(item.constant());
-            if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
-                return ((Literal) constant).getStringValue();
-            }
+            return parseConstant(item.constant());
         }
         return item.getText();
     }
@@ -1882,6 +1904,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         if (planTypeContext.SHAPE() != null) {
             return ExplainLevel.SHAPE_PLAN;
+        }
+        if (planTypeContext.MEMO() != null) {
+            return ExplainLevel.MEMO_PLAN;
         }
         return ExplainLevel.ALL_PLAN;
     }
@@ -1909,5 +1934,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         throw new ParseException("Unsupported function with order expressions" + ctx.getText(), ctx);
+    }
+
+    private String parseConstant(ConstantContext context) {
+        Object constant = visit(context);
+        if (constant instanceof Literal && ((Literal) constant).isStringLikeLiteral()) {
+            return ((Literal) constant).getStringValue();
+        }
+        return context.getText();
     }
 }
