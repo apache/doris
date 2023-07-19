@@ -122,8 +122,7 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(replicaCount);
                 dbInfo.add(replicaQuota);
                 dbInfo.add(transactionQuota);
-                long lastUpdateTime = db.getLastUpdateTime();
-                dbInfo.add(lastUpdateTime > 0 ? TimeUtils.longToTimeString(lastUpdateTime) : "UNRECORDED");
+                dbInfo.add(TimeUtils.longToTimeString(db.getLastUpdateTime()));
             } finally {
                 db.readUnlock();
             }

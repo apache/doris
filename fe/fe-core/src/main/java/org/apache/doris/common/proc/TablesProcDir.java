@@ -129,8 +129,7 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add(FeConstants.null_string);
                     tableInfo.add(replicaCount);
                 }
-                long lastUpdateTime = table.getLastUpdateTime();
-                tableInfo.add(lastUpdateTime > 0 ? TimeUtils.longToTimeString(lastUpdateTime) : "UNRECORDED");
+                tableInfo.add(TimeUtils.longToTimeString(table.getLastUpdateTime()));
                 tableInfos.add(tableInfo);
             } finally {
                 table.readUnlock();
