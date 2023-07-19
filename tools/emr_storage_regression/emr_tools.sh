@@ -1,4 +1,27 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+##############################################################
+# This script is used to test EMR cloud service
+# Usage:
+#    provide your env arguments in default_emr_env.sh
+#    sh emr_tools.sh --case ping --endpoint oss-cn-beijing-internal.aliyuncs.com --region cn-beijing  --service ali --ak ak --sk sk
+##############################################################
 
 set -eo pipefail
 
@@ -18,7 +41,7 @@ Usage: $0 <options>
      --user             doris username, example: user
      --port             doris port, example: 9030
   Example:
-    sh emr_tools.sh --case ping --endpoint dlf-vpc.cn-beijing.aliyuncs.com --region cn-beijing  --service ali --ak ak --sk sk
+    sh emr_tools.sh --case ping --endpoint oss-cn-beijing-internal.aliyuncs.com --region cn-beijing  --service ali --ak ak --sk sk
   "
     exit 1
 }
@@ -48,8 +71,9 @@ while true; do
         PROFILE="$2"
         # can use custom profile: sh emr_tools.sh --profile default_emr_env.sh
         if [[ -n "${PROFILE}" ]]; then
-          # shellcheck source="$(pwd)/default_emr_env.sh"
-          source "${PROFILE}"
+            # example: "$(pwd)/default_emr_env.sh"
+            # shellcheck disable=SC1090
+            source "${PROFILE}"
         fi
         shift 2
         break
@@ -92,7 +116,6 @@ while true; do
         ;;
     -h)
         usage
-        shift
         ;;
     --)
         shift
@@ -111,45 +134,44 @@ export USER=${USER}
 export FE_QUERY_PORT=${PORT}
 
 if [[ ${CASE} == 'ping' ]]; then
-  if [[ ${SERVICE} == 'hw' ]]; then
-    HMS_META_URI="thrift://node-master1rjzj.mrs-dr8h.com:9083,thrift://node-master2rksk.mrs-dr8h.com:9083"
-    BEELINE_URI="jdbc:hive2://192.168.0.8:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2;hive.server2.proxy.user=hive"
-    HMS_WAREHOUSE=obs://datalake-bench/user
-  elif [[ ${SERVICE} == 'ali' ]]; then
-    HMS_META_URI="thrift://172.16.1.162:9083"
-    HMS_WAREHOUSE=oss://benchmark-oss/user
-  else
-    # [[ ${SERVICE} == 'tx' ]];
-    HMS_META_URI="thrift://172.21.0.32:7004"
-    HMS_WAREHOUSE=cosn://datalake-bench-cos-1308700295/user
-  fi
-  sh ping_test/ping_poc.sh "${ENDPOINT}" "${REGION}" "${SERVICE}" "${AK}" "${SK}" "${HMS_META_URI}" "${HMS_WAREHOUSE}" "${BEELINE_URI}"
+    if [[ ${SERVICE} == 'hw' ]]; then
+        HMS_META_URI="thrift://node-master1rjzj.mrs-dr8h.com:9083,thrift://node-master2rksk.mrs-dr8h.com:9083"
+        BEELINE_URI="jdbc:hive2://192.168.0.8:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2;hive.server2.proxy.user=hive"
+        HMS_WAREHOUSE=obs://datalake-bench/user
+    elif [[ ${SERVICE} == 'ali' ]]; then
+        HMS_META_URI="thrift://172.16.1.162:9083"
+        HMS_WAREHOUSE=oss://benchmark-oss/user
+    else
+        # [[ ${SERVICE} == 'tx' ]];
+        HMS_META_URI="thrift://172.21.0.32:7004"
+        HMS_WAREHOUSE=cosn://datalake-bench-cos-1308700295/user
+    fi
+    sh ping_test/ping_poc.sh "${ENDPOINT}" "${REGION}" "${SERVICE}" "${AK}" "${SK}" "${HMS_META_URI}" "${HMS_WAREHOUSE}" "${BEELINE_URI}"
 elif [[ ${CASE} == 'data_set' ]]; then
-  if [[ ${SERVICE} == 'tx' ]]; then
-      BUCKET=cosn://datalake-bench-cos-1308700295
-  elif [[ ${SERVICE} == 'ali' ]]; then
-      BUCKET=oss://benchmark-oss
-  fi
-  # gen table for spark
-  if ! sh stardard_set/gen_spark_create_sql.sh "${BUCKET}" obj; then
-    echo "Fail to generate spark obj table for test set"
-    exit 1
-  fi
-  if ! sh stardard_set/gen_spark_create_sql.sh hdfs:///benchmark-hdfs hdfs; then
-    echo "Fail to generate spark hdfs table for test set, import hdfs data first"
-    exit 1
-  fi
-  
-  # FE_HOST=172.16.1.163
-  # USER=root
-  # PORT=9035
-  TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_hdfs
-  TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms
-  if [[ ${SERVICE} == 'tx' ]]; then
-    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_cos 
-    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_cos
-  elif [[ ${SERVICE} == 'ali' ]]; then
-    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_oss
-    sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_oss
-  fi
+    if [[ ${SERVICE} == 'tx' ]]; then
+        BUCKET=cosn://datalake-bench-cos-1308700295
+    elif [[ ${SERVICE} == 'ali' ]]; then
+        BUCKET=oss://benchmark-oss
+    fi
+    # gen table for spark
+    if ! sh stardard_set/gen_spark_create_sql.sh "${BUCKET}" obj; then
+        echo "Fail to generate spark obj table for test set"
+        exit 1
+    fi
+    if ! sh stardard_set/gen_spark_create_sql.sh hdfs:///benchmark-hdfs hdfs; then
+        echo "Fail to generate spark hdfs table for test set, import hdfs data first"
+        exit 1
+    fi
+    # FE_HOST=172.16.1.163
+    # USER=root
+    # PORT=9035
+    TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_hdfs
+    TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms
+    if [[ ${SERVICE} == 'tx' ]]; then
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_cos
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_cos
+    elif [[ ${SERVICE} == 'ali' ]]; then
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_oss
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_oss
+    fi
 fi
