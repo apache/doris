@@ -421,17 +421,6 @@ public class ConnectProcessor {
             }
 
             StatementBase parsedStmt = stmts.get(i);
-            if (parsedStmt instanceof SelectStmt && nereidsParseException != null
-                    && ctx.getSessionVariable().isEnableNereidsPlanner()
-                    && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
-                Exception exception = new Exception(
-                        String.format("Nereids cannot parse the SQL, and fallback disabled. caused by: \n\n%s",
-                                nereidsParseException.getMessage()), nereidsParseException);
-                // audit it and break
-                handleQueryException(exception, auditStmt, null, null);
-                break;
-            }
-
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
