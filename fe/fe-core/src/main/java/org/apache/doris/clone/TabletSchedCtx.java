@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -102,6 +103,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
 
+    public static final int FINISHED_COUNTER_THRESHOLD = 3;
+
     private static VersionCountComparator VERSION_COUNTER_COMPARATOR = new VersionCountComparator();
 
     public enum Type {
@@ -117,22 +120,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         NORMAL,
         HIGH,
         VERY_HIGH;
-
-        // VERY_HIGH can only be downgraded to NORMAL
-        // LOW can only be upgraded to HIGH
-        public Priority adjust(Priority origPriority, boolean isUp) {
-            switch (this) {
-                case VERY_HIGH:
-                    return isUp ? VERY_HIGH : HIGH;
-                case HIGH:
-                    return isUp ? (origPriority == LOW ? HIGH : VERY_HIGH) : NORMAL;
-                case NORMAL:
-                    return isUp ? HIGH : (origPriority == Priority.VERY_HIGH ? NORMAL : LOW);
-                default:
-                    return isUp ? NORMAL : LOW;
-            }
-        }
-
     }
 
     public enum State {
@@ -147,23 +134,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private Type type;
     private BalanceType balanceType;
 
-    /*
-     * origPriority is the origin priority being set when this tablet being added to scheduler.
-     * dynamicPriority will be set during tablet schedule processing, it will not be prior than origin priority.
-     * And dynamic priority is also used in priority queue compare in tablet scheduler.
-     */
-    private Priority origPriority;
-    private Priority dynamicPriority;
+    private Priority priority;
 
     // we change the dynamic priority based on how many times it fails to be scheduled
     private int failedSchedCounter = 0;
     // clone task failed counter
     private int failedRunningCounter = 0;
+    // When finish a tablet ctx, it will check the tablet's health status.
+    // If the tablet is unhealthy, it will add a new ctx.
+    // The new ctx's finishedCounter = old ctx's finishedCounter + 1.
+    private int finishedCounter = 0;
 
     // last time this tablet being scheduled
     private long lastSchedTime = 0;
-    // last time the dynamic priority being adjusted
-    private long lastAdjustPrioTime = 0;
 
     // last time this tablet being visited.
     // being visited means:
@@ -179,6 +162,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private State state;
     private TabletStatus tabletStatus;
+
+    private long decommissionTime = -1;
 
     private long dbId;
     private long tblId;
@@ -223,6 +208,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
 
+    private SubCode schedFailedCode;
+
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
@@ -236,10 +223,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.state = State.PENDING;
         this.replicaAlloc = replicaAlloc;
         this.balanceType = BalanceType.BE_BALANCE;
+        this.schedFailedCode = SubCode.NONE;
     }
 
     public ReplicaAllocation getReplicaAlloc() {
         return replicaAlloc;
+    }
+
+    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
+        this.replicaAlloc = replicaAlloc;
     }
 
     public void setTag(Tag tag) {
@@ -266,21 +258,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return balanceType;
     }
 
-    public Priority getOrigPriority() {
-        return origPriority;
+    public Priority getPriority() {
+        return priority;
     }
 
-    public void setOrigPriority(Priority origPriority) {
-        this.origPriority = origPriority;
-        // reset dynamic priority along with the origin priority being set.
-        this.dynamicPriority = origPriority;
-        this.failedSchedCounter = 0;
-        this.lastSchedTime = 0;
-        this.lastAdjustPrioTime = 0;
+    public void setPriority(Priority priority) {
+        this.priority = priority;
     }
 
-    public Priority getDynamicPriority() {
-        return dynamicPriority;
+    public int getFinishedCounter() {
+        return finishedCounter;
+    }
+
+    public void setFinishedCounter(int finishedCounter) {
+        this.finishedCounter = finishedCounter;
     }
 
     public void increaseFailedSchedCounter() {
@@ -295,8 +286,27 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         ++failedRunningCounter;
     }
 
-    public int getFailedRunningCounter() {
-        return failedRunningCounter;
+    public boolean isExceedFailedRunningLimit() {
+        return failedRunningCounter >= RUNNING_FAILED_COUNTER_THRESHOLD;
+    }
+
+    public boolean onSchedFailedAndCheckExceedLimit(SubCode code) {
+        schedFailedCode = code;
+        failedSchedCounter++;
+        if (code == SubCode.WAITING_DECOMMISSION) {
+            failedSchedCounter = 0;
+            if (decommissionTime < 0) {
+                decommissionTime = System.currentTimeMillis();
+            }
+            return System.currentTimeMillis() > decommissionTime + 10 * 60 * 1000L;
+        } else {
+            decommissionTime = -1;
+            if (code == SubCode.WAITING_SLOT && type != Type.BALANCE) {
+                return failedSchedCounter > 30 * 1000 / TabletScheduler.SCHEDULE_INTERVAL_MS;
+            } else {
+                return failedSchedCounter > 10;
+            }
+        }
     }
 
     public void setLastSchedTime(long lastSchedTime) {
@@ -309,6 +319,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setFinishedTime(long finishedTime) {
         this.finishedTime = finishedTime;
+    }
+
+    public void setDecommissionTime(long decommissionTime) {
+        this.decommissionTime = decommissionTime;
     }
 
     public State getState() {
@@ -615,7 +629,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             setSrc(srcReplica);
             return;
         }
-        throw new SchedException(Status.SCHEDULE_FAILED, "unable to find source slot");
+        throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                "unable to find source slot");
     }
 
     /*
@@ -641,7 +656,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     public void chooseDestReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
-        Replica chosenReplica = null;
+        List<Replica> candidates = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             if (replica.isBad()) {
                 LOG.debug("replica {} is bad, skip. tablet: {}",
@@ -660,18 +675,37 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // if the replica's state is DECOMMISSION, it may be chose as dest replica,
             // and its state will be set to NORMAL later.
             if (replica.getLastFailedVersion() <= 0
-                    && ((replica.getVersion() == visibleVersion)
-                    || replica.getVersion() > visibleVersion) && replica.getState() != ReplicaState.DECOMMISSION) {
+                    && replica.getVersion() >= visibleVersion
+                    && replica.getState() != ReplicaState.DECOMMISSION) {
                 // skip healthy replica
                 LOG.debug("replica {} version {} is healthy, visible version {}, replica state {}, skip. tablet: {}",
                         replica.getId(), replica.getVersion(), visibleVersion, replica.getState(), tabletId);
                 continue;
             }
 
+            candidates.add(replica);
+        }
+
+        if (candidates.isEmpty()) {
+            throw new SchedException(Status.UNRECOVERABLE, "unable to choose dest replica");
+        }
+
+        Replica chosenReplica = null;
+        for (Replica replica : candidates) {
+            PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+            if (slot == null || !slot.hasAvailableSlot(replica.getPathHash())) {
+                if (!replica.needFurtherRepair()) {
+                    throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                            "replica " + replica + " has not slot");
+                }
+
+                continue;
+            }
+
             if (replica.needFurtherRepair()) {
+                chosenReplica = replica;
                 LOG.debug("replica {} need further repair, choose it. tablet: {}",
                         replica.getId(), tabletId);
-                chosenReplica = replica;
                 break;
             }
 
@@ -686,20 +720,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
 
-        if (chosenReplica == null) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "unable to choose dest replica");
-        }
-
         // check if the dest replica has available slot
+        // it should not happen cause it just check hasAvailableSlot yet.
         PathSlot slot = backendsWorkingSlots.get(chosenReplica.getBackendId());
         if (slot == null) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "backend of dest replica is missing");
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                    "backend of dest replica is missing");
         }
-
         long destPathHash = slot.takeSlot(chosenReplica.getPathHash());
         if (destPathHash == -1) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "unable to take slot of dest path");
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                    "unable to take slot of dest path");
         }
+
         if (chosenReplica.getState() == ReplicaState.DECOMMISSION) {
             // Since this replica is selected as the repair object of VERSION_INCOMPLETE,
             // it means that this replica needs to be able to accept loading data.
@@ -717,6 +750,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // forever, because the replica in the DECOMMISSION state will not receive the load task.
             chosenReplica.setWatermarkTxnId(-1);
             chosenReplica.setState(ReplicaState.NORMAL);
+            setDecommissionTime(-1);
             LOG.info("choose replica {} on backend {} of tablet {} as dest replica for version incomplete,"
                     + " and change state from DECOMMISSION to NORMAL",
                     chosenReplica.getId(), chosenReplica.getBackendId(), tabletId);
@@ -941,7 +975,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     cloneTask.getDbId(), cloneTask.getTableId(), cloneTask.getPartitionId(),
                     cloneTask.getIndexId(), cloneTask.getTabletId(), cloneTask.getBackendId(),
                     dbId, tblId, partitionId, indexId, tablet.getId(), destBackendId);
-            throw new SchedException(Status.RUNNING_FAILED, msg);
+            throw new SchedException(Status.UNRECOVERABLE, msg);
         }
 
         // 1. check the tablet status first
@@ -1041,13 +1075,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
             state = State.FINISHED;
             LOG.info("clone finished: {}", this);
-        } catch (SchedException e) {
-            // if failed to too many times, remove this task
-            ++failedRunningCounter;
-            if (failedRunningCounter > RUNNING_FAILED_COUNTER_THRESHOLD) {
-                throw new SchedException(Status.UNRECOVERABLE, e.getMessage());
-            }
-            throw e;
         } finally {
             olapTable.writeUnlock();
         }
@@ -1059,73 +1086,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (request.isSetCopyTimeMs()) {
             this.copyTimeMs = request.getCopyTimeMs();
         }
-    }
-
-    /*
-     * we try to adjust the priority based on schedule history
-     * 1. If failed counter is larger than FAILED_COUNTER_THRESHOLD, which means this tablet is being scheduled
-     *    at least FAILED_TIME_THRESHOLD times and all are failed. So we downgrade its priority.
-     *    Also reset the failedCounter, or it will be downgraded forever.
-     *
-     * 2. Else, if it has been a long time since last time the tablet being scheduled, we upgrade its
-     *    priority to let it more available to be scheduled.
-     *
-     * The time gap between adjustment should be larger than MIN_ADJUST_PRIORITY_INTERVAL_MS, to avoid
-     * being downgraded too fast.
-     *
-     * eg:
-     *    A tablet has been scheduled for 5 times and all were failed. its priority will be downgraded. And if it is
-     *    scheduled for 5 times and all are failed again, it will be downgraded again, until to the LOW.
-     *    And than, because of LOW, this tablet can not be scheduled for a long time, and it will be upgraded
-     *    to NORMAL, if still not being scheduled, it will be upgraded up to VERY_HIGH.
-     *
-     * return true if dynamic priority changed
-     */
-    public boolean adjustPriority(TabletSchedulerStat stat) {
-        long currentTime = System.currentTimeMillis();
-        if (lastAdjustPrioTime == 0) {
-            // skip the first time we adjust this priority
-            lastAdjustPrioTime = currentTime;
-            return false;
-        } else {
-            if (currentTime - lastAdjustPrioTime < MIN_ADJUST_PRIORITY_INTERVAL_MS) {
-                return false;
-            }
-        }
-
-        boolean isDowngrade = false;
-        boolean isUpgrade = false;
-
-        if (failedSchedCounter > SCHED_FAILED_COUNTER_THRESHOLD) {
-            isDowngrade = true;
-        } else {
-            long lastTime = lastSchedTime == 0 ? createTime : lastSchedTime;
-            if (currentTime - lastTime > MAX_NOT_BEING_SCHEDULED_INTERVAL_MS) {
-                isUpgrade = true;
-            }
-        }
-
-        Priority originDynamicPriority = dynamicPriority;
-        if (isDowngrade) {
-            dynamicPriority = dynamicPriority.adjust(origPriority, false /* downgrade */);
-            failedSchedCounter = 0;
-            if (originDynamicPriority != dynamicPriority) {
-                LOG.debug("downgrade dynamic priority from {} to {}, origin: {}, tablet: {}",
-                        originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
-                stat.counterTabletPrioDowngraded.incrementAndGet();
-                return true;
-            }
-        } else if (isUpgrade) {
-            dynamicPriority = dynamicPriority.adjust(origPriority, true /* upgrade */);
-            // no need to set lastSchedTime, lastSchedTime is set each time we schedule this tablet
-            if (originDynamicPriority != dynamicPriority) {
-                LOG.debug("upgrade dynamic priority from {} to {}, origin: {}, tablet: {}",
-                        originDynamicPriority.name(), dynamicPriority.name(), origPriority.name(), tabletId);
-                stat.counterTabletPrioUpgraded.incrementAndGet();
-                return true;
-            }
-        }
-        return false;
     }
 
     public boolean isTimeout() {
@@ -1144,8 +1104,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(storageMedium == null ? FeConstants.null_string : storageMedium.name());
         result.add(tabletStatus == null ? FeConstants.null_string : tabletStatus.name());
         result.add(state.name());
-        result.add(origPriority.name());
-        result.add(dynamicPriority.name());
+        result.add(schedFailedCode.name());
+        result.add(priority.name());
         result.add(srcReplica == null ? "-1" : String.valueOf(srcReplica.getBackendId()));
         result.add(String.valueOf(srcPathHash));
         result.add(String.valueOf(destBackendId));
@@ -1158,7 +1118,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : FeConstants.null_string);
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
-        result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(committedVersion));
         result.add(Strings.nullToEmpty(errMsg));
@@ -1171,19 +1130,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     @Override
     public int compareTo(TabletSchedCtx o) {
-        if (dynamicPriority.ordinal() < o.dynamicPriority.ordinal()) {
-            return 1;
-        } else if (dynamicPriority.ordinal() > o.dynamicPriority.ordinal()) {
-            return -1;
-        } else {
-            if (lastVisitedTime < o.lastVisitedTime) {
-                return -1;
-            } else if (lastVisitedTime > o.lastVisitedTime) {
-                return 1;
-            } else {
-                return 0;
-            }
+        return Long.compare(getCompareValue(), o.getCompareValue());
+    }
+
+    private long getCompareValue() {
+        long value = createTime;
+        if (lastVisitedTime > 0) {
+            value = lastVisitedTime;
         }
+
+        value += (Priority.VERY_HIGH.ordinal() - priority.ordinal() + 1) * 60  * 1000L;
+        value += 5000L * (failedSchedCounter / 10);
+
+        if (type == Type.BALANCE) {
+            value += 30 * 60 * 1000L;
+        }
+
+        return value;
     }
 
     @Override
@@ -1227,6 +1190,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      * call this when releaseTabletCtx()
      */
     public void resetReplicaState() {
+        setDecommissionTime(-1);
         if (tablet != null) {
             for (Replica replica : tablet.getReplicas()) {
                 // To address issue: https://github.com/apache/doris/issues/9422
@@ -1243,5 +1207,4 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
     }
-
 }

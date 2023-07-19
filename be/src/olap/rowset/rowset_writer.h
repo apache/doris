@@ -35,14 +35,6 @@ namespace doris {
 
 class MemTable;
 
-// Context for single memtable flush
-struct FlushContext {
-    ENABLE_FACTORY_CREATOR(FlushContext);
-    TabletSchemaSPtr flush_schema = nullptr;
-    const vectorized::Block* block = nullptr;
-    std::optional<int32_t> segment_id = std::nullopt;
-};
-
 class RowsetWriter {
 public:
     RowsetWriter() = default;
@@ -51,11 +43,13 @@ public:
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
     virtual Status add_block(const vectorized::Block* block) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support add_block");
     }
     virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                                bool is_key, uint32_t max_rows_per_segment) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support add_columns");
     }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
@@ -68,19 +62,23 @@ public:
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
     virtual Status flush_columns(bool is_key) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_columns");
     }
-    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
-
-    virtual Status unfold_variant_column_and_flush_block(
-            vectorized::Block* block, int32_t segment_id,
-            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    virtual Status final_flush() {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support final_flush");
     }
 
-    virtual Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
-                                      const FlushContext* ctx = nullptr) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                  int64_t* flush_size) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_memtable");
+    }
+
+    virtual Status flush_single_block(const vectorized::Block* block) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_single_block");
     }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).

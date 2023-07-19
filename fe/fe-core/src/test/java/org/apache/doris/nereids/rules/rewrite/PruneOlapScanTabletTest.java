@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -130,7 +130,7 @@ class PruneOlapScanTabletTest implements MemoPatternMatchSupported {
             }
         };
 
-        LogicalOlapScan scan = new LogicalOlapScan(ObjectId.createGenerator().getNextId(), olapTable);
+        LogicalOlapScan scan = new LogicalOlapScan(RelationId.createGenerator().getNextId(), olapTable);
 
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(scan.getOutput().get(0),
                 new DateLiteral("2019-08-22"));

@@ -180,7 +180,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 | TIME                                      | STRING         |                                                                               |
 | CHAR                                      | CHAR           |                                                                               |
 | VARCHAR                                   | VARCHAR        |                                                                               |
-| JSON                                      | STRING         |                                                                               |
+| JSON                                      | JSON           |                                                                               |
 | SET                                       | STRING         |                                                                               |
 | BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
@@ -236,12 +236,13 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
  | varchar/text                            | STRING         |                                           |
  | timestamp                               | DATETIME       |                                           |
  | date                                    | DATE           |                                           |
+ | json/josnb                              | JSON           |                                           |
  | time                                    | STRING         |                                           |
  | interval                                | STRING         |                                           |
  | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
  | cidr/inet/macaddr                       | STRING         |                                           |
  | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
- | uuid/josnb                              | STRING         |                                           |
+ | uuid                                    | STRING         |                                           |
  | Other                                   | UNSUPPORTED    |                                           |
 
 ### Oracle

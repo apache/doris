@@ -111,11 +111,12 @@ public class AggStateType extends ScalarType {
             return false;
         }
         AggStateType other = (AggStateType) o;
+        // compare with the basic type.
+        if (other.subTypes == null) {
+            return true;
+        }
         if ((subTypes == null) != (other.getSubTypes() == null)) {
             return false;
-        }
-        if (subTypes == null) {
-            return true;
         }
         int subTypeNumber = subTypeNullables.size();
         if (subTypeNumber != other.subTypeNullables.size()) {

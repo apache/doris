@@ -1275,12 +1275,6 @@ BaseCompaction:546859:
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
 * Default value: false
 
-#### `enable_lazy_open_partition`
-
-* Type: bool
-* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
-* Default value: false
-
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * Description: The lifetime of TabletsChannel. If the channel does not receive any data at this time, the channel will be deleted.

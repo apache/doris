@@ -326,7 +326,8 @@ public class EditLog {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false, 0),
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
+                                        batchDropInfo.getTableName(), indexId, false, 0),
                                 env);
                     }
                     break;

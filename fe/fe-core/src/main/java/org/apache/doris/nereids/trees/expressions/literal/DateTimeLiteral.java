@@ -51,10 +51,10 @@ public class DateTimeLiteral extends DateLiteral {
     protected static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
     protected static List<DateTimeFormatter> formatterList = null;
+    protected static final int MAX_MICROSECOND = 999999;
 
     private static final DateTimeLiteral MIN_DATETIME = new DateTimeLiteral(0000, 1, 1, 0, 0, 0);
     private static final DateTimeLiteral MAX_DATETIME = new DateTimeLiteral(9999, 12, 31, 23, 59, 59);
-    private static final int MAX_MICROSECOND = 999999;
 
     private static final Logger LOG = LogManager.getLogger(DateTimeLiteral.class);
 

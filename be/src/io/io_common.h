@@ -29,7 +29,8 @@ enum class ReaderType {
     READER_CHECKSUM = 4,
     READER_COLD_DATA_COMPACTION = 5,
     READER_SEGMENT_COMPACTION = 6,
-    UNKNOWN = 7
+    READER_FULL_COMPACTION = 7,
+    UNKNOWN = 8
 };
 
 namespace io {

@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.system.Backend;
@@ -59,6 +60,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+
+
 public class MetadataGenerator {
     private static final Logger LOG = LogManager.getLogger(MetadataGenerator.class);
 
@@ -80,6 +83,9 @@ public class MetadataGenerator {
                 break;
             case WORKLOAD_GROUPS:
                 result = workloadGroupsMetadataResult(params);
+                break;
+            case CATALOGS:
+                result = catalogsMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -250,6 +256,37 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(item));
             }
             dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult catalogsMetadataResult(TMetadataTableRequestParams params) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<CatalogIf> info  = Env.getCurrentEnv().getCatalogMgr().listCatalogs();
+        List<TRow> dataBatch = Lists.newArrayList();
+
+        for (CatalogIf catalog : info) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setLongVal(catalog.getId()));
+            trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
+            trow.addToColumnValue(new TCell().setStringVal(catalog.getType()));
+
+            Map<String, String> properties = catalog.getProperties();
+
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                TRow subTrow = new TRow(trow);
+                subTrow.addToColumnValue(new TCell().setStringVal(entry.getKey()));
+                subTrow.addToColumnValue(new TCell().setStringVal(entry.getValue()));
+                dataBatch.add(subTrow);
+            }
+            if (properties.isEmpty()) {
+                trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                trow.addToColumnValue(new TCell().setStringVal("NULL"));
+                dataBatch.add(trow);
+            }
         }
 
         result.setDataBatch(dataBatch);

@@ -53,26 +53,28 @@ SingleReplicaCompaction::~SingleReplicaCompaction() = default;
 Status SingleReplicaCompaction::prepare_compact() {
     VLOG_CRITICAL << _tablet->tablet_id() << " prepare single replcia compaction and pick rowsets!";
     if (!_tablet->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>();
+        return Status::Error<CUMULATIVE_INVALID_PARAMETERS>("_tablet init failed");
     }
 
     std::unique_lock<std::mutex> lock_cumu(_tablet->get_cumulative_compaction_lock(),
                                            std::try_to_lock);
     if (!lock_cumu.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
     std::unique_lock<std::mutex> lock_base(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock_base.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>("another base compaction is running. tablet={}",
+                                              _tablet->full_name());
     }
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
     _tablet->set_clone_occurred(false);
     if (_input_rowsets.size() == 1) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
     }
 
     return Status::OK();
@@ -81,7 +83,7 @@ Status SingleReplicaCompaction::prepare_compact() {
 Status SingleReplicaCompaction::pick_rowsets_to_compact() {
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_single_replica_compaction();
     if (candidate_rowsets.empty()) {
-        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
+        return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("candidate_rowsets is empty");
     }
     _input_rowsets.clear();
     for (const auto& rowset : candidate_rowsets) {
@@ -96,20 +98,21 @@ Status SingleReplicaCompaction::execute_compact_impl() {
                                            std::try_to_lock);
     if (!lock_cumu.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "The tablet is under cumulative compaction. tablet={}", _tablet->full_name());
     }
 
     std::unique_lock<std::mutex> lock_base(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock_base.owns_lock()) {
-        LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>("another base compaction is running. tablet={}",
+                                              _tablet->full_name());
     }
 
     // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED>();
+        return Status::Error<BE_CLONE_OCCURRED>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -161,6 +164,8 @@ Status SingleReplicaCompaction::_do_single_replica_compaction_impl() {
         _tablet->set_last_cumu_compaction_success_time(UnixMillis());
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(UnixMillis());
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        _tablet->set_last_full_compaction_success_time(UnixMillis());
     }
 
     int64_t current_max_version;
@@ -296,8 +301,8 @@ Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const st
               << ", addr=" << addr.host << ", version=" << rowset_version;
     std::shared_lock migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
     if (!migration_rlock.owns_lock()) {
-        LOG(WARNING) << "got migration_rlock failed. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>("got migration_rlock failed. tablet={}",
+                                              _tablet->full_name());
     }
 
     std::string local_data_path = _tablet->tablet_path() + CLONE_PREFIX;
@@ -381,7 +386,7 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
                 client->make_snapshot(result, request);
             }));
     if (result.status.status_code != TStatusCode::OK) {
-        return Status(result.status);
+        return Status::create(result.status);
     }
 
     if (result.__isset.snapshot_path) {
@@ -507,7 +512,7 @@ Status SingleReplicaCompaction::_release_snapshot(const std::string& ip, int por
             ip, port, [&snapshot_path, &result](BackendServiceConnection& client) {
                 client->release_snapshot(result, snapshot_path);
             }));
-    return Status(result.status);
+    return Status::create(result.status);
 }
 
 Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
@@ -585,7 +590,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
             if (!res.ok()) {
                 break;
             }
-        } while (0);
+        } while (false);
 
         // clear linked files if errors happen
         if (!res.ok()) {
