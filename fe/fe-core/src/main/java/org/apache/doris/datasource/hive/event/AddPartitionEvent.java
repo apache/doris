@@ -50,7 +50,7 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
     }
 
     private AddPartitionEvent(NotificationEvent event,
-            String catalogName) {
+                              String catalogName) {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ADD_PARTITION));
         Preconditions
@@ -72,7 +72,7 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event,
-            String catalogName) {
+                                                    String catalogName) {
         return Lists.newArrayList(new AddPartitionEvent(event, catalogName));
     }
 
@@ -87,7 +87,8 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
                 return;
             }
             Env.getCurrentEnv().getCatalogMgr()
-                    .addExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, true);
+                    .addExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames,
+                                this.getEventId(), (long) this.event.getEventTime(), true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
                     debugString("Failed to process event"), e);

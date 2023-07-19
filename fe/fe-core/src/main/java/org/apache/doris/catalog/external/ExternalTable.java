@@ -65,6 +65,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected String name;
     @SerializedName(value = "type")
     protected TableType type = null;
+    // TODO(dutyu): can we delete this field?
+    //  I do not find any place which use this field
     @SerializedName(value = "timestamp")
     protected long timestamp;
     @SerializedName(value = "dbName")
@@ -75,6 +77,16 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected boolean objectCreated;
     protected ExternalCatalog catalog;
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
+
+    // -1: table has not been initialized
+    // 0: table has been initialized
+    // >0: event id of hms event
+    protected volatile long version = -1L;
+
+    // -1: table has not been initialized
+    // 0: table has been initialized
+    // >0: event time of hms event
+    protected volatile long versionTime = -1L;
 
     /**
      * No args constructor for persist.
@@ -291,6 +303,21 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @Override
     public long getUpdateTime() {
         return 0;
+    }
+
+    public long getVersionTime() {
+        return versionTime;
+    }
+
+    public long getVersion() {
+        return version;
+    }
+
+    public void refreshVersion(long version, long versionTime) {
+        if (version != -1L) {
+            this.version = version;
+            this.versionTime = versionTime;
+        }
     }
 
     @Override

@@ -101,6 +101,7 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+
     private List<Column> partitionColumns;
 
     private DLAType dlaType = DLAType.UNKNOWN;
@@ -143,6 +144,9 @@ public class HMSExternalTable extends ExternalTable {
                     dlaType = DLAType.UNKNOWN;
                 }
             }
+            // set version to 0L if table has been initialized
+            version = 0L;
+            versionTime = System.nanoTime();
             objectCreated = true;
         }
     }
@@ -247,21 +251,6 @@ public class HMSExternalTable extends ExternalTable {
             default:
                 return null;
         }
-    }
-
-    @Override
-    public String getComment() {
-        return "";
-    }
-
-    @Override
-    public long getCreateTime() {
-        return 0;
-    }
-
-    @Override
-    public long getUpdateTime() {
-        return 0;
     }
 
     @Override

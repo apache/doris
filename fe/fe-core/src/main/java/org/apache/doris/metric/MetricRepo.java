@@ -71,6 +71,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
+    public static LongCounterMetric COUNTER_QUERY_HMS_TABLE;
     public static Histogram HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<Histogram> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
@@ -285,6 +286,9 @@ public final class MetricRepo {
         COUNTER_QUERY_OLAP_TABLE = new LongCounterMetric("query_olap_table", MetricUnit.REQUESTS,
                 "total query from olap table");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_OLAP_TABLE);
+        COUNTER_QUERY_HMS_TABLE = new LongCounterMetric("query_hms_table", MetricUnit.REQUESTS,
+                "total query from hms table");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_QUERY_HMS_TABLE);
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(
                 MetricRegistry.name("query", "latency", "ms"));
         USER_HISTO_QUERY_LATENCY = new AutoMappedMetric<>(name -> {

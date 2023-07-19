@@ -75,6 +75,8 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String PROP_ARRAY_DELIMITER_HIVE3 = "collection.delim";
     public static final String DEFAULT_ARRAY_DELIMITER = "\2";
     protected final HMSExternalTable hmsTable;
+    private volatile long tableVersion = -1L;
+    private volatile long tableVersionTime = -1L;
     private HiveTransaction hiveTransaction = null;
 
     /**
@@ -116,6 +118,10 @@ public class HiveScanNode extends FileQueryScanNode {
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
         }
+
+        // record version and version time at the end of init phase
+        tableVersion = hmsTable.getVersion();
+        tableVersionTime = hmsTable.getVersionTime();
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
@@ -189,6 +195,14 @@ public class HiveScanNode extends FileQueryScanNode {
                 "get file split failed for table: " + hmsTable.getName() + ", err: " + Util.getRootCauseMessage(t),
                 t);
         }
+    }
+
+    public long getTableVersion() {
+        return tableVersion;
+    }
+
+    public long getTableVersionTime() {
+        return tableVersionTime;
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,

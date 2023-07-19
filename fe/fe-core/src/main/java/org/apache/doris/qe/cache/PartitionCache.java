@@ -72,7 +72,7 @@ public class PartitionCache extends Cache {
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
                              CompoundPredicate partitionPredicate, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
-        this.olapTable = latestTable.olapTable;
+        this.olapTable = (OlapTable) latestTable.table;
         this.partitionInfo = partitionInfo;
         this.partColumn = partColumn;
         this.partitionPredicate = partitionPredicate;
@@ -108,7 +108,7 @@ public class PartitionCache extends Cache {
             MetricRepo.COUNTER_CACHE_HIT_PARTITION.increase(1L);
         }
 
-        range.setTooNewByID(latestTable.latestPartitionId);
+        range.setTooNewByID(latestTable.latestId);
         //build rewrite sql
         this.hitRange = range.buildDiskPartitionRange(newRangeList);
         if (newRangeList != null && newRangeList.size() > 0) {
