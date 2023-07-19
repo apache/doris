@@ -89,7 +89,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
                            const TFileScanRange& scan_range, RuntimeProfile* profile,
                            ShardedKVCache* kv_cache)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
-          _params(scan_range.params),
           _ranges(scan_range.ranges),
           _next_range(0),
           _cur_reader(nullptr),
@@ -98,6 +97,14 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
         _strict_mode = scan_range.params.strict_mode;
+    }
+
+    if (state->get_query_ctx() != nullptr &&
+        state->get_query_ctx()->file_scan_range_params_map.count(parent->id()) > 0) {
+        _params = &(state->get_query_ctx()->file_scan_range_params_map[parent->id()]);
+    } else {
+        CHECK(scan_range.__isset.params);
+        _params = &(scan_range.params);
     }
 }
 
@@ -133,13 +140,13 @@ Status VFileScanner::prepare(
                                               std::vector<TupleId>({_input_tuple_desc->id()}),
                                               std::vector<bool>({false})));
         // prepare pre filters
-        if (_params.__isset.pre_filter_exprs_list) {
+        if (_params->__isset.pre_filter_exprs_list) {
             RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_trees(
-                    _params.pre_filter_exprs_list, _pre_conjunct_ctxs));
-        } else if (_params.__isset.pre_filter_exprs) {
+                    _params->pre_filter_exprs_list, _pre_conjunct_ctxs));
+        } else if (_params->__isset.pre_filter_exprs) {
             VExprContextSPtr context;
             RETURN_IF_ERROR(
-                    doris::vectorized::VExpr::create_expr_tree(_params.pre_filter_exprs, context));
+                    doris::vectorized::VExpr::create_expr_tree(_params->pre_filter_exprs, context));
             _pre_conjunct_ctxs.emplace_back(context);
         }
 
@@ -569,9 +576,10 @@ Status VFileScanner::_get_next_reader() {
 
         // create reader for specific format
         Status init_status;
-        TFileFormatType::type format_type = _params.format_type;
+        TFileFormatType::type format_type = _params->format_type;
         // JNI reader can only push down column value range
-        bool push_down_predicates = !_is_load && _params.format_type != TFileFormatType::FORMAT_JNI;
+        bool push_down_predicates =
+                !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params &&
             range.table_format_params.table_format_type == "hudi") {
             if (range.table_format_params.hudi_params.delta_logs.empty()) {
@@ -598,9 +606,9 @@ Status VFileScanner::_get_next_reader() {
                                       ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
-                _cur_reader =
-                        HudiJniReader::create_unique(_params, range.table_format_params.hudi_params,
-                                                     _file_slot_descs, _state, _profile);
+                _cur_reader = HudiJniReader::create_unique(*_params,
+                                                           range.table_format_params.hudi_params,
+                                                           _file_slot_descs, _state, _profile);
                 init_status =
                         ((HudiJniReader*)_cur_reader.get())->init_reader(_colname_to_value_range);
             }
@@ -608,9 +616,11 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_PARQUET: {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
-                    _profile, _params, range, _state->query_options().batch_size,
+                    _profile, *_params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    ExecEnv::GetInstance()->file_meta_cache(),
+                    config::max_external_file_meta_cache_num <= 0
+                            ? nullptr
+                            : ExecEnv::GetInstance()->file_meta_cache(),
                     _state->query_options().enable_parquet_lazy_mat);
             {
                 SCOPED_TIMER(_open_reader_timer);
@@ -627,7 +637,7 @@ Status VFileScanner::_get_next_reader() {
                 range.table_format_params.table_format_type == "iceberg") {
                 std::unique_ptr<IcebergTableReader> iceberg_reader =
                         IcebergTableReader::create_unique(std::move(parquet_reader), _profile,
-                                                          _state, _params, range, _kv_cache,
+                                                          _state, *_params, range, _kv_cache,
                                                           _io_ctx.get());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,
@@ -649,7 +659,7 @@ Status VFileScanner::_get_next_reader() {
         }
         case TFileFormatType::FORMAT_ORC: {
             std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
-                    _profile, _state, _params, range, _state->query_options().batch_size,
+                    _profile, _state, *_params, range, _state->query_options().batch_size,
                     _state->timezone(), _io_ctx.get(), _state->query_options().enable_orc_lazy_mat);
             if (push_down_predicates && _push_down_conjuncts.empty() && !_conjuncts.empty()) {
                 _push_down_conjuncts.resize(_conjuncts.size());
@@ -662,7 +672,7 @@ Status VFileScanner::_get_next_reader() {
                 range.table_format_params.table_format_type == "transactional_hive") {
                 std::unique_ptr<TransactionalHiveReader> tran_orc_reader =
                         TransactionalHiveReader::create_unique(std::move(orc_reader), _profile,
-                                                               _state, _params, range,
+                                                               _state, *_params, range,
                                                                _io_ctx.get());
                 init_status = tran_orc_reader->init_reader(
                         _file_col_names, _colname_to_value_range, _push_down_conjuncts,
@@ -686,13 +696,13 @@ Status VFileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE:
         case TFileFormatType::FORMAT_PROTO: {
-            _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, _params, range,
+            _cur_reader = CsvReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                    _file_slot_descs, _io_ctx.get());
             init_status = ((CsvReader*)(_cur_reader.get()))->init_reader(_is_load);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, _params, range,
+            _cur_reader = NewJsonReader::create_unique(_state, _profile, &_counter, *_params, range,
                                                        _file_slot_descs, &_scanner_eof,
                                                        _io_ctx.get(), _is_dynamic_schema);
             init_status =
@@ -700,13 +710,14 @@ Status VFileScanner::_get_next_reader() {
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader = AvroJNIReader::create_unique(_state, _profile, _params, _file_slot_descs);
+            _cur_reader =
+                    AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs);
             init_status = ((AvroJNIReader*)(_cur_reader.get()))
                                   ->init_fetch_table_reader(_colname_to_value_range);
             break;
         }
         default:
-            return Status::InternalError("Not supported file format: {}", _params.format_type);
+            return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
 
         if (init_status.is<END_OF_FILE>()) {
@@ -810,8 +821,8 @@ Status VFileScanner::_init_expr_ctxes() {
         }
     }
 
-    _num_of_columns_from_file = _params.num_of_columns_from_file;
-    for (const auto& slot_info : _params.required_slots) {
+    _num_of_columns_from_file = _params->num_of_columns_from_file;
+    for (const auto& slot_info : _params->required_slots) {
         auto slot_id = slot_info.slot_id;
         auto it = full_src_slot_map.find(slot_id);
         if (it == std::end(full_src_slot_map)) {
@@ -843,8 +854,8 @@ Status VFileScanner::_init_expr_ctxes() {
             continue;
         }
         vectorized::VExprContextSPtr ctx;
-        auto it = _params.default_value_of_src_slot.find(slot_desc->id());
-        if (it != std::end(_params.default_value_of_src_slot)) {
+        auto it = _params->default_value_of_src_slot.find(slot_desc->id());
+        if (it != std::end(_params->default_value_of_src_slot)) {
             if (!it->second.nodes.empty()) {
                 RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
                 RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
@@ -857,14 +868,14 @@ Status VFileScanner::_init_expr_ctxes() {
 
     if (_is_load) {
         // follow desc expr map is only for load task.
-        bool has_slot_id_map = _params.__isset.dest_sid_to_src_sid_without_trans;
+        bool has_slot_id_map = _params->__isset.dest_sid_to_src_sid_without_trans;
         int idx = 0;
         for (auto slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->is_materialized()) {
                 continue;
             }
-            auto it = _params.expr_of_dest_slot.find(slot_desc->id());
-            if (it == std::end(_params.expr_of_dest_slot)) {
+            auto it = _params->expr_of_dest_slot.find(slot_desc->id());
+            if (it == std::end(_params->expr_of_dest_slot)) {
                 return Status::InternalError("No expr for dest slot, id={}, name={}",
                                              slot_desc->id(), slot_desc->col_name());
             }
@@ -879,8 +890,8 @@ Status VFileScanner::_init_expr_ctxes() {
             _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
 
             if (has_slot_id_map) {
-                auto it1 = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-                if (it1 == std::end(_params.dest_sid_to_src_sid_without_trans)) {
+                auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+                if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
                     _src_slot_descs_order_by_dest.emplace_back(nullptr);
                 } else {
                     auto _src_slot_it = full_src_slot_map.find(it1->second);

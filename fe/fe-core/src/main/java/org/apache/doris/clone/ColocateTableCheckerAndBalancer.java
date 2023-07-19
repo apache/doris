@@ -202,6 +202,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      */
     private void matchGroup() {
         Env env = Env.getCurrentEnv();
+        SystemInfoService infoService = Env.getCurrentSystemInfo();
         ColocateTableIndex colocateIndex = env.getColocateTableIndex();
         TabletScheduler tabletScheduler = env.getTabletScheduler();
 
@@ -254,7 +255,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             + " status: %s", tablet.getId(), st);
                                     LOG.debug(unstableReason);
 
-                                    if (!tablet.readyToBeRepaired(Priority.NORMAL)) {
+                                    if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
                                         continue;
                                     }
 
@@ -265,7 +266,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
-                                    tabletCtx.setOrigPriority(Priority.NORMAL);
+                                    tabletCtx.setPriority(Priority.NORMAL);
                                     tabletCtx.setTabletOrderIdx(idx);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
