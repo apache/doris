@@ -206,13 +206,17 @@ public class CacheAnalyzer {
         this.selectStmt = (SelectStmt) parsedStmt;
         //Check the last version time of the table
         List<CacheTable> tblTimeList = Lists.newArrayList();
+
+        long olapScanNodeSize = scanNodes.stream().filter(node -> node instanceof OlapScanNode).count();
+        long hiveScanNodeSize = scanNodes.stream().filter(node -> node instanceof HiveScanNode).count();
+        if (!(olapScanNodeSize == scanNodes.size() || hiveScanNodeSize == scanNodes.size())) {
+            LOG.debug("only support olap/hive table or federated query, other types are not supported now, "
+                        + "queryId {}", DebugUtil.printId(queryId));
+            return CacheMode.None;
+        }
+
         for (int i = 0; i < scanNodes.size(); i++) {
             ScanNode node = scanNodes.get(i);
-            if (!(node instanceof OlapScanNode) && !(node instanceof HiveScanNode)) {
-                LOG.debug("only support olap/hive table, other types are not supported now, "
-                            + "queryid {}", DebugUtil.printId(queryId));
-                return CacheMode.None;
-            }
             if (enablePartitionCache() && (node instanceof HiveScanNode)
                         && ((OlapScanNode) node).getSelectedPartitionNum() > 1 && selectStmt.hasGroupByClause()) {
                 LOG.debug("more than one partition scanned when query has agg, partition cache cannot use, queryid {}",

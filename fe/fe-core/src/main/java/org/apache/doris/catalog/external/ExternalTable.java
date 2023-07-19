@@ -31,7 +31,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalSchemaCache;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -67,8 +66,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected String name;
     @SerializedName(value = "type")
     protected TableType type = null;
-    // TODO(dutyu): can we delete this field?
-    //  I do not find any place which use this field
+    // TODO(dutyu): can we delete this field? I do not find any place which use this field
     @SerializedName(value = "timestamp")
     protected long timestamp;
     @SerializedName(value = "dbName")
@@ -122,7 +120,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return false;
     }
 
-    protected synchronized void makeSureInitialized() {
+    public synchronized void makeSureInitialized() {
         try {
             // getDbOrAnalysisException will call makeSureInitialized in ExternalCatalog.
             ExternalDatabase db = catalog.getDbOrAnalysisException(dbName);
