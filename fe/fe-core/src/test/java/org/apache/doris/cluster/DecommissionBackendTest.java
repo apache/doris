@@ -33,7 +33,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class DecommissionBackendTest extends TestWithFeService {
-
     @Override
     protected int backendNum() {
         return 3;
@@ -42,6 +41,7 @@ public class DecommissionBackendTest extends TestWithFeService {
     @Override
     protected void beforeCluster() {
         FeConstants.runningUnitTest = true;
+        needCleanDir = false;
     }
 
     @BeforeAll

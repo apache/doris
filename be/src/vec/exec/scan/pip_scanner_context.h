@@ -45,10 +45,10 @@ public:
         {
             std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
-                _process_status = Status::Cancelled("cancelled");
+                set_status_on_error(Status::Cancelled("cancelled"), false);
             }
 
-            if (!_process_status.ok()) {
+            if (!status().ok()) {
                 return _process_status;
             }
         }

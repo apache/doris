@@ -135,9 +135,8 @@ public class BinlogGcer extends MasterDaemon {
         }
     }
 
-    private void sendTableGcInfoToBe(Map<Long, BinlogGcTask> beBinlogGcTaskMap, OlapTable table,
+    private void sendTableGcInfoToBe(Map<Long, BinlogGcTask> beBinlogGcTaskMap, OlapTable olapTable,
             UpsertRecord.TableRecord tableRecord) {
-        OlapTable olapTable = (OlapTable) table;
 
         olapTable.readLock();
         try {
@@ -173,7 +172,7 @@ public class BinlogGcer extends MasterDaemon {
                 }
             }
         } finally {
-            table.readUnlock();
+            olapTable.readUnlock();
         }
     }
 }

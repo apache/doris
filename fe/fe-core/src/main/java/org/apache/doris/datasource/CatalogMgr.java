@@ -61,8 +61,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
@@ -128,7 +130,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
             lastDBOfCatalog.remove(catalog.getName());
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getName());
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCache(catalog.getId());
             if (!Strings.isNullOrEmpty(catalog.getResource())) {
                 Resource catalogResource = Env.getCurrentEnv().getResourceMgr().getResource(catalog.getResource());
                 if (catalogResource != null) {
@@ -1085,6 +1087,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     public Map<Long, CatalogIf> getIdToCatalog() {
         return idToCatalog;
+    }
+
+    public Set<CatalogIf> getCopyOfCatalog() {
+        return new HashSet<>(idToCatalog.values());
     }
 }
 

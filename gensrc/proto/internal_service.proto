@@ -93,16 +93,6 @@ message PTabletWriterOpenResult {
     required PStatus status = 1;
 };
 
-message OpenPartitionRequest {
-    required PUniqueId id = 1;
-    required int64 index_id = 2;
-    repeated PTabletWithPartition tablets = 3;
-}
-
-message OpenPartitionResult {
-    required PStatus status = 1;
-}
-
 // add batch to tablet writer
 message PTabletWriterAddBatchRequest {
     required PUniqueId id = 1;
@@ -689,7 +679,6 @@ service PBackendService {
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
-    rpc open_partition(OpenPartitionRequest) returns (OpenPartitionResult);
     rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_add_block_by_http(PEmptyRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);

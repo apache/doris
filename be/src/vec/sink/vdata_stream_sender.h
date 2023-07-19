@@ -194,7 +194,6 @@ protected:
 
     segment_v2::CompressionTypePB _compression_type;
 
-    bool _new_shuffle_hash_method = false;
     bool _only_local_exchange = false;
     bool _enable_pipeline_exec = false;
 };

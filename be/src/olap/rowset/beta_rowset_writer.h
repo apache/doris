@@ -84,20 +84,18 @@ public:
 
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
-    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr* writer);
+    Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer);
 
     void add_segment(uint32_t segid, SegmentStatistics& segstat);
 
     Status flush() override;
 
-    Status unfold_variant_column_and_flush_block(
-            vectorized::Block* block, int32_t segment_id,
-            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) override;
+    Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                          int64_t* flush_size) override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
-                              const FlushContext* ctx = nullptr) override;
+    Status flush_single_block(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
 
@@ -129,31 +127,38 @@ public:
 
     Status wait_flying_segcompaction() override;
 
-    void set_segment_start_id(int32_t start_id) override { _segment_start_id = start_id; }
+    void set_segment_start_id(int32_t start_id) override {
+        _segment_start_id = start_id;
+        _next_segment_id = start_id;
+    }
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 
     int64_t segment_writer_ns() override { return _segment_writer_ns; }
 
 private:
-    Status _do_add_block(const vectorized::Block* block,
-                         std::unique_ptr<segment_v2::SegmentWriter>* segment_writer,
-                         size_t row_offset, size_t input_row_num);
+    Status _add_rows(const vectorized::Block* block,
+                     std::unique_ptr<segment_v2::SegmentWriter>& segment_writer, size_t row_offset,
+                     size_t input_row_num);
     Status _add_block(const vectorized::Block* block,
-                      std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                      const FlushContext* flush_ctx = nullptr);
+                      std::unique_ptr<segment_v2::SegmentWriter>& writer);
 
-    Status _create_file_writer(std::string path, io::FileWriterPtr* file_writer);
-    Status _create_file_writer(uint32_t begin, uint32_t end, io::FileWriterPtr* writer);
-    Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     bool is_segcompaction, int64_t begin, int64_t end,
-                                     const FlushContext* ctx = nullptr);
-    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                  const FlushContext* ctx = nullptr);
-    Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+    Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
+    Status _check_segment_number_limit();
+    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
+                                  int32_t segment_id, bool no_compression = false,
+                                  TabletSchemaSPtr flush_schema = nullptr);
+    Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
                                  int64_t* flush_size = nullptr);
+    Status _flush_single_block(const vectorized::Block* block, int32_t segment_id,
+                               int64_t* flush_size = nullptr,
+                               TabletSchemaSPtr flush_schema = nullptr);
     Status _generate_delete_bitmap(int32_t segment_id);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
+
+    // segment compaction
+    Status _create_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,

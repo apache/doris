@@ -85,7 +85,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         Assertions.assertEquals("CREATE TABLE `select_decimal_table` (\n"
                         + "  `userId` varchar(65533) NOT NULL,\n"
                         + "  `amount_decimal` "
-                        + (Config.enable_decimal_conversion ? "decimalv3" : "decimal") + "(10, 2) NOT NULL\n"
+                        + "DECIMAL" + "(10, 2) NOT NULL\n"
                         + ") ENGINE=OLAP\n"
                         + "DUPLICATE KEY(`userId`)\n"
                         + "COMMENT 'OLAP'\n"
@@ -105,7 +105,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
         if (Config.enable_decimal_conversion) {
             Assertions.assertEquals(
                     "CREATE TABLE `select_decimal_table_1` (\n"
-                            + "  `_col0` decimalv3(38, 2) NULL\n"
+                            + "  `_col0` DECIMAL(38, 2) NULL\n"
                             + ") ENGINE=OLAP\n"
                             + "DUPLICATE KEY(`_col0`)\n"
                             + "COMMENT 'OLAP'\n"

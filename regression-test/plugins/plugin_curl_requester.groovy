@@ -61,3 +61,9 @@ Suite.metaClass.be_run_cumulative_compaction = { String ip, String port, String 
 }
 
 logger.info("Added 'be_run_cumulative_compaction' function to Suite")
+
+Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet_id  /* param */-> 
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=full", ip, port, tablet_id))
+}
+
+logger.info("Added 'be_run_full_compaction' function to Suite")

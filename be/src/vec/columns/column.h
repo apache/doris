@@ -488,8 +488,7 @@ public:
       * If `begin` and `count_sz` specified, it means elements in range [`begin`, `begin` + `count_sz`) will be replicated.
       * If `count_sz` is -1, `begin` must be 0.
       */
-    virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                           size_t begin = 0, int count_sz = -1) const {
+    virtual void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
         LOG(FATAL) << "not support";
     }
 

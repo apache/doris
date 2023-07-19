@@ -25,7 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
-import org.apache.doris.nereids.trees.plans.ObjectId;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
 
@@ -39,7 +39,7 @@ public class PlanConstructor {
     public static final OlapTable score;
     public static final OlapTable course;
 
-    private static final IdGenerator<ObjectId> RELATION_ID_GENERATOR = ObjectId.createGenerator();
+    private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
 
     static {
         student = new OlapTable(0L, "student",
@@ -108,12 +108,14 @@ public class PlanConstructor {
                 ImmutableList.of("db"));
     }
 
-    public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName, int hashColumn) {
-        return new LogicalOlapScan(ObjectId.createGenerator().getNextId(),
-                newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"));
+    public static LogicalOlapScan newLogicalOlapScanWithSameId(long tableId, String tableName,
+            int hashColumn, List<Long> selectedPartitions) {
+        return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
+                newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"),
+                selectedPartitions, ImmutableList.of());
     }
 
-    public static ObjectId getNextRelationId() {
+    public static RelationId getNextRelationId() {
         return RELATION_ID_GENERATOR.getNextId();
     }
 }
