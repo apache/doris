@@ -29,8 +29,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowFrontendsStmt extends ShowStmt {
+    private String detail;
 
     public ShowFrontendsStmt() {
+    }
+
+    public ShowFrontendsStmt(String detail) {
+        this.detail = detail;
     }
 
     @Override
