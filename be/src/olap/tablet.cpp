@@ -3009,7 +3009,8 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
     doris::TabletSharedPtr tablet_ptr =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
     if (tablet_ptr == nullptr) {
-        return Status::InternalError("Can't find tablet id: {}, maybe already dropped.", tablet_id());
+        return Status::InternalError("Can't find tablet id: {}, maybe already dropped.",
+                                     tablet_id());
     }
     std::vector<DeleteBitmapPtr> seg_delete_bitmaps;
     for (size_t i = 0; i < segments.size(); i++) {
