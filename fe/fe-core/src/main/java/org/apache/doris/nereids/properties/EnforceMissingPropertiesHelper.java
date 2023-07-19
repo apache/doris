@@ -156,7 +156,7 @@ public class EnforceMissingPropertiesHelper {
                 oldOutputProperty, newOutputProperty));
         enforcer.setEstOutputRowCount(enforcer.getOwnerGroup().getStatistics().getRowCount());
         Cost enforcerCost = CostCalculator.calculateCost(enforcer, Lists.newArrayList(oldOutputProperty));
-        enforcer.setCost(enforcerCost.getValue());
+        enforcer.setCost(enforcerCost);
         curTotalCost = CostCalculator.addChildCost(enforcer.getPlan(),
             enforcerCost,
             curTotalCost,
