@@ -55,7 +55,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.PrimitiveType;
@@ -413,16 +412,6 @@ public class SingleNodePlanner {
 
     private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         do {
-            // TODO: Support other scan node in the future
-            if (!(root instanceof OlapScanNode)) {
-                break;
-            }
-
-            KeysType type = ((OlapScanNode) root).getOlapTable().getKeysType();
-            if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
-                break;
-            }
-
             if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
                 break;
             }
@@ -447,7 +436,6 @@ public class SingleNodePlanner {
             boolean aggExprValidate = true;
             TPushAggOp aggOp = null;
             for (FunctionCallExpr aggExpr : aggExprs) {
-                // Only support `min`, `max`, `count` and `count` only effective in dup table
                 String functionName = aggExpr.getFnName().getFunction();
                 if (!functionName.equalsIgnoreCase("MAX")
                         && !functionName.equalsIgnoreCase("MIN")
@@ -456,8 +444,7 @@ public class SingleNodePlanner {
                     break;
                 }
 
-                if (functionName.equalsIgnoreCase("COUNT")
-                        && type != KeysType.DUP_KEYS) {
+                if (!root.pushDownAggNoGrouping(aggExpr)) {
                     aggExprValidate = false;
                     break;
                 }
@@ -502,8 +489,7 @@ public class SingleNodePlanner {
                             continue;
                         }
 
-                        // The value column of the agg does not support zone_map index.
-                        if (type == KeysType.AGG_KEYS && !col.isKey()) {
+                        if (!root.pushDownAggNoGroupingCheckCol(aggExpr, col)) {
                             returnColumnValidate = false;
                             break;
                         }
@@ -546,8 +532,7 @@ public class SingleNodePlanner {
                 break;
             }
 
-            OlapScanNode olapNode = (OlapScanNode) root;
-            olapNode.setPushDownAggNoGrouping(aggOp);
+            root.setPushDownAggNoGrouping(aggOp);
         } while (false);
     }
 

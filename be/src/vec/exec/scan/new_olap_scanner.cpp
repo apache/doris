@@ -252,14 +252,13 @@ Status NewOlapScanner::_init_tablet_reader_params(
                       ->rowset()
                       ->rowset_meta()
                       ->is_segments_overlapping());
-    auto real_parent = reinterpret_cast<NewOlapScanNode*>(_parent);
     if (_state->skip_storage_engine_merge()) {
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
         _tablet_reader_params.direct_mode =
                 _aggregation || single_version ||
-                real_parent->_olap_scan_node.__isset.push_down_agg_type_opt;
+                (_parent->push_down_agg_type_opt != TPushAggOp::NONE);
     }
 
     RETURN_IF_ERROR(_init_return_columns());
@@ -268,9 +267,8 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-    if (real_parent->_olap_scan_node.__isset.push_down_agg_type_opt) {
-        _tablet_reader_params.push_down_agg_type_opt =
-                real_parent->_olap_scan_node.push_down_agg_type_opt;
+    if (_parent->push_down_agg_type_opt) {
+        _tablet_reader_params.push_down_agg_type_opt = _parent->push_down_agg_type_opt;
     }
     _tablet_reader_params.version = Version(0, _version);
 

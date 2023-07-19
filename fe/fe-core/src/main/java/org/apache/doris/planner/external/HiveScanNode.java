@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -286,5 +287,30 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         }
         params.setSlotNameToSchemaPos(columnNameToPosition);
+    }
+
+    @Override
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+        TFileFormatType fileFormatType;
+        try {
+            fileFormatType = getFileFormatType();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
+        String aggFunctionName = aggExpr.getFnName().getFunction();
+        if (aggFunctionName.equalsIgnoreCase("COUNT") && fileFormatType == TFileFormatType.FORMAT_PARQUET) {
+            return true;
+        }
+
+        if (aggFunctionName.equalsIgnoreCase("COUNT") && fileFormatType == TFileFormatType.FORMAT_ORC) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        return true;
     }
 }

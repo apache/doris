@@ -506,6 +506,30 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
+Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof,TPushAggOp::type push_down_agg_type_opt) {
+
+    size_t rows = 0;
+    for(auto rowGroup: _t_metadata->row_groups ) {
+        rows += rowGroup.num_rows ;
+    }
+
+    auto cols = block->mutate_columns();
+    for(auto& col:cols) {
+        col->resize(rows);
+    }
+
+    //need  append _statistics ?
+    //_statistics.read_rows = rows;
+    //_statistics.read_row_groups = _t_metadata->row_groups.size();
+
+    *read_rows = rows;
+    _current_group_reader.reset(nullptr);
+    _row_group_eof = true;
+    *eof = true;
+    return Status::OK();
+}
+
+
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         if (_read_row_groups.size() > 0) {
