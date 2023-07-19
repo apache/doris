@@ -220,6 +220,14 @@ public class FEFunctions {
         return LocalDateTime.of(year, month, day, hour, minute, second);
     }
 
+    private static int distanceToFirstDayOfWeek(LocalDateTime dateTime) {
+        return dateTime.getDayOfWeek().getValue() - 1;
+    }
+
+    private static LocalDateTime firstDayOfWeek(LocalDateTime dateTime) {
+        return dateTime.plusDays(-distanceToFirstDayOfWeek(dateTime));
+    }
+
     @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
