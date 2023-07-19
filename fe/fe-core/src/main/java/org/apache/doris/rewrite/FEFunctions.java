@@ -151,6 +151,25 @@ public class FEFunctions {
         return new StringLiteral(result);
     }
 
+    @FEFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
+    public static DateLiteral dateTrunc(LiteralExpr date, LiteralExpr truncate) {
+        String truncateString = truncate.getStringValue();
+        switch(truncateString) {
+            case "year":
+                break;
+            case "month":
+                break;
+            case "day":
+                break;
+            case "hour":
+                break;
+            case "minute":
+                break;
+            default:
+                break;
+        }
+    }
+
     @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
