@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
@@ -50,6 +51,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .add("CurrentConnected")
             .build();
 
+    public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
+        .add("Name").add("Host").add("EditLogPort").add("dir_type").add("dir").add("filesystem")
+        .add("Blocks1K").add("Used").add("Available").add("UseRate").add("MountOn")
+        .build();
+
     private Env env;
 
     public FrontendsProcNode(Env env) {
@@ -70,6 +76,14 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
 
         return result;
+    }
+
+    public static void getFrontendsInfo(Env env, String detailType, List<List<String>> infos) {
+        if (detailType == null) {
+            getFrontendsInfo(env, infos);
+        } else if (detailType.equals("disks")) {
+            getFrontendsDiskInfo(env, infos);
+        }
     }
 
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
@@ -136,6 +150,30 @@ public class FrontendsProcNode implements ProcNodeInterface {
             infos.add(info);
         }
     }
+
+
+    public static void getFrontendsDiskInfo(Env env, List<List<String>> infos){
+        for (Frontend fe : env.getFrontends(null /* all */)) {
+            if (fe.getDiskInfos()!=null) {
+                for (ExecuteEnv.DiskInfo disk : fe.getDiskInfos()) {
+                    List<String> info = new ArrayList<String>();
+                    info.add(fe.getNodeName());
+                    info.add(fe.getHost());
+                    info.add(Integer.toString(fe.getEditLogPort()));
+                    info.add(disk.getDirType());
+                    info.add(disk.getDir());
+                    info.add(disk.getSpaceInfo().filesystem);
+                    info.add(Long.toString(disk.getSpaceInfo().blocks));
+                    info.add(Long.toString(disk.getSpaceInfo().used));
+                    info.add(Long.toString(disk.getSpaceInfo().available));
+                    info.add(Integer.toString(disk.getSpaceInfo().useRate));
+                    info.add(disk.getSpaceInfo().mountedOn);
+                    infos.add(info);
+                }
+            }
+        }
+    }
+
 
     private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
         return helperNodes.stream().anyMatch(p -> fe.toHostInfo().isSame(p));

@@ -93,6 +93,9 @@ public class HeartbeatMgr extends MasterDaemon {
         masterInfo.set(tMasterInfo);
     }
 
+    private List<ExecuteEnv.DiskInfo> getFeDiskInfo() {
+        return ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
+    }
     /**
      * At each round:
      * 1. send heartbeat to all nodes
@@ -101,6 +104,8 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
+
+        List<ExecuteEnv.DiskInfo> diskInfos = getFeDiskInfo();
 
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
@@ -284,7 +289,6 @@ public class HeartbeatMgr extends MasterDaemon {
         private Frontend fe;
         private int clusterId;
         private String token;
-        private long callerFeStartTime;
 
         public FrontendHeartbeatHandler(Frontend fe, int clusterId, String token) {
             this.fe = fe;
@@ -301,7 +305,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Env.getCurrentEnv().getMaxJournalId(), System.currentTimeMillis(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH,
-                            ExecuteEnv.getInstance().getStartupTime());
+                            ExecuteEnv.getInstance().getStartupTime(), ExecuteEnv.getInstance().getDiskInfos());
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
@@ -322,7 +326,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getReplayedJournalId(),
-                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime());
+                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(), null);
 
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());

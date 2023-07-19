@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -38,6 +39,10 @@ public class ShowFrontendsStmt extends ShowStmt {
         this.detail = detail;
     }
 
+    public String getDetailType() {
+        return detail;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
@@ -50,7 +55,14 @@ public class ShowFrontendsStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : FrontendsProcNode.TITLE_NAMES) {
+
+        ImmutableList<String> titles = FrontendsProcNode.TITLE_NAMES;
+        if (detail != null) {
+            if (detail.equals("disks")) {
+                titles = FrontendsProcNode.DISK_TITLE_NAMES;
+            }
+        }
+        for (String title : titles) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
