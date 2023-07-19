@@ -71,6 +71,7 @@ public class ColocateGroupSchema implements Writable {
     }
 
     public void checkColocateSchema(OlapTable tbl) throws DdlException {
+        checkDistribution(tbl.getDefaultDistributionInfo());
         // We add a table with many partitions to the colocate group,
         // we need to check whether all partitions comply with the colocate group specification
         for (Partition partition : tbl.getAllPartitions()) {
