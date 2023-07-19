@@ -34,9 +34,9 @@ public class Pair<F, S> {
     public static PairComparator<Pair<?, Comparable>> PAIR_VALUE_COMPARATOR = new PairComparator<>();
 
     @SerializedName(value = "first")
-    public final F first;
+    public F first;
     @SerializedName(value = "second")
-    public final S second;
+    public S second;
 
     private Pair(F first, S second) {
         this.first = first;

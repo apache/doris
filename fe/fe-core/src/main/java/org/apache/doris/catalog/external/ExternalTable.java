@@ -79,6 +79,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     /**
+     * versionInfo: Pair(version, versionTime)
+     *
      * version:
      *  -1: table has not been initialized
      *  0: table has just been initialized
