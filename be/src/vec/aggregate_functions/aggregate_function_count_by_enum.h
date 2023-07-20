@@ -164,7 +164,9 @@ public:
 
         for (int i = 0; i < arg_count; i++) {
             const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
-            if (nullable_column->is_null_at(row_num)) {
+            if (nullable_column == nullptr) {
+                this->data(place).add(i, static_cast<const ColumnString&>(*columns[i]).get_data_at(row_num));
+            } else if (nullable_column->is_null_at(row_num)) {
                 // TODO create a null vector
                 this->data(place).add(i);
             } else {

@@ -87,7 +87,48 @@ TEST_F(VCountByEnumTest, testEmpty) {
     agg_function->destroy(place2);
 }
 
-TEST_F(VCountByEnumTest, testSample) {
+TEST_F(VCountByEnumTest, testNotNullableSample) {
+    const int batch_size = 5;
+    auto column_f1 = ColumnString::create();
+    column_f1->insert("F");
+    column_f1->insert("F");
+    column_f1->insert("M");
+    column_f1->insert("F");
+    column_f1->insert("M");
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* column[1] = {column_f1.get()};
+    for (int i = 0; i < batch_size; i++) {
+        agg_function->add(place, column, i, nullptr);
+    }
+
+    std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place2 = memory2.get();
+    agg_function->create(place2);
+
+    agg_function->merge(place2, place, nullptr);
+
+    auto column_result2 =
+            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    agg_function->insert_result_into(place2, *column_result2);
+    auto& result2 = assert_cast<ColumnString&>(*column_result2);
+
+    rapidjson::Document document;
+    document.Parse(result2.get_data_at(0).to_string().c_str());
+    const rapidjson::Value& item0 = document[0];
+    EXPECT_EQ(item0["cbe"]["M"].GetInt(), 2);
+    EXPECT_EQ(item0["cbe"]["F"].GetInt(), 3);
+    EXPECT_EQ(item0["notnull"].GetInt(), 5);
+    EXPECT_EQ(item0["null"].GetInt(), 0);
+    EXPECT_EQ(item0["all"].GetInt(), 5);
+
+    agg_function->destroy(place);
+    agg_function->destroy(place2);
+}
+
+TEST_F(VCountByEnumTest, testNullableSample) {
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
     column_f1->insert("F");

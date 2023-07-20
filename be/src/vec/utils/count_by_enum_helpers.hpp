@@ -35,13 +35,7 @@ struct CountByEnumData {
     uint64_t all;
 };
 
-void value_to_string(std::stringstream& ss, std::string input) {
-    fmt::memory_buffer buffer;
-    fmt::format_to(buffer, "{}", input);
-    ss << std::string(buffer.data(), buffer.size());
-}
-
-bool build_json_from_vec(rapidjson::StringBuffer& buffer, const std::vector<CountByEnumData>& data_vec) {
+void build_json_from_vec(rapidjson::StringBuffer& buffer, const std::vector<CountByEnumData>& data_vec) {
     rapidjson::Document doc;
     doc.SetArray();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
@@ -53,9 +47,7 @@ bool build_json_from_vec(rapidjson::StringBuffer& buffer, const std::vector<Coun
         rapidjson::Value obj_cbe(rapidjson::kObjectType);
         std::unordered_map<std::string, uint64_t> unordered_map = data_vec[idx].cbe;
         for (auto it : unordered_map) {
-            std::stringstream ss;
-            value_to_string(ss, it.first);
-            rapidjson::Value key_cbe(ss.str().c_str(), allocator);
+            rapidjson::Value key_cbe(it.first.c_str(), allocator);
             rapidjson::Value value_cbe(it.second);
             obj_cbe.AddMember(key_cbe, value_cbe, allocator);
         }
@@ -69,8 +61,6 @@ bool build_json_from_vec(rapidjson::StringBuffer& buffer, const std::vector<Coun
 
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     doc.Accept(writer);
-
-    return buffer.GetSize() > 0;
 }
 
 } // namespace  doris::vectorized

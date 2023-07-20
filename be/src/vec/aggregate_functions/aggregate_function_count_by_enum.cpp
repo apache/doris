@@ -55,7 +55,6 @@ AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& 
 
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("count_by_enum", create_aggregate_function_count_by_enum, true);
-    // factory.register_function("count", create_aggregate_function_count_not_null_unary, true);
 }
 
 } // namespace doris::vectorized
