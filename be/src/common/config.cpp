@@ -159,8 +159,8 @@ DEFINE_Int32(clear_transaction_task_worker_count, "1");
 DEFINE_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 DEFINE_Int32(alter_tablet_worker_count, "3");
-// the count of thread to alter inverted index
-DEFINE_Int32(alter_inverted_index_worker_count, "3");
+// the count of thread to alter index
+DEFINE_Int32(alter_index_worker_count, "3");
 // the count of thread to clone
 DEFINE_Int32(clone_worker_count, "3");
 // the count of thread to clone

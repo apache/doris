@@ -1301,6 +1301,11 @@ BaseCompaction:546859:
 * 描述：进行schema change的线程数
 * 默认值：3
 
+### `alter_index_worker_count`
+
+* 描述：进行index change的线程数
+* 默认值：3
+
 #### `ignore_load_tablet_failure`
 
 * 类型：bool

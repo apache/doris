@@ -201,8 +201,8 @@ DECLARE_Int32(clear_transaction_task_worker_count);
 DECLARE_Int32(delete_worker_count);
 // the count of thread to alter table
 DECLARE_Int32(alter_tablet_worker_count);
-// the count of thread to alter inverted index
-DECLARE_Int32(alter_inverted_index_worker_count);
+// the count of thread to alter index
+DECLARE_Int32(alter_index_worker_count);
 // the count of thread to clone
 DECLARE_Int32(clone_worker_count);
 // the count of thread to clone

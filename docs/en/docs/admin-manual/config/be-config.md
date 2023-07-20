@@ -1285,6 +1285,11 @@ BaseCompaction:546859:
 * Description: The number of threads making schema changes
 * Default value: 3
 
+### `alter_index_worker_count`
+
+* Description: The number of threads making index change
+* Default value: 3
+
 #### `ignore_load_tablet_failure`
 
 * Type: bool
