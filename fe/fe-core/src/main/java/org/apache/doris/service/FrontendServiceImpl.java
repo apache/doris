@@ -57,6 +57,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -69,6 +70,7 @@ import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.DdlExecutor;
+import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.VariableMgr;
@@ -1988,10 +1990,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new TException("Only support forward ExternalCatalog init operation.");
         }
-        ((ExternalCatalog) catalog).makeSureInitialized();
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
-        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-        result.setStatus("OK");
+        try {
+            ((ExternalCatalog) catalog).makeSureInitialized();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            result.setStatus(MasterCatalogExecutor.STATUS_OK);
+        } catch (Throwable t) {
+            LOG.warn("init catalog failed. catalog: {}", catalog.getName(), t);
+            result.setStatus(Util.getRootCauseStack(t));
+        }
         return result;
     }
 
@@ -2007,10 +2014,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!(db instanceof ExternalDatabase)) {
             throw new TException("Only support forward ExternalDatabase init operation.");
         }
-        ((ExternalDatabase) db).makeSureInitialized();
+
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
-        result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
-        result.setStatus("OK");
+        try {
+            ((ExternalDatabase) db).makeSureInitialized();
+            result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+            result.setStatus(MasterCatalogExecutor.STATUS_OK);
+        } catch (Throwable t) {
+            LOG.warn("init database failed. catalog.database: {}", catalog.getName(), db.getFullName(), t);
+            result.setStatus(Util.getRootCauseStack(t));
+        }
         return result;
     }
 
