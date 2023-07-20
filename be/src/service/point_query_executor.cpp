@@ -57,6 +57,8 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _block_pool.resize(block_size);
     for (int i = 0; i < _block_pool.size(); ++i) {
         _block_pool[i] = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+        // Name is useless but cost space
+        _block_pool[i]->clear_names(); 
     }
 
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(output_exprs, _output_exprs_ctxs));
@@ -74,7 +76,10 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
 std::unique_ptr<vectorized::Block> Reusable::get_block() {
     std::lock_guard lock(_block_mutex);
     if (_block_pool.empty()) {
-        return vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+        auto block = vectorized::Block::create_unique(tuple_desc()->slots(), 2);
+        // Name is useless but cost space
+        block->clear_names();
+        return block;
     }
     auto block = std::move(_block_pool.back());
     CHECK(block != nullptr);
