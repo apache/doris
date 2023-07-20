@@ -18,6 +18,7 @@
 #include "vec/sink/vtablet_block_convertor.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
 #include <google/protobuf/stubs/common.h>
 
 #include <algorithm>

@@ -1116,10 +1116,6 @@ void VOlapTableSink::_send_batch_process() {
     }
 }
 
-bool VOlapTableSink::can_write() {
-    return !_block_convertor->is_waiting_for_autoinc_ids();
-}
-
 size_t VOlapTableSink::get_pending_bytes() const {
     size_t mem_consumption = 0;
     for (const auto& index_channel : _channels) {

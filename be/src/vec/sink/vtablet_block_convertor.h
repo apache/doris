@@ -20,10 +20,8 @@
 #include <stdint.h>
 
 // IWYU pragma: no_include <bits/chrono.h>
-#include <gen_cpp/FrontendService.h>
 
 #include <chrono> // IWYU pragma: keep
-#include <future>
 #include <map>
 
 #include "common/status.h"
@@ -39,8 +37,6 @@
 
 namespace doris {
 namespace stream_load {
-
-class AutoIncIDBuffer;
 
 class OlapTableBlockConvertor {
 public:
@@ -60,15 +56,7 @@ public:
 
     void init_autoinc_info(int64_t db_id, int64_t table_id, int batch_size);
 
-    [[nodiscard]] bool is_waiting_for_autoinc_ids() const { return _is_waiting_for_autoinc_ids; }
-
     AutoIncIDAllocator& auto_inc_id_allocator() { return _auto_inc_id_allocator; }
-
-    void set_is_waiting_for_auto_inc(bool is_waiting_for_autoinc_ids) {
-        _is_waiting_for_autoinc_ids = is_waiting_for_autoinc_ids;
-    }
-
-    void set_request_future(std::promise<Status>& p) { _request_future = p.get_future(); }
 
 private:
     template <bool is_min>
@@ -116,8 +104,6 @@ private:
     std::optional<size_t> _auto_inc_col_idx;
     AutoIncIDBuffer* _auto_inc_id_buffer;
     AutoIncIDAllocator _auto_inc_id_allocator;
-    std::atomic_bool _is_waiting_for_autoinc_ids {false};
-    std::future<Status> _request_future; // used when pipeline is not enabled
 };
 
 } // namespace stream_load

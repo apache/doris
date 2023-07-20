@@ -38,7 +38,7 @@ public:
     TableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return _sink->can_write(); }
+    bool can_write() override { return true; }
 };
 
 OperatorPtr TableSinkOperatorBuilder::build_operator() {

@@ -496,8 +496,6 @@ public:
     // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the producer
     void _send_batch_process();
 
-    virtual bool can_write() override;
-
 private:
     friend class VNodeChannel;
     friend class IndexChannel;
