@@ -45,6 +45,7 @@
 # include <sys/ucontext.h>
 #endif
 #include <algorithm>
+#include "gen_cpp/version.h"
 
 namespace doris::signal {
 
@@ -251,6 +252,10 @@ void WriteToStderr(const char* data, size_t size) {
 // The writer function can be changed by InstallFailureWriter().
 void (*g_failure_writer)(const char* data, size_t size) = WriteToStderr;
 
+const char* doris_build_short_hash() {
+    return DORIS_BUILD_SHORT_HASH;
+}
+
 // Dumps time information.  We don't dump human-readable time information
 // as localtime() is not guaranteed to be async signal safe.
 void DumpTimeInfo() {
@@ -268,6 +273,9 @@ void DumpTimeInfo() {
   formatter.AppendString(" try \"date -d @");
   formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
   formatter.AppendString("\" if you are using GNU date ***\n");
+  formatter.AppendString("*** Current BE git commitID: ");
+  formatter.AppendString(doris_build_short_hash());
+  formatter.AppendString(" ***\n");
   g_failure_writer(buf, formatter.num_bytes_written());
 }
 

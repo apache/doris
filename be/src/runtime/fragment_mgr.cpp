@@ -579,6 +579,10 @@ std::shared_ptr<StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
+    // these two are used to output query_id when be cored dump.
+    doris::signal::query_id_hi = params.params.query_id.hi;
+    doris::signal::query_id_lo = params.params.query_id.lo;
+
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
         std::lock_guard<std::mutex> lock(_lock);
