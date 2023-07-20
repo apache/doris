@@ -201,7 +201,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                     cctz::parse("%Y-%m-%dT%H:%M:%E*S%Ez", str_date, cctz::utc_time_zone(), &tp);
             if (ok) {
                 success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                               cctz::local_time_zone().name());
+                                               cctz::local_time_zone());
             }
         } else if (str_length == 19) {
             // YYYY-MM-DDTHH:MM:SS
@@ -211,7 +211,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                         cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
                 if (ok) {
                     success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                                   cctz::local_time_zone().name());
+                                                   cctz::local_time_zone());
                 }
             } else {
                 // YYYY-MM-DD HH:MM:SS
@@ -222,7 +222,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             // string long like "1677895728000"
             int64_t time_long = std::atol(str_date.c_str());
             if (time_long > 0) {
-                success = dt_val.from_unixtime(time_long / 1000, cctz::local_time_zone().name());
+                success = dt_val.from_unixtime(time_long / 1000, cctz::local_time_zone());
             }
         } else {
             // YYYY-MM-DD or others
@@ -234,7 +234,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
 
     } else {
-        if (!dt_val.from_unixtime(col.GetInt64() / 1000, cctz::local_time_zone().name())) {
+        if (!dt_val.from_unixtime(col.GetInt64() / 1000, cctz::local_time_zone())) {
             RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
         }
     }
@@ -632,19 +632,11 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 case TYPE_VARCHAR:
                 case TYPE_STRING: {
                     std::string val;
-                    if (pure_doc_value && !sub_col.Empty()) {
-                        if (!sub_col[0].IsString()) {
-                            val = json_value_to_string(sub_col[0]);
-                        } else {
-                            val = sub_col[0].GetString();
-                        }
+                    RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
+                    if (!sub_col.IsString()) {
+                        val = json_value_to_string(sub_col);
                     } else {
-                        RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, type);
-                        if (!sub_col.IsString()) {
-                            val = json_value_to_string(sub_col);
-                        } else {
-                            val = sub_col.GetString();
-                        }
+                        val = sub_col.GetString();
                     }
                     array.push_back(val);
                     break;
