@@ -30,6 +30,7 @@
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
+#include <string>
 #include <string_view>
 
 #include "common/config.h"
@@ -103,11 +104,12 @@ bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
 }
 //parse timezone to get offset
 bool VecDateTimeValue::from_date_str(const char* date_str, int len,
-                                     const cctz::time_zone& local_time_zone) {
+                                     const cctz::time_zone& local_time_zone,
+                                     ZoneList& time_zone_cache) {
     auto str = std::string_view(date_str, len);
     long diff = 0;
     if (have_offset(str) || have_zone_name(str)) {
-        std::string_view str_tz;
+        std::string str_tz;
         if (have_zone_name(str)) {
             int split = timezone_split_pos(str);
             if (split <= 0) {
@@ -115,20 +117,27 @@ bool VecDateTimeValue::from_date_str(const char* date_str, int len,
             }
             str_tz = str.substr(split);
             str = str.substr(0, split);
-        } else {
+            len = split;
+        } else { // +08:00
             if (str[str.length() - 6] != '-' && str[str.length() - 6] != '+') {
                 return false;
             }
             str_tz = str.substr(str.length() - 6);
             str = str.substr(0, str.length() - 6);
+            len -= 6;
         }
-        cctz::time_zone time_zone;
-        if (!TimezoneUtils::find_cctz_time_zone(std::string {str_tz}, time_zone)) {
-            return false;
+        if (!str_tz.empty()) {
+            // no lock needed because of the entity is of thread_local
+            if (time_zone_cache.find(str_tz) == time_zone_cache.end()) { // not found
+                if (!TimezoneUtils::find_cctz_time_zone(str_tz, time_zone_cache[str_tz])) {
+                    return false;
+                }
+            }
+            auto given = cctz::convert(cctz::civil_second {}, time_zone_cache[str_tz]);
+            auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
+            // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+            diff = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
         }
-        auto given = cctz::convert(cctz::civil_second {}, time_zone);
-        auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
-        diff = std::chrono::duration_cast<std::chrono::seconds>(local - given).count();
     }
 
     return from_date_str_base(date_str, len, diff);
@@ -1912,11 +1921,12 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* =
 //parse timezone to get offset
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
-                                   const cctz::time_zone& local_time_zone, int scale /* = -1*/) {
+                                   const cctz::time_zone& local_time_zone,
+                                   ZoneList& time_zone_cache, int scale /* = -1*/) {
     auto str = std::string_view(date_str, len);
     long diff = 0;
     if (have_offset(str) || have_zone_name(str)) {
-        std::string_view str_tz;
+        std::string str_tz;
         if (have_zone_name(str)) {
             int split = timezone_split_pos(str);
             if (split <= 0) {
@@ -1933,14 +1943,18 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len,
             str = str.substr(0, str.length() - 6);
             len -= 6;
         }
-        cctz::time_zone time_zone;
-        if (!TimezoneUtils::find_cctz_time_zone(std::string {str_tz}, time_zone)) {
-            return false;
+        if (!str_tz.empty()) {
+            // no lock needed because of the entity is of thread_local
+            if (time_zone_cache.find(str_tz) == time_zone_cache.end()) { // not found
+                if (!TimezoneUtils::find_cctz_time_zone(str_tz, time_zone_cache[str_tz])) {
+                    return false;
+                }
+            }
+            auto given = cctz::convert(cctz::civil_second {}, time_zone_cache[str_tz]);
+            auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
+            // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+            diff = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
         }
-        auto given = cctz::convert(cctz::civil_second {}, time_zone);
-        auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
-        // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-        diff = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
     }
 
     return from_date_str_base(date_str, len, scale, diff);

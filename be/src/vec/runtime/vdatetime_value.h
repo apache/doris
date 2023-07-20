@@ -43,6 +43,8 @@ namespace doris {
 
 namespace vectorized {
 
+using ZoneList = std::map<std::string, cctz::time_zone>;
+
 enum TimeUnit {
     MICROSECOND,
     SECOND,
@@ -351,7 +353,8 @@ public:
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len);
-    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone);
+    bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
+                       ZoneList& time_zone_cache);
 
     // Construct Date/Datetime type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -805,7 +808,7 @@ public:
     // 'YYYYMMDDTHHMMSS'
     bool from_date_str(const char* str, int len, int scale = -1);
     bool from_date_str(const char* str, int len, const cctz::time_zone& local_time_zone,
-                       int scale = -1);
+                       ZoneList& time_zone_cache, int scale = -1);
 
     // Convert this value to string
     // this will check type to decide which format to convert
