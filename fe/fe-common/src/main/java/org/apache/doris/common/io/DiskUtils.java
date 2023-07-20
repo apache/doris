@@ -26,19 +26,19 @@ import java.util.List;
 
 public class DiskUtils {
     public static class Df {
-        public String fileSystem;
+        public String fileSystem = "";
         public long blocks;
         public long used;
         public long available;
         public int useRate;
-        public String mountedOn;
+        public String mountedOn = "";
     }
 
     public static Df df(String dir) {
         String os = System.getProperty("os.name");
         if (os.startsWith("Windows")) {
             Df df = new Df();
-            df.available = Long.MAX_VALUE;
+            df.available = Long.MAX_VALUE / 1024;
             return df;
         }
 
@@ -88,6 +88,35 @@ public class DiskUtils {
             }
         }
         return titles;
+    }
+
+    private static String[] units = new String[]{"", "K", "M", "G", "T", "P"};
+
+    public static String sizeFormat(long size) {
+        int unitPos = 0;
+        while (size > 1024 && unitPos < units.length - 1) {
+            unitPos ++;
+            size /= 1024;
+        }
+        return size + units[unitPos];
+    }
+
+    public static void main(String[] args) {
+        long [] values = new long[]{
+            1l,
+            1l * 1024,
+            1l * 1024 * 1024,
+            1l * 1024 * 1024 * 1024,
+            1l * 1024 * 1024 * 1024 * 1024,
+            1l * 1024 * 1024 * 1024 * 1024 * 1024,
+            1l * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
+        };
+
+        for (long v : values) {
+            System.out.println(sizeFormat(v));
+        }
+
+        System.out.println("Max Long:" + sizeFormat(Long.MAX_VALUE));
     }
 
 }

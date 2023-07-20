@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -52,8 +53,8 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Host").add("EditLogPort").add("dir_type").add("dir").add("filesystem")
-            .add("Blocks1K").add("Used").add("Available").add("UseRate").add("MountOn")
+            .add("Name").add("Host").add("EditLogPort").add("DirType").add("Dir").add("Filesystem")
+            .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
 
     private Env env;
@@ -162,10 +163,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     info.add(disk.getDirType());
                     info.add(disk.getDir());
                     info.add(disk.getSpaceInfo().fileSystem);
-                    info.add(Long.toString(disk.getSpaceInfo().blocks));
-                    info.add(Long.toString(disk.getSpaceInfo().used));
-                    info.add(Long.toString(disk.getSpaceInfo().available));
-                    info.add(Integer.toString(disk.getSpaceInfo().useRate));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().blocks * 1024));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().used * 1024));
+                    info.add(DiskUtils.sizeFormat(disk.getSpaceInfo().available * 1024));
+                    info.add(Integer.toString(disk.getSpaceInfo().useRate) + "%");
                     info.add(disk.getSpaceInfo().mountedOn);
                     infos.add(info);
                 }
