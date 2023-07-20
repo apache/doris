@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_create_index", "inverted_index"){
+suite("test_create_index_1", "inverted_index"){
     // prepare test table
     def timeout = 60000
     def delta_time = 1000
@@ -37,7 +37,7 @@ suite("test_create_index", "inverted_index"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
 
-    def indexTbName1 = "test_create_index"
+    def indexTbName1 = "test_create_index_1"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     // case 1: create table with index
