@@ -217,7 +217,7 @@ public class CacheAnalyzer {
 
         for (int i = 0; i < scanNodes.size(); i++) {
             ScanNode node = scanNodes.get(i);
-            if (enablePartitionCache() && (node instanceof HiveScanNode)
+            if (enablePartitionCache() && (node instanceof OlapScanNode)
                         && ((OlapScanNode) node).getSelectedPartitionNum() > 1 && selectStmt.hasGroupByClause()) {
                 LOG.debug("more than one partition scanned when query has agg, partition cache cannot use, queryid {}",
                         DebugUtil.printId(queryId));
