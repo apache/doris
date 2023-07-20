@@ -171,11 +171,19 @@ public abstract class BaseAnalysisTask {
                 break;
             } catch (Throwable t) {
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
+                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                    throw new RuntimeException(t);
+                }
             }
         }
     }
 
     public abstract void doExecute() throws Exception;
+
+    protected void setTaskStateToRunning() {
+        Env.getCurrentEnv().getAnalysisManager()
+            .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
+    }
 
     public void cancel() {
         killed = true;
@@ -184,7 +192,7 @@ public abstract class BaseAnalysisTask {
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
-                        String.format("Job has been cancelled: %s", info.toString()), -1);
+                        String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
     public long getLastExecTime() {
@@ -217,5 +225,12 @@ public abstract class BaseAnalysisTask {
         } else {
             return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
         }
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Job id [%d], Task id [%d], catalog [%s], db [%s], table [%s], column [%s]",
+            info.jobId, info.taskId, catalog.getName(), db.getFullName(), tbl.getName(),
+            col == null ? "TableRowCount" : col.getName());
     }
 }

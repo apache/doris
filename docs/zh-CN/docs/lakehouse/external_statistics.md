@@ -53,45 +53,45 @@ mysql> ANALYZE TABLE hive.tpch100.lineitem;
 +--------------+-------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------+
 | Catalog_Name | DB_Name                 | Table_Name | Columns                                                                                                                                                                                       | Job_Id |
 +--------------+-------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------+
-| hive         | default_cluster:tpch100 | lineitem   | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | 126039 |
+| hive         | default_cluster:tpch100 | lineitem   | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | 16990  |
 +--------------+-------------------------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------+
-1 row in set (0.03 sec)
+1 row in set (0.06 sec)
 ```
 此操作是异步执行，会在后台创建收集任务，可以通过job_id查看任务进度。
 ```
-mysql> SHOW ANALYZE 126039;
-+--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+---------+---------------+
-| job_id | catalog_name | db_name                 | tbl_name | col_name                                                                                                                                                                                      | job_type | analysis_type | message | last_exec_time_in_ms | state   | schedule_type |
-+--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+---------+---------------+
-| 126039 | hive         | default_cluster:tpch100 | lineitem | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | MANUAL   | FUNDAMENTALS  |         | 2023-07-13 10:33:44  | PENDING | ONCE          |
-+--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+---------+---------------+
+mysql> SHOW ANALYZE 16990;
++--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+---------+---------------------------------------------+---------------+
+| job_id | catalog_name | db_name                 | tbl_name | col_name                                                                                                                                                                                      | job_type | analysis_type | message | last_exec_time_in_ms | state   | progress                                    | schedule_type |
++--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+---------+---------------------------------------------+---------------+
+| 16990  | hive         | default_cluster:tpch100 | lineitem | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | MANUAL   | FUNDAMENTALS  |         | 2023-07-27 16:01:52  | RUNNING | 2 Finished/0 Failed/15 In Progress/17 Total | ONCE          |
++--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+---------+---------------------------------------------+---------------+
 1 row in set (0.00 sec)
 ```
 以及查看每一列的task状态。
 ```
-mysql> SHOW ANALYZE TASK STATUS 126039;
-+---------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+----------------------+----------+
-| task_id | col_name                                                                                                                                                                                      | message | last_exec_time_in_ms | state    |
-+---------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+----------------------+----------+
-| 126040  | l_receiptdate                                                                                                                                                                                 |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126041  | l_returnflag                                                                                                                                                                                  |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126042  | l_tax                                                                                                                                                                                         |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126043  | l_shipmode                                                                                                                                                                                    |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126044  | l_suppkey                                                                                                                                                                                     |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126045  | l_shipdate                                                                                                                                                                                    |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126046  | l_commitdate                                                                                                                                                                                  |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126047  | l_partkey                                                                                                                                                                                     |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126048  | l_quantity                                                                                                                                                                                    |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126049  | l_orderkey                                                                                                                                                                                    |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126050  | l_comment                                                                                                                                                                                     |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126051  | l_linestatus                                                                                                                                                                                  |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126052  | l_extendedprice                                                                                                                                                                               |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126053  | l_linenumber                                                                                                                                                                                  |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126054  | l_shipinstruct                                                                                                                                                                                |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126055  | l_discount                                                                                                                                                                                    |         | 2023-07-13 10:33:44  | RUNNING  |
-| 126056  | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] |         | 2023-07-13 10:33:56  | FINISHED |
-+---------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+----------------------+----------+
-17 rows in set (0.01 sec)
+mysql> SHOW ANALYZE TASK STATUS 16990;
++---------+-----------------+---------+------------------------+-----------------+----------+
+| task_id | col_name        | message | last_state_change_time | time_cost_in_ms | state    |
++---------+-----------------+---------+------------------------+-----------------+----------+
+| 16991   | l_receiptdate   |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 16992   | l_returnflag    |         | 2023-07-27 16:01:44    | 14394           | FINISHED |
+| 16993   | l_tax           |         | 2023-07-27 16:01:52    | 7975            | FINISHED |
+| 16994   | l_shipmode      |         | 2023-07-27 16:02:11    | 18961           | FINISHED |
+| 16995   | l_suppkey       |         | 2023-07-27 16:02:17    | 6684            | FINISHED |
+| 16996   | l_shipdate      |         | 2023-07-27 16:02:26    | 8518            | FINISHED |
+| 16997   | l_commitdate    |         | 2023-07-27 16:02:26    | 0               | RUNNING  |
+| 16998   | l_partkey       |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 16999   | l_quantity      |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17000   | l_orderkey      |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17001   | l_comment       |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17002   | l_linestatus    |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17003   | l_extendedprice |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17004   | l_linenumber    |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17005   | l_shipinstruct  |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17006   | l_discount      |         | 2023-07-27 16:01:29    | 0               | PENDING  |
+| 17007   | TableRowCount   |         | 2023-07-27 16:01:29    | 0               | PENDING  |
++---------+-----------------+---------+------------------------+-----------------+----------+
+17 rows in set (0.00 sec)
 ```
 
 - 收集tpch100数据库所有表的信息
@@ -101,14 +101,14 @@ mysql> ANALYZE DATABASE hive.tpch100;
 +--------------+---------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------+
 | Catalog_Name | DB_Name | Table_Name | Columns                                                                                                                                                                                       | Job_Id |
 +--------------+---------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------+
-| hive         | tpch100 | partsupp   | [ps_suppkey,ps_availqty,ps_comment,ps_partkey,ps_supplycost]                                                                                                                                  | 124192 |
-| hive         | tpch100 | orders     | [o_orderstatus,o_clerk,o_orderdate,o_shippriority,o_custkey,o_totalprice,o_orderkey,o_comment,o_orderpriority]                                                                                | 124199 |
-| hive         | tpch100 | lineitem   | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | 124210 |
-| hive         | tpch100 | part       | [p_partkey,p_container,p_name,p_comment,p_brand,p_type,p_retailprice,p_mfgr,p_size]                                                                                                           | 124228 |
-| hive         | tpch100 | customer   | [c_custkey,c_phone,c_acctbal,c_mktsegment,c_address,c_nationkey,c_name,c_comment]                                                                                                             | 124239 |
-| hive         | tpch100 | supplier   | [s_comment,s_phone,s_nationkey,s_name,s_address,s_acctbal,s_suppkey]                                                                                                                          | 124249 |
-| hive         | tpch100 | nation     | [n_comment,n_nationkey,n_regionkey,n_name]                                                                                                                                                    | 124258 |
-| hive         | tpch100 | region     | [r_regionkey,r_comment,r_name]                                                                                                                                                                | 124264 |
+| hive         | tpch100 | supplier   | [s_comment,s_phone,s_nationkey,s_name,s_address,s_acctbal,s_suppkey]                                                                                                                          | 17018  |
+| hive         | tpch100 | nation     | [n_comment,n_nationkey,n_regionkey,n_name]                                                                                                                                                    | 17027  |
+| hive         | tpch100 | region     | [r_regionkey,r_comment,r_name]                                                                                                                                                                | 17033  |
+| hive         | tpch100 | partsupp   | [ps_suppkey,ps_availqty,ps_comment,ps_partkey,ps_supplycost]                                                                                                                                  | 17038  |
+| hive         | tpch100 | orders     | [o_orderstatus,o_clerk,o_orderdate,o_shippriority,o_custkey,o_totalprice,o_orderkey,o_comment,o_orderpriority]                                                                                | 17045  |
+| hive         | tpch100 | lineitem   | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | 17056  |
+| hive         | tpch100 | part       | [p_partkey,p_container,p_name,p_comment,p_brand,p_type,p_retailprice,p_mfgr,p_size]                                                                                                           | 17074  |
+| hive         | tpch100 | customer   | [c_custkey,c_phone,c_acctbal,c_mktsegment,c_address,c_nationkey,c_name,c_comment]                                                                                                             | 17085  |
 +--------------+---------+------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------+
 8 rows in set (0.29 sec)
 ```
@@ -140,28 +140,38 @@ Query OK, 0 rows affected (33.19 sec)
 
 ```
 mysql> SHOW ANALYZE;
-+--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                 | tbl_name | col_name                                                                                                                                                                                      | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+----------+---------------+
-| 12152  | hive         | tpch100                 | partsupp | [ps_suppkey,ps_availqty,ps_comment,ps_partkey,ps_supplycost]                                                                                                                                  | MANUAL   | FUNDAMENTALS  |         | 2023-07-11 15:57:16  | FINISHED | ONCE          |
-| 12159  | hive         | tpch100                 | orders   | [o_orderstatus,o_clerk,o_orderdate,o_shippriority,o_custkey,o_totalprice,o_orderkey,o_comment,o_orderpriority]                                                                                | MANUAL   | FUNDAMENTALS  |         | 2023-07-11 15:57:24  | FINISHED | ONCE          |
-+--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+----------+---------------+
++--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+----------+---------------------------------------------+---------------+
+| job_id | catalog_name | db_name                 | tbl_name | col_name                                                                                                                                                                                      | job_type | analysis_type | message | last_exec_time_in_ms | state    | progress                                    | schedule_type |
++--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+----------+---------------------------------------------+---------------+
+| 16990  | hive         | default_cluster:tpch100 | lineitem | [l_returnflag,l_receiptdate,l_tax,l_shipmode,l_suppkey,l_shipdate,l_commitdate,l_partkey,l_orderkey,l_quantity,l_linestatus,l_comment,l_extendedprice,l_linenumber,l_discount,l_shipinstruct] | MANUAL   | FUNDAMENTALS  |         | 2023-07-27 16:05:02  | FINISHED | 17 Finished/0 Failed/0 In Progress/17 Total | ONCE          |
++--------+--------------+-------------------------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+----------+---------------+---------+----------------------+----------+---------------------------------------------+---------------+
 ```
 
 - 查看一个job的所有task状态
 
 ```
-mysql> SHOW ANALYZE TASK STATUS 12152;
-+---------+--------------------------------------------------------------+---------+----------------------+----------+
-| task_id | col_name                                                     | message | last_exec_time_in_ms | state    |
-+---------+--------------------------------------------------------------+---------+----------------------+----------+
-| 12153   | ps_availqty                                                  |         | 2023-07-11 15:56:58  | FINISHED |
-| 12154   | ps_suppkey                                                   |         | 2023-07-11 15:56:57  | FINISHED |
-| 12155   | ps_comment                                                   |         | 2023-07-11 15:57:16  | FINISHED |
-| 12156   | ps_supplycost                                                |         | 2023-07-11 15:56:57  | FINISHED |
-| 12157   | ps_partkey                                                   |         | 2023-07-11 15:56:58  | FINISHED |
-| 12158   | [ps_suppkey,ps_availqty,ps_comment,ps_partkey,ps_supplycost] |         | 2023-07-11 15:56:57  | FINISHED |
-+---------+--------------------------------------------------------------+---------+----------------------+----------+
+mysql> SHOW ANALYZE TASK STATUS 16990;
++---------+-----------------+---------+------------------------+-----------------+----------+
+| task_id | col_name        | message | last_state_change_time | time_cost_in_ms | state    |
++---------+-----------------+---------+------------------------+-----------------+----------+
+| 16991   | l_receiptdate   |         | 2023-07-27 16:05:02    | 9560            | FINISHED |
+| 16992   | l_returnflag    |         | 2023-07-27 16:01:44    | 14394           | FINISHED |
+| 16993   | l_tax           |         | 2023-07-27 16:01:52    | 7975            | FINISHED |
+| 16994   | l_shipmode      |         | 2023-07-27 16:02:11    | 18961           | FINISHED |
+| 16995   | l_suppkey       |         | 2023-07-27 16:02:17    | 6684            | FINISHED |
+| 16996   | l_shipdate      |         | 2023-07-27 16:02:26    | 8518            | FINISHED |
+| 16997   | l_commitdate    |         | 2023-07-27 16:02:34    | 8380            | FINISHED |
+| 16998   | l_partkey       |         | 2023-07-27 16:02:40    | 6060            | FINISHED |
+| 16999   | l_quantity      |         | 2023-07-27 16:02:50    | 9768            | FINISHED |
+| 17000   | l_orderkey      |         | 2023-07-27 16:02:57    | 7200            | FINISHED |
+| 17001   | l_comment       |         | 2023-07-27 16:03:36    | 38468           | FINISHED |
+| 17002   | l_linestatus    |         | 2023-07-27 16:03:51    | 15226           | FINISHED |
+| 17003   | l_extendedprice |         | 2023-07-27 16:04:00    | 8713            | FINISHED |
+| 17004   | l_linenumber    |         | 2023-07-27 16:04:06    | 6659            | FINISHED |
+| 17005   | l_shipinstruct  |         | 2023-07-27 16:04:36    | 29777           | FINISHED |
+| 17006   | l_discount      |         | 2023-07-27 16:04:45    | 9212            | FINISHED |
+| 17007   | TableRowCount   |         | 2023-07-27 16:04:52    | 6974            | FINISHED |
++---------+-----------------+---------+------------------------+-----------------+----------+
 ```
 
 - 终止未完成的job

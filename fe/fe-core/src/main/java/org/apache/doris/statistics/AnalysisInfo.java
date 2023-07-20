@@ -131,6 +131,10 @@ public class AnalysisInfo implements Writable {
     @SerializedName("lastExecTimeInMs")
     public long lastExecTimeInMs;
 
+    // finished or failed
+    @SerializedName("timeCostInMs")
+    public long timeCostInMs;
+
     @SerializedName("state")
     public AnalysisState state;
 
@@ -161,8 +165,9 @@ public class AnalysisInfo implements Writable {
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
             int samplePercent, int sampleRows, int maxBucketNum, long periodTimeInMs, String message,
-            long lastExecTimeInMs, AnalysisState state, ScheduleType scheduleType, boolean isExternalTableLevelTask,
-            boolean partitionOnly, boolean samplingPartition, CronExpression cronExpression) {
+            long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
+            boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
+            CronExpression cronExpression) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.catalogName = catalogName;
@@ -182,6 +187,7 @@ public class AnalysisInfo implements Writable {
         this.periodTimeInMs = periodTimeInMs;
         this.message = message;
         this.lastExecTimeInMs = lastExecTimeInMs;
+        this.timeCostInMs = timeCostInMs;
         this.state = state;
         this.scheduleType = scheduleType;
         this.externalTableLevelTask = isExternalTableLevelTask;
@@ -217,6 +223,9 @@ public class AnalysisInfo implements Writable {
         }
         if (lastExecTimeInMs > 0) {
             sj.add("LastExecTime: " + StatisticsUtil.getReadableTime(lastExecTimeInMs));
+        }
+        if (timeCostInMs > 0) {
+            sj.add("timeCost: " + timeCostInMs);
         }
         if (periodTimeInMs > 0) {
             sj.add("periodTimeInMs: " + StatisticsUtil.getReadableTime(periodTimeInMs));
@@ -275,6 +284,8 @@ public class AnalysisInfo implements Writable {
             analysisInfoBuilder.setPeriodTimeInMs(StatisticsUtil.convertStrToInt(periodTimeInMs));
             String lastExecTimeInMs = resultRow.getColumnValue("last_exec_time_in_ms");
             analysisInfoBuilder.setLastExecTimeInMs(StatisticsUtil.convertStrToLong(lastExecTimeInMs));
+            String timeCostInMs = resultRow.getColumnValue("time_cost_in_ms");
+            analysisInfoBuilder.setTimeCostInMs(StatisticsUtil.convertStrToLong(timeCostInMs));
             String message = resultRow.getColumnValue("message");
             analysisInfoBuilder.setMessage(message);
             return analysisInfoBuilder.build();
