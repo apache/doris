@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.NereidsException;
-import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
@@ -49,35 +48,45 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class RegisterCTETest extends TestWithFeService implements MemoPatternMatchSupported {
+public class AnalyzeCTETest extends TestWithFeService implements MemoPatternMatchSupported {
 
     private final NereidsParser parser = new NereidsParser();
 
-    private final String sql1 = "WITH cte1 AS (SELECT s_suppkey FROM supplier WHERE s_suppkey < 5), "
+    private final String multiCte = "WITH cte1 AS (SELECT s_suppkey FROM supplier WHERE s_suppkey < 5), "
             + "cte2 AS (SELECT s_suppkey FROM cte1 WHERE s_suppkey < 3)"
             + "SELECT * FROM cte1, cte2";
 
-    private final String sql2 = "WITH cte1 (skey) AS (SELECT s_suppkey, s_nation FROM supplier WHERE s_suppkey < 5), "
+    private final String cteWithColumnAlias = "WITH cte1 (skey) AS (SELECT s_suppkey, s_nation FROM supplier WHERE s_suppkey < 5), "
             + "cte2 (sk2) AS (SELECT skey FROM cte1 WHERE skey < 3)"
             + "SELECT * FROM cte1, cte2";
 
-    private final String sql3 = "WITH cte1 AS (SELECT * FROM supplier), "
+    private final String cteConsumerInSubQuery = "WITH cte1 AS (SELECT * FROM supplier), "
             + "cte2 AS (SELECT * FROM supplier WHERE s_region in (\"ASIA\", \"AFRICA\"))"
             + "SELECT s_region, count(*) FROM cte1 GROUP BY s_region HAVING s_region in (SELECT s_region FROM cte2)";
 
-    private final String sql4 = "WITH cte1 AS (SELECT s_suppkey AS sk FROM supplier WHERE s_suppkey < 5), "
+    private final String cteConsumerJoin = "WITH cte1 AS (SELECT s_suppkey AS sk FROM supplier WHERE s_suppkey < 5), "
             + "cte2 AS (SELECT sk FROM cte1 WHERE sk < 3)"
             + "SELECT * FROM cte1 JOIN cte2 ON cte1.sk = cte2.sk";
 
-    private final String sql5 = "WITH V1 AS (SELECT s_suppkey FROM supplier), "
+    private final String cteReferToAnotherOne = "WITH V1 AS (SELECT s_suppkey FROM supplier), "
             + "V2 AS (SELECT s_suppkey FROM V1)"
             + "SELECT * FROM V2";
 
-    private final String sql6 = "WITH cte1 AS (SELECT s_suppkey FROM supplier)"
+    private final String cteJoinSelf = "WITH cte1 AS (SELECT s_suppkey FROM supplier)"
             + "SELECT * FROM cte1 AS t1, cte1 AS t2";
 
-    private final List<String> testSql = ImmutableList.of(
-            sql1, sql2, sql3, sql4, sql5, sql6
+    private final String cteNested = "WITH cte1 AS ("
+            + "WITH cte2 AS (SELECT s_suppkey FROM supplier) SELECT * FROM cte2)"
+            + " SELECT * FROM cte1";
+
+    private final String cteInTheMiddle = "SELECT * FROM (WITH cte1 AS (SELECT s_suppkey FROM supplier)"
+            + " SELECT * FROM cte1) a";
+
+    private final String cteWithDiffRelationId = "with s as (select * from supplier) select * from s as s1, s as s2";
+
+    private final List<String> testSqls = ImmutableList.of(
+            multiCte, cteWithColumnAlias, cteConsumerInSubQuery, cteConsumerJoin, cteReferToAnotherOne, cteJoinSelf,
+            cteNested, cteInTheMiddle, cteWithDiffRelationId
     );
 
     @Override
@@ -94,13 +103,6 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
         StatementScopeIdGenerator.clear();
     }
 
-    private CTEContext getCTEContextAfterRegisterCTE(String sql) {
-        return PlanChecker.from(connectContext)
-                .analyze(sql)
-                .getCascadesContext()
-                .getCteContext();
-    }
-
     /* ********************************************************************************************
      * Test CTE
      * ******************************************************************************************** */
@@ -114,7 +116,7 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
             }
         };
 
-        for (String sql : testSql) {
+        for (String sql : testSqls) {
             StatementScopeIdGenerator.clear();
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             PhysicalPlan plan = new NereidsPlanner(statementContext).plan(
@@ -127,96 +129,40 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
     }
 
     @Test
-    public void testCTERegister() {
-        CTEContext cteContext = getCTEContextAfterRegisterCTE(sql1);
-
-        Assertions.assertTrue(cteContext.containsCTE("cte1")
-                && cteContext.containsCTE("cte2"));
-        // LogicalPlan cte2parsedPlan = cteContext.getParsedCtePlan("cte2").get();
-        // PlanChecker.from(connectContext, cte2parsedPlan)
-        //         .matchesFromRoot(
-        //             logicalSubQueryAlias(
-        //                 logicalProject(
-        //                     logicalFilter(
-        //                         logicalCheckPolicy(
-        //                             unboundRelation()
-        //                         )
-        //                     )
-        //                 )
-        //             )
-        //         );
-    }
-
-    @Test
-    public void testCTERegisterWithColumnAlias() {
-        CTEContext cteContext = getCTEContextAfterRegisterCTE(sql2);
-
-        Assertions.assertTrue(cteContext.containsCTE("cte1")
-                && cteContext.containsCTE("cte2"));
-
-        // check analyzed plan
-        // LogicalPlan cte1AnalyzedPlan = cteContext.getReuse("cte1").get();
-
-        // PlanChecker.from(connectContext, cte1AnalyzedPlan)
-        //         .matchesFromRoot(
-        //             logicalSubQueryAlias(
-        //                 logicalProject()
-        //                 .when(p -> p.getProjects().size() == 2
-        //                         && p.getProjects().get(0).getName().equals("s_suppkey")
-        //                         && p.getProjects().get(0).getExprId().asInt() == 14
-        //                         && p.getProjects().get(0).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
-        //                         && p.getProjects().get(1).getName().equals("s_nation")
-        //                         && p.getProjects().get(1).getExprId().asInt() == 18
-        //                         && p.getProjects().get(1).getQualifier().equals(ImmutableList.of("default_cluster:test", "supplier"))
-        //                 )
-        //             )
-        //             .when(a -> a.getAlias().equals("cte1"))
-        //             .when(a -> a.getOutput().size() == 2
-        //                     && a.getOutput().get(0).getName().equals("skey")
-        //                     && a.getOutput().get(0).getExprId().asInt() == 14
-        //                     && a.getOutput().get(0).getQualifier().equals(ImmutableList.of("cte1"))
-        //                     && a.getOutput().get(1).getName().equals("s_nation")
-        //                     && a.getOutput().get(1).getExprId().asInt() == 18
-        //                     && a.getOutput().get(1).getQualifier().equals(ImmutableList.of("cte1"))
-        //             )
-        //         );
-    }
-
-    @Test
     public void testCTEInHavingAndSubquery() {
 
         PlanChecker.from(connectContext)
-                .analyze(sql3)
+                .analyze(cteConsumerInSubQuery)
                 .applyBottomUp(new PullUpProjectUnderApply())
                 .applyBottomUp(new UnCorrelatedApplyFilter())
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
-                    logicalCTE(
-                            logicalFilter(
-                                    logicalProject(
-                                            logicalJoin(
-                                                    logicalAggregate(
-                                                            logicalCTEConsumer()
-                                                    ), logicalProject(
-                                                            logicalCTEConsumer())
-                                            )
-                                    )
+                        logicalFilter(
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalAggregate(),
+                                                logicalProject()
+                                        )
+                                )
 
-                            )
-                    )
+                        )
                 );
     }
 
     @Test
     public void testCTEWithAlias() {
         PlanChecker.from(connectContext)
-                .analyze(sql4)
+                .analyze(cteConsumerJoin)
                 .matchesFromRoot(
-                        logicalCTE(
-                                logicalProject(
-                                        logicalJoin(
-                                                logicalCTEConsumer(),
-                                                logicalCTEConsumer()
+                        logicalCTEAnchor(
+                                logicalCTEProducer(),
+                                logicalCTEAnchor(
+                                        logicalCTEProducer(),
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalCTEConsumer(),
+                                                        logicalCTEConsumer()
+                                                )
                                         )
                                 )
                         )
@@ -226,15 +172,82 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
     @Test
     public void testCTEWithAnExistedTableOrViewName() {
         PlanChecker.from(connectContext)
-                .analyze(sql5)
+                .analyze(cteReferToAnotherOne)
                 .matchesFromRoot(
-                        logicalCTE(
+                        logicalCTEAnchor(
+                                logicalCTEProducer(),
+                                logicalCTEAnchor(
+                                        logicalCTEProducer(),
+                                        logicalProject(
+                                                logicalCTEConsumer()
+                                        )
+                                )
+                        )
+                );
+
+    }
+
+    @Test
+    public void testDifferenceRelationId() {
+        PlanChecker.from(connectContext)
+                .analyze(cteWithDiffRelationId)
+                .matchesFromRoot(
+                        logicalCTEAnchor(
+                                logicalCTEProducer(),
+                                logicalProject(
+                                        logicalJoin(
+                                                logicalSubQueryAlias(
+                                                        logicalCTEConsumer()
+                                                ),
+                                                logicalSubQueryAlias(
+                                                        logicalCTEConsumer()
+                                                )
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testCteInTheMiddle() {
+        PlanChecker.from(connectContext)
+                .analyze(cteInTheMiddle)
+                .matchesFromRoot(
+                        logicalProject(
+                                logicalSubQueryAlias(
+                                        logicalCTEAnchor(
+                                                logicalCTEProducer(),
+                                                logicalProject(
+                                                        logicalCTEConsumer()
+                                                )
+                                        )
+                                )
+                        )
+
+                );
+    }
+
+    @Test
+    public void testCteNested() {
+        PlanChecker.from(connectContext)
+                .analyze(cteNested)
+                .matchesFromRoot(
+                        logicalCTEAnchor(
+                                logicalCTEProducer(
+                                        logicalSubQueryAlias(
+                                                logicalCTEAnchor(
+                                                        logicalCTEProducer(),
+                                                        logicalProject(
+                                                                logicalCTEConsumer()
+                                                        )
+                                                )
+                                        )
+                                ),
                                 logicalProject(
                                         logicalCTEConsumer()
                                 )
                         )
                 );
-
     }
 
 
@@ -247,9 +260,8 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
         String sql = "WITH cte1 (a1, A1) AS (SELECT * FROM supplier)"
                 + "SELECT * FROM cte1";
 
-        NereidsException exception = Assertions.assertThrows(NereidsException.class, () -> {
-            PlanChecker.from(connectContext).checkPlannerResult(sql);
-        }, "Not throw expected exception.");
+        NereidsException exception = Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql), "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("Duplicated CTE column alias: [a1] in CTE [cte1]"));
     }
 
@@ -259,9 +271,8 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
                 + "(SELECT s_suppkey FROM supplier)"
                 + "SELECT * FROM cte1";
 
-        NereidsException exception = Assertions.assertThrows(NereidsException.class, () -> {
-            PlanChecker.from(connectContext).checkPlannerResult(sql);
-        }, "Not throw expected exception.");
+        NereidsException exception = Assertions.assertThrows(NereidsException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql), "Not throw expected exception.");
         System.out.println(exception.getMessage());
         Assertions.assertTrue(exception.getMessage().contains("CTE [cte1] returns 2 columns, "
                 + "but 1 labels were specified."));
@@ -273,9 +284,8 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
                 + "cte2 AS (SELECT * FROM supplier)"
                 + "SELECT * FROM cte1, cte2";
 
-        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            PlanChecker.from(connectContext).checkPlannerResult(sql);
-        }, "Not throw expected exception.");
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql), "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("[cte2] does not exist in database"));
     }
 
@@ -284,9 +294,8 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
         String sql = "WITH cte1 AS (SELECT * FROM not_existed_table)"
                 + "SELECT * FROM supplier";
 
-        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
-            PlanChecker.from(connectContext).checkPlannerResult(sql);
-        }, "Not throw expected exception.");
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(sql), "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("[not_existed_table] does not exist in database"));
     }
 
@@ -296,29 +305,18 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
                     + "cte1 AS (SELECT * FROM part)"
                     + "SELECT * FROM cte1";
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> {
-            PlanChecker.from(connectContext).analyze(sql);
-        }, "Not throw expected exception.");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql), "Not throw expected exception.");
         Assertions.assertTrue(exception.getMessage().contains("[cte1] cannot be used more than once"));
     }
 
     @Test
-    public void testDifferenceRelationId() {
-        PlanChecker.from(connectContext)
-                .analyze("with s as (select * from supplier) select * from s as s1, s as s2")
-                .matchesFromRoot(
-                    logicalCTE(
-                            logicalProject(
-                                    logicalJoin(
-                                            logicalSubQueryAlias(
-                                                    logicalCTEConsumer()
-                                            ),
-                                            logicalSubQueryAlias(
-                                                    logicalCTEConsumer()
-                                            )
-                                    )
-                            )
-                    )
-                );
+    public void testCTEExceptionOfRefterCTENameNotInScope() {
+        String sql = "WITH cte1 AS (WITH cte2 AS (SELECT * FROM supplier) SELECT * FROM cte2)"
+                + "SELECT * FROM cte2";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql), "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("Table [cte2] does not exist in database"));
     }
 }

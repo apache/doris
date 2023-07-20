@@ -45,22 +45,18 @@ public class PhysicalCTEAnchor<
     private final CTEId cteId;
 
     public PhysicalCTEAnchor(CTEId cteId, LogicalProperties logicalProperties,
-                             LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(cteId, Optional.empty(), logicalProperties, leftChild, rightChild);
     }
 
     public PhysicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
-                             LogicalProperties logicalProperties,
-                             LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
+            LogicalProperties logicalProperties, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(cteId, groupExpression, logicalProperties, null, null, leftChild, rightChild);
     }
 
     public PhysicalCTEAnchor(CTEId cteId, Optional<GroupExpression> groupExpression,
-                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                             Statistics statistics, LEFT_CHILD_TYPE leftChild,
-                             RIGHT_CHILD_TYPE rightChild) {
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_CTE_ANCHOR, groupExpression, logicalProperties, physicalProperties, statistics,
                 leftChild, rightChild);
         this.cteId = cteId;
@@ -108,7 +104,7 @@ public class PhysicalCTEAnchor<
     public PhysicalCTEAnchor<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-            statistics, children.get(0), children.get(1));
+                statistics, children.get(0), children.get(1));
     }
 
     @Override
@@ -126,13 +122,14 @@ public class PhysicalCTEAnchor<
 
     @Override
     public PhysicalCTEAnchor<Plan, Plan> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
-                                                                        Statistics statistics) {
+            Statistics statistics) {
         return new PhysicalCTEAnchor<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
-            statistics, child(0), child(1));
+                statistics, child(0), child(1));
     }
 
     @Override
     public String shapeInfo() {
-        return Utils.toSqlString("CteAnchor[cteId=", cteId, "]");
+        return Utils.toSqlString("PhysicalCteAnchor",
+                "cteId", cteId);
     }
 }

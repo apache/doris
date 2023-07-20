@@ -62,7 +62,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
-        
+
         sql  """ drop table if exists ${inDorisTable} """
         sql  """
               CREATE TABLE ${inDorisTable} (
@@ -108,6 +108,8 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
         order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
         order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
+        order_qt_date_trunc """ SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05'; """
+        order_qt_money_format """ select k8 from test1 where money_format(k8) = '1.00'; """
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
@@ -138,7 +140,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true"
         );"""
-        
+
         sql """switch ${catalog_name}"""
 
         qt_specified_database_1   """ show databases; """
@@ -156,7 +158,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "only_specified_database" = "true",
             "include_database_list" = "doris_test"
         );"""
-        
+
         sql """switch ${catalog_name}"""
 
         qt_specified_database_2   """ show databases; """

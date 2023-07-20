@@ -1059,6 +1059,9 @@ DECLARE_mBool(allow_invalid_decimalv2_literal);
 // than this time, it will be expired.
 DECLARE_mInt64(kerberos_expiration_time_seconds);
 
+// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
+DECLARE_mString(get_stack_trace_tool);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

@@ -255,6 +255,12 @@ VIEWS
 -- !filter3 --
 1	6	1	1	2099.18	3	8	1554296.82	68781940.49	d	8	5	0	d	a	7	9
 
+-- !date_trunc --
+2023-06-17T10:00
+
+-- !money_format --
+1
+
 -- !test_insert1 --
 doris1	18
 

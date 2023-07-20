@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.planner.external.odbc;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
@@ -29,7 +29,9 @@ import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.ExternalScanNode;
+import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.statistics.query.StatsDelta;

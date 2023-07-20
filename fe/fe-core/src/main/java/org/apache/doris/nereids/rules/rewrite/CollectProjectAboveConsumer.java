@@ -48,8 +48,8 @@ public class CollectProjectAboveConsumer implements RewriteRuleFactory {
                             collectProject(ctx.cascadesContext, namedExpressions, cteConsumer);
                             return ctx.root;
                         })),
-                RuleType.COLLECT_PROJECT_ABOVE_FILTER_CONSUMER.build(logicalProject(logicalFilter(logicalCTEConsumer()))
-                        .thenApply(ctx -> {
+                RuleType.COLLECT_PROJECT_ABOVE_FILTER_CONSUMER
+                        .build(logicalProject(logicalFilter(logicalCTEConsumer())).thenApply(ctx -> {
                             LogicalProject<LogicalFilter<LogicalCTEConsumer>> project = ctx.root;
                             LogicalFilter<LogicalCTEConsumer> filter = project.child();
                             Set<Slot> filterSlots = filter.getInputSlots();
@@ -72,7 +72,7 @@ public class CollectProjectAboveConsumer implements RewriteRuleFactory {
                 if (!(node instanceof Slot)) {
                     return;
                 }
-                Slot slot = cteConsumer.findProducerSlot((Slot) node);
+                Slot slot = cteConsumer.getProducerSlot((Slot) node);
                 ctx.putCTEIdToProject(cteConsumer.getCteId(), slot);
                 ctx.markConsumerUnderProject(cteConsumer);
             });

@@ -1918,10 +1918,6 @@ public class Env {
 
     // load binlogs
     public long loadBinlogs(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         binlogManager.read(dis, checksum);
         LOG.info("finished replay binlogMgr from image");
         return checksum;

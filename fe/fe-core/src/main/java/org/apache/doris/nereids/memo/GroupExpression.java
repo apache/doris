@@ -53,7 +53,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
-    private double cost = 0.0;
+    private Cost cost;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;
@@ -284,11 +284,11 @@ public class GroupExpression {
         this.ownerGroup = null;
     }
 
-    public double getCost() {
+    public Cost getCost() {
         return cost;
     }
 
-    public void setCost(double cost) {
+    public void setCost(Cost cost) {
         this.cost = cost;
     }
 
@@ -328,7 +328,11 @@ public class GroupExpression {
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
-        builder.append(" cost=").append(format.format((long) cost));
+        if (cost != null) {
+            builder.append(" cost=").append(format.format((long) cost.getValue()) + " " + cost);
+        } else {
+            builder.append(" cost=null");
+        }
         builder.append(" estRows=").append(format.format(estOutputRowCount));
         builder.append(" children=[").append(Joiner.on(", ").join(
                         children.stream().map(Group::getGroupId).collect(Collectors.toList())))
