@@ -65,6 +65,36 @@ void AutoIncIDBuffer::_wait_for_prefetching() {
     }
 }
 
+Status AutoIncIDBuffer::sync_request_ids(size_t length,
+                                         std::vector<std::pair<int64_t, size_t>>* result) {
+    std::unique_lock<std::mutex> lock(_mutex);
+    _prefetch_ids(_prefetch_size());
+    if (_front_buffer.second > 0) {
+        auto min_length = std::min(_front_buffer.second, length);
+        length -= min_length;
+        result->emplace_back(_front_buffer.first, min_length);
+        _front_buffer.first += min_length;
+        _front_buffer.second -= min_length;
+    }
+    if (length > 0) {
+        _wait_for_prefetching();
+        if (_rpc_status != Status::OK()) {
+            return _rpc_status;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(_backend_buffer_latch);
+            std::swap(_front_buffer, _backend_buffer);
+        }
+
+        DCHECK(length <= _front_buffer.second);
+        result->emplace_back(_front_buffer.first, length);
+        _front_buffer.first += length;
+        _front_buffer.second -= length;
+    }
+    return Status::OK();
+}
+
 void AutoIncIDBuffer::async_request_ids(OlapTableBlockConvertor* block_convertor, size_t length) {
     length = std::max(length, MIN_BATCH_SIZE);
     block_convertor->set_is_waiting_for_auto_inc(true);

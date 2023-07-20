@@ -81,6 +81,7 @@ public:
     AutoIncIDBuffer(int64_t _db_id, int64_t _table_id, int64_t column_id);
     void set_batch_size_at_least(size_t batch_size);
     void async_request_ids(OlapTableBlockConvertor* vsink, size_t length);
+    Status sync_request_ids(size_t length, std::vector<std::pair<int64_t, size_t>>* result);
 
 private:
     void _prefetch_ids(size_t length);

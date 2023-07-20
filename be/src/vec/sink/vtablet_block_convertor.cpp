@@ -70,10 +70,6 @@ Status OlapTableBlockConvertor::validate_and_convert_block(
     // fill the valus for auto-increment columns
     if (_auto_inc_col_idx.has_value()) {
         RETURN_IF_ERROR(_fill_auto_inc_cols(block.get(), rows, eos));
-        if (!eos && _auto_inc_id_allocator.total_count < _batch_size) {
-            // reserve enough ids to fill the next batch
-            _auto_inc_id_buffer->async_request_ids(this, _batch_size);
-        }
     }
 
     int64_t filtered_rows = 0;
@@ -103,7 +99,6 @@ void OlapTableBlockConvertor::init_autoinc_info(int64_t db_id, int64_t table_id,
             _auto_inc_id_buffer = GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
                     db_id, table_id, _output_tuple_desc->slots()[idx]->col_unique_id());
             _auto_inc_id_buffer->set_batch_size_at_least(_batch_size);
-            _auto_inc_id_buffer->async_request_ids(this, _batch_size);
             break;
         }
     }
@@ -472,15 +467,15 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(vectorized::Block* block, si
 
     size_t null_value_count = 0;
     for (size_t i = 0; i < rows; i++) {
-        null_value_count += null_map_data[idx];
+        null_value_count += null_map_data[i];
     }
 
-    DCHECK(_request_future.valid());
+    std::vector<std::pair<int64_t, size_t>> res;
+    RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));
+    for (auto [start, length] : res) {
+        _auto_inc_id_allocator.insert_ids(start, length);
+    }
 
-    // if the pipeline is enabled, this will not be blocked,
-    // if the pipeline is not enabled, this will not be blocked in most occasions
-    RETURN_IF_ERROR(_request_future.get());
-    DCHECK(_auto_inc_id_allocator.total_count >= null_value_count);
     for (size_t i = 0; i < rows; i++) {
         dst_values.emplace_back((null_map_data[i] != 0) ? _auto_inc_id_allocator.next_id()
                                                         : src_nested_column_ptr->get_int(i));
