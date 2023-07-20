@@ -36,16 +36,23 @@ if [[ ${SERVICE} == 'ali' ]]; then
     export SK=sk
     export ENDPOINT=oss-cn-beijing-internal.aliyuncs.com
     export REGION=oss-cn-beijing
+    export HMS_META_URI="thrift://172.16.1.1:9083"
+    export HMS_WAREHOUSE=oss://benchmark-oss/user
 elif [[ ${SERVICE} == 'hw' ]]; then
     export CASE=ping
     export AK=ak
     export SK=sk
     export ENDPOINT=obs.cn-north-4.myhuaweicloud.com
     export REGION=cn-north-4
+    export HMS_META_URI="thrift://node1:9083,thrift://node2:9083"
+    export HMS_WAREHOUSE=obs://datalake-bench/user
+    export BEELINE_URI="jdbc:hive2://192.168.0.1:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2;hive.server2.proxy.user=hive"
 elif [[ ${SERVICE} == 'tx' ]]; then
     export CASE=ping
     export AK=ak
     export SK=sk
     export ENDPOINT=cos.ap-beijing.mycloud.com
     export REGION=ap-beijing
+    export HMS_META_URI="thrift://172.21.0.1:7004"
+    export HMS_WAREHOUSE=cosn://datalake-bench-cos-1308700295/user
 fi

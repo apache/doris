@@ -33,7 +33,9 @@ BEELINE_URI=$8
 # set global env to local
 # shellcheck disable=SC2269
 FE_HOST=${FE_HOST}
+# shellcheck disable=SC2269
 FE_QUERY_PORT=${FE_QUERY_PORT}
+# shellcheck disable=SC2269
 USER=${USER}
 
 DLF_ENDPOINT=datalake-vpc.cn-beijing.aliyuncs.com

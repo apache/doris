@@ -135,16 +135,23 @@ export FE_QUERY_PORT=${PORT}
 
 if [[ ${CASE} == 'ping' ]]; then
     if [[ ${SERVICE} == 'hw' ]]; then
-        HMS_META_URI="thrift://node-master1rjzj.mrs-dr8h.com:9083,thrift://node-master2rksk.mrs-dr8h.com:9083"
-        BEELINE_URI="jdbc:hive2://192.168.0.8:2181/;serviceDiscoveryMode=zooKeeper;zooKeeperNamespace=hiveserver2;hive.server2.proxy.user=hive"
-        HMS_WAREHOUSE=obs://datalake-bench/user
+        # shellcheck disable=SC2269
+        HMS_META_URI="${HMS_META_URI}"
+        # shellcheck disable=SC2269
+        HMS_WAREHOUSE="${HMS_WAREHOUSE}"
+        # shellcheck disable=SC2269
+        BEELINE_URI="${BEELINE_URI}"
     elif [[ ${SERVICE} == 'ali' ]]; then
-        HMS_META_URI="thrift://172.16.1.162:9083"
-        HMS_WAREHOUSE=oss://benchmark-oss/user
+        # shellcheck disable=SC2269
+        HMS_META_URI="${HMS_META_URI}"
+        # shellcheck disable=SC2269
+        HMS_WAREHOUSE="${HMS_WAREHOUSE}"
     else
         # [[ ${SERVICE} == 'tx' ]];
-        HMS_META_URI="thrift://172.21.0.32:7004"
-        HMS_WAREHOUSE=cosn://datalake-bench-cos-1308700295/user
+        # shellcheck disable=SC2269
+        HMS_META_URI="${HMS_META_URI}"
+        # shellcheck disable=SC2269
+        HMS_WAREHOUSE="${HMS_WAREHOUSE}"
     fi
     sh ping_test/ping_poc.sh "${ENDPOINT}" "${REGION}" "${SERVICE}" "${AK}" "${SK}" "${HMS_META_URI}" "${HMS_WAREHOUSE}" "${BEELINE_URI}"
 elif [[ ${CASE} == 'data_set' ]]; then

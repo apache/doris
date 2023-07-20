@@ -22,7 +22,6 @@ import com.aliyun.odps.TableSchema;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
 import com.aliyun.odps.tunnel.TunnelException;
-import org.apache.arrow.memory.DefaultAllocationManagerFactory;
 
 import java.io.IOException;
 
@@ -30,7 +29,7 @@ import java.io.IOException;
  * MaxComputeJ JniScanner. BE will read data from the scanner object.
  */
 public class MaxComputeTableScan {
-    private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
+    private static final String odpsUrlTemplate = "http://service.{}.maxcompute.aliyun.com/api";
     private static final String tunnelUrlTemplate = "http://dt.{}.maxcompute.aliyun-inc.com";
     private final Odps odps;
     private final TableTunnel tunnel;
@@ -44,15 +43,13 @@ public class MaxComputeTableScan {
         this.project = project;
         this.table = table;
         odps = new Odps(new AliyunAccount(accessKey, secretKey));
-        String odpsUrl = odpsUrlTemplate.replace("{}", region);
-        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
-        if (enablePublicAccess) {
-            odpsUrl = odpsUrl.replace("-inc", "");
-            tunnelUrl = tunnelUrl.replace("-inc", "");
-        }
-        odps.setEndpoint(odpsUrl);
+        odps.setEndpoint(odpsUrlTemplate.replace("{}", region));
         odps.setDefaultProject(this.project);
         tunnel = new TableTunnel(odps);
+        String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
+        if (enablePublicAccess) {
+            tunnelUrl = tunnelUrlTemplate.replace("-inc", "");
+        }
         tunnel.setEndpoint(tunnelUrl);
     }
 
