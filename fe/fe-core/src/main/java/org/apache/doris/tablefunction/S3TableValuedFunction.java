@@ -25,7 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.thrift.TFileType;
@@ -68,7 +67,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     private final S3URI s3uri;
     private final boolean forceVirtualHosted;
-    private String virtualBucket;
+    private String virtualBucket = "";
     private String virtualKey;
 
     public S3TableValuedFunction(Map<String, String> params) throws AnalysisException {
@@ -80,7 +79,6 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
                 : s3uri.getBucketScheme();
         if (!tvfParams.containsKey(S3Properties.REGION)) {
             String region = S3Properties.getRegionOfEndpoint(endpoint);
-            LOG.warn("Region has not set, use default s3 region: {}", region);
             tvfParams.put(S3Properties.REGION, region);
         }
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,

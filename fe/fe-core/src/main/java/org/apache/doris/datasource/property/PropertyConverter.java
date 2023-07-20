@@ -310,8 +310,7 @@ public class PropertyConverter {
 
     private static Map<String, String> convertToMinioProperties(Map<String, String> props, CloudCredential credential) {
         if (!props.containsKey(MinioProperties.REGION)) {
-            LOG.warn("Region has not set, use default s3 region: 'us-east-1'.");
-            props.put(MinioProperties.REGION, "us-east-1");
+            props.put(MinioProperties.REGION, MinioProperties.DEFAULT_REGION);
         }
         return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
