@@ -1835,7 +1835,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
+    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
