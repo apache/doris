@@ -530,7 +530,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
                 *allow_incremental_clone = false;
             } else {
-                version = ref_tablet->max_version().second;
+                version = ref_tablet->max_version_unlocked().second;
                 *allow_incremental_clone = true;
             }
 
