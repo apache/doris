@@ -76,7 +76,7 @@ under the License.
 
 - `dynamic_partition.time_unit`
 
-  动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`、`YEAR`。分别表示按小时、按天、按星期、按月、按年进行分区创建或删除。
+  动态分区调度的单位，必选参数。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`、`YEAR`。分别表示按小时、按天、按星期、按月、按年进行分区创建或删除。
 
   当指定为 `HOUR` 时，动态创建的分区名后缀格式为 `yyyyMMddHH`，例如`2020032501`。小时为单位的分区列数据类型不能为 DATE。
 
@@ -98,11 +98,11 @@ under the License.
 
 - `dynamic_partition.end`
 
-  动态分区的结束偏移，为正数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，提前创建对应范围的分区。
+  动态分区的结束偏移，为正数，必选参数。根据 `time_unit` 属性的不同，以当天（星期/月）为基准，提前创建对应范围的分区。
 
 - `dynamic_partition.prefix`
 
-  动态创建的分区名前缀。
+  动态创建的分区名前缀，必选参数。
 
 - `dynamic_partition.buckets`
 
