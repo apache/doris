@@ -163,7 +163,7 @@ public class Memo {
         return plan;
     }
 
-    public int getMaxContinuousJoin() {
+    public int countMaxContinuousJoin() {
         return countGroupJoin(root).second;
     }
 

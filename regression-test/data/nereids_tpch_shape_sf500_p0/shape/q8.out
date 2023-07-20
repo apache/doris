@@ -14,32 +14,34 @@ PhysicalQuickSort
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[supplier]
 ----------------------PhysicalDistribute
-------------------------hashJoin[INNER_JOIN](customer.c_nationkey = n1.n_nationkey)
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN](orders.o_custkey = customer.c_custkey)
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
-------------------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN](n1.n_regionkey = region.r_regionkey)
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN](customer.c_nationkey = n1.n_nationkey)
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
+----------------------------------hashJoin[INNER_JOIN](orders.o_custkey = customer.c_custkey)
 ------------------------------------PhysicalProject
---------------------------------------filter((orders.o_orderdate <= 1996-12-31)(orders.o_orderdate >= 1995-01-01))
-----------------------------------------PhysicalOlapScan[orders]
-------------------------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[lineitem]
---------------------------------------PhysicalDistribute
+--------------------------------------PhysicalOlapScan[customer]
+------------------------------------PhysicalDistribute
+--------------------------------------hashJoin[INNER_JOIN](lineitem.l_orderkey = orders.o_orderkey)
 ----------------------------------------PhysicalProject
-------------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
---------------------------------------------PhysicalOlapScan[part]
---------------------------PhysicalDistribute
-----------------------------hashJoin[INNER_JOIN](n1.n_regionkey = region.r_regionkey)
+------------------------------------------filter((orders.o_orderdate <= 1996-12-31)(orders.o_orderdate >= 1995-01-01))
+--------------------------------------------PhysicalOlapScan[orders]
+----------------------------------------PhysicalProject
+------------------------------------------hashJoin[INNER_JOIN](part.p_partkey = lineitem.l_partkey)
+--------------------------------------------PhysicalProject
+----------------------------------------------PhysicalOlapScan[lineitem]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((part.p_type = 'ECONOMY ANODIZED STEEL'))
+--------------------------------------------------PhysicalOlapScan[part]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[nation]
+----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[nation]
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((region.r_name = 'AMERICA'))
-------------------------------------PhysicalOlapScan[region]
+--------------------------------filter((region.r_name = 'AMERICA'))
+----------------------------------PhysicalOlapScan[region]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[nation]

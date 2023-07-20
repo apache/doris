@@ -56,7 +56,7 @@ public class Optimizer {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         serializeStatUsed(cascadesContext.getConnectContext());
         // DPHyp optimize
-        int maxJoinCount = cascadesContext.getMemo().getMaxContinuousJoin();
+        int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
         cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
         boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
                 || maxJoinCount > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
