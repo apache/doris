@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 
@@ -47,8 +46,6 @@ public class CheckCast extends AbstractExpressionRewriteRule {
     private boolean check(DataType originalType, DataType targetType) {
         if (originalType.isArrayType() && targetType.isArrayType()) {
             return check(((ArrayType) originalType).getItemType(), ((ArrayType) targetType).getItemType());
-        } else if (originalType.isAggStateType() && targetType.isAggStateType()) {
-            return AggStateType.canCastTo(((AggStateType) originalType), ((AggStateType) targetType));
         } else if (originalType.isMapType()) {
             // TODO support map cast check when we support map
             return false;

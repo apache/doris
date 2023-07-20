@@ -18,6 +18,7 @@
 suite('update_unique_table') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_dml=true'
 
     sql 'update t1 set c1 = 5 where id = 3'
     
