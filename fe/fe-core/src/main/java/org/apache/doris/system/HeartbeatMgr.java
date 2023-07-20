@@ -327,8 +327,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getReplayedJournalId(),
-                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(), ExecuteEnv.fromThrift(result.getDiskInfos()));
-
+                            System.currentTimeMillis(), result.getVersion(), result.getLastStartupTime(),
+                            ExecuteEnv.fromThrift(result.getDiskInfos()));
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());
                 }
