@@ -390,8 +390,6 @@ curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_h
 
     - CommitAndPublishTimeMs：向Fe请求提交并且发布事务所花费的时间，单位毫秒。
 
-    - ErrorURL：如果有数据质量问题，通过访问这个 URL 查看具体错误行。
-
     > 注意：由于 Stream load 是同步的导入方式，所以并不会在 Doris 系统中记录导入信息，用户无法异步的通过查看导入命令看到 Stream load。使用时需监听创建导入请求的返回值获取导入结果。
 
 2. 如何正确提交 Stream Load 作业和处理返回结果。
