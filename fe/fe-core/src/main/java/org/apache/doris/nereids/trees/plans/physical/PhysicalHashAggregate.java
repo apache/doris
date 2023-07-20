@@ -309,7 +309,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             return false;
         }
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!isCoveredByPlanNode(scan)) {
+        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
 

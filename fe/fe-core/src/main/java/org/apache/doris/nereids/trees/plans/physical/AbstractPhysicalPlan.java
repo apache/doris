@@ -40,10 +40,8 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
@@ -104,7 +102,7 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
         Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!isCoveredByPlanNode(scan)) {
+        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
         Preconditions.checkState(olapScanSlot != null && scan != null);
@@ -126,21 +124,5 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
         return this;
-    }
-
-    public boolean isCoveredByPlanNode(PhysicalRelation relation) {
-        Set<PhysicalRelation> relations = new HashSet<>();
-        getAllScanInfo(this, relations);
-        return relations.contains(relation);
-    }
-
-    private void getAllScanInfo(PhysicalPlan root, Set<PhysicalRelation> scans) {
-        if (root instanceof PhysicalRelation) {
-            scans.add((PhysicalRelation) root);
-        } else {
-            for (Object child : root.children()) {
-                getAllScanInfo((PhysicalPlan) child, scans);
-            }
-        }
     }
 }

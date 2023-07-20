@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
@@ -160,8 +161,7 @@ public class RuntimeFilterTranslator {
                 origFilter.setIsBroadcast(false);
             }
             boolean isLocalTarget = scanNodeList.stream().allMatch(e ->
-                    e.getStatisticalType() != StatisticalType.CTE_SCAN_NODE
-                    && e.getFragmentId().equals(node.getFragmentId()));
+                    !(e instanceof CTEScanNode) && e.getFragmentId().equals(node.getFragmentId()));
             for (int i = 0; i < targetExprList.size(); i++) {
                 ScanNode scanNode = scanNodeList.get(i);
                 Expr targetExpr = targetExprList.get(i);

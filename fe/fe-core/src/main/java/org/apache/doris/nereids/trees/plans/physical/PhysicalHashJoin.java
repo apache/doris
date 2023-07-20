@@ -242,7 +242,7 @@ public class PhysicalHashJoin<
         Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
         Preconditions.checkState(olapScanSlot != null && scan != null);
-        if (!isCoveredByPlanNode(scan)) {
+        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
 

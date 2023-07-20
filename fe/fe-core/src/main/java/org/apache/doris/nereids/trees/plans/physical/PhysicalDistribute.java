@@ -145,7 +145,7 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
             return false;
         }
         PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
-        if (!isCoveredByPlanNode(scan)) {
+        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
         // TODO: global rf need merge stage which is heavy

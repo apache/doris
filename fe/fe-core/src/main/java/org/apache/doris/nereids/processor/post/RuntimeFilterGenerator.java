@@ -144,23 +144,19 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalCTEConsumer visitPhysicalCTEConsumer(PhysicalCTEConsumer scan, CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan, slot)));
-        Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
-        CTEId cteId = scan.getCteId();
-        if (!processedCTE.contains(cteId)) {
-            PhysicalCTEProducer cteProducer = context.getRuntimeFilterContext()
-                    .getCteProduceMap().get(cteId);
-            PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
-            // handle cte internal
-            inputPlanNode.accept(this, context);
-            processedCTE.add(cteId);
-        }
         return scan;
     }
 
     @Override
     public PhysicalCTEProducer visitPhysicalCTEProducer(PhysicalCTEProducer producer, CascadesContext context) {
-        CTEId id = producer.getCteId();
-        context.getRuntimeFilterContext().getCteProduceMap().put(id, producer);
+        CTEId cteId = producer.getCteId();
+        context.getRuntimeFilterContext().getCteProduceMap().put(cteId, producer);
+        Set<CTEId> processedCTE = context.getRuntimeFilterContext().getProcessedCTE();
+        if (!processedCTE.contains(cteId)) {
+            PhysicalPlan inputPlanNode = (PhysicalPlan) producer.child(0);
+            inputPlanNode.accept(this, context);
+            processedCTE.add(cteId);
+        }
         return producer;
     }
 
@@ -589,6 +585,25 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         } else {
             for (Object child : root.children()) {
                 getAllJoinInfo((PhysicalPlan) child, joins);
+            }
+        }
+    }
+
+    public static boolean isCoveredByPlanNode(PhysicalPlan root, PhysicalRelation relation) {
+        Set<PhysicalRelation> relations = new HashSet<>();
+        RuntimeFilterGenerator.getAllScanInfo(root, relations);
+        return relations.contains(relation);
+    }
+
+    /**
+     * Get all relation node from current root plan.
+     */
+    public static void getAllScanInfo(PhysicalPlan root, Set<PhysicalRelation> scans) {
+        if (root instanceof PhysicalRelation) {
+            scans.add((PhysicalRelation) root);
+        } else {
+            for (Object child : root.children()) {
+                getAllScanInfo((PhysicalPlan) child, scans);
             }
         }
     }

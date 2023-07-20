@@ -288,7 +288,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         // process multicast sink
         if (inputFragment instanceof MultiCastPlanFragment) {
-            CTEId cteId = ((MultiCastPlanFragment) inputFragment).getCteId();
             MultiCastDataSink multiCastDataSink = (MultiCastDataSink) inputFragment.getSink();
             DataStreamSink dataStreamSink = multiCastDataSink.getDataStreamSinks().get(
                     multiCastDataSink.getDataStreamSinks().size() - 1);
@@ -299,15 +298,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             parentFragment.addChild(inputFragment);
             ((MultiCastPlanFragment) inputFragment).addToDest(exchangeNode);
 
-            CTEScanNode cteScanNode = context.getCteScanNodeMap().get(cteId);
+            CTEScanNode cteScanNode = context.getCteScanNodeMap().get(inputFragment.getFragmentId());
             Preconditions.checkState(cteScanNode != null, "cte scan node is null");
             cteScanNode.setFragment(inputFragment);
-
-            PhysicalCTEConsumer cteConsumer = context.getCteConsumerMap().get(cteId);
             cteScanNode.setPlanNodeId(exchangeNode.getId());
-
-            Preconditions.checkState(cteConsumer != null, "cte consumer is null");
-            cteScanNode.setFragment(inputFragment);
             context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
                     runtimeFilterTranslator.getContext().getPlanNodeIdToCTEDataSinkMap()
                             .put(cteScanNode.getId(), dataStreamSink));
@@ -848,7 +842,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
                     runtimeFilterTranslator.getTargetOnScanNode(cteConsumer.getRelationId()).forEach(
                             expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, cteScanNode, context)));
-        context.getCteScanNodeMap().put(cteId, cteScanNode);
+        context.getCteScanNodeMap().put(multiCastFragment.getFragmentId(), cteScanNode);
 
         return multiCastFragment;
     }
@@ -860,7 +854,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         CTEId cteId = cteProducer.getCteId();
         context.getPlanFragments().remove(child);
 
-        MultiCastPlanFragment multiCastPlanFragment = new MultiCastPlanFragment(child, cteId);
+        MultiCastPlanFragment multiCastPlanFragment = new MultiCastPlanFragment(child);
         MultiCastDataSink multiCastDataSink = new MultiCastDataSink();
         multiCastPlanFragment.setSink(multiCastDataSink);
 

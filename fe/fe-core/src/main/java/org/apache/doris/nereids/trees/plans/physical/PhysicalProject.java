@@ -195,7 +195,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             scan = aliasTransferMap.get(newProbeSlot).first;
             probeExpr = newProbeExpr;
         }
-        if (!isCoveredByPlanNode(scan)) {
+        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
             return false;
         }
 

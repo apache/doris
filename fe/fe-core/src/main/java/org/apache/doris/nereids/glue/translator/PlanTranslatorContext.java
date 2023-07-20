@@ -91,7 +91,7 @@ public class PlanTranslatorContext {
 
     private final Map<CTEId, PhysicalCTEConsumer> cteConsumerMap = Maps.newHashMap();
 
-    private final Map<CTEId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
+    private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
 
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
@@ -118,7 +118,7 @@ public class PlanTranslatorContext {
         return cteConsumerMap;
     }
 
-    public Map<CTEId, CTEScanNode> getCteScanNodeMap() {
+    public Map<PlanFragmentId, CTEScanNode> getCteScanNodeMap() {
         return cteScanNodeMap;
     }
 
