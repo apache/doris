@@ -79,6 +79,9 @@ Status FlushToken::submit(std::unique_ptr<MemTable> mem_table) {
     auto task = std::make_shared<MemtableFlushTask>(
             this, std::move(mem_table), _rowset_writer->allocate_segment_id(), submit_task_time);
     _stats.flush_running_count++;
+    if (_flying_memtable_counter != nullptr) {
+        _flying_memtable_counter->fetch_add(1);
+    }
     return _flush_token->submit(std::move(task));
 }
 
@@ -144,6 +147,9 @@ void FlushToken::_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_finish_count++;
     _stats.flush_running_count--;
+    if (_flying_memtable_counter != nullptr) {
+        _flying_memtable_counter->fetch_sub(1);
+    }
     _stats.flush_size_bytes += memtable->memory_usage();
     _stats.flush_disk_size_bytes += flush_size;
 }

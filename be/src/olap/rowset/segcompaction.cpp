@@ -65,6 +65,8 @@
 namespace doris {
 using namespace ErrorCode;
 
+SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
+
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
@@ -149,8 +151,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
 }
 
 Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat,
-                                               Merger::Statistics& merger_stat, uint64_t begin,
-                                               uint64_t end) {
+                                               Merger::Statistics& merger_stat, uint32_t begin,
+                                               uint32_t end) {
     uint64_t raw_rows_read = reader_stat.raw_rows_read; /* total rows read before merge */
     uint64_t sum_src_row = 0; /* sum of rows in each involved source segments */
     uint64_t filtered_rows = merger_stat.filtered_rows; /* rows filtered by del conditions */
@@ -186,7 +188,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 }
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end) {
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end) {
     return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
 }
 

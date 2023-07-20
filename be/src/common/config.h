@@ -542,6 +542,10 @@ DECLARE_Int32(fragment_pool_thread_num_min);
 DECLARE_Int32(fragment_pool_thread_num_max);
 DECLARE_Int32(fragment_pool_queue_size);
 
+// thread pool config for handling streaming of sink
+DECLARE_Int32(sink_stream_pool_thread_num_min);
+DECLARE_Int32(sink_stream_pool_thread_num_max);
+
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 DECLARE_Int32(num_disks);
 // The maximum number of the threads per disk is also the max queue depth per disk.
@@ -776,6 +780,13 @@ DECLARE_mInt32(mem_tracker_consume_min_size_bytes);
 // In most cases, it does not need to be modified.
 DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 
+// whether to use OlapTableSinkV2
+DECLARE_Bool(experimental_olap_table_sink_v2);
+// number of brpc stream per OlapTableSinkV2
+DECLARE_Int32(stream_cnt_per_sink);
+// max flush memtable parallelism per OlapTableSinkV2
+DECLARE_Int32(max_flying_memtable_per_sink);
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
@@ -935,6 +946,8 @@ DECLARE_Int32(doris_remote_scanner_thread_pool_queue_size);
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
+// limit the queue of pending batches which will be sent by a single stream filewriter
+DECLARE_mInt64(streamsink_filewriter_batchsize);
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.

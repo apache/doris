@@ -76,6 +76,10 @@ public:
 
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
+    void register_flying_memtable_counter(std::shared_ptr<std::atomic<int32_t>> counter) {
+        _flying_memtable_counter = counter;
+    }
+
 private:
     friend class MemtableFlushTask;
 
@@ -94,6 +98,8 @@ private:
     RowsetWriter* _rowset_writer;
 
     MemTableStat _memtable_stat;
+
+    std::shared_ptr<std::atomic<int32_t>> _flying_memtable_counter;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.

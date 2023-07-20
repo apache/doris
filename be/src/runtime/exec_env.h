@@ -58,6 +58,7 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
+class LoadStreamMgr;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
@@ -188,6 +189,8 @@ public:
         this->_stream_load_executor = stream_load_executor;
     }
 
+    LoadStreamMgr* get_load_stream_mgr() { return _load_stream_mgr; }
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -264,6 +267,7 @@ private:
     // To save meta info of external file, such as parquet footer.
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
+    LoadStreamMgr* _load_stream_mgr = nullptr;
 };
 
 template <>

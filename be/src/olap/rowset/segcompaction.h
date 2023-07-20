@@ -48,7 +48,7 @@ class SegcompactionWorker {
     friend class BetaRowsetWriter;
 
 public:
-    SegcompactionWorker(BetaRowsetWriter* writer) { _writer = writer; }
+    SegcompactionWorker(BetaRowsetWriter* writer);
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
@@ -59,7 +59,7 @@ public:
 
 private:
     Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
                                      OlapReaderStatistics* stat,
@@ -70,7 +70,7 @@ private:
                                                                             uint32_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
     Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
-                              uint64_t begin, uint64_t end);
+                              uint32_t begin, uint32_t end);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:
