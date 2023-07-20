@@ -33,12 +33,10 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <functional>
-#include <future>
 #include <initializer_list>
 #include <map>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <ostream>
 #include <queue>
 #include <set>

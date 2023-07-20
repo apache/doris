@@ -25,9 +25,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>
-#include <gen_cpp/FrontendService.h>
-#include <gen_cpp/FrontendService_types.h>
-#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
@@ -39,7 +36,6 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <chrono>
 #include <cstddef>
 #include <iterator>
 #include <memory>
