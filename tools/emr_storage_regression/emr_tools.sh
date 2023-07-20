@@ -59,6 +59,7 @@ if ! OPTS="$(getopt \
     -l 'host:' \
     -l 'user:' \
     -l 'port:' \
+    -l 'test:' \
     -o 'h' \
     -- "$@")"; then
     usage
@@ -96,6 +97,10 @@ while true; do
         ;;
     --region)
         REGION="$2"
+        shift 2
+        ;;
+    --test)
+        TEST_SET="$2"
         shift 2
         ;;
     --service)
@@ -172,13 +177,16 @@ elif [[ ${CASE} == 'data_set' ]]; then
     # FE_HOST=172.16.1.163
     # USER=root
     # PORT=9035
-    TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_hdfs
-    TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms
+    if [[ -z ${TEST_SET} ]]; then
+        TEST_SET='all'
+    fi
+    TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_hdfs "${TEST_SET}"
+    TYPE=hdfs sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms "${TEST_SET}"
     if [[ ${SERVICE} == 'tx' ]]; then
-        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_cos
-        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_cos
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_cos "${TEST_SET}"
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_cos "${TEST_SET}"
     elif [[ ${SERVICE} == 'ali' ]]; then
-        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_oss
-        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_oss
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" hms_oss "${TEST_SET}"
+        sh stardard_set/run_standard_set.sh "${FE_HOST}" "${USER}" "${PORT}" iceberg_hms_oss "${TEST_SET}"
     fi
 fi

@@ -32,6 +32,8 @@ else
 fi
 
 if [[ -z "$5" ]]; then
+    echo "run all test default"
+elif [[ "$5" = 'all'  ]]; then
     echo "run all test"
 else
     case=$5
@@ -56,6 +58,19 @@ elif [[ "${case}" = 'tpch' ]]; then
     sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".tpch100_orc_"${TYPE}" queries/tpch_queries.sql
 elif [[ "${case}" = 'clickbench' ]]; then
     # clickbench
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".clickbench_parquet_"${TYPE}" queries/clickbench_queries.sql
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".clickbench_orc_"${TYPE}" queries/clickbench_queries.sql
+else
+    # run all
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".ssb100_parquet_"${TYPE}" queries/ssb_queries.sql
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".ssb100_orc_"${TYPE}" queries/ssb_queries.sql
+    
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".ssb100_parquet_"${TYPE}" queries/ssb_flat_queries.sql
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".ssb100_orc_"${TYPE}" queries/ssb_flat_queries.sql
+    
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".tpch100_parquet_"${TYPE}" queries/tpch_queries.sql
+    sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".tpch100_orc_"${TYPE}" queries/tpch_queries.sql
+    
     sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".clickbench_parquet_"${TYPE}" queries/clickbench_queries.sql
     sh run_queries.sh "${FE_HOST}" "${USER}" "${PORT}" "${catalog_name}".clickbench_orc_"${TYPE}" queries/clickbench_queries.sql
 fi

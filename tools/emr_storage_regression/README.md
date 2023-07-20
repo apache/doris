@@ -61,13 +61,20 @@ sh tools/emr_storage_regression/emr_tools.sh --case CASE --endpoint ENDPOINT --r
 
 ### 环境变量
 
-修改`default_emr_env.sh`中的环境变量，然后执行`source default_emr_env.sh`使环境变量生效。
+修改`default_emr_env.sh`中的环境变量，脚本会执行`source default_emr_env.sh`使环境变量生效。
 
 如果已经在`default_emr_env.sh`配置了环境变量，可以使用以下命令直接测试：
 
 ```
 sh emr_tools.sh --profile default_emr_env.sh
 ```
+
+### 执行过程
+
+1. 在EMR上创建Spark和Hive表
+2. 用Spark和Hive命令行插入样例数据
+3. Doris创建连通性测试Catalog
+4. 执行连通性测试SQL`ping.sql`
 
 ### 阿里云
 
@@ -120,6 +127,8 @@ sh emr_tools.sh --case ping --endpoint obs.cn-north-4.myhuaweicloud.com --region
 
 `--case`选项设置为data_set时，测试Doris外表标准测试集的查询性能。 配置项如下：
 
+- `--test`，测试数据集，可选：ssb, ssb_flat, tpch, clickbench, all, 默认是all
+
 - `--service`，Doris Mysql客户端的IP地址。
 
 - `--host`，Doris Mysql客户端的IP地址。
@@ -130,7 +139,7 @@ sh emr_tools.sh --case ping --endpoint obs.cn-north-4.myhuaweicloud.com --region
 
 ### 环境变量
 
-修改`default_emr_env.sh`中的环境变量，只需修改上述的几个配置项，然后执行`source default_emr_env.sh`使环境变量生效。
+修改`default_emr_env.sh`中的环境变量，只需修改上述的几个配置项，脚本会执行`source default_emr_env.sh`使环境变量生效。
 
 如果已经在`default_emr_env.sh`配置了环境变量，可以使用以下命令直接测试：
 
@@ -138,10 +147,31 @@ sh emr_tools.sh --case ping --endpoint obs.cn-north-4.myhuaweicloud.com --region
 sh emr_tools.sh --profile default_emr_env.sh
 ```
 
-### 标准测试集SSB、SSB_FLAT、CLICKBENCH、TPCH
+### 数据准备
 
-执行测试命令后，Doris将会按顺序开始运行SSB、SSB_FLAT、TPCH、CLICKBENCH的测试，测试结果包括HDFS上以及`--service`指定的云厂商对象存储上的用例。
+1. 使用`emr_tools.sh`脚本运行标准测试集需要改写`BUCKET`变量对应的对象存储bucket地址，然后提前准备好数据放到bucket下，脚本会基于给定bucket生成建表语句。
+
+2. 导入到bucket的数据，`emr_tools.sh`脚本目前支持测试ssb、ssb_flat、tpch、clickbench的parquet和orc数据。
+
+### 使用步骤
+
+1. 在连通性测试之后，标准测试集对应的Doris Catalog都会创建完毕，然后再进行测试
+2. 基于填写的`BUCKET`变量指定的对象存储bucket地址，准备好测试集数据
+3. 生成Spark建表语句，并在EMR上创建Spark对象存储表
+4. 在本地HDFS的目录`hdfs:///benchmark-hdfs`下，创建spark表
+5. 可以选择提前analyze Doris表，在Doris Catalog中，手动执行`analyze.sql`中的语句
+6. 执行标准测试集测试脚本`run_standard_set.sh`
+
+### 标准测试集ssb, ssb_flat, tpch, clickbench
+
+- 全量测试。执行测试命令后，Doris将会按顺序开始运行ssb, ssb_flat, tpch, clickbench的测试，测试结果包括HDFS上以及`--service`指定的云厂商对象存储上的用例。
 
 ```
 sh emr_tools.sh --case data_set --service ali  --host 127.0.0.1 --user root --port 9030 > log
+```
+
+- 指定单个测试集。执行命令时支持使用`--test`选项指定ssb, ssb_flat, tpch, clickbench中的一个数据集测试。
+
+```
+sh emr_tools.sh --case data_set --test ssb --service ali  --host 127.0.0.1 --user root --port 9030 > log
 ```
