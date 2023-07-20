@@ -198,7 +198,7 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicy("LookupConnectionCache", capacity, LRUCacheType::NUMBER,
+            : LRUCachePolicy("LookupConnectionCache", capacity, LRUCacheType::SIZE,
                              config::tablet_lookup_cache_clean_interval) {}
 
     std::string encode_key(__int128_t cache_id) {
@@ -216,8 +216,12 @@ private:
             CacheValue* cache_value = (CacheValue*)value;
             delete cache_value;
         };
-        auto lru_handle = _cache->insert(key, value, sizeof(CacheValue), deleter,
-                                         CachePriority::NORMAL, item->mem_size());
+        LOG(INFO) << "Add item mem size " << item->mem_size()
+                  << ", cache_capacity: " << _cache->get_total_capacity()
+                  << ", cache_usage: " << _cache->get_usage()
+                  << ", mem_consum: " << _cache->mem_consumption();
+        auto lru_handle =
+                _cache->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
         _cache->release(lru_handle);
     }
 

@@ -1071,7 +1071,7 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 // number of threads that fetch auto-inc ranges from FE
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
-DECLARE_mInt64(lookup_connection_cache_limit);
+DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 
 #ifdef BE_TEST
 // test s3

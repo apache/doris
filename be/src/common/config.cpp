@@ -1043,7 +1043,8 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
-DEFINE_mInt64(lookup_connection_cache_limit, "20000");
+// default 4GB
+DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 
 #ifdef BE_TEST
 // test s3
