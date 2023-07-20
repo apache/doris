@@ -199,3 +199,6 @@
 10	hefei	23456710
 200	changsha	3456789
 
+-- !select1 --
+John	30	New York	{"email":"john@example.com","phone":"+1-123-456-7890"}
+

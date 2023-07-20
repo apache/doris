@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -72,8 +73,12 @@ public class MysqlSslContext {
             char[] serverPassword = serverCertificatePassword.toCharArray();
             char[] caPassword = caCertificatePassword.toCharArray();
 
-            ks.load(Files.newInputStream(Paths.get(keyStoreFile)), serverPassword);
-            ts.load(Files.newInputStream(Paths.get(trustStoreFile)), caPassword);
+            try (InputStream stream = Files.newInputStream(Paths.get(keyStoreFile))) {
+                ks.load(stream, serverPassword);
+            }
+            try (InputStream stream = Files.newInputStream(Paths.get(trustStoreFile))) {
+                ts.load(stream, caPassword);
+            }
 
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
             kmf.init(ks, serverPassword);

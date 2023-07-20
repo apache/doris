@@ -39,7 +39,7 @@ suite ("testAggQueryOnAggMV3") {
 
 
 
-    createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission ;")
+    createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission;")
 
 
     explain {
@@ -49,10 +49,15 @@ suite ("testAggQueryOnAggMV3") {
     qt_select_star "select * from emps order by empid;"
 
 
-   explain {
+    explain {
         sql("select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;")
         contains "(emps_mv)"
     }
     qt_select_mv "select commission, sum(salary) from emps where commission * (deptno + commission) = 100 group by commission order by commission;"
 
+    explain {
+        sql("select commission, sum(salary) from emps where commission = 100 group by commission order by commission;")
+        contains "(emps_mv)"
+    }
+    qt_select_mv "select commission, sum(salary) from emps where commission = 100 group by commission order by commission;"
 }
