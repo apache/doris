@@ -209,7 +209,7 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
             _repeat_id_idx = 0;
         }
     }
-
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     *eos = _child_eos && _child_block.rows() == 0;
     reached_limit(output_block, eos);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
