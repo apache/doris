@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 
 import org.junit.Assert;
@@ -80,5 +81,20 @@ public class DebugUtilTest {
         result = DebugUtil.getByteUint(1234567890L);  // G
         Assert.assertEquals(result.first, Double.valueOf(1.1497809458523989));
         Assert.assertEquals(result.second, "GB");
+    }
+
+    @Test
+    public void testUtilGetStackTrace() {
+        Exception e1 = new Exception("exception1");
+        DdlException e2 = new DdlException("exception2", e1);
+        e2.printStackTrace();
+        System.out.println(Util.getRootCauseStack(e2));
+        Assert.assertTrue(Util.getRootCauseStack(e2).contains("java.lang.Exception: exception1"));
+
+        DdlException e3 = new DdlException("only one exception");
+        System.out.println(Util.getRootCauseStack(e3));
+        Assert.assertTrue(Util.getRootCauseStack(e3)
+                .contains("org.apache.doris.common.DdlException: errCode = 2, detailMessage = only one exception"));
+        Assert.assertEquals("unknown", Util.getRootCauseStack(null));
     }
 }
