@@ -46,8 +46,6 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
-import java.math.BigDecimal;
-
 /**
  * simplify comparison
  * such as: cast(c1 as DateV2) >= DateV2Literal --> c1 >= DateLiteral
@@ -214,9 +212,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                 int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                 if (comparisonPredicate instanceof EqualTo) {
                     try {
-                        BigDecimal newValue = literal.getValue().setScale(toScale);
-                        return comparisonPredicate.withChildren(left,
-                                new DecimalV3Literal(newValue));
+                        return comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                (DecimalV3Type) left.getDataType(), literal.getValue().setScale(toScale)));
                     } catch (ArithmeticException e) {
                         if (left.nullable()) {
                             // TODO: the ideal way is to return an If expr like:
@@ -232,9 +229,8 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                     }
                 } else if (comparisonPredicate instanceof NullSafeEqual) {
                     try {
-                        BigDecimal newValue = literal.getValue().setScale(toScale);
-                        return comparisonPredicate.withChildren(left,
-                                new DecimalV3Literal(newValue));
+                        return comparisonPredicate.withChildren(left, new DecimalV3Literal(
+                                (DecimalV3Type) left.getDataType(), literal.getValue().setScale(toScale)));
                     } catch (ArithmeticException e) {
                         return BooleanLiteral.of(false);
                     }

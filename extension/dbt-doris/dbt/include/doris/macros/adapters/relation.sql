@@ -154,7 +154,31 @@
     {% endcall %}
   {% endif %}
 
-  {%- endmacro %}
+{%- endmacro %}
+
+
+{% macro exchange_relation(relation1, relation2, is_drop_r1=false) -%}
+
+  {% if relation2.is_view %}
+    {% set from_results = run_query('show create view ' + relation1.render() ) %}
+    {% set to_results = run_query('show create view ' + relation2.render() ) %}
+      {% call statement('exchange_view_relation') %}
+        alter view {{ relation1 }} as {{  to_results[0]['Create View'].split('AS',1)[1] }}
+      {% endcall %}
+    {% if is_drop_r1 %}
+      {% do doris__drop_relation(relation2) %}
+    {% else %}
+      {% call statement('exchange_view_relation') %}
+        alter view {{ relation2 }} as {{  from_results[0]['Create View'].split('AS',1)[1] }}
+      {% endcall %}
+    {% endif %}
+  {% else %}
+    {% call statement('exchange_relation') %}
+      ALTER TABLE {{ relation1 }} REPLACE WITH TABLE `{{ relation2.table }}` PROPERTIES('swap' = '{{not is_drop_r1}}');
+    {% endcall %}
+  {% endif %}
+
+{%- endmacro %}
 
 {% macro doris__timestimp_id() -%}
  {{ return( (modules.datetime.datetime.now() ~ "").replace('-','').replace(':','').replace('.','').replace(' ','') ) }}
@@ -166,16 +190,16 @@
     WITH LABEL dbt_doris_label_{{doris__timestimp_id()}}
   {% else %}
     WITH LABEL dbt_doris_label_{{ lable_suffix_id }}
-  {% endif %}  
+  {% endif %}
 {%- endmacro %}
 
 {% macro doris__get_or_create_relation(database, schema, identifier, type) %}
   {%- set target_relation = adapter.get_relation(database=database, schema=schema, identifier=identifier) %}
-  
+
   {% if target_relation %}
     {% do return([true, target_relation]) %}
   {% endif %}
-  
+
   {%- set new_relation = api.Relation.create(
       database=none,
       schema=schema,
@@ -186,5 +210,5 @@
 {% endmacro %}
 
 {% macro catalog_source(catalog,database,table) -%}
-  `{{catalog}}`.`{{database}}`.`{{table}}` 
+  `{{catalog}}`.`{{database}}`.`{{table}}`
 {%- endmacro %}

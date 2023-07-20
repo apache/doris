@@ -254,6 +254,7 @@ private:
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
     std::string _simdjson_ondemand_padding_buffer;
+    std::string _simdjson_ondemand_unscape_padding_buffer;
     // char _simdjson_ondemand_padding_buffer[_padded_size];
     simdjson::ondemand::document _original_json_doc;
     simdjson::ondemand::value _json_value;

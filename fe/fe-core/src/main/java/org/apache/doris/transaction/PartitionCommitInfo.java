@@ -31,6 +31,8 @@ public class PartitionCommitInfo implements Writable {
 
     @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "range")
+    private String range;
     @SerializedName(value = "version")
     private long version;
     @SerializedName(value = "versionTime")
@@ -40,9 +42,10 @@ public class PartitionCommitInfo implements Writable {
 
     }
 
-    public PartitionCommitInfo(long partitionId, long version, long visibleTime) {
+    public PartitionCommitInfo(long partitionId, String partitionRange, long version, long visibleTime) {
         super();
         this.partitionId = partitionId;
+        this.range = partitionRange;
         this.version = version;
         this.versionTime = visibleTime;
     }
@@ -60,6 +63,10 @@ public class PartitionCommitInfo implements Writable {
 
     public long getPartitionId() {
         return partitionId;
+    }
+
+    public String getPartitionRange() {
+        return range;
     }
 
     public long getVersion() {

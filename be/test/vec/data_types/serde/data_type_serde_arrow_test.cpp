@@ -56,6 +56,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
@@ -76,6 +77,7 @@
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time_v2.h"
+#include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -95,6 +97,7 @@ void serialize_and_deserialize_arrow_test() {
                 {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
                 {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
                 {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
+                {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
         };
     } else {
         cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
@@ -327,6 +330,28 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(test_datetime);
             }
             break;
+        case TYPE_DATETIMEV2: // uint64
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                // 2022-01-01 11:11:11.111
+                auto column_vector_datetimev2 =
+                        vectorized::ColumnVector<vectorized::UInt64>::create();
+                //                auto& datetimev2_data = column_vector_datetimev2->get_data();
+                DateV2Value<DateTimeV2ValueType> value;
+                string date_literal = "2022-01-01 11:11:11.111";
+                value.from_date_str(date_literal.c_str(), date_literal.size());
+                char to[64] = {};
+                std::cout << "value: " << value.to_string(to) << std::endl;
+                for (int i = 0; i < row_num; ++i) {
+                    column_vector_datetimev2->insert(value.to_date_int_val());
+                }
+                vectorized::DataTypePtr datetimev2_type(
+                        std::make_shared<vectorized::DataTypeDateTimeV2>());
+                vectorized::ColumnWithTypeAndName test_datetimev2(
+                        column_vector_datetimev2->get_ptr(), datetimev2_type, col_name);
+                block.insert(test_datetimev2);
+            }
+            break;
         case TYPE_ARRAY: // array
             type_desc.add_sub_type(TYPE_STRING, true);
             tslot.__set_slotType(type_desc.to_thrift());
@@ -487,6 +512,11 @@ void serialize_and_deserialize_arrow_test() {
                 }
             }
             continue;
+        } else if (std::get<3>(t) == PrimitiveType::TYPE_DATETIMEV2) {
+            // now we only support read doris datetimev2 to arrow
+            block.erase(real_column_name);
+            new_block.erase(real_column_name);
+            continue;
         }
         arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
                                      column_with_type_and_name.type, block.rows(), "UTC");
@@ -579,9 +609,9 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
                                  column_with_type_and_name.type, block.rows(), "UTC");
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
-    // new block row_index 0, 2 is should be empty
-    EXPECT_EQ(new_block.dump_one_line(0, 1), "{}");
-    EXPECT_EQ(new_block.dump_one_line(2, 1), "{}");
+    // new block row_index 0, 2 which row has key null will be filter
+    EXPECT_EQ(new_block.dump_one_line(0, 1), "{\"doris\":null, \"clever amory\":30}");
+    EXPECT_EQ(new_block.dump_one_line(2, 1), "{\"test\":11}");
     EXPECT_EQ(block.dump_data(1, 1), new_block.dump_data(1, 1));
 }
 

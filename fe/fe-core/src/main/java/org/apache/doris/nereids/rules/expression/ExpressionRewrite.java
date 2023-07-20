@@ -111,7 +111,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 if (projects.equals(newProjects)) {
                     return oneRowRelation;
                 }
-                return new LogicalOneRowRelation(newProjects);
+                return new LogicalOneRowRelation(oneRowRelation.getRelationId(), newProjects);
             }).toRule(RuleType.REWRITE_ONE_ROW_RELATION_EXPRESSION);
         }
     }

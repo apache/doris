@@ -361,6 +361,10 @@ public class BinlogManager {
                 // Step 2.1: read a binlog
                 TBinlog binlog = readTBinlogFromStream(dis);
 
+                if (!Config.enable_feature_binlog) {
+                    continue;
+                }
+
                 // Step 2.2: check if there is in next db Binlogs region
                 long dbId = binlog.getDbId();
                 if (dbId != currentDbId) {

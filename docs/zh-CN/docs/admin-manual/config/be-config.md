@@ -1291,12 +1291,6 @@ BaseCompaction:546859:
   - 当遇到'[E1011]The server is overcrowded'的错误时，可以调整配置项`brpc_socket_max_unwritten_bytes`，但这个配置项不能动态调整。所以可通过设置此项为`true`来临时避免写失败。注意，此配置项只影响写流程，其他的rpc请求依旧会检查是否overcrowded。
 * 默认值：false
 
-#### `enable_lazy_open_partition`
-
-* 类型：bool
-* 描述：导入时大部分partition可能都不需要写入，可以使用延迟打开的方式只打开需要写入的partition。升级版本出现混合部署的时候，需要设置为false。
-* 默认值：false
-
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * 描述：TabletsChannel 的存活时间。如果此时通道没有收到任何数据， 通道将被删除。

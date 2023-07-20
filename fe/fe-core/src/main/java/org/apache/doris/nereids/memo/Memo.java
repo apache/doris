@@ -19,9 +19,6 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.CTEContext;
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.metrics.EventChannel;
@@ -34,14 +31,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -51,6 +45,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -119,11 +114,19 @@ public class Memo {
     public void removePhysicalExpression() {
         groupExpressions.entrySet().removeIf(entry -> entry.getValue().getPlan() instanceof PhysicalPlan);
 
-        for (Group group : groups.values()) {
+        Iterator<Entry<GroupId, Group>> iterator = groups.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<GroupId, Group> entry = iterator.next();
+            Group group = entry.getValue();
+
             group.clearPhysicalExpressions();
             group.clearLowestCostPlans();
             group.removeParentPhysicalExpressions();
             group.setExplored(false);
+
+            if (group.getLogicalExpressions().isEmpty() && group.getPhysicalExpressions().isEmpty()) {
+                iterator.remove();
+            }
         }
 
         // logical groupExpression reset ruleMask
@@ -261,17 +264,6 @@ public class Memo {
                 : Optional.empty();
 
         return planWithChildren.withGroupExpression(groupExpression);
-    }
-
-    /**
-     * Utility function to create a new {@link CascadesContext} with this Memo.
-     */
-    public CascadesContext newCascadesContext(StatementContext statementContext) {
-        return new CascadesContext(null, this, statementContext, PhysicalProperties.ANY);
-    }
-
-    public CascadesContext newCascadesContext(StatementContext statementContext, CTEContext cteContext) {
-        return new CascadesContext(null, this, statementContext, cteContext, PhysicalProperties.ANY);
     }
 
     /**
@@ -618,12 +610,11 @@ public class Memo {
      * eliminate fromGroup, clear targetGroup, then move the logical group expressions in the fromGroup to the toGroup.
      * <p>
      * the scenario is:
-     * ```
+     * <pre>
      *  Group 1(project, the targetGroup)                  Group 1(logicalOlapScan, the targetGroup)
      *               |                             =>
      *  Group 0(logicalOlapScan, the fromGroup)
-     * ```
-     * <p>
+     * </pre>
      * we should recycle the group 0, and recycle all group expressions in group 1, then move the logicalOlapScan to
      * the group 1, and reset logical properties of the group 1.
      */
@@ -736,17 +727,8 @@ public class Memo {
         builder.append("root:").append(getRoot()).append("\n");
         for (Group group : groups.values()) {
             builder.append("\n\n").append(group);
-            builder.append("  stats=").append(group.getStatistics()).append("\n");
-            Statistics stats = group.getStatistics();
-            if (stats != null && !group.getLogicalExpressions().isEmpty()) {
-                Plan plan = group.getLogicalExpressions().get(0).getPlan();
-                if (plan instanceof LogicalOlapScan || plan instanceof LogicalFileScan) {
-                    for (Entry e : stats.columnStatistics().entrySet()) {
-                        builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
-                    }
-                }
-            }
-
+            builder.append("  stats").append("\n");
+            builder.append(group.getStatistics().detail("    "));
             builder.append("  lowest Plan(cost, properties, plan, childrenRequires)");
             group.getAllProperties().forEach(
                     prop -> {

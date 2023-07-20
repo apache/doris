@@ -180,25 +180,26 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
+    size_t size = 0;
+    Defer defer {[&]() { ctx->update_num_running(size, -1); }};
+
     if (ctx->done()) {
-        ctx->update_num_running(0, -1);
         return;
     }
 
     std::list<VScannerSPtr> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
-    if (this_run.empty()) {
+    size = this_run.size();
+    if (!size) {
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.
         // 2. All scanners are running.
         //      There running scanner will schedule the ctx after they are finished.
         // So here we just return to stop scheduling ctx.
-        ctx->update_num_running(0, -1);
         return;
     }
 
-    ctx->update_num_running(this_run.size(), -1);
     // Submit scanners to thread pool
     // TODO(cmy): How to handle this "nice"?
     int nice = 1;

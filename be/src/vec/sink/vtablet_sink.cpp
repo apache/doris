@@ -97,51 +97,6 @@ class TExpr;
 
 namespace stream_load {
 
-class OpenPartitionClosure : public google::protobuf::Closure {
-public:
-    OpenPartitionClosure(VNodeChannel* vnode_channel, IndexChannel* index_channel,
-                         int64_t partition_id)
-            : vnode_channel(vnode_channel),
-              index_channel(index_channel),
-              partition_id(partition_id) {};
-
-    ~OpenPartitionClosure() override = default;
-
-    void Run() override {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        DCHECK(packet_in_flight);
-        auto open_partition_failed = [this]() {
-            std::stringstream ss;
-            ss << "failed to open partition, error=" << berror(this->cntl.ErrorCode())
-               << ", error_text=" << this->cntl.ErrorText();
-            LOG(WARNING) << ss.str() << " " << vnode_channel->channel_info();
-            vnode_channel->cancel("Open partition error");
-            index_channel->mark_as_failed(vnode_channel->node_id(), vnode_channel->host(),
-                                          fmt::format("{}, open failed, err: {}",
-                                                      vnode_channel->channel_info(), ss.str()),
-                                          -1);
-        };
-        if (cntl.Failed()) {
-            open_partition_failed();
-        } else {
-            Status status(Status::create(result.status()));
-            if (!status.ok()) {
-                open_partition_failed();
-            }
-        }
-        packet_in_flight = false;
-    }
-
-    void join() { brpc::Join(cntl.call_id()); }
-
-    brpc::Controller cntl;
-    OpenPartitionResult result;
-    VNodeChannel* vnode_channel;
-    IndexChannel* index_channel;
-    int64_t partition_id;
-    std::atomic<bool> packet_in_flight {false};
-};
-
 IndexChannel::~IndexChannel() {}
 
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
@@ -524,54 +479,6 @@ Status VNodeChannel::open_wait() {
         }
     });
     return status;
-}
-
-void VNodeChannel::open_partition(int64_t partition_id) {
-    MonotonicStopWatch lazy_open_timeout_watch;
-    lazy_open_timeout_watch.start();
-    SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
-    OpenPartitionRequest request;
-    auto load_id = std::make_shared<PUniqueId>(_parent->_load_id);
-    request.set_allocated_id(load_id.get());
-    request.set_index_id(_index_channel->_index_id);
-    for (auto& tablet : _all_tablets) {
-        if (partition_id == tablet.partition_id) {
-            auto ptablet = request.add_tablets();
-            ptablet->set_partition_id(tablet.partition_id);
-            ptablet->set_tablet_id(tablet.tablet_id);
-        }
-    }
-
-    auto open_partition_closure =
-            std::make_unique<OpenPartitionClosure>(this, _index_channel, partition_id);
-
-    int remain_ms = _rpc_timeout_ms - lazy_open_timeout_watch.elapsed_time();
-    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
-        remain_ms = config::min_load_rpc_timeout_ms;
-    }
-    open_partition_closure->cntl.set_timeout_ms(remain_ms);
-    open_partition_closure->packet_in_flight = true;
-    _stub->open_partition(&open_partition_closure.get()->cntl, &request,
-                          &open_partition_closure.get()->result, open_partition_closure.get());
-
-    _open_partition_closures.insert(std::move(open_partition_closure));
-
-    request.release_id();
-}
-
-void VNodeChannel::open_partition_wait() {
-    for (auto& open_partition_closure : _open_partition_closures) {
-        open_partition_closure->join();
-    }
-}
-
-bool VNodeChannel::open_partition_finished() const {
-    for (auto& open_partition_closure : _open_partition_closures) {
-        if (open_partition_closure->packet_in_flight) {
-            return false;
-        }
-    }
-    return true;
 }
 
 Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload, bool is_append) {
@@ -1183,25 +1090,6 @@ Status VOlapTableSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void VOlapTableSink::_open_partition(const VOlapTablePartition* partition) {
-    const auto& id = partition->id;
-    auto it = _opened_partitions.find(id);
-    if (it == _opened_partitions.end()) {
-        _opened_partitions.insert(id);
-        fmt::memory_buffer buf;
-        for (int j = 0; j < partition->indexes.size(); ++j) {
-            fmt::format_to(buf, "index id:{}", partition->indexes[j].index_id);
-            for (const auto& tid : partition->indexes[j].tablets) {
-                auto it = _channels[j]->_channels_by_tablet.find(tid);
-                for (const auto& channel : it->second) {
-                    channel->open_partition(partition->id);
-                }
-            }
-        }
-        VLOG_DEBUG << "list of lazy open index id = " << fmt::to_string(buf);
-    }
-}
-
 void VOlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
     SCOPED_ATTACH_TASK(_state);
@@ -1272,9 +1160,6 @@ Status VOlapTableSink::_single_partition_generate(RuntimeState* state, vectorize
                                                     stop_processing, is_continue));
         if (is_continue) {
             continue;
-        }
-        if (config::enable_lazy_open_partition) {
-            _open_partition(partition);
         }
         break;
     }
@@ -1360,11 +1245,6 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
             }
             // each row
             _generate_row_distribution_payload(channel_to_payload, partition, tablet_index, i, 1);
-            // open partition
-            if (config::enable_lazy_open_partition) {
-                // aysnc open operation,don't block send operation
-                _open_partition(partition);
-            }
         }
     }
     _row_distribution_watch.stop();
@@ -1445,21 +1325,6 @@ void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
         return;
     }
 
-    if (config::enable_lazy_open_partition && !_open_partition_done) {
-        // open_partition_finished must be before mark_close
-        bool open_partition_done = true;
-        for (const auto& index_channel : _channels) {
-            index_channel->for_each_node_channel(
-                    [&open_partition_done](const std::shared_ptr<VNodeChannel>& ch) {
-                        open_partition_done &= ch->open_partition_finished();
-                    });
-        }
-        if (!open_partition_done) {
-            return;
-        }
-        _open_partition_done = true;
-    }
-
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
     if (status.ok()) {
@@ -1523,14 +1388,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
 
     SCOPED_TIMER(_close_timer);
     SCOPED_TIMER(_profile->total_time_counter());
-
-    if (config::enable_lazy_open_partition) {
-        for (const auto& index_channel : _channels) {
-            index_channel->for_each_node_channel(
-                    [](const std::shared_ptr<VNodeChannel>& ch) { ch->open_partition_wait(); });
-        }
-        _open_partition_done = true;
-    }
 
     try_close(state, exec_status);
     // If _close_status is not ok, all nodes have been canceled in try_close.
