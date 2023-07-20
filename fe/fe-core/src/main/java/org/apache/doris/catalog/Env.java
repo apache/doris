@@ -253,6 +253,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -289,6 +291,9 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
+    private static final String VERSION_FILE = "/VERSION";
+    private static final int CURRENT_FE_VERSION = 2000; // 2.0.0.0
+    private int oldFeVersion;
     private String metaDir;
     private String bdbDir;
     private String imageDir;
@@ -872,8 +877,12 @@ public class Env {
         }
         File imageDir = new File(this.imageDir);
         if (!imageDir.exists()) {
+            // If the 'image' folder does not exist, the current FE is the latest version.
+            writeVersion();
             imageDir.mkdirs();
         }
+
+        diffVersion();
 
         // init plugin manager
         pluginMgr.init();
@@ -5327,6 +5336,45 @@ public class Env {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
         }
+    }
+
+    private void writeVersion() {
+        // "Write down the latest version of FE.
+        String fileName = this.metaDir + VERSION_FILE;
+        try (FileWriter fileWriter = new FileWriter(fileName)) {
+            fileWriter.write(CURRENT_FE_VERSION + "");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private boolean checkVersion() {
+        String fileName = this.metaDir + VERSION_FILE;
+        File file = new File(fileName);
+        return file.exists();
+    }
+
+    private void diffVersion() {
+        if (checkVersion()) {
+            String fileName = this.metaDir + VERSION_FILE;
+            try (BufferedReader reader = new BufferedReader(new FileReader(fileName))) {
+                String line = reader.readLine();
+                oldFeVersion = Integer.parseInt(line);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        } else {
+            oldFeVersion = 1250; // fe version small 2.0
+        }
+        writeVersion();
+    }
+
+    public int getOldFeVersion() {
+        return oldFeVersion;
+    }
+
+    public int getCurrentFeVersion() {
+        return CURRENT_FE_VERSION;
     }
 
     public int getFollowerCount() {
