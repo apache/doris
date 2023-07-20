@@ -76,42 +76,42 @@ explain {
     }
 
 sql """
-    WITH V_GAIA_SD_RECHARGE_CARD AS
-    (SELECT client,
-         gsrc_account_id,
-         gsrc_status,
-         GSRC_AMT,
-         gsrc_member_card_id,
-         last_update_time,
-         rk
+    WITH ttt AS
+    (SELECT c1,
+         c2,
+         c3,
+         c4,
+         c5,
+         c6,
+         c7
     FROM 
-        (SELECT '10000003' client, '0816ffk' gsrc_account_id, '1' gsrc_status, 1416.0800 GSRC_AMT, '0816ffk' gsrc_member_card_id, '2023-07-03 15:36:36' last_update_time, 1 rk ) a
-        WHERE rk = 1 )
-    SELECT dd.CLIENT,
-            dd.recharge_card
+        (SELECT '10000003' c1, '0816ffk' c2, '1' c3, 1416.0800 c4, '0816ffk' c5, '2023-07-03 15:36:36' c6, 1 c7 ) a
+        WHERE c7 = 1 )
+    SELECT dd.c1,
+            dd.d1
     FROM 
-        (SELECT src.CLIENT,
+        (SELECT src.c1,
             
             CASE
-            WHEN IFNULL(src.GSRC_STATUS,'') = ''
-                OR src.GSRC_STATUS = '3' THEN
+            WHEN IFNULL(src.c3,'') = ''
+                OR src.c3 = '3' THEN
             '-1'
-            WHEN src.GSRC_AMT = 0 THEN
+            WHEN src.c4 = 0 THEN
             '0'
-            WHEN src.GSRC_AMT <= 200 THEN
+            WHEN src.c4 <= 200 THEN
             '1'
-            WHEN src.GSRC_AMT > 200
-                AND src.GSRC_AMT <= 500 THEN
+            WHEN src.c4 > 200
+                AND src.c4 <= 500 THEN
             '2'
-            WHEN src.GSRC_AMT > 500
-                AND src.GSRC_AMT <= 1000 THEN
+            WHEN src.c4 > 500
+                AND src.c4 <= 1000 THEN
             '3'
             ELSE '4'
-            END AS recharge_card
-        FROM V_GAIA_SD_RECHARGE_CARD src
-        WHERE src.CLIENT = '10000003'
-        GROUP BY  src.CLIENT, recharge_card ) dd
-    WHERE dd.recharge_card IN ('-1');
+            END AS d1
+        FROM ttt src
+        WHERE src.c1 = '10000003'
+        GROUP BY  src.c1, d1 ) dd
+    WHERE dd.d1 IN ('-1');
 """
 
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
