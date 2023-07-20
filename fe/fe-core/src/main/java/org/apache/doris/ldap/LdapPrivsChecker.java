@@ -36,6 +36,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -45,105 +46,105 @@ public class LdapPrivsChecker {
     private static final Logger LOG = LogManager.getLogger(LdapPrivsChecker.class);
 
     public static boolean hasGlobalPrivFromLdap(UserIdentity currentUser, PrivPredicate wanted) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkGlobalPriv(wanted);
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkGlobalPriv(wanted);
     }
 
     public static boolean hasCatalogPrivFromLdap(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkCtlPriv(ctl, wanted);
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkCtlPriv(ctl, wanted);
     }
 
     public static boolean hasDbPrivFromLdap(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkDbPriv(ctl, db,
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkDbPriv(ctl, db,
                 wanted);
     }
 
     public static boolean hasTblPrivFromLdap(UserIdentity currentUser, String ctl, String db, String tbl,
             PrivPredicate wanted) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkTblPriv(ctl, db, tbl,
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkTblPriv(ctl, db, tbl,
                 wanted);
     }
 
     public static boolean checkHasPriv(UserIdentity currentUser, PrivPredicate priv, PrivLevel[] levels) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkHasPriv(priv, levels);
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkHasPriv(priv, levels);
     }
 
     public static boolean hasResourcePrivFromLdap(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkResourcePriv(
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkResourcePriv(
                 resourceName, wanted);
     }
 
     public static boolean hasWorkloadGroupPrivFromLdap(UserIdentity currentUser, String workloadGroupName,
             PrivPredicate wanted) {
-        return hasLdapPrivs(currentUser) && getUserLdapPrivs(currentUser.getQualifiedUser()).checkWorkloadGroupPriv(
+        return hasLdapPrivs(currentUser) && getUserLdapRoles(currentUser.getQualifiedUser()).checkWorkloadGroupPriv(
                 workloadGroupName, wanted);
     }
 
-    public static PrivBitSet getResourcePrivFromLdap(UserIdentity currentUser, String resourceName) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
-        if (hasLdapPrivs(currentUser)) {
-            getUserLdapPrivs(currentUser.getQualifiedUser()).getResourcePrivTable().getPrivs(resourceName, savedPrivs);
-        }
-        return savedPrivs;
-    }
+//    public static PrivBitSet getResourcePrivFromLdap(UserIdentity currentUser, String resourceName) {
+//        PrivBitSet savedPrivs = PrivBitSet.of();
+//        if (hasLdapPrivs(currentUser)) {
+//            getUserLdapRoles(currentUser.getQualifiedUser()).getResourcePrivTable().getPrivs(resourceName, savedPrivs);
+//        }
+//        return savedPrivs;
+//    }
 
-    public static PrivBitSet getWorkloadGroupPrivFromLdap(UserIdentity currentUser, String workloadGroupName) {
-        PrivBitSet savedPrivs = PrivBitSet.of();
-        if (hasLdapPrivs(currentUser)) {
-            getUserLdapPrivs(currentUser.getQualifiedUser()).getWorkloadGroupPrivTable()
-                    .getPrivs(workloadGroupName, savedPrivs);
-        }
-        return savedPrivs;
-    }
+//    public static PrivBitSet getWorkloadGroupPrivFromLdap(UserIdentity currentUser, String workloadGroupName) {
+//        PrivBitSet savedPrivs = PrivBitSet.of();
+//        if (hasLdapPrivs(currentUser)) {
+//            getUserLdapRoles(currentUser.getQualifiedUser()).getWorkloadGroupPrivTable()
+//                    .getPrivs(workloadGroupName, savedPrivs);
+//        }
+//        return savedPrivs;
+//    }
 
     public static boolean hasLdapPrivs(UserIdentity userIdent) {
         return LdapConfig.ldap_authentication_enabled && Env.getCurrentEnv().getAuth().getLdapManager()
                 .doesUserExist(userIdent.getQualifiedUser());
     }
 
-    public static Map<TablePattern, PrivBitSet> getLdapAllDbPrivs(UserIdentity userIdentity) {
-        Map<TablePattern, PrivBitSet> ldapDbPrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) {
-            return ldapDbPrivs;
-        }
-        for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
-                .getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.DATABASE)) {
-                ldapDbPrivs.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return ldapDbPrivs;
-    }
+//    public static Map<TablePattern, PrivBitSet> getLdapAllDbPrivs(UserIdentity userIdentity) {
+//        Map<TablePattern, PrivBitSet> ldapDbPrivs = Maps.newConcurrentMap();
+//        if (!hasLdapPrivs(userIdentity)) {
+//            return ldapDbPrivs;
+//        }
+//        for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapRoles(userIdentity.getQualifiedUser())
+//                .getTblPatternToPrivs().entrySet()) {
+//            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.DATABASE)) {
+//                ldapDbPrivs.put(entry.getKey(), entry.getValue());
+//            }
+//        }
+//        return ldapDbPrivs;
+//    }
 
-    public static Map<TablePattern, PrivBitSet> getLdapAllTblPrivs(UserIdentity userIdentity) {
-        Map<TablePattern, PrivBitSet> ldapTblPrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) {
-            return ldapTblPrivs;
-        }
-        for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
-                .getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.TABLE)) {
-                ldapTblPrivs.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return ldapTblPrivs;
-    }
+//    public static Map<TablePattern, PrivBitSet> getLdapAllTblPrivs(UserIdentity userIdentity) {
+//        Map<TablePattern, PrivBitSet> ldapTblPrivs = Maps.newConcurrentMap();
+//        if (!hasLdapPrivs(userIdentity)) {
+//            return ldapTblPrivs;
+//        }
+//        for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapRoles(userIdentity.getQualifiedUser())
+//                .getTblPatternToPrivs().entrySet()) {
+//            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.TABLE)) {
+//                ldapTblPrivs.put(entry.getKey(), entry.getValue());
+//            }
+//        }
+//        return ldapTblPrivs;
+//    }
 
-    public static Map<ResourcePattern, PrivBitSet> getLdapAllResourcePrivs(UserIdentity userIdentity) {
-        Map<ResourcePattern, PrivBitSet> ldapResourcePrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) {
-            return ldapResourcePrivs;
-        }
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
-                .getResourcePatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.RESOURCE)) {
-                ldapResourcePrivs.put(entry.getKey(), entry.getValue());
-            }
-        }
-        return ldapResourcePrivs;
-    }
+//    public static Map<ResourcePattern, PrivBitSet> getLdapAllResourcePrivs(UserIdentity userIdentity) {
+//        Map<ResourcePattern, PrivBitSet> ldapResourcePrivs = Maps.newConcurrentMap();
+//        if (!hasLdapPrivs(userIdentity)) {
+//            return ldapResourcePrivs;
+//        }
+//        for (Map.Entry<ResourcePattern, PrivBitSet> entry : getUserLdapRoles(userIdentity.getQualifiedUser())
+//                .getResourcePatternToPrivs().entrySet()) {
+//            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.RESOURCE)) {
+//                ldapResourcePrivs.put(entry.getKey(), entry.getValue());
+//            }
+//        }
+//        return ldapResourcePrivs;
+//    }
 
-    private static Role getUserLdapPrivs(String fullName) {
-        return Env.getCurrentEnv().getAuth().getLdapManager().getUserRole(fullName);
+    private static List<Role> getUserLdapRoles(String fullName) {
+        return Env.getCurrentEnv().getAuth().getLdapManager().getUserRoles(fullName);
     }
 
     // Temporary user has information_schema 'Select_priv' priv by default.

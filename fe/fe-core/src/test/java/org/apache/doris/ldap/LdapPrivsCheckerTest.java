@@ -130,7 +130,7 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = true;
 
-                ldapManager.getUserRole(USER);
+                ldapManager.getUserRoles(USER);
                 minTimes = 0;
                 result = ldapRole;
 

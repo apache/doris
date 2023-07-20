@@ -122,9 +122,9 @@ public class LdapManager {
         return false;
     }
 
-    public Role getUserRole(String fullName) {
+    public List<Role> getUserRoles(String fullName) {
         LdapUserInfo info = getUserInfo(fullName);
-        return !Objects.isNull(info) && info.isExists() ? info.getPaloRole() : new Role(LDAP_GROUPS_PRIVS_NAME);
+        return !Objects.isNull(info) && info.isExists() ? info.getPaloRoles() : Lists.newArrayList(new Role(LDAP_GROUPS_PRIVS_NAME));
     }
 
     private boolean checkParam(String fullName) {
@@ -200,24 +200,22 @@ public class LdapManager {
      * Step2: get roles by ldap groups;
      * Step3: merge the roles;
      */
-    private Role getLdapGroupsPrivs(String userName, String clusterName) throws DdlException {
+    private List<Role> getLdapGroupsPrivs(String userName, String clusterName) throws DdlException {
         //get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
-        List<String> rolesNames = Lists.newArrayList();
+        List<Role> roles = Lists.newArrayList();
         for (String group : ldapGroups) {
             String qualifiedRole = ClusterNamespace.getFullName(clusterName, group);
             if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
-                rolesNames.add(qualifiedRole);
+                roles.add(Env.getCurrentEnv().getAuth().getRoleByName(qualifiedRole));
             }
         }
-        LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, rolesNames);
+        LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
 
         Role ldapGroupsPrivs = new Role(LDAP_GROUPS_PRIVS_NAME);
         LdapPrivsChecker.grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
-        if (!rolesNames.isEmpty()) {
-            Env.getCurrentEnv().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);
-        }
-        return ldapGroupsPrivs;
+        roles.add(ldapGroupsPrivs);
+        return roles;
     }
 
     public void refresh(boolean isAll, String fullName) {

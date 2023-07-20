@@ -167,6 +167,10 @@ public class Auth implements Writable {
         }
     }
 
+    public Role getRoleByName(String roleName) {
+        return roleManager.getRole(roleName);
+    }
+
     /*
      * check password, if matched, save the userIdentity in matched entry.
      * the following auth checking should use userIdentity saved in currentUser.
@@ -1103,7 +1107,8 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getPaloRole().getRoleName());
+            userAuthInfo.add(ldapUserInfo.getPaloRoles().stream().map(role -> role.getRoleName())
+                    .collect(Collectors.joining(",")));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
             // ============== Password ==============
@@ -1163,7 +1168,6 @@ public class Auth implements Writable {
         for (PrivEntry entry : getUserResourcePrivTable(userIdent).entries) {
             ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
             PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
-            savedPrivs.or(LdapPrivsChecker.getResourcePrivFromLdap(userIdent, rEntry.getOrigResource()));
             resourcePrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
         }
 
@@ -1178,8 +1182,6 @@ public class Auth implements Writable {
         for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
             WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
             PrivBitSet savedPrivs = workloadGroupPrivEntry.getPrivSet().copy();
-            savedPrivs.or(LdapPrivsChecker.getWorkloadGroupPrivFromLdap(userIdent,
-                    workloadGroupPrivEntry.getOrigWorkloadGroupName()));
             workloadGroupPrivs.add(workloadGroupPrivEntry.getOrigWorkloadGroupName() + ": " + savedPrivs);
         }
 
@@ -1199,7 +1201,10 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getGlobalPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getGlobalPrivTable());
+            List<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            for (Role role : ldapRoles) {
+                table.merge(role.getCatalogPrivTable());
+            }
         }
         return table;
     }
@@ -1211,7 +1216,10 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getCatalogPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getCatalogPrivTable());
+            List<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            for (Role role : ldapRoles) {
+                table.merge(role.getCatalogPrivTable());
+            }
         }
         return table;
     }
@@ -1223,7 +1231,10 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getDbPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getDbPrivTable());
+            List<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            for (Role role : ldapRoles) {
+                table.merge(role.getCatalogPrivTable());
+            }
         }
         return table;
     }
@@ -1235,7 +1246,10 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getTablePrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getTablePrivTable());
+            List<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            for (Role role : ldapRoles) {
+                table.merge(role.getCatalogPrivTable());
+            }
         }
         return table;
     }
@@ -1247,7 +1261,10 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getResourcePrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getResourcePrivTable());
+            List<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            for (Role role : ldapRoles) {
+                table.merge(role.getCatalogPrivTable());
+            }
         }
         return table;
     }
@@ -1259,8 +1276,10 @@ public class Auth implements Writable {
             table.merge(roleManager.getRole(roleName).getWorkloadGroupPrivTable());
         }
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
-            table.merge(
-                    ldapManager.getUserRole(userIdentity.getQualifiedUser()).getWorkloadGroupPrivTable());
+            List<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            for (Role role : ldapRoles) {
+                table.merge(role.getCatalogPrivTable());
+            }
         }
         return table;
     }
