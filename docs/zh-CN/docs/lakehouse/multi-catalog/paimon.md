@@ -32,7 +32,7 @@ under the License.
 
 ## 使用须知
 
-1. 将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。
+1. 数据放在hdfs时，需要将 core-site.xml，hdfs-site.xml 和 hive-site.xml  放到 FE 和 BE 的 conf 目录下。优先读取 conf 目录下的 hadoop 配置文件，再读取环境变量 `HADOOP_CONF_DIR` 的相关配置文件。
 2. 当前适配的paimon版本为0.4.0
 
 ## 创建 Catalog
@@ -65,8 +65,8 @@ Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
     "type" = "paimon",
     "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
     "s3.endpoint"="cos.ap-beijing.myqcloud.com",
-    "s3.access_key"="XXX",
-    "s3.secret_key"="YYY"
+    "s3.access_key"="ak",
+    "s3.secret_key"="sk"
 );
 
 ```
@@ -78,8 +78,8 @@ Paimon Catalog 当前支持两种类型的Metastore创建Catalog:
     "type" = "paimon",
     "warehouse" = "oss://paimon-zd/paimonoss",
     "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
-    "oss.access_key"="XXX",
-    "oss.secret_key"="YYY"
+    "oss.access_key"="ak",
+    "oss.secret_key"="sk"
 );
 
 ```
