@@ -181,7 +181,9 @@ void OrcReader::_collect_profile_on_close() {
         COUNTER_UPDATE(_orc_profile.read_bytes, _statistics.fs_read_bytes);
         COUNTER_UPDATE(_orc_profile.column_read_time, _statistics.column_read_time);
         COUNTER_UPDATE(_orc_profile.get_batch_time, _statistics.get_batch_time);
-        COUNTER_UPDATE(_orc_profile.parse_meta_time, _statistics.parse_meta_time);
+        COUNTER_UPDATE(_orc_profile.create_reader_time, _statistics.create_reader_time);
+        COUNTER_UPDATE(_orc_profile.init_column_time, _statistics.init_column_time);
+        COUNTER_UPDATE(_orc_profile.set_fill_column_time, _statistics.set_fill_column_time);
         COUNTER_UPDATE(_orc_profile.decode_value_time, _statistics.decode_value_time);
         COUNTER_UPDATE(_orc_profile.decode_null_map_time, _statistics.decode_null_map_time);
     }
@@ -200,7 +202,11 @@ void OrcReader::_init_profile() {
         _orc_profile.read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
         _orc_profile.column_read_time = ADD_CHILD_TIMER(_profile, "ColumnReadTime", orc_profile);
         _orc_profile.get_batch_time = ADD_CHILD_TIMER(_profile, "GetBatchTime", orc_profile);
-        _orc_profile.parse_meta_time = ADD_CHILD_TIMER(_profile, "ParseMetaTime", orc_profile);
+        _orc_profile.create_reader_time =
+                ADD_CHILD_TIMER(_profile, "CreateReaderTime", orc_profile);
+        _orc_profile.init_column_time = ADD_CHILD_TIMER(_profile, "InitColumnTime", orc_profile);
+        _orc_profile.set_fill_column_time =
+                ADD_CHILD_TIMER(_profile, "SetFillColumnTime", orc_profile);
         _orc_profile.decode_value_time = ADD_CHILD_TIMER(_profile, "DecodeValueTime", orc_profile);
         _orc_profile.decode_null_map_time =
                 ADD_CHILD_TIMER(_profile, "DecodeNullMapTime", orc_profile);
@@ -254,9 +260,14 @@ Status OrcReader::init_reader(
                                  not_single_slot_filter_conjuncts->end());
     }
     _obj_pool = std::make_shared<ObjectPool>();
-    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
-    RETURN_IF_ERROR(_create_file_reader());
-    RETURN_IF_ERROR(_init_read_columns());
+    {
+        SCOPED_RAW_TIMER(&_statistics.create_reader_time);
+        RETURN_IF_ERROR(_create_file_reader());
+    }
+    {
+        SCOPED_RAW_TIMER(&_statistics.init_column_time);
+        RETURN_IF_ERROR(_init_read_columns());
+    }
     return Status::OK();
 }
 
@@ -646,7 +657,7 @@ Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
         const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
+    SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
@@ -864,7 +875,12 @@ void OrcReader::_init_bloom_filter(
 }
 
 void OrcReader::_init_system_properties() {
-    _system_properties.system_type = _scan_params.file_type;
+    if (_scan_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _scan_range.file_type;
+    } else {
+        _system_properties.system_type = _scan_params.file_type;
+    }
     _system_properties.properties = _scan_params.properties;
     _system_properties.hdfs_params = _scan_params.hdfs_params;
     if (_scan_params.__isset.broker_addresses) {

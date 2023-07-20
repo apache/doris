@@ -51,7 +51,6 @@ import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
 import org.apache.doris.planner.external.FileSplit;
-import org.apache.doris.spi.Split;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -66,6 +65,7 @@ import com.google.common.collect.RangeMap;
 import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
@@ -74,6 +74,7 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.utils.FileUtils;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputFormat;
@@ -339,7 +340,8 @@ public class HiveMetaStoreCache {
             for (int i = 0; i < partitionColumns.size(); i++) {
                 sb.append(partitionColumns.get(i).getName());
                 sb.append("=");
-                sb.append(key.getValues().get(i));
+                // Partition value may contain special character, like / and so on. Need to encode.
+                sb.append(FileUtils.escapePathName(key.getValues().get(i)));
                 sb.append("/");
             }
             sb.delete(sb.length() - 1, sb.length());
@@ -955,7 +957,7 @@ public class HiveMetaStoreCache {
         // File Cache for self splitter.
         private final List<HiveFileStatus> files = Lists.newArrayList();
         // File split cache for old splitter. This is a temp variable.
-        private final List<Split> splits = Lists.newArrayList();
+        private final List<FileSplit> splits = Lists.newArrayList();
         private boolean isSplittable;
         // The values of partitions.
         // e.g for file : hdfs://path/to/table/part1=a/part2=b/datafile
@@ -965,17 +967,21 @@ public class HiveMetaStoreCache {
         private AcidInfo acidInfo;
 
         public void addFile(RemoteFile file) {
-            HiveFileStatus status = new HiveFileStatus();
-            status.setBlockLocations(file.getBlockLocations());
-            status.setPath(file.getPath());
-            status.length = file.getSize();
-            status.blockSize = file.getBlockSize();
-            status.modificationTime = file.getModificationTime();
-            files.add(status);
+            if (isFileVisible(file.getName())) {
+                HiveFileStatus status = new HiveFileStatus();
+                status.setBlockLocations(file.getBlockLocations());
+                status.setPath(file.getPath());
+                status.length = file.getSize();
+                status.blockSize = file.getBlockSize();
+                status.modificationTime = file.getModificationTime();
+                files.add(status);
+            }
         }
 
-        public void addSplit(Split split) {
-            splits.add(split);
+        public void addSplit(FileSplit split) {
+            if (isFileVisible(split.getPath().getName())) {
+                splits.add(split);
+            }
         }
 
         public int getValuesSize() {
@@ -989,6 +995,12 @@ public class HiveMetaStoreCache {
 
         public void setAcidInfo(AcidInfo acidInfo) {
             this.acidInfo = acidInfo;
+        }
+
+        private boolean isFileVisible(String filename) {
+            return StringUtils.isNotEmpty(filename)
+                        && !filename.startsWith(".")
+                        && !filename.startsWith("_");
         }
     }
 

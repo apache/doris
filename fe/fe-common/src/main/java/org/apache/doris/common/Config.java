@@ -904,7 +904,21 @@ public class Config extends ConfigBase {
      * the default slot number per path in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
-    @ConfField public static int schedule_slot_num_per_path = 2;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_slot_num_per_path = 4;
+
+    /**
+     * the default slot number per path in tablet scheduler for decommission backend
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_decommission_slot_num_per_path = 8;
+
+    /**
+     * the default batch size in tablet scheduler for a single schedule.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_batch_size = 50;
+
 
     /**
      * Deprecated after 0.10
@@ -1443,12 +1457,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
-
-    /*
-     * if true, will allow the system to collect statistics automatically
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_auto_collect_statistics = true;
 
     /*
      * the system automatically checks the time interval for statistics
@@ -2025,4 +2033,20 @@ public class Config extends ConfigBase {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
+
+    @ConfField
+    public static boolean enable_full_auto_analyze = false;
+
+    @ConfField
+    public static String full_auto_analyze_start_time = "00:00:00";
+
+    @ConfField
+    public static String full_auto_analyze_end_time = "23:59:59";
+
+    @ConfField
+    public static int statistics_sql_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
+
 }

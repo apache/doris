@@ -298,6 +298,12 @@ JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
 JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
+# libunwind
+LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.6.2"
+LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
@@ -499,6 +505,7 @@ export TP_ARCHIVES=(
     'ORC'
     'JEMALLOC_ARROW'
     'JEMALLOC_DORIS'
+    'LIBUNWIND'
     'CCTZ'
     'DATATABLES'
     'BOOTSTRAP_TABLE_JS'

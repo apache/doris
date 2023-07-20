@@ -68,6 +68,9 @@ private:
     // [thread-unsafe] dispatch data to corresponding KafkaConsumerPipe
     Status dispatch(const std::string& table, const char* data, size_t size, AppendFunc cb);
 
+    template <typename ExecParam>
+    Status exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params);
+
 private:
     std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _planned_pipes;
     std::unordered_map<std::string /*table*/, KafkaConsumerPipePtr> _unplanned_pipes;

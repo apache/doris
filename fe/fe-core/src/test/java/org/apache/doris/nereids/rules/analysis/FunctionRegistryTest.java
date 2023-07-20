@@ -111,7 +111,7 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void testAddFunction() {
+    public void testAddFunction() throws Exception {
         FunctionRegistry functionRegistry = new FunctionRegistry() {
             @Override
             protected void afterRegisterBuiltinFunctions(Map<String, List<FunctionBuilder>> name2builders) {

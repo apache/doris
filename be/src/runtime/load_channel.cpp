@@ -90,37 +90,6 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannel::open_partition(const OpenPartitionRequest& params) {
-    int64_t index_id = params.index_id();
-
-    // check finish
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _finished_channel_ids.find(index_id);
-        if (it != _finished_channel_ids.end()) {
-            return Status::OK();
-        }
-    }
-    std::shared_ptr<TabletsChannel> channel;
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _tablets_channels.find(index_id);
-        if (it != _tablets_channels.end()) {
-            channel = it->second;
-        } else {
-            fmt::memory_buffer buf;
-            for (auto tablet : params.tablets()) {
-                fmt::format_to(buf, "tablet id:{}", tablet.tablet_id());
-            }
-            LOG(WARNING) << "should be opened partition index id=" << params.index_id()
-                         << "tablet ids=" << fmt::to_string(buf);
-            return Status::InternalError("Partition should be opened");
-        }
-    }
-    RETURN_IF_ERROR(channel->open_all_writers_for_partition(params));
-    return Status::OK();
-}
-
 Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channel,
                                          bool& is_finished, const int64_t index_id) {
     std::lock_guard<std::mutex> l(_lock);

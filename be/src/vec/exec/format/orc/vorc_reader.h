@@ -126,7 +126,9 @@ public:
         int64_t fs_read_bytes = 0;
         int64_t column_read_time = 0;
         int64_t get_batch_time = 0;
-        int64_t parse_meta_time = 0;
+        int64_t create_reader_time = 0;
+        int64_t init_column_time = 0;
+        int64_t set_fill_column_time = 0;
         int64_t decode_value_time = 0;
         int64_t decode_null_map_time = 0;
     };
@@ -200,7 +202,9 @@ private:
         RuntimeProfile::Counter* read_bytes;
         RuntimeProfile::Counter* column_read_time;
         RuntimeProfile::Counter* get_batch_time;
-        RuntimeProfile::Counter* parse_meta_time;
+        RuntimeProfile::Counter* create_reader_time;
+        RuntimeProfile::Counter* init_column_time;
+        RuntimeProfile::Counter* set_fill_column_time;
         RuntimeProfile::Counter* decode_value_time;
         RuntimeProfile::Counter* decode_null_map_time;
     };

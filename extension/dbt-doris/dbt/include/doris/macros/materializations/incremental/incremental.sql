@@ -28,20 +28,25 @@
   {#-- append or no unique key --#}
 
 
-  {% if unique_key is none or strategy == 'append'  %}
+
+  {% if not unique_key or strategy == 'append'  %}
         {#-- create table first --#}
         {% if existing_relation is none  %}
             {% set build_sql = doris__create_table_as(False, target_relation, sql) %}
         {% elif existing_relation.is_view or full_refresh_mode %}
-            {#-- backup data before drop old table #}
+            {#-- backup table is new table ,exchange table backup and old table #}
             {% set backup_identifier = existing_relation.identifier ~ "__dbt_backup" %}
             {% set backup_relation = existing_relation.incorporate(path={"identifier": backup_identifier}) %}
             {% do adapter.drop_relation(backup_relation) %} {#-- likes 'drop table if exists ... ' --#}
-            {% do adapter.rename_relation(target_relation, backup_relation) %}
-            {% set build_sql = doris__create_table_as(False, target_relation, sql) %}
-            {% do to_drop.append(backup_relation) %}
+            {% set run_sql = doris__create_table_as(False, backup_relation, sql) %}
+            {% call statement("run_sql") %}
+                {{ run_sql }}
+            {% endcall %}
+            {% do exchange_relation(target_relation, backup_relation, True) %}
+            {% set build_sql = "show frontends" %}
         {#-- append data --#}
         {% else %}
+            {% do to_drop.append(tmp_relation) %}
             {% do run_query(create_table_as(True, tmp_relation, sql)) %}
             {% set build_sql = tmp_insert(tmp_relation, target_relation, unique_key=none) %}
         {% endif %}
@@ -52,13 +57,16 @@
             {% set build_sql = doris__create_unique_table_as(False, target_relation, sql) %}
         {#-- insert data refresh --#}
         {% elif existing_relation.is_view or full_refresh_mode %}
-            {#-- backup data before drop old table #}
+            {#-- backup table is new table ,exchange table backup and old table #}
             {% set backup_identifier = existing_relation.identifier ~ "__dbt_backup" %}
             {% set backup_relation = existing_relation.incorporate(path={"identifier": backup_identifier}) %}
             {% do adapter.drop_relation(backup_relation) %} {#-- likes 'drop table if exists ... ' --#}
-            {% do adapter.rename_relation(target_relation, backup_relation) %}
-            {% set build_sql = doris__create_unique_table_as(False, target_relation, sql) %}
-            {% do to_drop.append(backup_relation) %}
+            {% set run_sql = doris__create_unique_table_as(False, backup_relation, sql) %}
+            {% call statement("run_sql") %}
+                {{ run_sql }}
+            {% endcall %}
+            {% do exchange_relation(target_relation, backup_relation, True) %}
+            {% set build_sql = "show frontends" %}
         {#-- append data --#}
         {% else %}
           {#-- check doris unique table  --#}

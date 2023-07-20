@@ -1071,24 +1071,35 @@ struct TimeToSecImpl {
     static constexpr auto name = "time_to_sec";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {
-        auto res_col = ColumnVector<Int32>::create();
-        const auto& [argument_column, arg_is_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const auto& column_data = assert_cast<const ColumnFloat64&>(*argument_column);
-        if (arg_is_const) {
-            double time = column_data.get_element(0);
-            res_col->insert_value(static_cast<int>(time));
-            block.replace_by_position(result,
-                                      ColumnConst::create(std::move(res_col), input_rows_count));
-        } else {
-            auto& res_data = res_col->get_data();
-            res_data.resize(input_rows_count);
-            for (int i = 0; i < input_rows_count; ++i) {
-                double time = column_data.get_element(i);
-                res_data[i] = static_cast<int>(time);
-            }
-            block.replace_by_position(result, std::move(res_col));
+        auto res_col = ColumnInt32::create(input_rows_count);
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnFloat64&>(*arg_col);
+
+        auto& res_data = res_col->get_data();
+        for (int i = 0; i < input_rows_count; ++i) {
+            res_data[i] = static_cast<int>(column_data.get_element(i));
         }
+        block.replace_by_position(result, std::move(res_col));
+
+        return Status::OK();
+    }
+};
+
+struct SecToTimeImpl {
+    using ReturnType = DataTypeTime;
+    static constexpr auto name = "sec_to_time";
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        const auto& arg_col = block.get_by_position(arguments[0]).column;
+        const auto& column_data = assert_cast<const ColumnInt32&>(*arg_col);
+
+        auto res_col = ColumnFloat64::create(input_rows_count);
+        auto& res_data = res_col->get_data();
+        for (int i = 0; i < input_rows_count; ++i) {
+            res_data[i] = static_cast<double>(column_data.get_element(i));
+        }
+
+        block.replace_by_position(result, std::move(res_col));
         return Status::OK();
     }
 };

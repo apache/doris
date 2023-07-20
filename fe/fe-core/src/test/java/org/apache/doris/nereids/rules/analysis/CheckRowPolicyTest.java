@@ -34,13 +34,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -98,7 +98,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
 
     @Test
     public void checkUser() throws AnalysisException, org.apache.doris.common.AnalysisException {
-        LogicalRelation relation = new LogicalOlapScan(RelationUtil.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
 
         useUser("root");
@@ -113,7 +113,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkNoPolicy() throws org.apache.doris.common.AnalysisException {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(RelationUtil.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         Plan plan = PlanRewriter.bottomUpRewrite(checkPolicy, connectContext, new CheckPolicy());
         Assertions.assertEquals(plan, relation);
@@ -122,7 +122,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
     @Test
     public void checkOnePolicy() throws Exception {
         useUser(userName);
-        LogicalRelation relation = new LogicalOlapScan(RelationUtil.newRelationId(), olapTable, Arrays.asList(fullDbName));
+        LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), olapTable, Arrays.asList(fullDbName));
         LogicalCheckPolicy<LogicalRelation> checkPolicy = new LogicalCheckPolicy<>(relation);
         connectContext.getSessionVariable().setEnableNereidsPlanner(true);
         createPolicy("CREATE ROW POLICY "

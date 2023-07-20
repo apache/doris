@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
+import org.apache.doris.analysis.AnalyticExpr;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
@@ -72,6 +73,8 @@ import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.MaxComputeScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
+import org.apache.doris.planner.external.jdbc.JdbcScanNode;
+import org.apache.doris.planner.external.odbc.OdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
@@ -272,6 +275,13 @@ public class SingleNodePlanner {
                 AggregateInfo aggInfo = selectStmt.getAggInfo();
                 root = analyticPlanner.createSingleNodePlan(root,
                         aggInfo != null ? aggInfo.getGroupingExprs() : null, inputPartitionExprs);
+                List<Expr> predicates = getBoundPredicates(analyzer,
+                        selectStmt.getAnalyticInfo().getOutputTupleDesc());
+                if (!predicates.isEmpty()) {
+                    root = new SelectNode(ctx.getNextNodeId(), root, predicates);
+                    root.init(analyzer);
+                    Preconditions.checkState(root.hasValidStats());
+                }
                 if (aggInfo != null && !inputPartitionExprs.isEmpty()) {
                     // analytic computation will benefit from a partition on inputPartitionExprs
                     aggInfo.setPartitionExprs(inputPartitionExprs);
@@ -1813,6 +1823,17 @@ public class SingleNodePlanner {
             e.setIsOnClauseConjunct(false);
         }
         inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
+        QueryStmt queryStmt = inlineViewRef.getQueryStmt();
+        if (queryStmt instanceof SetOperationStmt) {
+            // registerConjuncts for every set operand
+            SetOperationStmt setOperationStmt = (SetOperationStmt) queryStmt;
+            for (SetOperationStmt.SetOperand setOperand : setOperationStmt.getOperands()) {
+                setOperand.getAnalyzer().registerConjuncts(
+                        Expr.substituteList(viewPredicates, setOperand.getSmap(),
+                                setOperand.getAnalyzer(), false),
+                        inlineViewRef.getAllTupleIds());
+            }
+        }
 
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
@@ -2745,6 +2766,10 @@ public class SingleNodePlanner {
                         break;
                     }
                     sourceExpr = slotDesc.getSourceExprs().get(0);
+                }
+                if (sourceExpr instanceof AnalyticExpr) {
+                    isAllSlotReferToGroupBys = false;
+                    break;
                 }
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null

@@ -98,7 +98,7 @@ public:
             }
             offset += array_size;
             offsets.push_back(offset);
-            array_sizes.push_back(array_size);
+            array_sizes.resize(array_sizes.size() + array_size, i);
         }
         auto clone = value->clone_empty();
         clone->reserve(input_rows_count);
