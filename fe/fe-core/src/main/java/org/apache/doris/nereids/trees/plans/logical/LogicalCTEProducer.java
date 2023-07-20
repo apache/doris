@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -40,45 +41,30 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
 
     private final CTEId cteId;
 
-    private final List<Slot> projects;
-
-    private final boolean rewritten;
-
-    public LogicalCTEProducer(CHILD_TYPE child, CTEId cteId) {
+    public LogicalCTEProducer(CTEId cteId, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE_PRODUCER, child);
         this.cteId = cteId;
-        this.projects = ImmutableList.of();
-        this.rewritten = false;
     }
 
-    public LogicalCTEProducer(Optional<GroupExpression> groupExpression,
-                              Optional<LogicalProperties> logicalProperties, CHILD_TYPE child, CTEId cteId,
-                              List<Slot> projects, boolean rewritten) {
+    public LogicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE_PRODUCER, groupExpression, logicalProperties, child);
         this.cteId = cteId;
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects,
-                "projects should not null"));
-        this.rewritten = rewritten;
     }
 
     public CTEId getCteId() {
         return cteId;
     }
 
-    public List<Slot> getProjects() {
-        return projects;
-    }
-
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalCTEProducer<>(groupExpression, Optional.of(getLogicalProperties()), children.get(0),
-                cteId, projects, rewritten);
+        return new LogicalCTEProducer<>(cteId, children.get(0));
     }
 
-    public Plan withChildrenAndProjects(List<Plan> children, List<Slot> projects, boolean rewritten) {
-        return new LogicalCTEProducer<>(groupExpression, Optional.of(getLogicalProperties()), children.get(0),
-                cteId, projects, rewritten);
+    @Override
+    public List<Expression> getExpressions() {
+        return ImmutableList.of();
     }
 
     @Override
@@ -87,40 +73,25 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
     }
 
     @Override
-    public List<? extends Expression> getExpressions() {
-        return child().getExpressions();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEProducer<>(groupExpression, Optional.of(getLogicalProperties()), child(), cteId,
-            projects, rewritten);
+        return new LogicalCTEProducer<>(cteId, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalCTEProducer<>(groupExpression, logicalProperties, children.get(0), cteId,
-                projects, rewritten);
+        return new LogicalCTEProducer<>(cteId, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
     public List<Slot> computeOutput() {
-        return child().computeOutput();
+        return child().getOutput();
     }
 
     @Override
     public String toString() {
-        return String.format("LOGICAL_CTE_PRODUCER#%d", cteId.asInt());
-    }
-
-    public boolean isRewritten() {
-        return rewritten;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(cteId, projects, rewritten);
+        return Utils.toSqlString("LogicalCteProducer[" + id.asInt() + "]",
+                "cteId", cteId);
     }
 
     @Override
@@ -131,13 +102,15 @@ public class LogicalCTEProducer<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalCTEProducer p = (LogicalCTEProducer) o;
-        if (cteId != p.cteId) {
+        if (!super.equals(o)) {
             return false;
         }
-        if (rewritten != p.rewritten) {
-            return false;
-        }
-        return projects.equals(p.projects);
+        LogicalCTEProducer<?> that = (LogicalCTEProducer<?>) o;
+        return Objects.equals(cteId, that.cteId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), cteId);
     }
 }

@@ -41,7 +41,7 @@ private:
 };
 
 // Nested use Defer, variable name concat line number
-#define DEFER_CONCAT(n, ...) const auto defer##n = Defer([&]() { __VA_ARGS__; })
+#define DEFER_CONCAT(n, ...) const auto defer##n = doris::Defer([&]() { __VA_ARGS__; })
 #define DEFER_FWD(n, ...) DEFER_CONCAT(n, __VA_ARGS__)
 #define DEFER(...) DEFER_FWD(__LINE__, __VA_ARGS__)
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -56,7 +57,7 @@ public class EliminateUnnecessaryProject implements CustomRewriter {
     private Plan rewriteProject(LogicalProject<Plan> project, boolean outputSavePoint) {
         if (project.child() instanceof LogicalEmptyRelation) {
             // eliminate unnecessary project
-            return new LogicalEmptyRelation(project.getProjects());
+            return new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(), project.getProjects());
         } else if (project.canEliminate() && outputSavePoint
                 && project.getOutputSet().equals(project.child().getOutputSet())) {
             // eliminate unnecessary project

@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -34,19 +34,18 @@ import java.util.Optional;
 /**
  * Logical scan for external es catalog.
  */
-public class LogicalEsScan extends LogicalRelation {
+public class LogicalEsScan extends LogicalCatalogRelation {
 
     /**
      * Constructor for LogicalEsScan.
      */
-    public LogicalEsScan(ObjectId id, ExternalTable table, List<String> qualifier,
+    public LogicalEsScan(RelationId id, ExternalTable table, List<String> qualifier,
                            Optional<GroupExpression> groupExpression,
                            Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier,
-                groupExpression, logicalProperties);
+        super(id, PlanType.LOGICAL_ES_SCAN, table, qualifier, groupExpression, logicalProperties);
     }
 
-    public LogicalEsScan(ObjectId id, ExternalTable table, List<String> qualifier) {
+    public LogicalEsScan(RelationId id, ExternalTable table, List<String> qualifier) {
         this(id, table, qualifier, Optional.empty(), Optional.empty());
     }
 
@@ -66,14 +65,14 @@ public class LogicalEsScan extends LogicalRelation {
 
     @Override
     public LogicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalEsScan(id, (ExternalTable) table, qualifier, groupExpression,
+        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression,
             Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEsScan(id, (ExternalTable) table, qualifier, groupExpression, logicalProperties);
+        return new LogicalEsScan(relationId, (ExternalTable) table, qualifier, groupExpression, logicalProperties);
     }
 
     @Override

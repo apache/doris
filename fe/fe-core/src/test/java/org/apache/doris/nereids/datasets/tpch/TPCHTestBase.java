@@ -28,7 +28,7 @@ public abstract class TPCHTestBase extends AnalyzeCheckTestBase {
         // This deriveStats job is responsible for retrieving statistics from the aforementioned
         // internal table.
         FeConstants.disableInternalSchemaDb = false;
-        new InternalSchemaInitializer().run();
+        new InternalSchemaInitializer().start();
         createDatabase("tpch");
         connectContext.setDatabase("default_cluster:tpch");
         TPCHUtils.createTables(this);

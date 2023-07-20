@@ -986,6 +986,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
     }
 
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
+    _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
+                                        _state->batch_size());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
     // add all counter
@@ -1213,7 +1215,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block,
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
-            state, input_block, block, _output_vexpr_ctxs, has_filtered_rows));
+            state, input_block, block, _output_vexpr_ctxs, rows, eos, has_filtered_rows));
 
     // clear and release the references of columns
     input_block->clear();

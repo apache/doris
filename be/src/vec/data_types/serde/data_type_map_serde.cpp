@@ -67,9 +67,22 @@ void DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMa
                              array_builder->type()->name());
         } else if (simd::contain_byte(keys_nullmap_data + offsets[r - 1],
                                       offsets[r] - offsets[r - 1], 1)) {
-            // arrow do not support key is null so we just put null with this row
-            checkArrowStatus(builder.AppendNull(), column.get_name(),
-                             array_builder->type()->name());
+            // arrow do not support key is null, so we ignore the null key-value
+            MutableColumnPtr key_mutable_data = nested_keys_column.clone_empty();
+            MutableColumnPtr value_mutable_data = nested_values_column.clone_empty();
+            for (size_t i = offsets[r - 1]; i < offsets[r]; ++i) {
+                if (keys_nullmap_data[i] == 1) {
+                    continue;
+                }
+                key_mutable_data->insert_from(nested_keys_column, i);
+                value_mutable_data->insert_from(nested_values_column, i);
+            }
+            checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
+
+            key_serde->write_column_to_arrow(*key_mutable_data, nullptr, key_builder, 0,
+                                             key_mutable_data->size());
+            value_serde->write_column_to_arrow(*value_mutable_data, nullptr, value_builder, 0,
+                                               value_mutable_data->size());
         } else {
             checkArrowStatus(builder.Append(), column.get_name(), array_builder->type()->name());
             key_serde->write_column_to_arrow(nested_keys_column, nullptr, key_builder,
