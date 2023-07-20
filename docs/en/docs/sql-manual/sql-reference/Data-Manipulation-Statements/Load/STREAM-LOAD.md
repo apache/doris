@@ -405,8 +405,6 @@ separated by commas.
 
     + CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
 
-    + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
-
     > Note: Since Stream load is a synchronous import mode, import information will not be recorded in Doris system. Users cannot see Stream load asynchronously by looking at import commands. You need to listen for the return value of the create import request to get the import result.
 
 2. How to correctly submit the Stream Load job and process the returned results.
