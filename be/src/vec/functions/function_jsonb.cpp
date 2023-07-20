@@ -532,8 +532,17 @@ public:
                 size_t r_off = roffsets[index_check_const(i, path_const[0]) - 1];
                 size_t r_size = roffsets[index_check_const(i, path_const[0])] - r_off;
                 const char* r_raw = reinterpret_cast<const char*>(&rdata[r_off]);
-                inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
-                                r_raw, r_size, is_invalid_json_path);
+
+                JsonbPath path;
+                if (!path.seek(r_raw, r_size)) {
+                    return Status::InvalidArgument(
+                            "Json path error: {} for value: {}",
+                            JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                            std::string_view(reinterpret_cast<const char*>(rdata.data()),
+                                             rdata.size()));
+                }
+
+                inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size, path);
             } else { // will make array string to user
                 writer->reset();
                 writer->writeStartArray();
@@ -550,9 +559,16 @@ public:
                         writer->writeNull();
                         continue;
                     }
-                    // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                    JsonbValue* value =
-                            doc->getValue()->findPath(r_raw, r_size, is_invalid_json_path, nullptr);
+
+                    JsonbPath path;
+                    if (!path.seek(r_raw, r_size)) {
+                        return Status::InvalidArgument(
+                                "Json path error: {} for value: {}",
+                                JsonbErrMsg::getErrMsg(JsonbErrType::E_INVALID_JSON_PATH),
+                                std::string_view(reinterpret_cast<const char*>(rdata.data()),
+                                                 rdata.size()));
+                    }
+
                     // if not valid json path , should return error message to user
                     if (is_invalid_json_path) {
                         return Status::InvalidArgument(
@@ -561,6 +577,11 @@ public:
                                 std::string_view(reinterpret_cast<const char*>(rdata.data()),
                                                  rdata.size()));
                     }
+
+                    // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+                    JsonbValue* value =
+                            doc->getValue()->findValue(path, nullptr);
+
                     if (UNLIKELY(!value)) {
                         writer->writeNull();
                     } else {
@@ -602,6 +623,8 @@ public:
             JsonbPath path;
             if (!path.seek(r_raw, r_size)) {
                 is_invalid_json_path = true;
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                return;
             }
 
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
@@ -625,6 +648,7 @@ public:
         JsonbPath path;
         if (!path.seek(rdata.data, rdata.size)) {
             is_invalid_json_path = true;
+            return;
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -657,6 +681,8 @@ public:
             JsonbPath path;
             if (!path.seek(r_raw, r_size)) {
                 is_invalid_json_path = true;
+                StringOP::push_null_string(i, res_data, res_offsets, null_map);
+                return;
             }
 
             inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, ldata.data,
@@ -774,6 +800,8 @@ public:
             JsonbPath path;
             if (!path.seek(r_raw_str, r_str_size)) {
                 is_invalid_json_path = true;
+                res[i] = 0;
+                return;
             }
 
             inner_loop_impl(i, res, null_map, l_raw_str, l_str_size, path);
@@ -797,6 +825,8 @@ public:
             JsonbPath path;
             if (!path.seek(r_raw_str, r_str_size)) {
                 is_invalid_json_path = true;
+                res[i] = 0;
+                return;
             }
 
             inner_loop_impl(i, res, null_map, ldata.data, ldata.size, path);
@@ -811,6 +841,7 @@ public:
         JsonbPath path;
         if (!path.seek(rdata.data, rdata.size)) {
             is_invalid_json_path = true;
+            return;
         }
 
         for (size_t i = 0; i < loffsets.size(); i++) {
