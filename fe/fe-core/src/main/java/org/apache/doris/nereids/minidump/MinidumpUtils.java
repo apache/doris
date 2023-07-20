@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
@@ -81,11 +80,11 @@ public class MinidumpUtils {
     /**
      * deserialize of tables using gson, we need to get table type first
      */
-    private static List<Table> dserializeTables(JSONArray tablesJson) {
-        List<Table> tables = new ArrayList<>();
+    private static List<TableIf> dserializeTables(JSONArray tablesJson) {
+        List<TableIf> tables = new ArrayList<>();
         for (int i = 0; i < tablesJson.length(); i++) {
             JSONObject tableJson = (JSONObject) tablesJson.get(i);
-            Table newTable;
+            TableIf newTable;
             switch ((String) tableJson.get("TableType")) {
                 case "OLAP":
                     String tableJsonValue = tableJson.get("TableValue").toString();
@@ -111,7 +110,7 @@ public class MinidumpUtils {
         String sql = inputJSON.getString("Sql");
 
         JSONArray tablesJson = (JSONArray) inputJSON.get("Tables");
-        List<Table> tables = dserializeTables(tablesJson);
+        List<TableIf> tables = dserializeTables(tablesJson);
 
         String colocateTableIndexJson = inputJSON.get("ColocateTableIndex").toString();
         ColocateTableIndex newColocateTableIndex
@@ -219,7 +218,7 @@ public class MinidumpUtils {
     /**
      * serialize tables from Table in catalog to json format
      */
-    public static JSONArray serializeTables(List<Table> tables) {
+    public static JSONArray serializeTables(List<TableIf> tables) {
         JSONArray tablesJson = new JSONArray();
         for (TableIf table : tables) {
             String tableValues = GsonUtils.GSON.toJson(table);
@@ -250,10 +249,10 @@ public class MinidumpUtils {
     /**
      * serialize column statistic and histograms when loading to dumpfile and environment
      */
-    private static void serializeStatsUsed(JSONObject jsonObj, List<Table> tables) {
+    private static void serializeStatsUsed(JSONObject jsonObj, List<TableIf> tables) {
         JSONArray columnStatistics = new JSONArray();
         JSONArray histograms = new JSONArray();
-        for (Table table : tables) {
+        for (TableIf table : tables) {
             if (table instanceof SchemaTable) {
                 continue;
             }
@@ -431,11 +430,13 @@ public class MinidumpUtils {
     /**
      * implementation of interface serializeInputsToDumpFile
      */
-    private static JSONObject serializeInputs(Plan parsedPlan, List<Table> tables) throws IOException {
+    private static JSONObject serializeInputs(Plan parsedPlan, List<TableIf> tables) throws IOException {
         // Create a JSON object
         JSONObject jsonObj = new JSONObject();
         jsonObj.put("Sql", ConnectContext.get().getStatementContext().getOriginStatement().originStmt);
         // add session variable
+        int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
+        ConnectContext.get().getSessionVariable().setBeNumber(beNumber);
         jsonObj.put("SessionVariable", serializeChangedSessionVariable(ConnectContext.get().getSessionVariable()));
         // add tables
         jsonObj.put("DbName", ConnectContext.get().getDatabase());
@@ -457,15 +458,17 @@ public class MinidumpUtils {
      * @param tables all tables relative to this query
      * @throws IOException this will write to disk, so io exception should be dealed with
      */
-    public static void serializeInputsToDumpFile(Plan parsedPlan, List<Table> tables) throws IOException {
+    public static void serializeInputsToDumpFile(Plan parsedPlan, List<TableIf> tables) throws IOException {
         // when playing minidump file, we do not save input again.
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
                 || !ConnectContext.get().getSessionVariable().isEnableMinidump()) {
             return;
         }
 
-        if (!ConnectContext.get().getSessionVariable().getMinidumpPath().equals("default")) {
+        if (!ConnectContext.get().getSessionVariable().getMinidumpPath().equals("")) {
             MinidumpUtils.DUMP_PATH = ConnectContext.get().getSessionVariable().getMinidumpPath();
+        } else {
+            ConnectContext.get().getSessionVariable().setMinidumpPath("defaultMinidumpPath");
         }
         MinidumpUtils.init();
         ConnectContext.get().setMinidump(serializeInputs(parsedPlan, tables));

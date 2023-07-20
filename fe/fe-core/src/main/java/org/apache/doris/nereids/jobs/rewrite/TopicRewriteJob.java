@@ -52,8 +52,4 @@ public class TopicRewriteJob implements RewriteJob {
         return true;
     }
 
-    @Override
-    public String getRuleType() {
-        return topicName;
-    }
 }

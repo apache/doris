@@ -57,11 +57,6 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         return once;
     }
 
-    @Override
-    public String getRuleType() {
-        return rules.toString();
-    }
-
     /** RewriteJobBuilder */
     public interface RewriteJobBuilder {
         Job build(RewriteJobContext rewriteJobContext, JobContext jobContext, List<Rule> rules);

@@ -72,7 +72,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             beNumber = ConnectContext.get().getSessionVariable().getBeNumber();
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
-            ConnectContext.get().getSessionVariable().setBeNumber(beNumber);
         }
     }
 

@@ -22,6 +22,12 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
+/**
+ * Used for add unit test of minidump
+ * Input: minidump filter which describe table information and sessionVariables which different with default
+ *        example: MinidumpUtTestData.json. We use this json file as input because it can be modified easily
+ * Output: ResultPlan in json format, which we can get information from it directly
+ */
 class MinidumpUtTest {
 
     @Test

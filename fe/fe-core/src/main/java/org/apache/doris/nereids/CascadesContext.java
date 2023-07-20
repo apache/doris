@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -341,12 +342,15 @@ public class CascadesContext implements ScheduleContext {
     }
 
     /** get table by table name, try to get from information from dumpfile first */
-    public TableIf getTableByName(String tableName) {
+    public TableIf getTableInMinidumpCache(String tableName) {
         Preconditions.checkState(tables != null);
         for (TableIf table : tables) {
             if (table.getName().equals(tableName)) {
                 return table;
             }
+        }
+        if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
+            throw new AnalysisException("Minidump cache can not find table:" + tableName);
         }
         return null;
     }

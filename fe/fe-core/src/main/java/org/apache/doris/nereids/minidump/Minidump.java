@@ -59,7 +59,7 @@ public class Minidump {
     /** Minidump class used to save environment messages */
     public Minidump(String sql, SessionVariable sessionVariable,
                     String parsedPlanJson, String resultPlanJson, List<TableIf> tables,
-                    String catalogName, String dbName, Map<String, ColumnStatistic> totalColumnStatisticMap,
+                    String dbName, Map<String, ColumnStatistic> totalColumnStatisticMap,
                     Map<String, Histogram> totalHistogramMap, ColocateTableIndex colocateTableIndex) {
         this.sql = sql;
         this.sessionVariable = sessionVariable;
