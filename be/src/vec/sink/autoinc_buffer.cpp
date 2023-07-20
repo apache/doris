@@ -36,21 +36,11 @@ FetchAutoIncIDExecutor::FetchAutoIncIDExecutor() {
             .build(&_pool);
 }
 
-AutoIncIDRequestHandlerExecutor::AutoIncIDRequestHandlerExecutor() {
-    ThreadPoolBuilder("AutoIncIDRequestHandlerExecutor")
-            .set_min_threads(config::auto_inc_request_handler_thread_num)
-            .set_max_threads(config::auto_inc_request_handler_thread_num)
-            .set_max_queue_size(std::numeric_limits<int>::max())
-            .build(&_pool);
-}
-
 AutoIncIDBuffer::AutoIncIDBuffer(int64_t db_id, int64_t table_id, int64_t column_id)
         : _db_id(db_id),
           _table_id(table_id),
           _column_id(column_id),
           _rpc_token(FetchAutoIncIDExecutor::GetInstance()->_pool->new_token(
-                  ThreadPool::ExecutionMode::CONCURRENT)),
-          _request_handler_token(AutoIncIDRequestHandlerExecutor::GetInstance()->_pool->new_token(
                   ThreadPool::ExecutionMode::CONCURRENT)) {}
 
 void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
@@ -93,45 +83,6 @@ Status AutoIncIDBuffer::sync_request_ids(size_t length,
         _front_buffer.second -= length;
     }
     return Status::OK();
-}
-
-void AutoIncIDBuffer::async_request_ids(OlapTableBlockConvertor* block_convertor, size_t length) {
-    length = std::max(length, MIN_BATCH_SIZE);
-    block_convertor->set_is_waiting_for_auto_inc(true);
-    std::shared_ptr<std::promise<Status>> promise {std::make_shared<std::promise<Status>>()};
-    block_convertor->set_request_future(*promise);
-    _request_handler_token->submit_func([this, length, block_convertor,
-                                         promise = std::move(promise)]() mutable {
-        std::unique_lock<std::mutex> lock(_mutex);
-        _prefetch_ids(_prefetch_size());
-        if (_front_buffer.second > 0) {
-            auto min_length = std::min(_front_buffer.second, length);
-            length -= min_length;
-            block_convertor->auto_inc_id_allocator().insert_ids(_front_buffer.first, min_length);
-            _front_buffer.first += min_length;
-            _front_buffer.second -= min_length;
-        }
-        if (length > 0) {
-            _wait_for_prefetching();
-            if (_rpc_status != Status::OK()) {
-                block_convertor->set_is_waiting_for_auto_inc(false);
-                promise->set_value(_rpc_status);
-                return;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(_backend_buffer_latch);
-                std::swap(_front_buffer, _backend_buffer);
-            }
-
-            DCHECK(length <= _front_buffer.second);
-            block_convertor->auto_inc_id_allocator().insert_ids(_front_buffer.first, length);
-            _front_buffer.first += length;
-            _front_buffer.second -= length;
-        }
-        block_convertor->set_is_waiting_for_auto_inc(false);
-        promise->set_value(_rpc_status);
-    });
 }
 
 void AutoIncIDBuffer::_prefetch_ids(size_t length) {

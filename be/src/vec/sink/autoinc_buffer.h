@@ -38,16 +38,6 @@ struct FetchAutoIncIDExecutor {
     std::unique_ptr<ThreadPool> _pool;
 };
 
-struct AutoIncIDRequestHandlerExecutor {
-    AutoIncIDRequestHandlerExecutor();
-    static AutoIncIDRequestHandlerExecutor* GetInstance() {
-        static AutoIncIDRequestHandlerExecutor instance;
-        return &instance;
-    }
-
-    std::unique_ptr<ThreadPool> _pool;
-};
-
 struct AutoIncIDAllocator {
     int64_t next_id() {
         DCHECK(!ids.empty());
@@ -80,7 +70,6 @@ public:
     // all public functions are thread safe
     AutoIncIDBuffer(int64_t _db_id, int64_t _table_id, int64_t column_id);
     void set_batch_size_at_least(size_t batch_size);
-    void async_request_ids(OlapTableBlockConvertor* vsink, size_t length);
     Status sync_request_ids(size_t length, std::vector<std::pair<int64_t, size_t>>* result);
 
 private:
@@ -102,9 +91,6 @@ private:
     std::unique_ptr<ThreadPoolToken> _rpc_token;
     Status _rpc_status {Status::OK()};
     std::atomic<bool> _is_fetching {false};
-
-    std::unique_ptr<ThreadPoolToken> _request_handler_token;
-    Status _request_handler_status {Status::OK()};
 
     std::pair<int64_t, size_t> _front_buffer {0, 0};
     std::pair<int64_t, size_t> _backend_buffer {0, 0};

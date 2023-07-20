@@ -1044,9 +1044,6 @@ DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
 // number of threads that fetch auto-inc ranges from FE
 DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 
-// number of threads that handle auto-inc ranges requests
-DEFINE_mInt64(auto_inc_request_handler_thread_num, "3");
-
 #ifdef BE_TEST
 // test s3
 DEFINE_String(test_s3_resource, "resource");
