@@ -122,6 +122,9 @@ public class ExecuteEnv {
     }
 
     public static List<TDiskInfo> toThrift(List<DiskInfo> diskInfos) {
+        if (diskInfos == null) {
+            return null;
+        }
         List<TDiskInfo> r = new ArrayList<TDiskInfo>(diskInfos.size());
         for (DiskInfo d : diskInfos) {
             r.add(new TDiskInfo(d.getDirType(),

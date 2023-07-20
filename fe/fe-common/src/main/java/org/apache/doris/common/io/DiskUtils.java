@@ -55,35 +55,18 @@ public class DiskUtils {
             if (titleLine == null || dataLine == null) {
                 return null;
             }
-
-            List<String> titles = getTitles(titleLine);
             String[] values = dataLine.split("\\s+");
-            Df df = new Df();
-            for (int i = 0; i < titles.size(); i++) {
-                String title = titles.get(i);
-                switch (title.toLowerCase()) {
-                    case "filesystem":
-                        df.fileSystem = values[i];
-                        break;
-                    case "1k-blocks":
-                        df.blocks = Long.parseLong(values[i]);
-                        break;
-                    case "use\\%":
-                        df.useRate = Integer.parseInt(values[i].replace("%", ""));
-                        break;
-                    case "used":
-                        df.used = Long.parseLong(values[i]);
-                        break;
-                    case "available":
-                        df.available = Long.parseLong(values[i]);
-                        break;
-                    case "mountedon":
-                        df.mountedOn = values[i];
-                        break;
-                    default:
-                        break;
-                }
+            if (values.length != 6) {
+                return null;
             }
+
+            Df df = new Df();
+            df.fileSystem = values[0];
+            df.blocks = Long.parseLong(values[1]);
+            df.used = Long.parseLong(values[2]);
+            df.available = Long.parseLong(values[3]);
+            df.useRate = Integer.parseInt(values[4].replace("%", ""));
+            df.mountedOn = values[5];
             return df;
         } catch (IOException e) {
             e.printStackTrace();
