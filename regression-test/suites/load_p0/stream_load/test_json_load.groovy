@@ -590,6 +590,7 @@ suite("test_json_load", "p0") {
 
     // case22: nested and it's member with jsonpath
     try {
+        testTable = "test_json_load"
         sql "DROP TABLE IF EXISTS ${testTable}"
         sql """CREATE TABLE IF NOT EXISTS ${testTable}
         (
@@ -605,10 +606,10 @@ suite("test_json_load", "p0") {
             "replication_num" = "1"
         );
         """
-
-        load_json_data.call('with_jsonpath', '', 'true', 'json', """productid, deviceid, data, datatimestamp, dt=from_unixtime(substr(datatimestamp,1,10),'%Y%m%d')""",
+1
+        load_json_data.call("${testTable}", 'with_jsonpath', '', 'true', 'json', """productid, deviceid, data, datatimestamp, dt=from_unixtime(substr(datatimestamp,1,10),'%Y%m%d')""",
                 '["$.productid","$.deviceid","$.data","$.data.datatimestamp"]', '', '', '', 'with_jsonpath.json')
-        qt_select21 "select * from ${testTable}"
+        qt_select22 "select * from ${testTable}"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
