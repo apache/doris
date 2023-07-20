@@ -37,7 +37,6 @@
 #include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vfile_result_writer.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class QueryStatistics;
