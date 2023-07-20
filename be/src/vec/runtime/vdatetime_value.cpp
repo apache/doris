@@ -69,11 +69,12 @@ static bool have_zone_name(const std::string_view& arg) {
     }
     return false;
 }
+// Precondition: have_zone_name(arg) == true
 static int timezone_split_pos(const std::string_view& arg) {
     int split = arg.length() - 1;
-    for (; !std::isalpha(arg[split]); split--) {
+    for (; split >= 0 && !std::isalpha(arg[split]); split--) {
     }
-    for (; split >= 0 && (std::isupper(arg[split]) || arg[split] == '/'); split--) {
+    for (; split >= 0 && (std::isalpha(arg[split]) || arg[split] == '/'); split--) {
     }
     return split + 1;
 }

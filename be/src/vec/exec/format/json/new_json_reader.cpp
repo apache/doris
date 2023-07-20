@@ -1292,9 +1292,9 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
     return Status::OK();
 }
 
-Status NewJsonReader::_simdjson_handle_nested_complex_json(RuntimeState* /*state*/, 
-        Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-        bool* eof) {
+Status NewJsonReader::_simdjson_handle_nested_complex_json(
+        RuntimeState* /*state*/, Block& block, const std::vector<SlotDescriptor*>& slot_descs,
+        bool* is_empty_row, bool* eof) {
     // nested complex json
     while (true) {
         size_t num_rows = block.rows();
