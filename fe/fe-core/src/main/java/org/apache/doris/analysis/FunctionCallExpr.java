@@ -1983,7 +1983,7 @@ public class FunctionCallExpr extends Expr {
         retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
 
         // retExpr changed to original function, should be analyzed again.
-        retExpr.analyze(analyzer);
+        // retExpr.analyze(analyzer);
 
         // reset children
         retExpr.children.clear();
