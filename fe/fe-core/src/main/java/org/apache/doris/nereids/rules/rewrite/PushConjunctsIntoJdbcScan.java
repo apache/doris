@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 /**
  * Rewrite jdbc plan to set the conjuncts.
  */
-public class TranslateJdbcConjuncts extends OneRewriteRuleFactory {
+public class PushConjunctsIntoJdbcScan extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
@@ -34,6 +34,6 @@ public class TranslateJdbcConjuncts extends OneRewriteRuleFactory {
             LogicalJdbcScan scan = filter.child();
             LogicalJdbcScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
             return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
-        }).toRule(RuleType.JDBC_SCAN_FILTER_TRANSLATE);
+        }).toRule(RuleType.PUSH_CONJUNCTS_INTO_JDBC_SCAN);
     }
 }

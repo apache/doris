@@ -20,9 +20,6 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.statistics.StatisticalType;
@@ -32,7 +29,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * ExternalScanNode is used to unify data reading from external catalogs.
@@ -46,8 +42,6 @@ public abstract class ExternalScanNode extends ScanNode {
 
     // set to false means this scan node does not need to check column priv.
     protected boolean needCheckColumnPriv;
-    private Set<Expression> nereidsConjuncts;
-    private PlanTranslatorContext context;
 
     protected final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
@@ -68,7 +62,6 @@ public abstract class ExternalScanNode extends ScanNode {
     // For Nereids
     @Override
     public void init() throws UserException {
-        translateConjuncts();
         computeColumnFilter();
         initBackendPolicy();
     }
@@ -96,21 +89,5 @@ public abstract class ExternalScanNode extends ScanNode {
     @Override
     public int getNumInstances() {
         return scanRangeLocations.size();
-    }
-
-    public void setNereidsConjuncts(Set<Expression> conjuncts) {
-        this.nereidsConjuncts = conjuncts;
-    }
-
-    public void setContext(PlanTranslatorContext context) {
-        this.context = context;
-    }
-
-    private void translateConjuncts() {
-        if (nereidsConjuncts != null) {
-            nereidsConjuncts.stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                    .forEach(conjuncts::add);
-        }
     }
 }

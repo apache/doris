@@ -29,7 +29,10 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -46,7 +49,7 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
     public PhysicalJdbcScan(RelationId id, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, Set<Expression> conjuncts) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, table, qualifier, groupExpression, logicalProperties);
-        this.conjuncts = conjuncts;
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
     }
 
     /**
@@ -58,7 +61,7 @@ public class PhysicalJdbcScan extends PhysicalCatalogRelation {
             Set<Expression> conjuncts) {
         super(id, PlanType.PHYSICAL_JDBC_SCAN, table, qualifier, groupExpression,
                 logicalProperties, physicalProperties, statistics);
-        this.conjuncts = conjuncts;
+        this.conjuncts = ImmutableSet.copyOf(Objects.requireNonNull(conjuncts, "conjuncts should not be null"));
     }
 
     @Override

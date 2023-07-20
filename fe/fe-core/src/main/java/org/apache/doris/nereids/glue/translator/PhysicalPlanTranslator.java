@@ -156,7 +156,6 @@ import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
 import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.planner.UnionNode;
-import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
@@ -399,8 +398,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
-        ((ExternalScanNode) scanNode).setNereidsConjuncts(fileScan.getConjuncts());
-        ((ExternalScanNode) scanNode).setContext(context);
+        scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -471,8 +469,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 table instanceof JdbcExternalTable);
-        jdbcScanNode.setNereidsConjuncts(jdbcScan.getConjuncts());
-        jdbcScanNode.setContext(context);
+        jdbcScanNode.addConjuncts(translateToLegacyConjuncts(jdbcScan.getConjuncts()));
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
@@ -2294,5 +2291,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
+    }
+
+    private List<Expr> translateToLegacyConjuncts(Set<Expression> conjuncts) {
+        List<Expr> outputExprs = Lists.newArrayList();
+        if (conjuncts != null) {
+            conjuncts.stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                    .forEach(outputExprs::add);
+        }
+        return outputExprs;
     }
 }
