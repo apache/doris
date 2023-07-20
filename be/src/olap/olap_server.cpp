@@ -1272,11 +1272,7 @@ void StorageEngine::_async_publish_callback() {
                 int64_t version = task_iter->first;
                 int64_t transaction_id = task_iter->second.first;
                 int64_t partition_id = task_iter->second.second;
-                int64_t max_version;
-                {
-                    std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version().second;
-                }
+                int64_t max_version = tablet->max_version().second;
 
                 if (version <= max_version) {
                     need_removed_tasks.emplace_back(tablet, version);
