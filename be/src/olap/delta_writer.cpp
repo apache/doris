@@ -154,7 +154,13 @@ Status DeltaWriter::init() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
         _cur_max_version = _tablet->max_version_unlocked().second;
-        _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+            _rowset_ids.clear();
+        } else {
+            _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+        }
     }
 
     // check tablet version number
@@ -413,36 +419,39 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
     }
 
     if (_tablet->enable_unique_key_merge_on_write()) {
-        auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (_tablet->tablet_state() == TABLET_NOTREADY &&
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-            return Status::OK();
-        }
-        if (segments.size() > 1) {
-            // calculate delete bitmap between segments
-            RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
-                                                                         _delete_bitmap));
-        }
+            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                         "tablet_id: "
+                      << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        } else {
+            auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+            if (segments.size() > 1) {
+                // calculate delete bitmap between segments
+                RETURN_IF_ERROR(_tablet->calc_delete_bitmap_between_segments(_cur_rowset, segments,
+                                                                             _delete_bitmap));
+            }
 
-        // commit_phase_update_delete_bitmap() may generate new segments, we need to create a new
-        // transient rowset writer to write the new segments, then merge it back the original
-        // rowset.
-        std::unique_ptr<RowsetWriter> rowset_writer;
-        _tablet->create_transient_rowset_writer(_cur_rowset, &rowset_writer);
-        RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
-                _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
-                rowset_writer.get()));
-        if (_cur_rowset->tablet_schema()->is_partial_update()) {
-            // build rowset writer and merge transient rowset
-            RETURN_IF_ERROR(rowset_writer->flush());
-            RowsetSharedPtr transient_rowset = rowset_writer->build();
-            _cur_rowset->merge_rowset_meta(transient_rowset->rowset_meta());
+            // commit_phase_update_delete_bitmap() may generate new segments, we need to create a new
+            // transient rowset writer to write the new segments, then merge it back the original
+            // rowset.
+            std::unique_ptr<RowsetWriter> rowset_writer;
+            _tablet->create_transient_rowset_writer(_cur_rowset, &rowset_writer);
+            RETURN_IF_ERROR(_tablet->commit_phase_update_delete_bitmap(
+                    _cur_rowset, _rowset_ids, _delete_bitmap, segments, _req.txn_id,
+                    rowset_writer.get()));
+            if (_cur_rowset->tablet_schema()->is_partial_update()) {
+                // build rowset writer and merge transient rowset
+                RETURN_IF_ERROR(rowset_writer->flush());
+                RowsetSharedPtr transient_rowset = rowset_writer->build();
+                _cur_rowset->merge_rowset_meta(transient_rowset->rowset_meta());
 
-            // erase segment cache cause we will add a segment to rowset
-            SegmentLoader::instance()->erase_segment(_cur_rowset->rowset_id());
+                // erase segment cache cause we will add a segment to rowset
+                SegmentLoader::instance()->erase_segment(_cur_rowset->rowset_id());
+            }
         }
     }
     Status res = _storage_engine->txn_manager()->commit_txn(_req.partition_id, _tablet, _req.txn_id,
