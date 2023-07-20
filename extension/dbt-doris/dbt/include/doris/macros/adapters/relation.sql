@@ -120,13 +120,16 @@
 {%- endmacro%}
 
 {% macro doris__drop_relation(relation) -%}
+  {% if relation is not none %}
     {% set relation_type = relation.type %}
-    {% if relation_type is none %}
+    {% if not relation_type or relation_type is none %}
         {% set relation_type = 'table' %}
     {% endif %}
     {% call statement('drop_relation', auto_begin=False) %}
-    drop {{ relation_type }} if exists {{ relation }}
+      drop {{ relation_type }} if exists {{ relation }}
     {% endcall %}
+  {% endif %}
+
 {%- endmacro %}
 
 {% macro doris__truncate_relation(relation) -%}
@@ -142,7 +145,7 @@
   {% call statement('rename_relation') %}
     {% if to_relation.is_view %}
     {% set results = run_query('show create view ' + from_relation.render() ) %}
-    create view {{ to_relation }} as {{ results[0]['Create View'].replace(from_relation.table, to_relation.table).split('AS',1)[1] }}
+    create view {{ to_relation }} as {{ results[0]['Create View'].split('AS',1)[1] }}
     {% else %}
     alter table {{ from_relation }} rename {{ to_relation.table }}
     {% endif %}
