@@ -528,11 +528,14 @@ public class SystemInfoService {
      *
      * @param replicaAlloc
      * @param storageMedium
+     * @param isStorageMediumSpecified
+     * @param isOnlyForCheck set true if only used for check available backend
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
@@ -558,7 +561,8 @@ public class SystemInfoService {
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 // first time empty, retry with different storage medium
-                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified) {
+                // if only for check, no need to retry different storage medium to get backend
+                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
                     policy = builder.setStorageMedium(storageMedium).build();
                     beIds = selectBackendIdsByPolicy(policy, entry.getValue());

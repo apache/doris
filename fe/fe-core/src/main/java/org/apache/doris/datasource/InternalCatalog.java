@@ -2590,11 +2590,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = Env.getCurrentSystemInfo()
                                 .selectBackendIdsForReplicaCreation(replicaAlloc, tabletMeta.getStorageMedium(),
-                                        isStorageMediumSpecified);
+                                        isStorageMediumSpecified, false);
                     } else {
                         chosenBackendIds = Env.getCurrentSystemInfo()
                                 .selectBackendIdsForReplicaCreation(replicaAlloc, null,
-                                        isStorageMediumSpecified);
+                                        isStorageMediumSpecified, false);
                     }
                 }
 
