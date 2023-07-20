@@ -23,6 +23,8 @@
 #include <re2/stringpiece.h>
 
 #include <boost/algorithm/string.hpp>
+#include <cctype>
+#include <exception>
 #include <filesystem>
 #include <string>
 
@@ -87,13 +89,15 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         int split = timezone_lower.find('+') != std::string::npos ? timezone_lower.find('+')
                                                                   : timezone_lower.find('-');
         cctz::time_zone offset;
-        if (split != std::string::npos) {
+        bool have_both = split != std::string::npos && split + 1 < timezone_lower.length() &&
+                         std::isdigit(timezone_lower[split + 1]);
+        if (have_both) {
             auto offset_str = timezone_lower.substr(split);
             timezone_lower = timezone_lower.substr(0, split);
             int offset_hours = 0;
             try {
                 offset_hours = std::stoi(offset_str);
-            } catch ([[maybe_unused]] Exception& e) {
+            } catch ([[maybe_unused]] std::exception& e) {
                 LOG(INFO) << "Unable to cast " << timezone << " as timezone";
                 return false;
             }
@@ -116,7 +120,7 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
             tz_parsed = cctz::load_time_zone(it->second, &ctz);
         }
         if (tz_parsed) {
-            if (split == std::string::npos) { // GMT only
+            if (!have_both) { // GMT only
                 return true;
             }
             // GMT+8

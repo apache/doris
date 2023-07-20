@@ -62,7 +62,7 @@ static bool have_offset(const std::string_view& arg) {
 }
 static bool have_zone_name(const std::string_view& arg) {
     for (auto v : arg) {
-        if (std::isupper(v) && v != 'T') {
+        if ((std::isalpha(v) && tolower(v) != 't') || v == '/') {
             return true;
         }
     }
@@ -1924,12 +1924,14 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len,
             }
             str_tz = str.substr(split);
             str = str.substr(0, split);
-        } else {
+            len = split;
+        } else { // +08:00
             if (str[str.length() - 6] != '-' && str[str.length() - 6] != '+') {
                 return false;
             }
             str_tz = str.substr(str.length() - 6);
             str = str.substr(0, str.length() - 6);
+            len -= 6;
         }
         cctz::time_zone time_zone;
         if (!TimezoneUtils::find_cctz_time_zone(std::string {str_tz}, time_zone)) {
