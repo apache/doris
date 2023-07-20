@@ -67,7 +67,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
 
     private final S3URI s3uri;
     private final boolean forceVirtualHosted;
-    private String virtualBucket;
+    private String virtualBucket = "";
     private String virtualKey;
 
     public S3TableValuedFunction(Map<String, String> params) throws AnalysisException {
@@ -77,8 +77,12 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         final String endpoint = forceVirtualHosted
                 ? getEndpointAndSetVirtualBucket(params)
                 : s3uri.getBucketScheme();
+        if (!tvfParams.containsKey(S3Properties.REGION)) {
+            String region = S3Properties.getRegionOfEndpoint(endpoint);
+            tvfParams.put(S3Properties.REGION, region);
+        }
         CloudCredentialWithEndpoint credential = new CloudCredentialWithEndpoint(endpoint,
-                tvfParams.getOrDefault(S3Properties.REGION, S3Properties.getRegionOfEndpoint(endpoint)),
+                tvfParams.get(S3Properties.REGION),
                 tvfParams.get(S3Properties.ACCESS_KEY),
                 tvfParams.get(S3Properties.SECRET_KEY));
         if (tvfParams.containsKey(S3Properties.SESSION_TOKEN)) {

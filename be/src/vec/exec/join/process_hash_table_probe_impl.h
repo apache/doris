@@ -136,7 +136,6 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
-                DCHECK_GE(_probe_indexs.size(), last_probe_index + probe_size);
                 column->replicate(&_probe_indexs[0], size, *mcol[i]);
             }
         } else {

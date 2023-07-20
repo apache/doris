@@ -19,7 +19,7 @@ package org.apache.doris.nereids.minidump;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -61,7 +61,7 @@ public class Minidump {
     private String catalogName;
 
     // metadata objects
-    private List<Table> tables;
+    private List<TableIf> tables;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -71,7 +71,7 @@ public class Minidump {
 
     /** Minidump class used to save environment messages */
     public Minidump(String sql, SessionVariable sessionVariable,
-                    String parsedPlanJson, String resultPlanJson, List<Table> tables,
+                    String parsedPlanJson, String resultPlanJson, List<TableIf> tables,
                     String catalogName, String dbName, Map<String, ColumnStatistic> totalColumnStatisticMap,
                     Map<String, Histogram> totalHistogramMap, ColocateTableIndex colocateTableIndex) {
         this.sql = sql;
@@ -98,7 +98,7 @@ public class Minidump {
         return resultPlanJson;
     }
 
-    public List<Table> getTables() {
+    public List<TableIf> getTables() {
         return tables;
     }
 

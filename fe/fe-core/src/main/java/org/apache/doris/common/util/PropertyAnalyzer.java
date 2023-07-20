@@ -140,12 +140,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
                                                                         "enable_duplicate_without_keys_by_default";
-
-    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
-    private static final String COMMA_SEPARATOR = ",";
-    private static final double MAX_FPP = 0.05;
-    private static final double MIN_FPP = 0.0001;
-
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -153,6 +147,10 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    private static final String COMMA_SEPARATOR = ",";
+    private static final double MAX_FPP = 0.05;
+    private static final double MIN_FPP = 0.0001;
 
     /**
      * check and replace members of DataProperty by properties.
@@ -172,6 +170,7 @@ public class PropertyAnalyzer {
         long cooldownTimestamp = oldDataProperty.getCooldownTimeMs();
         String newStoragePolicy = oldDataProperty.getStoragePolicy();
         boolean hasStoragePolicy = false;
+        boolean storageMediumSpecified = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -179,8 +178,10 @@ public class PropertyAnalyzer {
             if (key.equalsIgnoreCase(PROPERTIES_STORAGE_MEDIUM)) {
                 if (value.equalsIgnoreCase(TStorageMedium.SSD.name())) {
                     storageMedium = TStorageMedium.SSD;
+                    storageMediumSpecified = true;
                 } else if (value.equalsIgnoreCase(TStorageMedium.HDD.name())) {
                     storageMedium = TStorageMedium.HDD;
+                    storageMediumSpecified = true;
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
@@ -247,7 +248,12 @@ public class PropertyAnalyzer {
         boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
         properties.remove(PROPERTIES_MUTABLE);
 
-        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        DataProperty dataProperty = new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
+        // check the state of data property
+        if (storageMediumSpecified) {
+            dataProperty.setStorageMediumSpecified(true);
+        }
+        return dataProperty;
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {

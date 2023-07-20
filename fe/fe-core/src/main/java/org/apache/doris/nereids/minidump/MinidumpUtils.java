@@ -20,6 +20,7 @@ package org.apache.doris.nereids.minidump;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -83,7 +84,7 @@ public class MinidumpUtils {
             newSessionVariable.readFromJson(inputJSON.getString("SessionVariable"));
             String sql = inputJSON.getString("Sql");
 
-            List<Table> tables = new ArrayList<>();
+            List<TableIf> tables = new ArrayList<>();
             String catalogName = inputJSON.getString("CatalogName");
             String dbName = inputJSON.getString("DbName");
             JSONArray tablesJson = (JSONArray) inputJSON.get("Tables");
@@ -131,9 +132,9 @@ public class MinidumpUtils {
      * serialize tables from Table in catalog to json format
      */
     public static JSONArray serializeTables(
-            String minidumpFileDir, String dbAndCatalogName, List<Table> tables) throws IOException {
+            String minidumpFileDir, String dbAndCatalogName, List<TableIf> tables) throws IOException {
         JSONArray tablesJson = new JSONArray();
-        for (Table table : tables) {
+        for (TableIf table : tables) {
             if (table instanceof SchemaTable) {
                 continue;
             }

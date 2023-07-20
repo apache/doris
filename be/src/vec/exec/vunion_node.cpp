@@ -151,11 +151,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     DCHECK(!reached_limit());
     DCHECK_LT(_child_idx, _children.size());
 
-    bool mem_reuse = block->mem_reuse();
-    MutableBlock mblock =
-            mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
-                                _row_descriptor)));
+    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
 
     Block child_block;
     while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
@@ -202,10 +198,6 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         }
     }
 
-    if (!mem_reuse) {
-        block->swap(mblock.to_block());
-    }
-
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
 }
@@ -214,11 +206,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     DCHECK_EQ(state->per_fragment_instance_idx(), 0);
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
-    bool mem_reuse = block->mem_reuse();
-    MutableBlock mblock =
-            mem_reuse ? MutableBlock::build_mutable_block(block)
-                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
-                                _row_descriptor)));
+    MutableBlock mblock = VectorizedUtils::build_mutable_mem_reuse_block(block, _row_descriptor);
     for (; _const_expr_list_idx < _const_expr_lists.size() && mblock.rows() <= state->batch_size();
          ++_const_expr_list_idx) {
         Block tmp_block;
@@ -237,10 +225,6 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         }
     }
 
-    if (!mem_reuse) {
-        block->swap(mblock.to_block());
-    }
-
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
@@ -257,19 +241,12 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
                                            vectorized::Block* output_block) {
     DCHECK_LT(child_id, _children.size());
     DCHECK(!is_child_passthrough(child_id));
-    bool mem_reuse = output_block->mem_reuse();
-    MutableBlock mblock =
-            mem_reuse ? MutableBlock::build_mutable_block(output_block)
-                      : MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(
-                                _row_descriptor)));
-
     if (input_block->rows() > 0) {
+        MutableBlock mblock =
+                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _row_descriptor);
         Block res;
         RETURN_IF_ERROR(materialize_block(input_block, child_id, &res));
         RETURN_IF_ERROR(mblock.merge(res));
-        if (!mem_reuse) {
-            output_block->swap(mblock.to_block());
-        }
     }
     return Status::OK();
 }

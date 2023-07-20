@@ -865,7 +865,7 @@ public class EditLog {
                 }
                 case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayAlterCatalogProps(log);
+                    env.getCatalogMgr().replayAlterCatalogProps(log, null, true);
                     break;
                 }
                 case OperationType.OP_REFRESH_CATALOG: {

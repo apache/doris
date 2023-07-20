@@ -150,7 +150,12 @@ public class HiveScanNode extends FileQueryScanNode {
                 ListPartitionItem listPartitionItem = (ListPartitionItem) idToPartitionItem.get(id);
                 partitionValuesList.add(listPartitionItem.getItems().get(0).getPartitionValuesAsStringList());
             }
-            return cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
+            List<HivePartition> allPartitions =
+                    cache.getAllPartitions(hmsTable.getDbName(), hmsTable.getName(), partitionValuesList);
+            if (ConnectContext.get().getExecutor() != null) {
+                ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
+            }
+            return allPartitions;
         } else {
             // unpartitioned table, create a dummy partition to save location and inputformat,
             // so that we can unify the interface.
@@ -159,6 +164,9 @@ public class HiveScanNode extends FileQueryScanNode {
                     hmsTable.getRemoteTable().getSd().getLocation(), null);
             this.totalPartitionNum = 1;
             this.readPartitionNum = 1;
+            if (ConnectContext.get().getExecutor() != null) {
+                ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
+            }
             return Lists.newArrayList(dummyPartition);
         }
     }
@@ -190,6 +198,9 @@ public class HiveScanNode extends FileQueryScanNode {
             fileCaches = getFileSplitByTransaction(cache, partitions);
         } else {
             fileCaches = cache.getFilesByPartitions(partitions, useSelfSplitter);
+        }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
         }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             // This if branch is to support old splitter, will remove later.

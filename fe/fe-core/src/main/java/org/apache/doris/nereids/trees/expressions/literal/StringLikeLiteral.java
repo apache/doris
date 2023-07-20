@@ -36,9 +36,9 @@ public abstract class StringLikeLiteral extends Literal {
     public double getDouble() {
         long v = 0;
         int pos = 0;
-        int len = Math.min(value.length(), 8);
+        int len = Math.min(value.length(), 7);
         while (pos < len) {
-            v += ((long) value.charAt(pos)) << ((7 - pos) * 8);
+            v += Byte.toUnsignedLong(value.getBytes()[pos]) << ((6 - pos) * 8);
             pos++;
         }
         return (double) v;

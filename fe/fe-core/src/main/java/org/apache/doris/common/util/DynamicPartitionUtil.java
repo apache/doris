@@ -228,7 +228,7 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
         }
         ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(val));
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null, false, true);
     }
 
     private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
@@ -237,13 +237,14 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
 
-        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null);
+        Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, null, false, true);
         if (hotPartitionNum <= 0) {
             return;
         }
 
         try {
-            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD);
+            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD, false,
+                    true);
         } catch (DdlException e) {
             throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
                     + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "

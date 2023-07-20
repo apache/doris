@@ -309,8 +309,9 @@ public class PropertyConverter {
     }
 
     private static Map<String, String> convertToMinioProperties(Map<String, String> props, CloudCredential credential) {
-        // minio does not have region, use an arbitrary one.
-        props.put(MinioProperties.REGION, "us-east-1");
+        if (!props.containsKey(MinioProperties.REGION)) {
+            props.put(MinioProperties.REGION, MinioProperties.DEFAULT_REGION);
+        }
         return convertToS3Properties(S3Properties.prefixToS3(props), credential);
     }
 
