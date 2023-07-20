@@ -73,7 +73,7 @@ public class OptimizeGroupExpressionJob extends Job {
             }
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
-        } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= joinNumBushyTree) {
+        } else if (context.getCascadesContext().getStatementContext().getMaxContinuousJoin() <= joinNumBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else {
             return getRuleSet().getZigZagTreeJoinReorder();
