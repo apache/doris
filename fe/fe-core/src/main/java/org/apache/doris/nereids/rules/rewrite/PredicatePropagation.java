@@ -17,11 +17,15 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.Sets;
 
@@ -70,19 +74,38 @@ public class PredicatePropagation {
 
             @Override
             public Expression visitComparisonPredicate(ComparisonPredicate cp, Void context) {
-                if (cp.left().isSlot() && cp.right().isConstant()) {
-                    return replaceSlot(cp);
-                } else if (cp.left().isConstant() && cp.right().isSlot()) {
-                    return replaceSlot(cp);
+                // we need to get expression covered by cast, because we want to infer different datatype
+                if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.left()) && (cp.right().isConstant())) {
+                    return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.left()));
+                } else if (ExpressionUtils.isExpressionSlotCoveredByCast(cp.right()) && cp.left().isConstant()) {
+                    return replaceSlot(cp, ExpressionUtils.getDatatypeCoveredByCast(cp.right()));
                 }
                 return super.visit(cp, context);
             }
 
-            private Expression replaceSlot(Expression expr) {
+            private boolean isOriginDataTypeBigger(DataType originDataType, Expression expr) {
+                if ((leftSlotEqualToRightSlot.child(0).getDataType() instanceof IntegralType)
+                        && (leftSlotEqualToRightSlot.child(1).getDataType() instanceof IntegralType)
+                                && (originDataType instanceof IntegralType)) {
+                    // infer filter can not be lower than original datatype, or dataset would be wrong
+                    if (((IntegralType) originDataType).widerThan(
+                            (IntegralType) leftSlotEqualToRightSlot.child(0).getDataType())
+                                    || ((IntegralType) originDataType).widerThan(
+                                            (IntegralType) leftSlotEqualToRightSlot.child(1).getDataType())) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            private Expression replaceSlot(Expression expr, DataType originDataType) {
                 return expr.rewriteUp(e -> {
-                    if (e.equals(leftSlotEqualToRightSlot.child(0))) {
+                    if (isOriginDataTypeBigger(originDataType, leftSlotEqualToRightSlot)) {
+                        return e;
+                    }
+                    if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(0))) {
                         return leftSlotEqualToRightSlot.child(1);
-                    } else if (e.equals(leftSlotEqualToRightSlot.child(1))) {
+                    } else if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(1))) {
                         return leftSlotEqualToRightSlot.child(0);
                     } else {
                         return e;
@@ -98,7 +121,8 @@ public class PredicatePropagation {
      */
     private boolean canEquivalentInfer(Expression predicate) {
         return predicate instanceof EqualTo
-                && predicate.children().stream().allMatch(e -> e instanceof SlotReference)
+                && predicate.children().stream().allMatch(e ->
+                    (e instanceof SlotReference) || (e instanceof Cast && e.child(0).isSlot()))
                 && predicate.child(0).getDataType().equals(predicate.child(1).getDataType());
     }
 

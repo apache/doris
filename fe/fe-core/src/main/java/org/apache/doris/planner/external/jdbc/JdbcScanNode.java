@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+package org.apache.doris.planner.external.jdbc;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -36,6 +36,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
@@ -136,6 +137,9 @@ public class JdbcScanNode extends ExternalScanNode {
                 String filter = conjunctExprToString(jdbcType, p);
                 if (filter.equals("TRUE")) {
                     filter = "1 = 1";
+                }
+                if (JdbcFunctionPushDownRule.isUnsupportedFunctions(jdbcType, filter)) {
+                    continue;
                 }
                 filters.add(filter);
                 conjuncts.remove(p);
