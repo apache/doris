@@ -60,4 +60,33 @@ suite("fold_constant") {
     sql "delete from d_table2 where k1=3+1;"
     qt_select "select * from d_table2 order by 1;"
 
+    sql """ DROP TABLE IF EXISTS delete_condition; """
+    sql """
+    CREATE TABLE IF NOT EXISTS delete_condition
+    (
+        `user_id` LARGEINT NOT NULL COMMENT "用户id",
+        `create_date` DATETIMe NOT NULL COMMENT "数据灌入日期时间",
+    )
+    ENGINE=OLAP
+    unique KEY(`user_id`, `create_date`)
+    PARTITION BY RANGE(`create_date`)
+    (
+        PARTITION `p201701` VALUES LESS THAN ("2017-02-01 00:00:00"),
+        PARTITION `p201702` VALUES LESS THAN ("2017-03-01 00:00:00"),
+        PARTITION `p201703` VALUES LESS THAN ("2017-04-01 00:00:00")
+    )
+    DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
+    PROPERTIES
+    (
+        "replication_num" = "1"
+    ); 
+    """
+    sql """insert into delete_condition values(1,"2017-01-01 00:00:00");"""
+    sql """insert into delete_condition values(2,"2017-02-02 00:00:00");"""
+    sql """insert into delete_condition values(3,"2017-02-03 00:00:00");"""
+    sql """insert into delete_condition values(4,"2017-03-02 00:00:00");"""
+    sql """
+    delete from  delete_condition PARTITION p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
+    """
+    qt_select """select * from delete_condition order by 1,2;"""
 }
