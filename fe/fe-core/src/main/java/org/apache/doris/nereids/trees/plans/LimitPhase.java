@@ -35,4 +35,8 @@ public enum LimitPhase {
     public boolean isLocal() {
         return this == LOCAL;
     }
+
+    public boolean isGlobal() {
+        return this == GLOBAL;
+    }
 }

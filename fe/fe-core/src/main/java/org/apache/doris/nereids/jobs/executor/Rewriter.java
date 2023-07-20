@@ -250,6 +250,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
             topic("Window optimization",
                     topDown(
+                            // TODO: the logical plan should not contains any phase information,
+                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
+                            //       generate one PhysicalLimit if current distribution is gather or two
+                            //       PhysicalLimits with gather exchange
+                            new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughWindow(),
                             new PushdownFilterThroughWindow()
@@ -258,11 +263,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
             // TODO: these rules should be implementation rules, and generate alternative physical plans.
             topic("Table/Physical optimization",
                     topDown(
-                            // TODO: the logical plan should not contains any phase information,
-                            //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
-                            //       generate one PhysicalLimit if current distribution is gather or two
-                            //       PhysicalLimits with gather exchange
-                            new SplitLimit(),
                             new PruneOlapScanPartition(),
                             new PruneFileScanPartition(),
                             new PushConjunctsIntoJdbcScan()

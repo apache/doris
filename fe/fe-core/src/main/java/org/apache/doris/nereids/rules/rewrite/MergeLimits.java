@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
 /**
@@ -43,14 +45,14 @@ public class MergeLimits extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalLimit(logicalLimit())
                 .when(upperLimit -> upperLimit.getPhase().equals(upperLimit.child().getPhase())
-                        || !upperLimit.child().isSplit())
+                        || (upperLimit.getPhase().isLocal() && upperLimit.child().getPhase().isGlobal()))
                 .then(upperLimit -> {
                     LogicalLimit<? extends Plan> bottomLimit = upperLimit.child();
                     return new LogicalLimit<>(
                             Math.min(upperLimit.getLimit(),
                                     Math.max(bottomLimit.getLimit() - upperLimit.getOffset(), 0)),
                             bottomLimit.getOffset() + upperLimit.getOffset(),
-                            bottomLimit.getPhase(), bottomLimit.child()
+                            upperLimit.getPhase(), bottomLimit.child()
                     );
                 }).toRule(RuleType.MERGE_LIMITS);
     }
