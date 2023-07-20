@@ -338,6 +338,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            Map<String, String> oldProperties = catalog.getProperties();
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -346,7 +347,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
-            replayAlterCatalogProps(log);
+            replayAlterCatalogProps(log, oldProperties, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
@@ -563,10 +564,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for alter catalog props event.
      */
-    public void replayAlterCatalogProps(CatalogLog log) {
+    public void replayAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties, boolean isReplay)
+            throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            if (catalog instanceof ExternalCatalog) {
+                Map<String, String> newProps = log.getNewProps();
+                ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
+                if (!isReplay) {
+                    try {
+                        ((ExternalCatalog) catalog).checkProperties();
+                    } catch (DdlException ddlException) {
+                        if (oldProperties != null) {
+                            ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
+                        }
+                        throw ddlException;
+                    }
+                }
+                if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                    long catalogId = catalog.getId();
+                    Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
+                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                    Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
+                }
+            }
             catalog.modifyCatalogProps(log.getNewProps());
         } finally {
             writeUnlock();
