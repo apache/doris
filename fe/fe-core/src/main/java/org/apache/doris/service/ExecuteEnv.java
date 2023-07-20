@@ -21,11 +21,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MultiLoadMgr;
+import org.apache.doris.thrift.TDiskInfo;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 // Execute environment, used to save other module, need to singleton
 public class ExecuteEnv {
@@ -70,6 +69,7 @@ public class ExecuteEnv {
             this.spaceInfo = spaceInfo;
         }
     }
+
     private List<DiskInfo> diskInfos;
 
     private ExecuteEnv() {
@@ -77,11 +77,11 @@ public class ExecuteEnv {
         scheduler = new ConnectScheduler(Config.qe_max_connection);
         startupTime = System.currentTimeMillis();
         diskInfos = new ArrayList<DiskInfo>() {{
-            add(new DiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
-            add(new DiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
-            add(new DiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
-            add(new DiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
-        }};
+                add(new DiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
+                add(new DiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
+                add(new DiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
+                add(new DiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
+            }};
     }
 
     public static ExecuteEnv getInstance() {
@@ -112,12 +112,27 @@ public class ExecuteEnv {
     }
 
     public List<DiskInfo> refreshAndGetDiskInfo(boolean refresh) {
-        for (DiskInfo disk: diskInfos) {
+        for (DiskInfo disk : diskInfos) {
             DiskUtils.Df df = DiskUtils.df(disk.dir);
             if (df != null) {
                 disk.setSpaceInfo(df);
             }
         }
         return diskInfos;
+    }
+
+    public static List<TDiskInfo> toThrift(List<DiskInfo> diskInfos) {
+        List<TDiskInfo> r = new ArrayList<TDiskInfo>(diskInfos.size());
+        for (DiskInfo d : diskInfos) {
+            r.add(new TDiskInfo(d.getDirType(),
+                        d.getDir(),
+                        d.getSpaceInfo().fileSystem,
+                        d.getSpaceInfo().blocks,
+                        d.getSpaceInfo().used,
+                        d.getSpaceInfo().available,
+                        d.getSpaceInfo().useRate,
+                        d.getSpaceInfo().mountedOn));
+        }
+        return r;
     }
 }

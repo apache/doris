@@ -52,9 +52,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
-        .add("Name").add("Host").add("EditLogPort").add("dir_type").add("dir").add("filesystem")
-        .add("Blocks1K").add("Used").add("Available").add("UseRate").add("MountOn")
-        .build();
+            .add("Name").add("Host").add("EditLogPort").add("dir_type").add("dir").add("filesystem")
+            .add("Blocks1K").add("Used").add("Available").add("UseRate").add("MountOn")
+            .build();
 
     private Env env;
 
@@ -151,10 +151,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
     }
 
-
-    public static void getFrontendsDiskInfo(Env env, List<List<String>> infos){
+    public static void getFrontendsDiskInfo(Env env, List<List<String>> infos) {
         for (Frontend fe : env.getFrontends(null /* all */)) {
-            if (fe.getDiskInfos()!=null) {
+            if (fe.getDiskInfos() != null) {
                 for (ExecuteEnv.DiskInfo disk : fe.getDiskInfos()) {
                     List<String> info = new ArrayList<String>();
                     info.add(fe.getNodeName());
@@ -162,7 +161,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
                     info.add(Integer.toString(fe.getEditLogPort()));
                     info.add(disk.getDirType());
                     info.add(disk.getDir());
-                    info.add(disk.getSpaceInfo().filesystem);
+                    info.add(disk.getSpaceInfo().fileSystem);
                     info.add(Long.toString(disk.getSpaceInfo().blocks));
                     info.add(Long.toString(disk.getSpaceInfo().used));
                     info.add(Long.toString(disk.getSpaceInfo().available));

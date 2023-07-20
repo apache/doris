@@ -19,9 +19,9 @@ package org.apache.doris.system;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.service.ExecuteEnv;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.doris.service.ExecuteEnv;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -49,7 +49,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     }
 
     public FrontendHbResponse(String name, int queryPort, int rpcPort,
-            long replayedJournalId, long hbTime, String version, long feStartTime, List<ExecuteEnv.DiskInfo> diskInfos) {
+            long replayedJournalId, long hbTime, String version,
+            long feStartTime, List<ExecuteEnv.DiskInfo> diskInfos) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;

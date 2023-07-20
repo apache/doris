@@ -1928,6 +1928,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLastStartupTime(exeEnv.getStartupTime());
+                if (exeEnv.getDiskInfos() != null) {
+                    result.setDiskInfos(exeEnv.toThrift(exeEnv.getDiskInfos()));
+                }
             }
         } else {
             result.setStatus(TFrontendPingFrontendStatusCode.FAILED);

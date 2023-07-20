@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -28,6 +27,8 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.collect.ImmutableList;
 
 public class ShowFrontendsStmt extends ShowStmt {
     private String detail;
