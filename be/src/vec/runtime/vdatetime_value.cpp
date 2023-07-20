@@ -63,7 +63,7 @@ static bool have_offset(const std::string_view& arg) {
 }
 static bool have_zone_name(const std::string_view& arg) {
     for (auto v : arg) {
-        if ((std::isalpha(v) && tolower(v) != 't') || v == '/') {
+        if (std::isalpha(v) && tolower(v) != 't') {
             return true;
         }
     }
@@ -72,7 +72,7 @@ static bool have_zone_name(const std::string_view& arg) {
 // Precondition: have_zone_name(arg) == true
 static int timezone_split_pos(const std::string_view& arg) {
     int split = arg.length() - 1;
-    for (; split >= 0 && !std::isalpha(arg[split]); split--) {
+    for (; split >= 0 && !std::isalpha(arg[split]); split--) { // +8 of GMT+8
     }
     for (; split >= 0 && (std::isalpha(arg[split]) || arg[split] == '/'); split--) {
     }
