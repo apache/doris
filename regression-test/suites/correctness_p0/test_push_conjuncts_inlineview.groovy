@@ -75,6 +75,45 @@ explain {
         contains "= '123'"
     }
 
+sql """
+    WITH V_GAIA_SD_RECHARGE_CARD AS
+    (SELECT client,
+         gsrc_account_id,
+         gsrc_status,
+         GSRC_AMT,
+         gsrc_member_card_id,
+         last_update_time,
+         rk
+    FROM 
+        (SELECT '10000003' client, '0816ffk' gsrc_account_id, '1' gsrc_status, 1416.0800 GSRC_AMT, '0816ffk' gsrc_member_card_id, '2023-07-03 15:36:36' last_update_time, 1 rk ) a
+        WHERE rk = 1 )
+    SELECT dd.CLIENT,
+            dd.recharge_card
+    FROM 
+        (SELECT src.CLIENT,
+            
+            CASE
+            WHEN IFNULL(src.GSRC_STATUS,'') = ''
+                OR src.GSRC_STATUS = '3' THEN
+            '-1'
+            WHEN src.GSRC_AMT = 0 THEN
+            '0'
+            WHEN src.GSRC_AMT <= 200 THEN
+            '1'
+            WHEN src.GSRC_AMT > 200
+                AND src.GSRC_AMT <= 500 THEN
+            '2'
+            WHEN src.GSRC_AMT > 500
+                AND src.GSRC_AMT <= 1000 THEN
+            '3'
+            ELSE '4'
+            END AS recharge_card
+        FROM V_GAIA_SD_RECHARGE_CARD src
+        WHERE src.CLIENT = '10000003'
+        GROUP BY  src.CLIENT, recharge_card ) dd
+    WHERE dd.recharge_card IN ('-1');
+"""
+
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
 }
 
