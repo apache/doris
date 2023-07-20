@@ -542,7 +542,8 @@ public:
                                              rdata.size()));
                 }
 
-                inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size, path);
+                inner_loop_impl(i, res_data, res_offsets, null_map, writer, formater, l_raw, l_size,
+                                path);
             } else { // will make array string to user
                 writer->reset();
                 writer->writeStartArray();
@@ -579,8 +580,7 @@ public:
                     }
 
                     // value is NOT necessary to be deleted since JsonbValue will not allocate memory
-                    JsonbValue* value =
-                            doc->getValue()->findValue(path, nullptr);
+                    JsonbValue* value = doc->getValue()->findValue(path, nullptr);
 
                     if (UNLIKELY(!value)) {
                         writer->writeNull();
