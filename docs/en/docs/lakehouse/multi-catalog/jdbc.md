@@ -689,3 +689,7 @@ When Doris connects to OceanBase, it will automatically recognize that OceanBase
     This happens because JDBC can't handle the datetime format 0000-00-00 00:00:00. 
     To address this, append zeroDateTimeBehavior=convertToNull to the jdbc_url when creating the Catalog, e.g., "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?zeroDateTimeBehavior=convertToNull". 
     In this case, JDBC will convert 0000-00-00 00:00:00 to null, and then Doris will handle the DateTime column as a nullable type, allowing for successful reading.
+
+12. `Non supported character set (add orai18n.jar in your classpath): ZHS16GBK` exception occurs when reading Oracle
+
+    Download [orai18n.jar](https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html) and put it in the lib directory of Doris FE and the lib/java_extensions directory of BE (Doris versions before 2.0 need to be placed in the lib directory of BE).
