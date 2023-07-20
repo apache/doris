@@ -61,6 +61,7 @@ public class StatementContext {
     private ColumnAliasGenerator columnAliasGenerator;
 
     private int joinCount = 0;
+    private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
     private boolean isOtherJoinReorder = false;
@@ -101,6 +102,16 @@ public class StatementContext {
 
     public OriginStatement getOriginStatement() {
         return originStatement;
+    }
+
+    public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {
+        if (maxNAryInnerJoin > this.maxNAryInnerJoin) {
+            this.maxNAryInnerJoin = maxNAryInnerJoin;
+        }
+    }
+
+    public int getMaxNAryInnerJoin() {
+        return maxNAryInnerJoin;
     }
 
     public void setMaxContinuousJoin(int joinCount) {
