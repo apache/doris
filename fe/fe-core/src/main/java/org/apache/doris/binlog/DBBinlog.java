@@ -35,7 +35,6 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -160,13 +159,6 @@ public class DBBinlog {
         } finally {
             lock.writeLock().unlock();
         }
-
-        lock.readLock().lock();
-        try {
-            LOG.info("[deadlinefen] after add, db {} binlogs: {}, dummys: {}", dbId, allBinlogs, tableDummyBinlogs);
-        } finally {
-            lock.readLock().unlock();
-        }
     }
 
     public long getDbId() {
@@ -234,28 +226,26 @@ public class DBBinlog {
         return tombstone;
     }
 
-    private BinlogTombstone collectTableTombstone(List<BinlogTombstone> tableTombstones) {
+    private BinlogTombstone collectTableTombstone(List<BinlogTombstone> tableTombstones, boolean isDbGc) {
         if (tableTombstones.isEmpty()) {
             return null;
         }
 
-        List<Long> tableIds = Lists.newArrayList();
-        long largestExpiredCommitSeq = -1;
-        BinlogTombstone dbTombstone = new BinlogTombstone(dbId, tableIds, -1);
+        BinlogTombstone dbTombstone = new BinlogTombstone(dbId, isDbGc);
         for (BinlogTombstone tableTombstone : tableTombstones) {
-            long commitSeq = tableTombstone.getCommitSeq();
-            if (largestExpiredCommitSeq < commitSeq) {
-                largestExpiredCommitSeq = commitSeq;
-            }
+            // collect tableCommitSeq
+            dbTombstone.mergeTableTombstone(tableTombstone);
+
+            // collect tableVersionMap
             Map<Long, UpsertRecord.TableRecord> tableVersionMap = tableTombstone.getTableVersionMap();
             if (tableVersionMap.size() > 1) {
                 LOG.warn("tableVersionMap size is greater than 1. tableVersionMap: {}", tableVersionMap);
             }
-            tableIds.addAll(tableTombstone.getTableIds());
             dbTombstone.addTableRecord(tableVersionMap);
         }
 
-        dbTombstone.setCommitSeq(largestExpiredCommitSeq);
+        LOG.info("After GC, dbId: {}, dbExpiredBinlog: {}, tableExpiredBinlogs: {}",
+                dbId, dbTombstone.getCommitSeq(), dbTombstone.getTableCommitSeqMap());
 
         return dbTombstone;
     }
@@ -277,17 +267,9 @@ public class DBBinlog {
                 tombstones.add(tombstone);
             }
         }
-        BinlogTombstone tombstone = collectTableTombstone(tombstones);
+        BinlogTombstone tombstone = collectTableTombstone(tombstones, false);
         if (tombstone != null) {
             removeExpiredMetaData(tombstone.getCommitSeq());
-
-            lock.readLock().lock();
-            try {
-                LOG.info("[deadlinefen] after gc, db {} binlogs: {}, tombstone.seq: {}, dummys: {}",
-                        dbId, allBinlogs, tombstone.getCommitSeq(), tableDummyBinlogs);
-            } finally {
-                lock.readLock().unlock();
-            }
         }
 
         return tombstone;
@@ -329,7 +311,7 @@ public class DBBinlog {
     private BinlogTombstone dbBinlogEnableGc(long expiredMs) {
         // step 1: get current tableBinlog info and expiredCommitSeq
         long expiredCommitSeq = -1;
-        lock.readLock().lock();
+        lock.writeLock().lock();
         try {
             Iterator<Pair<Long, Long>> timeIter = timestamps.iterator();
             while (timeIter.hasNext()) {
@@ -355,7 +337,7 @@ public class DBBinlog {
                 }
             }
         } finally {
-            lock.readLock().unlock();
+            lock.writeLock().unlock();
         }
 
         if (expiredCommitSeq == -1) {
@@ -372,15 +354,7 @@ public class DBBinlog {
             }
         }
 
-        lock.readLock().lock();
-        try {
-            LOG.info("[deadlinefen] after gc, db {} binlogs: {}, tombstone.seq: {}, dummys: {}",
-                    dbId, allBinlogs, expiredCommitSeq, tableDummyBinlogs);
-        } finally {
-            lock.readLock().unlock();
-        }
-
-        return collectTableTombstone(tableTombstones);
+        return collectTableTombstone(tableTombstones, true);
     }
 
     public void replayGc(BinlogTombstone tombstone) {
@@ -407,11 +381,14 @@ public class DBBinlog {
                 }
             }
 
-            Iterator<TBinlog> binlogIterator = allBinlogs.iterator();
-            while (binlogIterator.hasNext()) {
-                TBinlog binlog = binlogIterator.next();
+            Iterator<TBinlog> binlogIter = allBinlogs.iterator();
+            TBinlog dummy = binlogIter.next();
+            dummy.setCommitSeq(largestExpiredCommitSeq);
+
+            while (binlogIter.hasNext()) {
+                TBinlog binlog = binlogIter.next();
                 if (binlog.getCommitSeq() <= largestExpiredCommitSeq) {
-                    binlogIterator.remove();
+                    binlogIter.remove();
                 } else {
                     break;
                 }
@@ -426,22 +403,33 @@ public class DBBinlog {
     public void dbBinlogDisableReplayGc(BinlogTombstone tombstone) {
         List<TableBinlog> tableBinlogs;
 
-        lock.writeLock().lock();
+        lock.readLock().lock();
         try {
             tableBinlogs = Lists.newArrayList(tableBinlogMap.values());
         } finally {
-            lock.writeLock().unlock();
+            lock.readLock().unlock();
         }
 
         if (tableBinlogs.isEmpty()) {
             return;
         }
 
-        Set<Long> tableIds = Sets.newHashSet(tombstone.getTableIds());
-        long largestExpiredCommitSeq = tombstone.getCommitSeq();
+        Map<Long, Long> tableCommitSeqMap = tombstone.getTableCommitSeqMap();
+        // TODO(deadlinefen): delete this code
+        // This is a reserved code for the transition between new and old versions.
+        // It will be deleted later
+        if (tableCommitSeqMap.isEmpty()) {
+            long commitSeq = tombstone.getCommitSeq();
+            List<Long> tableIds = tombstone.getTableIds();
+            for (long tableId : tableIds) {
+                tableCommitSeqMap.put(tableId, commitSeq);
+            }
+        }
+
         for (TableBinlog tableBinlog : tableBinlogs) {
-            if (tableIds.contains(tableBinlog.getTableId())) {
-                tableBinlog.replayGc(largestExpiredCommitSeq);
+            long tableId = tableBinlog.getTableId();
+            if (tableCommitSeqMap.containsKey(tableId)) {
+                tableBinlog.replayGc(tableCommitSeqMap.get(tableId));
             }
         }
     }
