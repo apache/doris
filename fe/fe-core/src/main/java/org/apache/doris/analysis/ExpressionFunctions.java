@@ -144,9 +144,7 @@ public enum ExpressionFunctions {
             }
             boolean match = true;
             for (int i = 0; i < argTypes1.length; i++) {
-                if (!(argTypes1[i].isDate() && argTypes2[i].isDateV2())
-                        && !(argTypes1[i].isDatetime() && argTypes2[i].isDatetimeV2())
-                        && !(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV3())
+                if (!(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV3())
                         && !(argTypes1[i].isDecimalV2() && argTypes2[i].isDecimalV2())
                         && !argTypes1[i].equals(argTypes2[i])) {
                     match = false;
