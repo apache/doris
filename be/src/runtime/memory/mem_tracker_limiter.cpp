@@ -26,7 +26,6 @@
 #include <queue>
 #include <utility>
 
-#include "common/daemon.h"
 #include "olap/memtable_flush_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
