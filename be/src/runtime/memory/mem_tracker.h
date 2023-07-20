@@ -57,6 +57,11 @@ public:
         int64_t peak_consumption = 0;
     };
 
+    struct TrackerGroup {
+        std::list<MemTracker*> trackers;
+        std::mutex group_lock;
+    };
+
     // A counter that keeps track of the current and peak value seen.
     // Relaxed ordering, not accurate in real time.
     class MemCounter {
@@ -181,6 +186,8 @@ protected:
     int64_t _parent_group_num = 0;
     // Use _parent_label to correlate with parent limiter tracker.
     std::string _parent_label = "-";
+
+    static std::vector<TrackerGroup> mem_tracker_pool;
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
