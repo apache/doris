@@ -135,4 +135,23 @@ public class ExecuteEnv {
         }
         return r;
     }
+
+    public static List<DiskInfo> fromThrift(List<TDiskInfo> diskInfos) {
+        if (diskInfos == null) {
+            return null;
+        }
+        List<DiskInfo> r = new ArrayList<DiskInfo>(diskInfos.size());
+        for (TDiskInfo d : diskInfos) {
+            DiskUtils.Df df = new DiskUtils.Df();
+            df.fileSystem = d.getFilesystem();
+            df.blocks = d.getBlocks();
+            df.used = d.getUsed();
+            df.available = d.getAvailable();
+            df.useRate = d.getUseRate();
+            df.mountedOn = d.getMountedOn();
+            DiskInfo disk = new DiskInfo(d.getDirType(), d.getDir(), df);
+            r.add(disk);
+        }
+        return r;
+    }
 }
