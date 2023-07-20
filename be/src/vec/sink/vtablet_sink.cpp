@@ -29,14 +29,12 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
 #include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
 
 #include <algorithm>
-#include <cstddef>
 #include <iterator>
 #include <memory>
 #include <mutex>
