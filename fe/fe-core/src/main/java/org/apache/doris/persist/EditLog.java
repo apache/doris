@@ -1052,6 +1052,10 @@ public class EditLog {
                     LOG.info("replay barrier");
                     break;
                 }
+                case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
+                    env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1834,5 +1838,9 @@ public class EditLog {
 
     public long logBarrier() {
         return logEdit(OperationType.OP_BARRIER, new BarrierLog());
+    }
+
+    public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
+        logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
 }
