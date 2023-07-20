@@ -179,7 +179,11 @@ public abstract class ExternalCatalog
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                if (metadataRefreshIntervalSec < 0) {
+                    throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+                }
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
@@ -384,6 +388,14 @@ public abstract class ExternalCatalog
         modifyComment(props);
         catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
+    }
+
+    public void tryModifyCatalogProps(Map<String, String> props) {
+        catalogProperty.modifyCatalogProps(props);
+    }
+
+    public void rollBackCatalogProps(Map<String, String> props) {
+        catalogProperty.rollBackCatalogProps(props);
     }
 
     private void modifyComment(Map<String, String> props) {
