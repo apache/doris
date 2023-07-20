@@ -50,13 +50,6 @@ class TaskGroup;
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
 } // namespace taskgroup
 
-class MemTrackerLimiter;
-
-struct TrackerLimiterGroup {
-    std::list<MemTrackerLimiter*> trackers;
-    std::mutex group_lock;
-};
-
 // Track and limit the memory usage of process and query.
 // Contains an limit, arranged into a tree structure.
 //
@@ -74,6 +67,11 @@ public:
         CLONE = 5, // Count the memory consumption of all EngineCloneTask. Note: Memory that does not contain make/release snapshots.
         EXPERIMENTAL =
                 6 // Experimental memory statistics, usually inaccurate, used for debugging, and expect to add other types in the future.
+    };
+
+    struct TrackerLimiterGroup {
+        std::list<MemTrackerLimiter*> trackers;
+        std::mutex group_lock;
     };
 
     inline static std::unordered_map<Type, std::shared_ptr<RuntimeProfile::HighWaterMarkCounter>>
@@ -271,6 +269,8 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
     static std::atomic<bool> _enable_print_log_process_usage;
+
+    static std::vector<TrackerLimiterGroup> mem_tracker_limiter_pool;
 
     // Iterator into mem_tracker_limiter_pool for this object. Stored to have O(1) remove.
     std::list<MemTrackerLimiter*>::iterator _tracker_limiter_group_it;

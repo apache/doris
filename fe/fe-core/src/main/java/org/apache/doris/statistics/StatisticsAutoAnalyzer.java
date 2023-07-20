@@ -17,14 +17,17 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.AnalyzeProperties;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -32,6 +35,9 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -56,14 +62,44 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         if (!StatisticsUtil.statsTblAvailable()) {
             return;
         }
-        if (Config.enable_auto_collect_statistics) {
-            analyzePeriodically();
-            analyzeAutomatically();
+
+        if (!checkAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
+            return;
         }
+
+        // if (!Config.enable_full_auto_analyze) {
+        //     analyzePeriodically();
+        //     analyzeAutomatically();
+        // } else {
+        //     analyzeAll();
+        // }
     }
 
-    public void autoAnalyzeStats(DdlStmt ddlStmt) {
-        // TODO Monitor some DDL statements, and then trigger automatic analysis tasks
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private void analyzeAll() {
+        Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
+        for (CatalogIf ctl : catalogs) {
+            try {
+                Collection<DatabaseIf> dbs = ctl.getAllDbs();
+                for (DatabaseIf<TableIf> databaseIf : dbs) {
+                    if (StatisticConstants.STATISTICS_DB_BLACK_LIST.contains(databaseIf.getFullName())) {
+                        continue;
+                    }
+                    AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+                    List<AnalysisInfo> analysisInfos = analysisManager.buildAnalysisInfosForDB(databaseIf,
+                            AnalyzeProperties.DEFAULT_PROP);
+                    for (AnalysisInfo analysisInfo : analysisInfos) {
+                        analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+                        if (analysisInfo == null) {
+                            continue;
+                        }
+                        analysisManager.createSystemAnalysisJob(analysisInfo);
+                    }
+                }
+            } catch (Throwable t) {
+                LOG.warn("Failed to analyze all statistics.", t);
+            }
+        }
     }
 
     private void analyzePeriodically() {
@@ -72,7 +108,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
             List<AnalysisInfo> jobInfos = analysisManager.findPeriodicJobs();
             for (AnalysisInfo jobInfo : jobInfos) {
                 jobInfo = new AnalysisInfoBuilder(jobInfo).setJobType(JobType.SYSTEM).build();
-                analysisManager.createAnalysisJob(jobInfo);
+                analysisManager.createSystemAnalysisJob(jobInfo);
             }
         } catch (DdlException e) {
             LOG.warn("Failed to periodically analyze the statistics." + e);
@@ -85,12 +121,12 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         for (AnalysisInfo jobInfo : jobInfos) {
             AnalysisInfo checkedJobInfo = null;
             try {
-                checkedJobInfo = checkAutomaticJobInfo(jobInfo);
+                checkedJobInfo = getReAnalyzeRequiredPart(jobInfo);
                 if (checkedJobInfo != null) {
-                    analysisManager.createAnalysisJob(checkedJobInfo);
+                    analysisManager.createSystemAnalysisJob(checkedJobInfo);
                 }
             } catch (Throwable t) {
-                LOG.warn("Failed to create analyze job: {}", checkedJobInfo);
+                LOG.warn("Failed to create analyze job: {}", checkedJobInfo, t);
             }
 
         }
@@ -116,7 +152,7 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
      * @return new job info after check
      * @throws Throwable failed to check
      */
-    private AnalysisInfo checkAutomaticJobInfo(AnalysisInfo jobInfo) throws Throwable {
+    private AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) throws Throwable {
         long lastExecTimeInMs = jobInfo.lastExecTimeInMs;
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName);
@@ -211,5 +247,22 @@ public class StatisticsAutoAnalyzer extends MasterDaemon {
         });
         return new AnalysisInfoBuilder(jobInfo)
                 .setColToPartitions(newColToPartitions).build();
+    }
+
+    private boolean checkAnalyzeTime(LocalTime now) {
+        try {
+            DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
+            LocalTime start = LocalTime.parse(Config.full_auto_analyze_start_time, timeFormatter);
+            LocalTime end = LocalTime.parse(Config.full_auto_analyze_end_time, timeFormatter);
+
+            if (start.isAfter(end) && (now.isAfter(start) || now.isBefore(end))) {
+                return true;
+            } else {
+                return now.isAfter(start) && now.isBefore(end);
+            }
+        } catch (DateTimeParseException e) {
+            LOG.warn("Parse analyze start/end time format fail", e);
+            return true;
+        }
     }
 }

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -40,18 +41,17 @@ import java.util.Optional;
  * A relation that contains only one row consist of some constant expressions.
  * e.g. select 100, 'value'
  */
-public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation, OutputPrunable {
+public class LogicalOneRowRelation extends LogicalRelation implements OneRowRelation, OutputPrunable {
 
     private final List<NamedExpression> projects;
 
-    public LogicalOneRowRelation(List<NamedExpression> projects) {
-        this(projects, Optional.empty(), Optional.empty());
+    public LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects) {
+        this(relationId, projects, Optional.empty(), Optional.empty());
     }
 
-    private LogicalOneRowRelation(List<NamedExpression> projects,
-                                  Optional<GroupExpression> groupExpression,
-                                  Optional<LogicalProperties> logicalProperties) {
-        super(PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
+    private LogicalOneRowRelation(RelationId relationId, List<NamedExpression> projects,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
+        super(relationId, PlanType.LOGICAL_ONE_ROW_RELATION, groupExpression, logicalProperties);
         Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(Slot.class)),
                 "OneRowRelation can not contains any slot");
         Preconditions.checkArgument(projects.stream().noneMatch(p -> p.containsType(AggregateFunction.class)),
@@ -76,13 +76,13 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalOneRowRelation(projects, groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalOneRowRelation(projects, groupExpression, logicalProperties);
+        return new LogicalOneRowRelation(relationId, projects, groupExpression, logicalProperties);
     }
 
     @Override
@@ -90,13 +90,6 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
         return projects.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
-    public String toString() {
-        return Utils.toSqlString("LogicalOneRowRelation",
-                "projects", projects
-        );
     }
 
     @Override
@@ -116,11 +109,18 @@ public class LogicalOneRowRelation extends LogicalLeaf implements OneRowRelation
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects);
+        return Objects.hash(super.hashCode(), projects);
+    }
+
+    @Override
+    public String toString() {
+        return Utils.toSqlString("LogicalOneRowRelation",
+                "projects", projects
+        );
     }
 
     public LogicalOneRowRelation withProjects(List<NamedExpression> namedExpressions) {
-        return new LogicalOneRowRelation(namedExpressions, Optional.empty(), Optional.empty());
+        return new LogicalOneRowRelation(relationId, namedExpressions, Optional.empty(), Optional.empty());
     }
 
     @Override

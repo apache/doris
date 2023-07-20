@@ -50,6 +50,7 @@
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
@@ -413,6 +414,10 @@ int main(int argc, char** argv) {
             }
         }
     }
+
+    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
+    // will work only after additional call of this function.
+    updatePHDRCache();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;

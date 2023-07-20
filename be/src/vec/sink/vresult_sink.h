@@ -29,13 +29,13 @@
 #include "common/status.h"
 #include "exec/data_sink.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
 class QueryStatistics;
+class ResultWriter;
 class RowDescriptor;
 class TExpr;
 
@@ -44,7 +44,6 @@ class ResultSinkOperator;
 }
 namespace vectorized {
 class Block;
-class VResultWriter;
 
 struct ResultFileOptions {
     // [[deprecated]]
@@ -155,7 +154,7 @@ private:
     VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<BufferControlBlock> _sender;
-    std::shared_ptr<VResultWriter> _writer;
+    std::shared_ptr<ResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
     int _buf_size;            // Allocated from _pool
 

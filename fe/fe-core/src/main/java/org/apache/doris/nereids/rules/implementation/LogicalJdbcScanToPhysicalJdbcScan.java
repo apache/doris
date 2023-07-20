@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
@@ -32,10 +31,9 @@ public class LogicalJdbcScanToPhysicalJdbcScan extends OneImplementationRuleFact
     public Rule build() {
         return logicalJdbcScan().then(jdbcScan ->
             new PhysicalJdbcScan(
-                jdbcScan.getId(),
+                jdbcScan.getRelationId(),
                 jdbcScan.getTable(),
                 jdbcScan.getQualifier(),
-                DistributionSpecAny.INSTANCE,
                 Optional.empty(),
                 jdbcScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_JDBC_SCAN_TO_PHYSICAL_JDBC_SCAN_RULE);

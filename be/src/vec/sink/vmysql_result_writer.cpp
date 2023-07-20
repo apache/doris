@@ -77,7 +77,7 @@ template <bool is_binary_format>
 VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sinker,
                                                          const VExprContextSPtrs& output_vexpr_ctxs,
                                                          RuntimeProfile* parent_profile)
-        : VResultWriter(),
+        : ResultWriter(),
           _sinker(sinker),
           _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile) {}

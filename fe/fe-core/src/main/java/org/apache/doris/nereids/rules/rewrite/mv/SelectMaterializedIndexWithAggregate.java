@@ -711,12 +711,11 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
             List<MaterializedIndex> haveAllRequiredColumns = Streams.concat(
                     candidatesWithoutRewriting.stream()
-                            .filter(index -> containAllRequiredColumns(
-                                index, scan, nonVirtualRequiredScanOutput, requiredExpr)),
-                    candidatesWithRewriting
-                            .stream()
+                            .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput,
+                                    requiredExpr, predicates)),
+                    candidatesWithRewriting.stream()
                             .filter(aggRewriteResult -> containAllRequiredColumns(aggRewriteResult.index, scan,
-                                    aggRewriteResult.requiredScanOutput, requiredExpr))
+                                    aggRewriteResult.requiredScanOutput, requiredExpr, predicates))
                             .map(aggRewriteResult -> aggRewriteResult.index)
             ).collect(Collectors.toList());
 
@@ -757,11 +756,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return baseIndexSelectResult;
             } else {
                 List<MaterializedIndex> rollupsWithAllRequiredCols =
-                        Stream.concat(candidatesWithoutRewriting.stream(),
-                                indexesGroupByIsBaseOrNot.get(true).stream())
-                        .filter(index -> containAllRequiredColumns(
-                            index, scan, nonVirtualRequiredScanOutput, requiredExpr))
-                        .collect(Collectors.toList());
+                        Stream.concat(candidatesWithoutRewriting.stream(), indexesGroupByIsBaseOrNot.get(true).stream())
+                                .filter(index -> containAllRequiredColumns(index, scan, nonVirtualRequiredScanOutput,
+                                        requiredExpr, predicates))
+                                .collect(Collectors.toList());
 
                 long selectedIndex = selectBestIndex(rollupsWithAllRequiredCols, scan, predicates);
                 if (selectedIndex == scan.getTable().getBaseIndexId()) {

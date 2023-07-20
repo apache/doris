@@ -440,18 +440,14 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                 size_t begin, int count_sz) const {
-    size_t size = count_sz < 0 ? data.size() : count_sz;
-    if (0 == size) return;
-
+void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
+                                 IColumn& column) const {
     auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
     typename Self::Container& res_data = res.get_data();
-    res_data.reserve(target_size);
+    res_data.resize(target_size);
 
-    size_t end = size + begin;
-    for (size_t i = begin; i < end; ++i) {
-        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    for (size_t i = 0; i < target_size; ++i) {
+        res_data[i] = data[indexs[i]];
     }
 }
 

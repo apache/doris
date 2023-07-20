@@ -578,12 +578,10 @@ ColumnPtr ColumnNullable::replicate(const Offsets& offsets) const {
     return ColumnNullable::create(replicated_data, replicated_null_map);
 }
 
-void ColumnNullable::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                               size_t begin, int count_sz) const {
+void ColumnNullable::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnNullable&>(column);
-    get_nested_column().replicate(counts, target_size, res.get_nested_column(), begin, count_sz);
-    get_null_map_column().replicate(counts, target_size, res.get_null_map_column(), begin,
-                                    count_sz);
+    get_nested_column().replicate(counts, target_size, res.get_nested_column());
+    get_null_map_column().replicate(counts, target_size, res.get_null_map_column());
 }
 
 template <bool negative>
