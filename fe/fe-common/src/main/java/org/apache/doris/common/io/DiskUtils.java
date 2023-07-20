@@ -95,7 +95,7 @@ public class DiskUtils {
     public static String sizeFormat(long size) {
         int unitPos = 0;
         while (size > 1024 && unitPos < units.length - 1) {
-            unitPos ++;
+            unitPos++;
             size /= 1024;
         }
         return size + units[unitPos];
@@ -103,13 +103,13 @@ public class DiskUtils {
 
     public static void main(String[] args) {
         long [] values = new long[]{
-            1l,
-            1l * 1024,
-            1l * 1024 * 1024,
-            1l * 1024 * 1024 * 1024,
-            1l * 1024 * 1024 * 1024 * 1024,
-            1l * 1024 * 1024 * 1024 * 1024 * 1024,
-            1l * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
+                1L,
+                1L * 1024,
+                1L * 1024 * 1024,
+                1L * 1024 * 1024 * 1024,
+                1L * 1024 * 1024 * 1024 * 1024,
+                1L * 1024 * 1024 * 1024 * 1024 * 1024,
+                1L * 1024 * 1024 * 1024 * 1024 * 1024 * 1024,
         };
 
         for (long v : values) {
