@@ -1320,11 +1320,7 @@ void VOlapTableSink::_cancel_all_channel(Status status) {
             print_id(_load_id), _txn_id, status);
 }
 
-void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
-    if (_try_close) {
-        return;
-    }
-
+Status VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
     if (status.ok()) {
@@ -1357,6 +1353,8 @@ void VOlapTableSink::try_close(RuntimeState* state, Status exec_status) {
         _close_status = status;
         _try_close = true;
     }
+
+    return Status::OK();
 }
 
 bool VOlapTableSink::is_close_done() {

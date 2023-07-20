@@ -284,7 +284,11 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::try_close() {
-    _sink->try_close(_state);
+    if (_try_close_flag) {
+        return Status::OK();
+    }
+    _try_close_flag = true;
+    RETURN_IF_ERROR(_sink->try_close(_state));
     return _source->try_close(_state);
 }
 

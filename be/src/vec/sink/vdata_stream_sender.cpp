@@ -672,16 +672,29 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     return Status::OK();
 }
 
+Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
+    Status final_st = Status::OK();
+    for (int i = 0; i < _channels.size(); ++i) {
+        Status st = _channels[i]->close(state);
+        if (!st.ok() && final_st.ok()) {
+            final_st = st;
+        }
+    }
+    return final_st;
+}
+
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
 
     Status final_st = Status::OK();
-    for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close(state);
-        if (!st.ok() && final_st.ok()) {
-            final_st = st;
+    if (!state->enable_pipeline_exec()) {
+        for (int i = 0; i < _channels.size(); ++i) {
+            Status st = _channels[i]->close(state);
+            if (!st.ok() && final_st.ok()) {
+                final_st = st;
+            }
         }
     }
     // wait all channels to finish
