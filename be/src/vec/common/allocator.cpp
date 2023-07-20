@@ -146,8 +146,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(siz
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_check(size_t size) const {
-    doris::thread_context()->large_memory_check = false;
-    DEFER({ doris::thread_context()->large_memory_check = true; });
     sys_memory_check(size);
     memory_tracker_check(size);
 }
