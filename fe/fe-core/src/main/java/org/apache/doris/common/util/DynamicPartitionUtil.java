@@ -243,7 +243,8 @@ public class DynamicPartitionUtil {
         }
 
         try {
-            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD, false, true);
+            Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, TStorageMedium.SSD, false,
+                    true);
         } catch (DdlException e) {
             throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
                     + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "
