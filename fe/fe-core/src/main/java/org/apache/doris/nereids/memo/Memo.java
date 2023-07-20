@@ -478,7 +478,7 @@ public class Memo {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getOwnerGroup().getGroupId())) {
-                mergeGroup(existedGroupExpression.getOwnerGroup(), target);
+                mergeGroup(target, existedGroupExpression.getOwnerGroup());
             }
             // When we create a GroupExpression, we will add it into ParentExpression of childGroup.
             // But if it already exists, we should remove it from ParentExpression of childGroup.
