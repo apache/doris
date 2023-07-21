@@ -143,26 +143,6 @@ public class UdfExecutor extends BaseExecutor {
                 valueStrOffsetAddr);
         PrimitiveType keyType = argTypes[argIdx].getKeyType().getPrimitiveType();
         PrimitiveType valueType = argTypes[argIdx].getValueType().getPrimitiveType();
-        if (keyType == PrimitiveType.INT && valueType == PrimitiveType.INT) {
-            Object[] retHashMap = new HashMap[keyCol.length];
-            for (int colIdx = 0; colIdx < keyCol.length; colIdx++) {
-                HashMap<Integer, Integer> hashMap = new HashMap<>();
-                ArrayList<Integer> keys = (ArrayList<Integer>) (keyCol[colIdx]);
-                ArrayList<Integer> values = (ArrayList<Integer>) (valueCol[colIdx]);
-                for (int i = 0; i < keys.size(); i++) {
-                    Integer key = keys.get(i);
-                    Integer value = values.get(i);
-                    hashMap.put(key, value);
-                    LOG.info("yxc test hashmap  " + "key : " + key + "  value : " + value);
-                }
-                LOG.info("yxc test colIdx : " + colIdx + "   size:" + hashMap.size());
-                retHashMap[colIdx] = hashMap;
-            }
-            return retHashMap;
-        }
-        if (keyType == PrimitiveType.STRING && valueType == PrimitiveType.STRING) {
-            return new BuildMapFromType<String, String>().get(keyCol, valueCol);
-        }
         switch (keyType) {
             case BOOLEAN: {
                 return new HashMapBuilder<Boolean>().get(keyCol, valueCol, valueType);
@@ -661,9 +641,7 @@ public class UdfExecutor extends BaseExecutor {
                     T1 key = keys.get(i);
                     T2 value = values.get(i);
                     hashMap.put(key, value);
-                    LOG.info("yxc test hashmap  " + "key : " + key + "  value : " + value);
                 }
-                LOG.info("yxc test colIdx : " + colIdx + "   size:" + hashMap.size());
                 retHashMap[colIdx] = hashMap;
             }
             return retHashMap;
