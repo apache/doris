@@ -43,6 +43,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -378,7 +379,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                             CaseSensibility.CATALOG.getCaseSensibility());
                 }
-
                 for (CatalogIf catalog : nameToCatalog.values()) {
                     if (Env.getCurrentEnv().getAccessManager()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
@@ -399,6 +399,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         Map<String, String> props = catalog.getProperties();
                         String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
                         row.add(createTime);
+                        row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
                         row.add(catalog.getComment());
                         rows.add(row);
                     }
@@ -714,6 +715,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayDropExternalTable(log);
         Env.getCurrentEnv().getEditLog().logDropExternalTable(log);
     }
@@ -739,6 +741,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             db.dropTable(table.getName());
+            db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
         }
@@ -788,6 +791,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableName(tableName);
         log.setTableId(Env.getCurrentEnv().getNextId());
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayCreateExternalTableFromEvent(log);
         Env.getCurrentEnv().getEditLog().logCreateExternalTable(log);
     }
@@ -808,6 +812,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             db.replayCreateTableFromEvent(log.getTableName(), log.getTableId());
+            db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
         }
