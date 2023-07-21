@@ -34,7 +34,8 @@ NOTICE: In version 1.2.x the data type name is JSONB. It's renamed to JSON to be
 
 ### description
     JSON (Binary) datatype.
-        Use binary JSON format for storage and json function to extract field. The 'jsonb_type_length_soft_limit_bytes' setting allows you to change the default support of 1048576 bytes (1M) to 2147483643 bytes (2G).
+        Use binary JSON format for storage and json function to extract field. Default support is 1048576 bytes (1M), adjustable up to 2147483643 bytes (2G),and the JSONB type is also limited by the be configuration `jsonb_type_length_soft_limit_bytes`.
+
 ### note
     There are some advantanges for JSON over plain JSON STRING.
     1. JSON syntax will be validated on write to ensure data quality
