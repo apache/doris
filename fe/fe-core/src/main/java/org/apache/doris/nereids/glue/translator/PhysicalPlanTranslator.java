@@ -128,6 +128,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
+import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
@@ -296,6 +297,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             dataStreamSink.setOutputPartition(dataPartition);
             parentFragment.addChild(inputFragment);
             ((MultiCastPlanFragment) inputFragment).addToDest(exchangeNode);
+
+            CTEScanNode cteScanNode = context.getCteScanNodeMap().get(inputFragment.getFragmentId());
+            Preconditions.checkState(cteScanNode != null, "cte scan node is null");
+            cteScanNode.setFragment(inputFragment);
+            cteScanNode.setPlanNodeId(exchangeNode.getId());
+            context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                    runtimeFilterTranslator.getContext().getPlanNodeIdToCTEDataSinkMap()
+                            .put(cteScanNode.getId(), dataStreamSink));
         } else {
             inputFragment.setDestination(exchangeNode);
             inputFragment.setOutputPartition(dataPartition);
@@ -813,6 +822,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalCTEProducer<?> cteProducer = context.getCteProduceMap().get(cteId);
         Preconditions.checkState(cteProducer != null, "invalid cteProducer");
 
+        context.getCteConsumerMap().put(cteId, cteConsumer);
         // set datasink to multicast data sink but do not set target now
         // target will be set when translate distribute
         DataStreamSink streamSink = new DataStreamSink();
@@ -821,11 +831,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         multiCastDataSink.getDestinations().add(Lists.newArrayList());
 
         // update expr to slot mapping
+        TupleDescriptor tupleDescriptor = null;
         for (Slot producerSlot : cteProducer.getOutput()) {
             Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
+            tupleDescriptor = slotRef.getDesc().getParent();
             context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
         }
+        CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                    runtimeFilterTranslator.getTargetOnScanNode(cteConsumer.getRelationId()).forEach(
+                            expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, cteScanNode, context)));
+        context.getCteScanNodeMap().put(multiCastFragment.getFragmentId(), cteScanNode);
+
         return multiCastFragment;
     }
 
@@ -835,6 +853,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment child = cteProducer.child().accept(this, context);
         CTEId cteId = cteProducer.getCteId();
         context.getPlanFragments().remove(child);
+
         MultiCastPlanFragment multiCastPlanFragment = new MultiCastPlanFragment(child);
         MultiCastDataSink multiCastDataSink = new MultiCastDataSink();
         multiCastPlanFragment.setSink(multiCastDataSink);
