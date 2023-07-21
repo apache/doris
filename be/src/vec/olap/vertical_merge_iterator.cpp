@@ -357,6 +357,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
             _valid = false;
             if (st.is<END_OF_FILE>()) {
                 _block.reset();
+                _iter.reset();
                 return Status::OK();
             } else {
                 return st;
