@@ -18,14 +18,28 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayIndex.h
 // and modified by Doris
 
+#include <stddef.h>
+
+#include <memory>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 

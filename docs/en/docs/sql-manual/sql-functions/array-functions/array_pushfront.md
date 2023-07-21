@@ -34,9 +34,8 @@ array_pushfront
 
 #### Syntax
 
-```sql
-Array<T> array_pushfront(Array<T> arr, T value)
-```
+`Array<T> array_pushfront(Array<T> arr, T value)`
+
 Add the value to the beginning of the array.
 
 #### Returned value

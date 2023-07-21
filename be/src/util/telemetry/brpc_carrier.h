@@ -18,6 +18,16 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <opentelemetry/context/context.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <opentelemetry/nostd/string_view.h>
+#include <opentelemetry/nostd/variant.h>
+#include <opentelemetry/trace/span.h>
+#include <opentelemetry/trace/span_context.h>
+#include <opentelemetry/trace/tracer.h>
+
+#include <string>
+#include <utility>
 
 #include "opentelemetry/context/propagation/global_propagator.h"
 #include "opentelemetry/context/propagation/text_map_propagator.h"
@@ -26,6 +36,12 @@
 #include "opentelemetry/trace/span_metadata.h"
 #include "opentelemetry/trace/span_startoptions.h"
 #include "util/telemetry/telemetry.h"
+
+namespace google {
+namespace protobuf {
+class RpcController;
+} // namespace protobuf
+} // namespace google
 
 namespace doris::telemetry {
 

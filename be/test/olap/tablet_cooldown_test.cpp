@@ -15,28 +15,61 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <fmt/format.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <unistd.h>
 
+#include <iostream>
+#include <map>
 #include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader_options.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/local_file_writer.h"
+#include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
+#include "olap/olap_common.h"
+#include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
+#include "olap/tablet_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/task/engine_publish_version_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
-#include "util/s3_util.h"
+#include "runtime/descriptors.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+class OlapMeta;
+struct Slice;
 
 static StorageEngine* k_engine = nullptr;
 
@@ -173,9 +206,11 @@ protected:
         return Status::OK();
     }
 
-    Status open_file_internal(const Path& file, int64_t file_size,
+    Status open_file_internal(const io::FileDescription& fd, const Path& abs_path,
                               io::FileReaderSPtr* reader) override {
-        return _local_fs->open_file(get_remote_path(file), io::FileReaderOptions::DEFAULT, reader);
+        io::FileDescription tmp_fd;
+        tmp_fd.path = get_remote_path(abs_path);
+        return _local_fs->open_file(tmp_fd, io::FileReaderOptions::DEFAULT, reader);
     }
 
     Status connect_impl() override { return Status::OK(); }
@@ -287,9 +322,14 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
                                    .type(TYPE_INT)
                                    .column_name(SEQUENCE_COL)
                                    .column_pos(2)
+                                   .nullable(false)
                                    .build());
-    tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(3).build());
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_DATETIME)
+                                   .column_name("v1")
+                                   .column_pos(3)
+                                   .nullable(false)
+                                   .build());
     tuple_builder.build(&desc_tbl_builder);
 
     return desc_tbl_builder.desc_tbl();
@@ -316,10 +356,20 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
     load_id.set_hi(0);
     load_id.set_lo(0);
 
-    WriteRequest write_req = {tablet_id, schema_hash, WriteType::LOAD,        txn_id, partition_id,
-                              load_id,   tuple_desc,  &(tuple_desc->slots()), false,  &param};
+    WriteRequest write_req = {tablet_id,
+                              schema_hash,
+                              txn_id,
+                              partition_id,
+                              load_id,
+                              tuple_desc,
+                              &(tuple_desc->slots()),
+                              false,
+                              &param};
+
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -366,9 +416,10 @@ void createTablet(StorageEngine* engine, TabletSharedPtr* tablet, int64_t replic
                                                    &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         st = engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                 (*tablet)->tablet_id(), (*tablet)->schema_hash(),
-                                                (*tablet)->tablet_uid(), version);
+                                                (*tablet)->tablet_uid(), version, &stats);
         ASSERT_EQ(Status::OK(), st);
         st = (*tablet)->add_inc_rowset(rowset);
         ASSERT_EQ(Status::OK(), st);

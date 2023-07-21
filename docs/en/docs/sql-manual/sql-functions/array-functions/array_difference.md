@@ -36,9 +36,7 @@ array_difference
 
 #### Syntax
 
-```
-ARRAY<T> array_difference(ARRAY<T> arr)
-```
+`ARRAY<T> array_difference(ARRAY<T> arr)`
 
 Calculates the difference between adjacent array elements. 
 Returns an array where the first element will be 0, the second is the difference between a[1] - a[0].

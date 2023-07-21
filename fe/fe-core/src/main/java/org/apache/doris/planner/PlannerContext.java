@@ -63,6 +63,10 @@ public class PlannerContext {
         return queryStmt;
     }
 
+    public StatementBase getStatement() {
+        return statement;
+    }
+
     public TQueryOptions getQueryOptions() {
         return queryOptions;
     } // getRootAnalyzer().getQueryOptions(); }

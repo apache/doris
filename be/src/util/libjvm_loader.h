@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <dlfcn.h>
-#include <jni.h>
+#include <jni.h> // IWYU pragma: keep
 
 #include <memory>
 #include <string>

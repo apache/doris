@@ -17,10 +17,22 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <time.h>
+
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/fs/path.h"
 
 namespace doris {
 namespace io {
+class FileReaderOptions;
 
 class LocalFileSystem final : public FileSystem {
 public:
@@ -57,10 +69,13 @@ public:
     // delete dir or file
     Status delete_directory_or_file(const Path& path);
 
+    // read local file and save content to "content"
+    Status read_file_to_string(const Path& file, std::string* content);
+
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer) override;
-    Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
-                          FileReaderSPtr* reader) override;
+    Status open_file_impl(const FileDescription& file_desc, const Path& abs_path,
+                          const FileReaderOptions& reader_options, FileReaderSPtr* reader) override;
     Status create_directory_impl(const Path& dir, bool failed_if_exists = false) override;
     Status delete_file_impl(const Path& file) override;
     Status delete_directory_impl(const Path& dir) override;

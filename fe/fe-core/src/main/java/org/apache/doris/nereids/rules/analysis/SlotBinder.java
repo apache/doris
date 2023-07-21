@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
-import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -70,15 +69,10 @@ class SlotBinder extends SubExprAnalyzer {
     public Expression visitUnboundAlias(UnboundAlias unboundAlias, CascadesContext context) {
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
-            collectColumnNames(unboundAlias.getAlias().get());
             return new Alias(child, unboundAlias.getAlias().get());
-        }
-        if (child instanceof NamedExpression) {
-            collectColumnNames(((NamedExpression) child).getName());
+        } else if (child instanceof NamedExpression) {
             return new Alias(child, ((NamedExpression) child).getName());
         } else {
-            // TODO: resolve aliases
-            collectColumnNames(child.toSql());
             return new Alias(child, child.toSql());
         }
     }
@@ -222,12 +216,5 @@ class SlotBinder extends SubExprAnalyzer {
             throw new AnalysisException("Not supported name: "
                     + StringUtils.join(nameParts, "."));
         }).collect(Collectors.toList());
-    }
-
-    private void collectColumnNames(String columnName) {
-        Preconditions.checkNotNull(getCascadesContext());
-        if (!getCascadesContext().getStatementContext().getColumnNames().add(columnName)) {
-            throw new AnalysisException("Collect column name failed, columnName : " + columnName);
-        }
     }
 }

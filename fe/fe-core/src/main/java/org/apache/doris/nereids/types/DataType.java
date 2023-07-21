@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all data type in Nereids.
@@ -109,7 +111,7 @@ public abstract class DataType implements AbstractDataType {
      * @param types data type in string representation
      * @return data type in Nereids
      */
-    public static DataType convertPrimitiveFromStrings(List<String> types) {
+    public static DataType convertPrimitiveFromStrings(List<String> types, boolean tryConvert) {
         String type = types.get(0).toLowerCase().trim();
         switch (type) {
             case "bool":
@@ -131,16 +133,32 @@ public abstract class DataType implements AbstractDataType {
             case "double":
                 return DoubleType.INSTANCE;
             case "decimal":
-                switch (types.size()) {
-                    case 1:
-                        return DecimalV2Type.SYSTEM_DEFAULT;
-                    case 2:
-                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)), 0);
-                    case 3:
-                        return DecimalV2Type.createDecimalV2Type(
-                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)));
-                    default:
-                        throw new AnalysisException("Nereids do not support type: " + type);
+                if (Config.enable_decimal_conversion && tryConvert) {
+                    switch (types.size()) {
+                        case 1:
+                            return DecimalV3Type.SYSTEM_DEFAULT;
+                        case 2:
+                            return DecimalV3Type
+                                    .createDecimalV3Type(Integer.parseInt(types.get(1)));
+                        case 3:
+                            return DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)),
+                                    Integer.parseInt(types.get(2)));
+                        default:
+                            throw new AnalysisException("Nereids do not support type: " + type);
+                    }
+                } else {
+                    switch (types.size()) {
+                        case 1:
+                            return DecimalV2Type.SYSTEM_DEFAULT;
+                        case 2:
+                            return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                                    0);
+                        case 3:
+                            return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                                    Integer.parseInt(types.get(2)));
+                        default:
+                            throw new AnalysisException("Nereids do not support type: " + type);
+                    }
                 }
             case "decimalv3":
                 switch (types.size()) {
@@ -180,7 +198,8 @@ public abstract class DataType implements AbstractDataType {
             case "null_type": // ScalarType.NULL.toSql() return "null_type", so support it
                 return NullType.INSTANCE;
             case "date":
-                return fromCatalogType(ScalarType.createDateType());
+                return Config.enable_date_conversion && tryConvert ? DateV2Type.INSTANCE
+                        : DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
@@ -188,7 +207,9 @@ public abstract class DataType implements AbstractDataType {
             case "datetime":
                 switch (types.size()) {
                     case 1:
-                        return DateTimeType.INSTANCE;
+                        return Config.enable_date_conversion && tryConvert
+                                ? DateTimeV2Type.SYSTEM_DEFAULT
+                                : DateTimeType.INSTANCE;
                     case 2:
                         return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                     default:
@@ -225,7 +246,8 @@ public abstract class DataType implements AbstractDataType {
      */
     public static DataType convertFromString(String type) {
         try {
-            return PARSER.parseDataType(type);
+            List<String> types = PARSER.parseDataType(type);
+            return DataType.convertPrimitiveFromStrings(types, false);
         } catch (Exception e) {
             // TODO: remove it when Nereids parser support array
             if (type.startsWith("array")) {
@@ -306,6 +328,11 @@ public abstract class DataType implements AbstractDataType {
             // TODO: support array type really
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isAggStateType()) {
+            org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
+            List<DataType> types = catalogType.getSubTypes().stream().map(t -> fromCatalogType(t))
+                    .collect(Collectors.toList());
+            return new AggStateType(catalogType.getFunctionName(), types, catalogType.getSubTypeNullables());
         }
         throw new AnalysisException("Nereids do not support type: " + type);
     }
@@ -365,6 +392,10 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isIntegerLikeType() {
         return this instanceof IntegralType && !(this instanceof LargeIntType);
+    }
+
+    public boolean isFloatLikeType() {
+        return this.isFloatType() || isDoubleType() || isDecimalLikeType();
     }
 
     public boolean isTinyIntType() {
@@ -487,6 +518,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof QuantileStateType;
     }
 
+    public boolean isAggStateType() {
+        return this instanceof AggStateType;
+    }
+
     public boolean isHllType() {
         return this instanceof HllType;
     }
@@ -557,6 +592,13 @@ public abstract class DataType implements AbstractDataType {
         } else {
             throw new AnalysisException("Illegal array type: " + type);
         }
+    }
+
+    public static List<DataType> trivialTypes() {
+        return Type.getTrivialTypes()
+                .stream()
+                .map(DataType::fromCatalogType)
+                .collect(ImmutableList.toImmutableList());
     }
 
     public static List<DataType> supportedTypes() {

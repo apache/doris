@@ -150,9 +150,6 @@ public class LoadingTaskPlanner {
             Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(false);
             LOG.debug("plan scanTupleDesc{}", scanTupleDesc.toString());
@@ -166,7 +163,6 @@ public class LoadingTaskPlanner {
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
-        scanNode.convertToVectorized();
         scanNodes.add(scanNode);
         descTable.computeStatAndMemLayout();
 
@@ -174,7 +170,7 @@ public class LoadingTaskPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds,
                 Config.enable_single_replica_load);
-        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, false);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, false, strictMode);
         olapTableSink.complete();
 
         // 3. Plan fragment

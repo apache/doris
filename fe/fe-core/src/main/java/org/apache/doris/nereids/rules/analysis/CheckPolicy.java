@@ -44,7 +44,8 @@ public class CheckPolicy implements AnalysisRuleFactory {
                 logicalCheckPolicy(any().when(child -> !(child instanceof UnboundRelation))).thenApply(ctx -> {
                     LogicalCheckPolicy<Plan> checkPolicy = ctx.root;
                     Plan child = checkPolicy.child();
-                    if (!(child instanceof LogicalRelation)) {
+                    if (!(child instanceof LogicalRelation)
+                            || ctx.connectContext.getSessionVariable().isPlayNereidsDump()) {
                         return child;
                     }
                     LogicalRelation relation = (LogicalRelation) child;

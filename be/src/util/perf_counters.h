@@ -20,11 +20,12 @@
 
 #pragma once
 
+#include <gen_cpp/Metrics_types.h>
+#include <stdint.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
-
-#include "util/debug_util.h"
 
 // This is a utility class that aggregates counters from the kernel.  These counters
 // come from different sources.

@@ -18,9 +18,15 @@
 #include "util/cidr.h"
 
 #include <arpa/inet.h>
+#include <sys/socket.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <exception>
+#include <iterator>
+#include <ostream>
 
 #include "common/logging.h"
-#include "gutil/strings/split.h"
 
 namespace doris {
 
@@ -53,7 +59,7 @@ bool CIDR::reset(const std::string& cidr_str) {
     try {
         len = std::stoi(suffix, &pos);
     } catch (const std::exception& e) {
-        LOG(WARNING) << "Wrong CIDR format. network=" << cidr_str;
+        LOG(WARNING) << "Wrong CIDR format. network=" << cidr_str << ", reason=" << e.what();
         return false;
     }
 

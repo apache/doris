@@ -101,7 +101,8 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     io::IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
-    vectorized::VExprContext* common_vexpr_ctxs_pushdown = nullptr;
+    std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
+    vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;

@@ -17,8 +17,7 @@
 
 #include "io/fs/file_system.h"
 
-#include "olap/olap_define.h"
-#include "util/async_io.h"
+#include "util/async_io.h" // IWYU pragma: keep
 
 namespace doris {
 namespace io {
@@ -28,10 +27,10 @@ Status FileSystem::create_file(const Path& file, FileWriterPtr* writer) {
     FILESYSTEM_M(create_file_impl(path, writer));
 }
 
-Status FileSystem::open_file(const Path& file, const FileReaderOptions& reader_options,
+Status FileSystem::open_file(const FileDescription& fd, const FileReaderOptions& reader_options,
                              FileReaderSPtr* reader) {
-    auto path = absolute_path(file);
-    FILESYSTEM_M(open_file_impl(path, reader_options, reader));
+    auto path = absolute_path(fd.path);
+    FILESYSTEM_M(open_file_impl(fd, path, reader_options, reader));
 }
 
 Status FileSystem::create_directory(const Path& dir, bool failed_if_exists) {

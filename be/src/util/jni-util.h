@@ -17,10 +17,16 @@
 
 #pragma once
 
+#include <butil/macros.h>
 #include <jni.h>
+#include <limits.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <string>
 
 #include "common/status.h"
-#include "gutil/macros.h"
+#include "jni_md.h"
 #include "util/thrift_util.h"
 
 #ifdef USE_HADOOP_HDFS
@@ -29,6 +35,7 @@ extern "C" JNIEnv* getJNIEnv(void);
 #endif
 
 namespace doris {
+class JniUtil;
 
 #define RETURN_ERROR_IF_EXC(env)                                     \
     do {                                                             \
@@ -67,6 +74,9 @@ public:
     static inline int64_t IncreaseReservedBufferSize(int n) {
         return INITIAL_RESERVED_BUFFER_SIZE << n;
     }
+
+    static jobject convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map);
+    static std::map<std::string, std::string> convert_to_cpp_map(JNIEnv* env, jobject map);
 
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);

@@ -217,11 +217,15 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
         return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::DATEV2:
-        return "datev2";
+        return "date";
     case TPrimitiveType::DATETIMEV2: {
         fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "datetimev2({})",
-                       desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
+        if (!desc.__isset.columnScale || desc.columnScale == 0) {
+            fmt::format_to(debug_string_buffer, "datetime");
+        } else {
+            fmt::format_to(debug_string_buffer, "datetime({})",
+                           desc.__isset.columnScale ? std::to_string(desc.columnScale) : "UNKNOWN");
+        }
         return fmt::to_string(debug_string_buffer);
     }
     case TPrimitiveType::HLL: {
@@ -455,7 +459,7 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
             if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
                 data_type == TPrimitiveType::STRING) {
                 if (_desc_result.columns[i].columnDesc.__isset.columnLength) {
-                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4;
+                    srcs[i] = _desc_result.columns[i].columnDesc.columnLength * 4L;
                     datas[i] = srcs + i;
                 } else {
                     datas[i] = nullptr;

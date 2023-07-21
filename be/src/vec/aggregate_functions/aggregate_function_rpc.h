@@ -17,11 +17,13 @@
 
 #pragma once
 
+#include <gen_cpp/Exprs_types.h>
+#include <gen_cpp/function_service.pb.h>
+
 #include <cstdint>
 #include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/Exprs_types.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
@@ -347,7 +349,8 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
         Status status = Status::OK();
-        RETURN_IF_STATUS_ERROR(status, data(place).init(_fn));
+        SAFE_CREATE(RETURN_IF_STATUS_ERROR(status, data(place).init(_fn)),
+                    this->data(place).~Data());
     }
 
     String get_name() const override { return _fn.name.function_name; }

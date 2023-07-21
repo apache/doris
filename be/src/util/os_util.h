@@ -22,7 +22,6 @@
 
 #include <cstdint>
 #include <string>
-#include <type_traits>
 
 #include "common/status.h"
 

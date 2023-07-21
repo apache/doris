@@ -24,25 +24,30 @@
 namespace doris {
 
 class SlotDescriptor;
-class Status;
-struct StringRef;
-class TupleDescriptor;
 
 // Helper class for dealing with text data, e.g., converting text data to
 // numeric types, etc.
 class TextConverter {
 public:
-    TextConverter(char escape_char);
+    TextConverter(char escape_char, char array_delimiter = '\2');
 
     void write_string_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data,
                              size_t len);
 
-    bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
-                      const char* data, size_t len, bool copy_string, bool need_escape);
+    inline bool write_column(const SlotDescriptor* slot_desc,
+                             vectorized::MutableColumnPtr* column_ptr, const char* data, size_t len,
+                             bool copy_string, bool need_escape) {
+        vectorized::IColumn* nullable_col_ptr = column_ptr->get();
+        return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape);
+    }
 
-    bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
-                          const char* data, size_t len, bool copy_string, bool need_escape);
+    inline bool write_vec_column(const SlotDescriptor* slot_desc,
+                                 vectorized::IColumn* nullable_col_ptr, const char* data,
+                                 size_t len, bool copy_string, bool need_escape) {
+        return write_vec_column(slot_desc, nullable_col_ptr, data, len, copy_string, need_escape,
+                                1);
+    }
 
     /// Write consecutive rows of the same data.
     bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
@@ -50,8 +55,11 @@ public:
                           size_t rows);
     void unescape_string_on_spot(const char* src, size_t* len);
 
+    void set_array_delimiter(char array_delimiter) { _array_delimiter = array_delimiter; }
+
 private:
     char _escape_char;
+    char _array_delimiter;
 };
 
 } // namespace doris

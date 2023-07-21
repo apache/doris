@@ -17,13 +17,21 @@
 
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
-#include <string_view>
+#include <gen_cpp/Exprs_types.h>
+#include <glog/logging.h>
 
-#include "exprs/create_predicate_function.h"
-#include "vec/core/field.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_nullable.h"
-#include "vec/functions/simple_function_factory.h"
+#include <ostream>
+#include <vector>
+
+#include "runtime/descriptors.h"
+
+namespace doris {
+class RuntimeState;
+namespace vectorized {
+class Block;
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

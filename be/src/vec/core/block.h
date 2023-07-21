@@ -20,28 +20,43 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <initializer_list>
 #include <list>
+#include <memory>
+#include <ostream>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "gen_cpp/data.pb.h"
-#include "runtime/descriptors.h"
+#include "common/exception.h"
+#include "common/factory_creator.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/names.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
+
+class SipHash;
 
 namespace doris {
 
-class RowDescriptor;
-class Status;
 class TupleDescriptor;
+class PBlock;
+class SlotDescriptor;
+
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
 
 namespace vectorized {
 
@@ -52,11 +67,13 @@ namespace vectorized {
   * Allows to insert, remove columns in arbitrary position, to change order of columns.
   */
 class MutableBlock;
+
 class Block {
+    ENABLE_FACTORY_CREATOR(Block);
+
 private:
     using Container = ColumnsWithTypeAndName;
     using IndexByName = phmap::flat_hash_map<String, size_t>;
-
     Container data;
     IndexByName index_by_name;
     std::vector<bool> row_same_bit;
@@ -73,6 +90,8 @@ public:
     Block(const PBlock& pblock);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
+
+    void reserve(size_t count);
 
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
@@ -104,7 +123,11 @@ public:
     void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
-    ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
+    ColumnWithTypeAndName& get_by_position(size_t position) {
+        DCHECK(data.size() > position)
+                << ", data.size()=" << data.size() << ", position=" << position;
+        return data[position];
+    }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
     // need exception safety
@@ -383,6 +406,8 @@ using BlocksPtr = std::shared_ptr<Blocks>;
 using BlocksPtrs = std::shared_ptr<std::vector<BlocksPtr>>;
 
 class MutableBlock {
+    ENABLE_FACTORY_CREATOR(MutableBlock);
+
 private:
     MutableColumns _columns;
     DataTypes _data_types;
@@ -442,6 +467,14 @@ public:
         return _data_types[position];
     }
 
+    int compare_one_column(size_t n, size_t m, size_t column_id, int nan_direction_hint) const {
+        DCHECK_LE(column_id, columns());
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rows());
+        auto& column = get_column_by_position(column_id);
+        return column->compare_at(n, m, *column, nan_direction_hint);
+    }
+
     int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
                    int nan_direction_hint) const {
         DCHECK_GE(columns(), num_columns);
@@ -490,7 +523,12 @@ public:
     }
 
     template <typename T>
-    Status merge(T&& block) {
+    [[nodiscard]] Status merge(T&& block) {
+        RETURN_IF_CATCH_EXCEPTION(return merge_impl(block););
+    }
+
+    template <typename T>
+    [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
@@ -547,6 +585,9 @@ public:
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
+
+    /// remove the column with the specified name
+    void erase(const String& name);
 
     std::string dump_data(size_t row_limit = 100) const;
 

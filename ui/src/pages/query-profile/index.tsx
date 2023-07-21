@@ -90,6 +90,15 @@ export default function QueryProfile(params: any) {
         URL.revokeObjectURL(tagA.href);
         document.body.removeChild(tagA);
     }
+    function copyToClipboard(profile: string) {
+        const profileTxt = replaceToTxt(profile);
+        const textarea = document.createElement("textarea");
+        textarea.value = profileTxt;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+    }
 
     return (
         <Typography style={{padding: '30px'}}>
@@ -103,6 +112,9 @@ export default function QueryProfile(params: any) {
                         <Button onClick={() => {
                             download(profile)
                         }}>download</Button>
+                        <Button onClick={() => {
+                            copyToClipboard(profile)
+                        }}>copy profile</Button>
                     </Space> : ''}
                 </Col>
             </Row>

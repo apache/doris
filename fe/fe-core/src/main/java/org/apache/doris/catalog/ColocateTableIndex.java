@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -652,39 +653,45 @@ public class ColocateTableIndex implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        int size = groupName2Id.size();
-        out.writeInt(size);
-        for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
-            Text.writeString(out, entry.getKey()); // group name
-            entry.getValue().write(out); // group id
-            Collection<Long> tableIds = group2Tables.get(entry.getValue());
-            out.writeInt(tableIds.size());
-            for (Long tblId : tableIds) {
-                out.writeLong(tblId); // table ids
-            }
-            ColocateGroupSchema groupSchema = group2Schema.get(entry.getValue());
-            groupSchema.write(out); // group schema
+        writeLock();
+        try {
+            int size = groupName2Id.size();
+            out.writeInt(size);
+            for (Map.Entry<String, GroupId> entry : ImmutableMap.copyOf(groupName2Id).entrySet()) {
+                Text.writeString(out, entry.getKey()); // group name
+                entry.getValue().write(out); // group id
+                Collection<Long> tableIds = group2Tables.get(entry.getValue());
+                out.writeInt(tableIds.size());
+                for (Long tblId : tableIds) {
+                    out.writeLong(tblId); // table ids
+                }
+                ColocateGroupSchema groupSchema = group2Schema.get(entry.getValue());
+                groupSchema.write(out); // group schema
 
-            // backend seq
-            Map<Tag, List<List<Long>>> backendsPerBucketSeq = group2BackendsPerBucketSeq.row(entry.getValue());
-            out.writeInt(backendsPerBucketSeq.size());
-            for (Map.Entry<Tag, List<List<Long>>> tag2Bucket2BEs : backendsPerBucketSeq.entrySet()) {
-                tag2Bucket2BEs.getKey().write(out);
-                out.writeInt(tag2Bucket2BEs.getValue().size());
-                for (List<Long> beIds : tag2Bucket2BEs.getValue()) {
-                    out.writeInt(beIds.size());
-                    for (Long be : beIds) {
-                        out.writeLong(be);
+                // backend seq
+                Map<Tag, List<List<Long>>> backendsPerBucketSeq = group2BackendsPerBucketSeq.row(entry.getValue());
+                out.writeInt(backendsPerBucketSeq.size());
+                for (Map.Entry<Tag, List<List<Long>>> tag2Bucket2BEs : backendsPerBucketSeq.entrySet()) {
+                    tag2Bucket2BEs.getKey().write(out);
+                    out.writeInt(tag2Bucket2BEs.getValue().size());
+                    for (List<Long> beIds : tag2Bucket2BEs.getValue()) {
+                        out.writeInt(beIds.size());
+                        for (Long be : beIds) {
+                            out.writeLong(be);
+                        }
                     }
                 }
             }
+
+            size = unstableGroups.size();
+            out.writeInt(size);
+            for (GroupId groupId : unstableGroups) {
+                groupId.write(out);
+            }
+        } finally {
+            writeUnlock();
         }
 
-        size = unstableGroups.size();
-        out.writeInt(size);
-        for (GroupId groupId : unstableGroups) {
-            groupId.write(out);
-        }
     }
 
     public void readFields(DataInput in) throws IOException {

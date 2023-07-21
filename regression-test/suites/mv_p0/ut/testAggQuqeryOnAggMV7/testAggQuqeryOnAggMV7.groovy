@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQuqeryOnAggMV7") {
+
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """

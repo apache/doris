@@ -97,6 +97,8 @@ public interface LoadTaskInfo {
 
     List<String> getHiddenColumns();
 
+    boolean isPartialUpdate();
+
     default boolean getTrimDoubleQuotes() {
         return false;
     }

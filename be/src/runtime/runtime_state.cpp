@@ -21,22 +21,24 @@
 #include "runtime/runtime_state.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
 
-#include <boost/algorithm/string/join.hpp>
-#include <sstream>
 #include <string>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/exec_node.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/memory/mem_tracker.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/pretty_printer.h"
+#include "runtime/thread_context.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -46,6 +48,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
         : _profile("Fragment " + print_id(fragment_instance_id)),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -57,10 +60,10 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
           _load_job_id(-1),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file_path(""),
           _error_log_file(nullptr) {
     Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -70,6 +73,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env)
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
@@ -82,9 +86,9 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
-          _error_log_file_path(""),
           _error_log_file(nullptr) {
     if (fragment_exec_params.__isset.runtime_filter_params) {
         _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
@@ -95,14 +99,17 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
 }
 
 RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
-                           const TUniqueId& query_id, const TQueryOptions& query_options,
-                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
+                           const TUniqueId& query_id, int32_t fragment_id,
+                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                           ExecEnv* exec_env)
         : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
+          _fragment_id(fragment_id),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
           _num_rows_load_total(0),
@@ -110,6 +117,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
           _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file(nullptr) {
@@ -123,6 +131,7 @@ RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -156,6 +165,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
 
 RuntimeState::RuntimeState()
         : _profile("<unnamed>"),
+          _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -231,10 +241,16 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     return Status::OK();
 }
 
-Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
+void RuntimeState::init_mem_trackers(const TUniqueId& id, const std::string& name) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
-    return Status::OK();
+            MemTrackerLimiter::Type::EXPERIMENTAL, fmt::format("{}#Id={}", name, print_id(id)));
+}
+
+std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
+    if (!_query_mem_tracker) {
+        return _exec_env->orphan_mem_tracker();
+    }
+    return _query_mem_tracker;
 }
 
 bool RuntimeState::log_error(const std::string& error) {
@@ -275,7 +291,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     // If the thread MemTrackerLimiter exceeds the limit, an error status is returned.
     // Usually used after SCOPED_ATTACH_TASK, during query execution.
     if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
-        !config::enable_query_memroy_overcommit) {
+        !config::enable_query_memory_overcommit) {
         auto failed_msg = thread_context()->thread_mem_tracker()->query_tracker_limit_exceeded_str(
                 thread_context()->thread_mem_tracker()->tracker_limit_exceeded_str(),
                 thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(), msg);
@@ -286,17 +302,11 @@ Status RuntimeState::check_query_state(const std::string& msg) {
     return query_status();
 }
 
-const std::string ERROR_FILE_NAME = "error_log";
 const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_error_log_file() {
     _exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
-    // std::stringstream ss;
-    // ss << load_dir() << "/" << ERROR_FILE_NAME
-    //     << "_" << std::hex << fragment_instance_id().hi
-    //     << "_" << fragment_instance_id().lo;
-    // _error_log_file_path = ss.str();
     std::string error_log_absolute_path =
             _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
     _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);

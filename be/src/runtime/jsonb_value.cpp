@@ -17,9 +17,12 @@
 
 #include "runtime/jsonb_value.h"
 
-#include <cstring>
+#include <string_view>
 
 #include "util/jsonb_error.h"
+#include "util/jsonb_stream.h"
+#include "util/jsonb_utils.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
 

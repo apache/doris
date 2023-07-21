@@ -88,8 +88,8 @@ public class ConsistencyChecker extends MasterDaemon {
     }
 
     private boolean initWorkTime() {
-        Date startDate = TimeUtils.getTimeAsDate(Config.consistency_check_start_time);
-        Date endDate = TimeUtils.getTimeAsDate(Config.consistency_check_end_time);
+        Date startDate = TimeUtils.getHourAsDate(Config.consistency_check_start_time);
+        Date endDate = TimeUtils.getHourAsDate(Config.consistency_check_end_time);
 
         if (startDate == null || endDate == null) {
             return false;

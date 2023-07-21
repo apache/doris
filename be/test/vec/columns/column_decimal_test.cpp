@@ -18,11 +18,10 @@
 
 #include "vec/columns/column_decimal.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
-#include <memory>
-#include <string>
-
+#include "gtest/gtest_pred_impl.h"
 #include "vec/columns/columns_number.h"
 
 namespace doris::vectorized {

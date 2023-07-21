@@ -18,10 +18,16 @@
 #ifndef DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 #define DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace doris {
+class ExecEnv;
+class RuntimeState;
+class StorageEngine;
 
 /// Helper testing class that creates an environment with runtime memory management
 /// similar to the one used by the Doris runtime. Only one TestEnv can be active at a
@@ -44,9 +50,6 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
-    // Create a new RuntimeState sharing global environment.
-    RuntimeState* create_runtime_state(int64_t query_id);
-
     ExecEnv* _exec_env;
 
     // Per-query states with associated block managers.

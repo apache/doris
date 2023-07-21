@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -201,5 +202,24 @@ public class S3ResourceTest {
         // 3. delete
         s3Dis.close();
         Files.deleteIfExists(path);
+    }
+
+    @Test
+    public void testModifyProperties() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("AWS_ENDPOINT", "aaa");
+        properties.put("AWS_REGION", "bbb");
+        properties.put("AWS_ROOT_PATH", "/path/to/root");
+        properties.put("AWS_ACCESS_KEY", "xxx");
+        properties.put("AWS_SECRET_KEY", "yyy");
+        properties.put("AWS_BUCKET", "test-bucket");
+        properties.put("s3_validity_check", "false");
+        S3Resource s3Resource = new S3Resource("t_source");
+        s3Resource.setProperties(properties);
+        FeConstants.runningUnitTest = true;
+
+        Map<String, String> modify = new HashMap<>();
+        modify.put("s3.access_key", "aaa");
+        s3Resource.modifyProperties(modify);
     }
 }

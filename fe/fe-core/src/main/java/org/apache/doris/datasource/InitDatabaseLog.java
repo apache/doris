@@ -34,8 +34,12 @@ import java.util.List;
 public class InitDatabaseLog implements Writable {
     public enum Type {
         HMS,
+        ICEBERG,
         ES,
         JDBC,
+        MAX_COMPUTE,
+        HUDI,
+        PAIMON,
         TEST,
         UNKNOWN;
     }
@@ -63,6 +67,9 @@ public class InitDatabaseLog implements Writable {
 
     @SerializedName(value = "type")
     private Type type;
+
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
 
     public InitDatabaseLog() {
         refreshCount = 0;

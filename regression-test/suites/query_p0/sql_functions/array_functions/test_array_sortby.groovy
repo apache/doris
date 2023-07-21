@@ -35,10 +35,10 @@ suite("test_array_sortby") {
 
 
         sql """INSERT INTO ${tableName} values
-            (0,NULL,[2]),
+            (0,[3],[2]),
             (1, [1,2,3,4,5], [10,20,-40,80,-100]),
             (2, [6,7,8],[10,12,13]), (3, [1],[-100]), (4, null,null),
-            (5,[3],NULL),(6,[1,2],[2,1]),(7,[NULL],[NULL]),(8,[1,2,3],[3,2,1])
+            (5,NULL,NULL),(6,[1,2],[2,1]),(7,[NULL],[NULL]),(8,[1,2,3],[3,2,1])
         """
         qt_select_00 " select array_sortby([1,2,3,4,5],[5,4,3,2,1]);"
         qt_select_01 " select array_sortby([1,2,3,4,5],NULL);"

@@ -34,9 +34,7 @@ array_slice
 
 #### Syntax
 
-```
-ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)
-```
+`ARRAY<T> array_slice(ARRAY<T> arr, BIGINT off, BIGINT len)`
 
 返回一个子数组，包含所有从指定位置开始的指定长度的元素，如果输入参数为NULL，则返回NULL
 

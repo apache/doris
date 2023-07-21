@@ -87,10 +87,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能
@@ -225,10 +225,10 @@ ALTER TABLE example_db.my_table set (
 );
 ```
 
-5. 修改表的 in_memory 属性
+5. 修改表的 in_memory 属性，只支持修改为'false'
 
 ```sql
-ALTER TABLE example_db.my_table set ("in_memory" = "true");
+ALTER TABLE example_db.my_table set ("in_memory" = "false");
 ```
 
 6. 启用 批量删除功能
@@ -269,13 +269,13 @@ ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 
 ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 ```
 
-12. 给表添加冷热分离数据迁移策略
+12. 给表添加冷热分层数据迁移策略
 ```sql
  ALTER TABLE create_table_not_have_policy set ("storage_policy" = "created_create_table_alter_policy");
 ```
 注：表没有关联过storage policy，才能被添加成功，一个表只能添加一个storage policy
 
-13. 给表的partition添加冷热分离数据迁移策略
+13. 给表的partition添加冷热分层数据迁移策略
 ```sql
 ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy");
 ```

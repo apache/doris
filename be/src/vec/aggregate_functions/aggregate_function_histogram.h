@@ -17,9 +17,39 @@
 
 #pragma once
 
+#include <rapidjson/stringbuffer.h>
+#include <stddef.h>
+
+#include <iterator>
+#include <map>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/io/io_helper.h"
 #include "vec/utils/histogram_helpers.hpp"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -107,10 +137,10 @@ struct AggregateFunctionHistogramData {
         for (auto i = 0; i < pair_vector.size(); i++) {
             const auto& element = pair_vector[i];
             if constexpr (std::is_same_v<T, std::string>) {
-                static_cast<ColumnString&>(to).insert_data(element.second.c_str(),
+                assert_cast<ColumnString&>(to).insert_data(element.second.c_str(),
                                                            element.second.length());
             } else {
-                static_cast<ColVecType&>(to).get_data().push_back(element.second);
+                assert_cast<ColVecType&>(to).get_data().push_back(element.second);
             }
         }
     }
@@ -162,14 +192,14 @@ public:
 
         if (has_input_param) {
             this->data(place).set_parameters(
-                    static_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
+                    assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num));
         }
 
         if constexpr (std::is_same_v<T, std::string>) {
             this->data(place).add(
-                    static_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+                    assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
         } else {
-            this->data(place).add(static_cast<const ColVecType&>(*columns[0]).get_data()[row_num]);
+            this->data(place).add(assert_cast<const ColVecType&>(*columns[0]).get_data()[row_num]);
         }
     }
 

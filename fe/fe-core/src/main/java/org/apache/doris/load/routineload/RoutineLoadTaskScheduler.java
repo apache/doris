@@ -72,7 +72,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     public RoutineLoadTaskScheduler(RoutineLoadManager routineLoadManager) {
-        super("Routine load task scheduler", 0);
+        //Set the polling interval to 1ms to avoid meaningless idling when there is no data, resulting in increased CPU.
+        // The wait/notify mechanism should be used later
+        super("Routine load task scheduler", 1);
         this.routineLoadManager = routineLoadManager;
     }
 
@@ -109,7 +111,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             scheduleOneTask(routineLoadTaskInfo);
         } catch (Exception e) {
             LOG.warn("Taking routine load task from queue has been interrupted", e);
-            return;
         }
     }
 
@@ -257,7 +258,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
         }
 
-        TNetworkAddress address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+        TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
 
         boolean ok = false;
         BackendService.Client client = null;

@@ -17,12 +17,27 @@
 
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <type_traits>
+
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
+#include "runtime/primitive_type.h"
+#include "util/slice.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/unaligned.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
+struct uint24_t;
 
 namespace segment_v2 {
 

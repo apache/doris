@@ -74,6 +74,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("EndTime")
                     .add("DbName")
                     .add("TableName")
+                    .add("IsMultiTable")
                     .add("State")
                     .add("DataSourceType")
                     .add("CurrentTaskNum")

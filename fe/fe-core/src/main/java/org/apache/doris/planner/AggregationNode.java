@@ -28,7 +28,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TAggregationNode;
@@ -225,7 +224,7 @@ public class AggregationNode extends PlanNode {
 
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
-        sb.append(VectorizedUtil.isVectorized() ? "VAGGREGATE" : "AGGREGATE");
+        sb.append("VAGGREGATE");
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");

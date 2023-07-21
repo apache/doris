@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 
 namespace doris {

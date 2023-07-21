@@ -1,0 +1,1 @@
+SELECT * FROM tbl_scalar_types_dup_3keys where c_datetimev2 = '2023-01-10 15:40:04';

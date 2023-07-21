@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
@@ -160,8 +161,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExistsPath;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
@@ -200,6 +203,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskFirstN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MaskLastN;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Microsecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
@@ -275,16 +279,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StAngleSphere
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareKm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAreaSquareMeters;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsBinary;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StAsEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAstext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAswkt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StAzimuth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StCircle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StDistanceSphere;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomFromWKB;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromEWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKB;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
@@ -340,6 +341,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
 /** ScalarFunctionVisitor. */
 public interface ScalarFunctionVisitor<R, C> {
@@ -946,8 +949,16 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonObject, context);
     }
 
+    default R visitJsonExtract(JsonExtract jsonExtract, C context) {
+        return visitScalarFunction(jsonExtract, context);
+    }
+
     default R visitJsonQuote(JsonQuote jsonQuote, C context) {
         return visitScalarFunction(jsonQuote, context);
+    }
+
+    default R visitJsonUnQuote(JsonUnQuote jsonUnQuote, C context) {
+        return visitScalarFunction(jsonUnQuote, context);
     }
 
     default R visitJsonbExistsPath(JsonbExistsPath jsonbExistsPath, C context) {
@@ -1104,6 +1115,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMd5Sum(Md5Sum md5Sum, C context) {
         return visitScalarFunction(md5Sum, context);
+    }
+
+    default R visitMicrosecond(Microsecond microsecond, C context) {
+        return visitScalarFunction(microsecond, context);
     }
 
     default R visitMinute(Minute minute, C context) {
@@ -1446,24 +1461,12 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(stGeometryfromwkb, context);
     }
 
-    default R visitStGeometryfromewkb(StGeometryFromEWKB stGeometryfromewkb, C context) {
-        return visitScalarFunction(stGeometryfromewkb, context);
-    }
-
     default R visitStGeomfromwkb(StGeomFromWKB stGeomfromwkb, C context) {
         return visitScalarFunction(stGeomfromwkb, context);
     }
 
-    default R visitStGeomfromewkb(StGeomFromEWKB stGeomfromewkb, C context) {
-        return visitScalarFunction(stGeomfromewkb, context);
-    }
-
     default R visitStAsBinary(StAsBinary stAsBinary, C context) {
         return visitScalarFunction(stAsBinary, context);
-    }
-
-    default R visitStAsEWKB(StAsEWKB stAsEWKB, C context) {
-        return visitScalarFunction(stAsEWKB, context);
     }
 
     default R visitStartsWith(StartsWith startsWith, C context) {
@@ -1632,5 +1635,17 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitYearsDiff(YearsDiff yearsDiff, C context) {
         return visitScalarFunction(yearsDiff, context);
+    }
+
+    default R visitStateCombinator(StateCombinator combinator, C context) {
+        return visitScalarFunction(combinator, context);
+    }
+
+    default R visitJavaUdf(JavaUdf javaUdf, C context) {
+        return visitScalarFunction(javaUdf, context);
+    }
+
+    default R visitAliasUdf(AliasUdf aliasUdf, C context) {
+        return visitScalarFunction(aliasUdf, context);
     }
 }

@@ -17,17 +17,31 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
-#include <map>
+#include <memory>
 #include <orc/OrcFile.hh>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "io/fs/file_writer.h"
+#include "orc/Type.hh"
+#include "orc/Writer.hh"
 #include "vec/core/block.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vfile_result_writer.h"
+#include "vec/runtime/vparquet_writer.h"
+
+namespace doris {
+namespace io {
+class FileWriter;
+} // namespace io
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
+namespace orc {
+struct ColumnVectorBatch;
+} // namespace orc
 
 namespace doris::vectorized {
 
@@ -61,8 +75,8 @@ private:
 class VOrcWriterWrapper final : public VFileWriterWrapper {
 public:
     VOrcWriterWrapper(doris::io::FileWriter* file_writer,
-                      const std::vector<VExprContext*>& output_vexpr_ctxs,
-                      const std::string& schema, bool output_object_data);
+                      const VExprContextSPtrs& output_vexpr_ctxs, const std::string& schema,
+                      bool output_object_data);
 
     ~VOrcWriterWrapper() = default;
 
@@ -84,7 +98,14 @@ private:
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 
-    static constexpr size_t BUFFER_UNIT_SIZE = 4096;
+    // Buffer used by date/datetime/datev2/datetimev2/largeint type
+    // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
+    // The minimum value of largeint has 40 bytes after being converted to string(a negative number occupies a byte)
+    // The bytes of date/datetime/datev2/datetimev2 after converted to string are smaller than largeint
+    // Because a block is 4064 rows by default, here is 4064*40 bytes to BUFFER,
+    static constexpr size_t BUFFER_UNIT_SIZE = 4064 * 40;
+    // buffer reserves 40 bytes. The reserved space is just to prevent Headp-Buffer-Overflow
+    static constexpr size_t BUFFER_RESERVED_SIZE = 40;
 };
 
 } // namespace doris::vectorized

@@ -17,11 +17,18 @@
 
 #include "olap/base_tablet.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <ostream>
+#include <vector>
+
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
-#include "util/path_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -54,8 +61,8 @@ BaseTablet::~BaseTablet() {
 
 Status BaseTablet::set_tablet_state(TabletState state) {
     if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
-        LOG(WARNING) << "could not change tablet state from shutdown to " << state;
-        return Status::Error<META_INVALID_ARGUMENT>();
+        return Status::Error<META_INVALID_ARGUMENT>(
+                "could not change tablet state from shutdown to {}", state);
     }
     _tablet_meta->set_tablet_state(state);
     _state = state;

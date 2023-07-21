@@ -20,10 +20,11 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
 #include <map>
 #include <unordered_map>
 
-#include "gen_cpp/Types_types.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -74,7 +75,8 @@ V* find_or_insert(std::unordered_map<K, V>* m, const K& key, const V& default_va
 // is not present, return the supplied default value
 
 template <typename K, typename V>
-const V& find_with_default(const std::map<K, V>& m, const K& key, const V& default_val) {
+std::reference_wrapper<const V> find_with_default(const std::map<K, V>& m, const K& key,
+                                                  const V& default_val) {
     typename std::map<K, V>::const_iterator it = m.find(key);
 
     if (it == m.end()) {
@@ -85,7 +87,8 @@ const V& find_with_default(const std::map<K, V>& m, const K& key, const V& defau
 }
 
 template <typename K, typename V>
-const V& find_with_default(const std::unordered_map<K, V>& m, const K& key, const V& default_val) {
+std::reference_wrapper<const V> find_with_default(const std::unordered_map<K, V>& m, const K& key,
+                                                  const V& default_val) {
     typename std::unordered_map<K, V>::const_iterator it = m.find(key);
 
     if (it == m.end()) {

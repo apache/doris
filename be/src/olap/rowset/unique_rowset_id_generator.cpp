@@ -17,9 +17,12 @@
 
 #include "olap/rowset/unique_rowset_id_generator.h"
 
+#include <memory>
+#include <mutex>
+
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/spinlock.h"
-#include "util/stack_util.h"
 #include "util/uid_util.h"
 
 namespace doris {

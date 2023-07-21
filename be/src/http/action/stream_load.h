@@ -17,15 +17,10 @@
 
 #pragma once
 
-#include <gen_cpp/PlanNodes_types.h>
-
-#include <functional>
 #include <memory>
 #include <string>
 
 #include "http/http_handler.h"
-#include "runtime/client_cache.h"
-#include "runtime/message_body_sink.h"
 #include "util/metrics.h"
 
 namespace doris {

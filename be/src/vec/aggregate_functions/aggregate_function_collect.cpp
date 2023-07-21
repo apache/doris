@@ -17,6 +17,11 @@
 
 #include "vec/aggregate_functions/aggregate_function_collect.h"
 
+#include <fmt/format.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+#include <type_traits>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 

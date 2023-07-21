@@ -18,6 +18,7 @@
 suite("test_dup_tab_decimal_nullable") {
 
     def table1 = "test_dup_tab_decimal_nullable"
+    sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"
 
     sql "drop table if exists ${table1}"
 
@@ -46,7 +47,7 @@ PROPERTIES (
         (null,2,null,4)
 """
 
-    // query decimal
+// query decimal
     test {
         sql "select siteid from ${table1} order by siteid"
         result([[null],[1.10000],[1.10000],[2.10000],[3.10000],[4.10000]])

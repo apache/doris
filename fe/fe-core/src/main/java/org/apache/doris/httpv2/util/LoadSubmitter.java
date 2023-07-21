@@ -84,7 +84,7 @@ public class LoadSubmitter {
             // choose a backend to submit the stream load
             Backend be = selectOneBackend();
 
-            String hostPort = NetUtils.getHostPortInAccessibleFormat(be.getIp(), be.getHttpPort());
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort());
             String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, hostPort, loadContext.db, loadContext.tbl);
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();

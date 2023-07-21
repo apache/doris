@@ -31,6 +31,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.time.ZoneId;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.TimeZone;
@@ -55,12 +57,12 @@ public class TimeUtilsTest {
     @Test
     public void testNormal() {
         Assert.assertNotNull(TimeUtils.getCurrentFormatTime());
-        Assert.assertNotNull(TimeUtils.getStartTime());
-        Assert.assertTrue(TimeUtils.getEstimatedTime(0L) > 0);
+        Assert.assertNotNull(TimeUtils.getStartTimeMs());
+        Assert.assertTrue(TimeUtils.getElapsedTimeMs(0L) > 0);
 
-        Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATE.getTime());
+        Assert.assertEquals(-62135625600000L, TimeUtils.MIN_DATE.getTime());
         Assert.assertEquals(253402185600000L, TimeUtils.MAX_DATE.getTime());
-        Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATETIME.getTime());
+        Assert.assertEquals(-62135625600000L, TimeUtils.MIN_DATETIME.getTime());
         Assert.assertEquals(253402271999000L, TimeUtils.MAX_DATETIME.getTime());
     }
 
@@ -75,7 +77,7 @@ public class TimeUtilsTest {
         validDateList.add("9999-12-31");
         validDateList.add("1900-01-01");
         validDateList.add("2013-2-28");
-        validDateList.add("0000-01-01");
+        validDateList.add("0001-01-01");
         for (String validDate : validDateList) {
             try {
                 TimeUtils.parseDate(validDate, PrimitiveType.DATE);
@@ -114,7 +116,7 @@ public class TimeUtilsTest {
         validDateTimeList.add("2013-2-28 23:59:59");
         validDateTimeList.add("2013-2-28 2:3:4");
         validDateTimeList.add("2014-05-07 19:8:50");
-        validDateTimeList.add("0000-01-01 00:00:00");
+        validDateTimeList.add("0001-01-01 00:00:00");
         for (String validDateTime : validDateTimeList) {
             try {
                 TimeUtils.parseDate(validDateTime, PrimitiveType.DATETIME);
@@ -177,4 +179,28 @@ public class TimeUtilsTest {
         }
     }
 
+    @Test
+    public void testGetHourAsDate() {
+        Calendar calendar = Calendar.getInstance();
+        Date date = TimeUtils.getHourAsDate("1");
+        calendar.setTime(date);
+        Assert.assertEquals(1, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("10");
+        calendar.setTime(date);
+        Assert.assertEquals(10, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("24");
+        calendar.setTime(date);
+        Assert.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("05");
+        calendar.setTime(date);
+        Assert.assertEquals(5, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("0");
+        calendar.setTime(date);
+        Assert.assertEquals(0, calendar.get(Calendar.HOUR_OF_DAY));
+        date = TimeUtils.getHourAsDate("13");
+        calendar.setTime(date);
+        Assert.assertEquals(13, calendar.get(Calendar.HOUR_OF_DAY));
+        Assert.assertNull(TimeUtils.getHourAsDate("111"));
+        Assert.assertNull(TimeUtils.getHourAsDate("-1"));
+    }
 }

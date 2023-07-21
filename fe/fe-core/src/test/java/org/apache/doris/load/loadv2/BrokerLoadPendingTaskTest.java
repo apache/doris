@@ -75,7 +75,7 @@ public class BrokerLoadPendingTaskTest {
             }
         };
 
-        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc);
+        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc, LoadTask.Priority.NORMAL);
         brokerLoadPendingTask.executeTask();
         BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
         Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));

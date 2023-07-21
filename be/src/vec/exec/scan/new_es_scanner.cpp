@@ -17,7 +17,25 @@
 
 #include "vec/exec/scan/new_es_scanner.h"
 
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+#include "common/logging.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
+#include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exec/scan/new_es_scan_node.h"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+class VScanNode;
+} // namespace vectorized
+} // namespace doris
 
 static const std::string NEW_SCANNER_TYPE = "NewEsScanner";
 
@@ -40,9 +58,9 @@ NewEsScanner::NewEsScanner(RuntimeState* state, NewEsScanNode* parent, int64_t l
           _docvalue_context(docvalue_context),
           _doc_value_mode(doc_value_mode) {}
 
-Status NewEsScanner::prepare(RuntimeState* state, VExprContext** vconjunct_ctx_ptr) {
+Status NewEsScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     VLOG_CRITICAL << NEW_SCANNER_TYPE << "::prepare";
-    RETURN_IF_ERROR(VScanner::prepare(_state, vconjunct_ctx_ptr));
+    RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
 
     if (_is_init) {
         return Status::OK();

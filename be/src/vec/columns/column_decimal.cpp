@@ -20,15 +20,24 @@
 
 #include "vec/columns/column_decimal.h"
 
-#include "common/config.h"
+#include <fmt/format.h>
+
+#include <limits>
+#include <ostream>
+#include <string>
+
+#include "olap/decimal12.h"
+#include "runtime/decimalv2_value.h"
+#include "util/hash_util.hpp"
 #include "util/simd/bits.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/int_exp.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -129,6 +138,30 @@ void ColumnDecimal<T>::update_hashes_with_value(std::vector<SipHash>& hashes,
 }
 
 template <typename T>
+void ColumnDecimal<T>::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                             const uint8_t* __restrict null_data) const {
+    if (null_data == nullptr) {
+        for (size_t i = start; i < end; i++) {
+            if constexpr (!IsDecimalV2<T>) {
+                hash = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hash);
+            } else {
+                decimalv2_do_crc(i, hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                if constexpr (!IsDecimalV2<T>) {
+                    hash = HashUtil::zlib_crc_hash(&data[i], sizeof(T), hash);
+                } else {
+                    decimalv2_do_crc(i, hash);
+                }
+            }
+        }
+    }
+}
+
+template <typename T>
 void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                               const uint8_t* __restrict null_data) const {
     auto s = hashes.size();
@@ -137,23 +170,32 @@ void ColumnDecimal<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Pri
     if constexpr (!IsDecimalV2<T>) {
         DO_CRC_HASHES_FUNCTION_COLUMN_IMPL()
     } else {
-        DCHECK(type == TYPE_DECIMALV2);
-        auto decimalv2_do_crc = [&](size_t i) {
-            const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
-            int64_t int_val = dec_val.int_value();
-            int32_t frac_val = dec_val.frac_value();
-            hashes[i] = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hashes[i]);
-            hashes[i] = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hashes[i]);
-        };
-
         if (null_data == nullptr) {
             for (size_t i = 0; i < s; i++) {
-                decimalv2_do_crc(i);
+                decimalv2_do_crc(i, hashes[i]);
             }
         } else {
             for (size_t i = 0; i < s; i++) {
-                if (null_data[i] == 0) decimalv2_do_crc(i);
+                if (null_data[i] == 0) decimalv2_do_crc(i, hashes[i]);
             }
+        }
+    }
+}
+
+template <typename T>
+void ColumnDecimal<T>::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                                const uint8_t* __restrict null_data) const {
+    if (null_data) {
+        for (size_t i = start; i < end; i++) {
+            if (null_data[i] == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                  sizeof(T), hash);
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; i++) {
+            hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]), sizeof(T),
+                                              hash);
         }
     }
 }
@@ -248,7 +290,7 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
         DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
         for (int i = 0; i < num; i++) {
             const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = *(int64_t*)(cur_ptr);
+            int64_t int_value = unaligned_load<int64_t>(cur_ptr);
             int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
             target[i].from_olap_decimal(int_value, frac_value);
         }
@@ -398,18 +440,14 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                 size_t begin, int count_sz) const {
-    size_t size = count_sz < 0 ? data.size() : count_sz;
-    if (0 == size) return;
-
+void ColumnDecimal<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
+                                 IColumn& column) const {
     auto& res = reinterpret_cast<ColumnDecimal<T>&>(column);
     typename Self::Container& res_data = res.get_data();
-    res_data.reserve(target_size);
+    res_data.resize(target_size);
 
-    size_t end = size + begin;
-    for (size_t i = begin; i < end; ++i) {
-        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    for (size_t i = 0; i < target_size; ++i) {
+        res_data[i] = data[indexs[i]];
     }
 }
 

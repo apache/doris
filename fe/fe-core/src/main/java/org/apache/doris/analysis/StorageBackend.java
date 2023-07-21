@@ -101,6 +101,7 @@ public class StorageBackend implements ParseNode {
         HDFS("Hadoop Distributed File System"),
         LOCAL("Local file system"),
         OFS("Tencent CHDFS"),
+        GFS("Tencent Goose File System"),
         JFS("Juicefs"),
         STREAM("Stream load pipe");
 

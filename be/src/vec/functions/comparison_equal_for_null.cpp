@@ -15,12 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/compiler_util.h"
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/data_types/get_least_supertype.h"
-#include "vec/functions/function_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 // Operator <=>
@@ -39,7 +61,6 @@ public:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

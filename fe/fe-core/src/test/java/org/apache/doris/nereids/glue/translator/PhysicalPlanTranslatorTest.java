@@ -25,10 +25,10 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -38,6 +38,7 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import mockit.Injectable;
 import org.junit.jupiter.api.Assertions;
@@ -63,9 +64,9 @@ public class PhysicalPlanTranslatorTest {
         t1Output.add(col2);
         t1Output.add(col3);
         LogicalProperties t1Properties = new LogicalProperties(() -> t1Output);
-        PhysicalOlapScan scan = new PhysicalOlapScan(RelationUtil.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
+        PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
                 Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                Optional.empty(), t1Properties);
+                ImmutableList.of(), Optional.empty(), t1Properties);
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =

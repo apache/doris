@@ -148,7 +148,8 @@ public class AccessControllerManager {
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
+        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
+        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, qualifiedDb, wanted);
     }
 
     // ==== Table ====
@@ -172,7 +173,8 @@ public class AccessControllerManager {
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
+        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
+        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, qualifiedDb, tbl, wanted);
     }
 
     // ==== Column ====
@@ -210,6 +212,14 @@ public class AccessControllerManager {
 
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         return sysAccessController.checkResourcePriv(currentUser, resourceName, wanted);
+    }
+
+    public boolean checkWorkloadGroupPriv(ConnectContext ctx, String workloadGroupName, PrivPredicate wanted) {
+        return checkWorkloadGroupPriv(ctx.getCurrentUserIdentity(), workloadGroupName, wanted);
+    }
+
+    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        return sysAccessController.checkWorkloadGroupPriv(currentUser, workloadGroupName, wanted);
     }
 
     // ==== Other ====

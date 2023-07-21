@@ -17,18 +17,28 @@
 
 #include "runtime/routine_load/data_consumer.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/internal_service.pb.h>
+#include <librdkafka/rdkafkacpp.h>
+
 #include <algorithm>
-#include <functional>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
+#include "runtime/exec_env.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
+#include "util/blocking_queue.hpp"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
+#include "util/string_util.h"
 #include "util/uid_util.h"
 
 namespace doris {

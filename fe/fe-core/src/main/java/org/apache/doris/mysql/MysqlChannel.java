@@ -75,8 +75,19 @@ public class MysqlChannel {
 
     protected volatile MysqlSerializer serializer;
 
+    // mysql flag CLIENT_DEPRECATE_EOF
+    private boolean clientDeprecatedEOF;
+
     protected MysqlChannel() {
         // For DummyMysqlChannel
+    }
+
+    public void setClientDeprecatedEOF() {
+        clientDeprecatedEOF = true;
+    }
+
+    public boolean clientDeprecatedEOF() {
+        return clientDeprecatedEOF;
     }
 
     public MysqlChannel(StreamConnection connection) {

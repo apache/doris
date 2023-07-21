@@ -97,33 +97,6 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
-     * same as rewriteDownShortCircuit,
-     * except that subtrees, whose root satisfies predicate is satisfied, are not rewritten
-     */
-    default NODE_TYPE rewriteDownShortCircuitUp(Function<NODE_TYPE, NODE_TYPE> rewriteFunction, Predicate skip) {
-        NODE_TYPE currentNode = rewriteFunction.apply((NODE_TYPE) this);
-        if (skip.test(currentNode)) {
-            return currentNode;
-        }
-        if (currentNode == this) {
-            Builder<NODE_TYPE> newChildren = ImmutableList.builderWithExpectedSize(arity());
-            boolean changed = false;
-            for (NODE_TYPE child : children()) {
-                NODE_TYPE newChild = child.rewriteDownShortCircuitUp(rewriteFunction, skip);
-                if (child != newChild) {
-                    changed = true;
-                }
-                newChildren.add(newChild);
-            }
-
-            if (changed) {
-                currentNode = currentNode.withChildren(newChildren.build());
-            }
-        }
-        return currentNode;
-    }
-
-    /**
      * similar to rewriteDownShortCircuit, except that only subtrees, whose root satisfies
      * border predicate are rewritten.
      */

@@ -51,11 +51,11 @@ The columns in the results have the following meanings:
 
 ### Example
 
- 1. View the configuration of the current FE node
+1. View the configuration of the current FE node
 
-       ```sql
-       ADMIN SHOW FRONTEND CONFIG;
-       ```
+   ```sql
+   ADMIN SHOW FRONTEND CONFIG;
+   ```
 
 2. Use the like predicate to search the configuration of the current Fe node
 

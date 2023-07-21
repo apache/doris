@@ -269,8 +269,8 @@ suite("test_external_github", "p2") {
         GROUP BY repo_name
         ORDER BY count() DESC
         LIMIT 50"""
-    def repositoriesWithClickhouse_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%clickhouse%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
-    def repositoriesWithClickhouse_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */
+    def repositoriesWithClickhouse_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_pipeline_task_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%clickhouse%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
+    def repositoriesWithClickhouse_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_pipeline_task_num=8, query_timeout=600) */
             repo_name,
             sum(num_star) AS num_stars,
             sum(num_comment) AS num_comments
@@ -287,8 +287,8 @@ suite("test_external_github", "p2") {
         HAVING num_comments > 0
         ORDER BY num_stars DESC,num_comments DESC,repo_name ASC
         LIMIT 50"""
-    def repositoriesWithDoris_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%doris%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
-    def repositoriesWithDoris_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, query_timeout=600) */
+    def repositoriesWithDoris_related_comments1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_fragment_exec_instance_num=8, query_timeout=600) */repo_name, count() FROM github_eventsSUFFIX WHERE lower(body) LIKE '%doris%' GROUP BY repo_name ORDER BY count() DESC, repo_name ASC LIMIT 50"""
+    def repositoriesWithDoris_related_comments2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, parallel_fragment_exec_instance_num=8, query_timeout=600) */
             repo_name,
             sum(num_star) AS num_stars,
             sum(num_comment) AS num_comments
@@ -495,6 +495,11 @@ suite("test_external_github", "p2") {
         ORDER BY stars DESC
         LIMIT 50"""
 
+    def detail_test1 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, query_timeout=600) */commit_id from github_eventsSUFFIX WHERE event_type = 'CommitCommentEvent' AND commit_id != "" order by commit_id asc limit 10"""
+    def detail_test2 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, query_timeout=600) */commit_id from github_eventsSUFFIX WHERE event_type = 'CommitCommentEvent' AND commit_id != "" order by commit_id desc limit 10"""
+    def detail_test3 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, query_timeout=600) */commit_id from github_eventsSUFFIX WHERE event_type = 'CommitCommentEvent' AND commit_id is null order by commit_id limit 10"""
+    def detail_test4 = """SELECT /*+SET_VAR(exec_mem_limit=8589934592, query_timeout=600) */commit_id from github_eventsSUFFIX WHERE event_type = 'CommitCommentEvent' AND commit_id is null AND commit_id != "" order by commit_id limit 10"""
+
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
@@ -580,6 +585,10 @@ suite("test_external_github", "p2") {
             qt_57 whoAreAllThosePeopleGivingStars1.replace("SUFFIX", format)
             qt_58 whoAreAllThosePeopleGivingStars2.replace("SUFFIX", format)
             qt_59 whoAreAllThosePeopleGivingStars3.replace("SUFFIX", format)
+            qt_60 detail_test1.replace("SUFFIX", format)
+            qt_61 detail_test2.replace("SUFFIX", format)
+            qt_62 detail_test3.replace("SUFFIX", format)
+            qt_63 detail_test4.replace("SUFFIX", format)
         }
     }
 }

@@ -31,6 +31,8 @@ class Block;
 } // namespace vectorized
 
 class SchemaPartitionsScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
+
 public:
     SchemaPartitionsScanner();
     ~SchemaPartitionsScanner() override;

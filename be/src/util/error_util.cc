@@ -20,7 +20,8 @@
 
 #include "util/error_util.h"
 
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 
 #include <cstring>
 #include <sstream>

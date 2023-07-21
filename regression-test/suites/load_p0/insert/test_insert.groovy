@@ -48,4 +48,44 @@ suite("test_insert") {
     """
 
     qt_sql1 "select * from ${insert_tbl} order by 1, 2, 3, 4"
+
+    def insert_tbl_dft = "test_insert_dft_tbl"
+    sql """ DROP TABLE IF EXISTS ${insert_tbl_dft}"""
+    
+    // `k7` should be float type, and bug exists now, https://github.com/apache/doris/pull/20867
+    // `k9` should be char(16), and bug exists now as error msg raised:"can not cast from origin type TINYINT to target type=CHAR(16)" when doing insert
+    // "`k13` datetime default CURRENT_TIMESTAMP" might have cast error in strict mode when doing insert:
+    // [INTERNAL_ERROR]Invalid value in strict mode for function CAST, source column String, from type String to type DateTimeV2
+    sql """
+        CREATE TABLE ${insert_tbl_dft} (
+            `k1` boolean default "true",
+            `k2` tinyint default "10",
+            `k3` smallint default "10000",
+            `k4` int default "10000000",
+            `k5` bigint default "92233720368547758",
+            `k6` largeint default "19223372036854775807",
+            	  
+            `k8` double default "3.14159",
+
+            `k10` varchar(64) default "hello world, today is 15/06/2023",
+            `k11` date default "2023-06-15",
+            `k12` datetime default "2023-06-15 16:10:15" 
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+        PROPERTIES (
+            "replication_num"="1"
+        );
+    """
+    
+    sql """ set enable_nereids_planner=true """
+    sql """ set enable_nereids_dml=true """
+    sql """ insert into ${insert_tbl_dft} values() """
+
+    sql """ set enable_nereids_planner=false """
+    sql """ set enable_nereids_dml=false """
+    sql """ insert into ${insert_tbl_dft} values() """
+    
+    qt_select """ select k1,k2,k3,k4,k5,k6,k8,k10,k11,k12 from ${insert_tbl_dft} """
 }

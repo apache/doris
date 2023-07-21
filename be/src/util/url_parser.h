@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include "runtime/string_search.hpp"
 #include "vec/common/string_ref.h"
 
 namespace doris {
+class StringSearch;
 
 // TODO: For now, our parse_url may not behave exactly like Hive
 // when given malformed URLs.

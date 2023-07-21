@@ -28,7 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DorisHttpException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-import org.apache.doris.httpv2.util.HttpUtil;
+import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -92,8 +92,8 @@ public class TableQueryPlanAction extends RestBaseController {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
 
-        String postContent = HttpUtil.getBody(request);
         try {
+            String postContent = HttpUtils.getBody(request);
             // may be these common validate logic should be moved to one base class
             if (Strings.isNullOrEmpty(postContent)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");

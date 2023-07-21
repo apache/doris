@@ -56,6 +56,7 @@ enum PrimitiveType {
     TYPE_JSONB,           /* 31 */
     TYPE_VARIANT,         /* 32 */
     TYPE_LAMBDA_FUNCTION, /* 33 */
+    TYPE_AGG_STATE,       /* 34 */
 };
 
 }

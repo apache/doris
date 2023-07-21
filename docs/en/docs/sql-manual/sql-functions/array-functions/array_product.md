@@ -33,6 +33,10 @@ array_product
 
 ### description
 
+#### Syntax
+
+`T array_product(ARRAY<T> arr)`
+
 Get the product of all elements in an array (`NULL` values are skipped).
 When the array is empty or all elements in the array are `NULL` values, the function returns `NULL`.
 

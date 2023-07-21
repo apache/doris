@@ -30,6 +30,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Optional;
@@ -67,6 +68,15 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         );
     }
 
+    @Override
+    public JSONObject toJson() {
+        JSONObject physicalDistributeJson = super.toJson();
+        JSONObject properties = new JSONObject();
+        properties.put("DistributionSpec", distributionSpec.toString());
+        physicalDistributeJson.put("Properties", properties);
+        return physicalDistributeJson;
+    }
+
     public DistributionSpec getDistributionSpec() {
         return distributionSpec;
     }
@@ -95,9 +105,11 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
     }
 
     @Override
-    public PhysicalDistribute<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalDistribute<>(distributionSpec, Optional.empty(),
-                logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalDistribute<>(distributionSpec, groupExpression,
+                logicalProperties.get(), children.get(0));
     }
 
     @Override

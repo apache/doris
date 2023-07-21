@@ -83,7 +83,7 @@ public class ColumnRefExpr extends Expr {
 
     @Override
     protected String toSqlImpl() {
-        return columnName + "(" + columnId + ")";
+        return columnName;
     }
 
     @Override

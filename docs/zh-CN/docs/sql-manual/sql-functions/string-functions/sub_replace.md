@@ -26,7 +26,7 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR sub_replace(VARCHAR str, VARCHAR new_str, INT start [, INT len])`
+`VARCHAR sub_replace(VARCHAR str, VARCHAR new_str, INT start[, INT len])`
 
 返回用new_str字符串替换str中从start开始长度为len的新字符串。
 其中start,len为负整数，返回NULL, 且len的默认值为new_str的长度。

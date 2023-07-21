@@ -25,6 +25,7 @@ import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
@@ -32,12 +33,14 @@ import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.AuthorizationException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -51,6 +54,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapPrivsChecker;
+import org.apache.doris.ldap.LdapUserInfo;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
@@ -64,7 +68,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -123,7 +126,7 @@ public class Auth implements Writable {
     }
 
     public enum PrivLevel {
-        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE
+        GLOBAL, CATALOG, DATABASE, TABLE, RESOURCE, WORKLOAD_GROUP
     }
 
     public Auth() {
@@ -170,8 +173,9 @@ public class Auth implements Writable {
      */
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        if ((remoteUser.equals(ROOT_USER) || remoteUser.equals(ADMIN_USER)) && remoteHost.equals("127.0.0.1")) {
-            // root and admin user is allowed to login from 127.0.0.1, in case user forget password.
+        if ((ROOT_USER.equals(remoteUser) || ADMIN_USER.equals(remoteUser)) && Config.skip_localhost_auth_check
+                && "127.0.0.1".equals(remoteHost)) {
+            // in case user forget password.
             if (remoteUser.equals(ROOT_USER)) {
                 currentUser.add(UserIdentity.ROOT);
             } else {
@@ -225,6 +229,10 @@ public class Auth implements Writable {
         }
     }
 
+    public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
     // ==== Global ====
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         if (isLdapAuthEnabled() && LdapPrivsChecker.hasGlobalPrivFromLdap(currentUser, wanted)) {
@@ -246,6 +254,9 @@ public class Auth implements Writable {
 
     // ==== Catalog ====
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        if (isLdapAuthEnabled() && (LdapPrivsChecker.hasCatalogPrivFromLdap(currentUser, ctl, wanted))) {
+            return true;
+        }
         if (wanted.getPrivs().containsNodePriv()) {
             LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
                     currentUser, ctl);
@@ -268,8 +279,7 @@ public class Auth implements Writable {
 
     // ==== Database ====
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
-        if (isLdapAuthEnabled() && (LdapPrivsChecker.hasDbPrivFromLdap(currentUser, wanted) || LdapPrivsChecker
-                .hasPrivsOfDb(currentUser, db))) {
+        if (isLdapAuthEnabled() && LdapPrivsChecker.hasDbPrivFromLdap(currentUser, ctl, db, wanted)) {
             return true;
         }
         if (wanted.getPrivs().containsNodePriv()) {
@@ -294,7 +304,7 @@ public class Auth implements Writable {
 
     // ==== Table ====
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
-        if (isLdapAuthEnabled() && LdapPrivsChecker.hasTblPrivFromLdap(currentUser, db, tbl, wanted)) {
+        if (isLdapAuthEnabled() && LdapPrivsChecker.hasTblPrivFromLdap(currentUser, ctl, db, tbl, wanted)) {
             return true;
         }
         if (wanted.getPrivs().containsNodePriv()) {
@@ -347,13 +357,33 @@ public class Auth implements Writable {
         }
     }
 
+    // ==== Workload Group ====
+    public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
+        if (isLdapAuthEnabled() && LdapPrivsChecker.hasWorkloadGroupPrivFromLdap(currentUser, workloadGroupName,
+                wanted)) {
+            return true;
+        }
+        readLock();
+        try {
+            Set<String> roles = userRoleManager.getRolesByUser(currentUser);
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName).checkWorkloadGroupPriv(workloadGroupName, wanted)) {
+                    return true;
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
     // ==== Other ====
     /*
      * Check if current user has certain privilege.
      * This method will check the given privilege levels
      */
     public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
-        if (isLdapAuthEnabled() && checkHasPrivLdap(ctx.getCurrentUserIdentity(), priv, levels)) {
+        if (isLdapAuthEnabled() && LdapPrivsChecker.checkHasPriv(ctx.getCurrentUserIdentity(), priv, levels)) {
             return true;
         }
         readLock();
@@ -368,31 +398,6 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    private boolean checkHasPrivLdap(UserIdentity currentUser, PrivPredicate priv, PrivLevel... levels) {
-        for (PrivLevel privLevel : levels) {
-            switch (privLevel) {
-                case GLOBAL:
-                    if (LdapPrivsChecker.hasGlobalPrivFromLdap(currentUser, priv)) {
-                        return true;
-                    }
-                    break;
-                case DATABASE:
-                    if (LdapPrivsChecker.hasDbPrivFromLdap(currentUser, priv)) {
-                        return true;
-                    }
-                    break;
-                case TABLE:
-                    if (LdapPrivsChecker.hasTblPrivFromLdap(currentUser, priv)) {
-                        return true;
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-        return false;
     }
 
     // Check if LDAP authentication is enabled.
@@ -524,6 +529,10 @@ public class Auth implements Writable {
             PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
                     true /* err on non exist */, false /* not replay */);
+        } else if (stmt.getWorkloadGroupPattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
+            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
+                    true /* err on non exist */, false /* not replay */);
         } else {
             grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
@@ -538,6 +547,10 @@ public class Auth implements Writable {
             } else if (privInfo.getResourcePattern() != null) {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
                         privInfo.getResourcePattern(), privInfo.getPrivs(),
+                        true /* err on non exist */, true /* is replay */);
+            } else if (privInfo.getWorkloadGroupPattern() != null) {
+                grantInternal(privInfo.getUserIdent(), privInfo.getRole(),
+                        privInfo.getWorkloadGroupPattern(), privInfo.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
             } else {
                 grantInternal(privInfo.getUserIdent(), privInfo.getRoles(), true);
@@ -589,6 +602,27 @@ public class Auth implements Writable {
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
             LOG.info("finished to grant resource privilege. is replay: {}", isReplay);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void grantInternal(UserIdentity userIdent, String role, WorkloadGroupPattern workloadGroupPattern,
+            PrivBitSet privs, boolean errOnNonExist, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (role == null) {
+                role = roleManager.getUserDefaultRoleName(userIdent);
+            }
+
+            Role newRole = new Role(role, workloadGroupPattern, privs);
+            roleManager.addOrMergeRole(newRole, false /* err on exist */);
+
+            if (!isReplay) {
+                PrivInfo info = new PrivInfo(userIdent, workloadGroupPattern, privs, null, role);
+                Env.getCurrentEnv().getEditLog().logGrantPriv(info);
+            }
+            LOG.info("finished to grant workload group privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -647,6 +681,10 @@ public class Auth implements Writable {
             PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
             revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
                     true /* err on non exist */, false /* is replay */);
+        } else if (stmt.getWorkloadGroupPattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
+            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
+                    true /* err on non exist */, false /* is replay */);
         } else {
             revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
@@ -659,6 +697,9 @@ public class Auth implements Writable {
                         true /* err on non exist */, true /* is replay */);
             } else if (info.getResourcePattern() != null) {
                 revokeInternal(info.getUserIdent(), info.getRole(), info.getResourcePattern(), info.getPrivs(),
+                        true /* err on non exist */, true /* is replay */);
+            } else if (info.getWorkloadGroupPattern() != null) {
+                revokeInternal(info.getUserIdent(), info.getRole(), info.getWorkloadGroupPattern(), info.getPrivs(),
                         true /* err on non exist */, true /* is replay */);
             } else {
                 revokeInternal(info.getUserIdent(), info.getRoles(), false);
@@ -701,6 +742,27 @@ public class Auth implements Writable {
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
+                Env.getCurrentEnv().getEditLog().logRevokePriv(info);
+            }
+            LOG.info("finished to revoke privilege. is replay: {}", isReplay);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void revokeInternal(UserIdentity userIdent, String role, WorkloadGroupPattern workloadGroupPattern,
+            PrivBitSet privs, boolean errOnNonExist, boolean isReplay) throws DdlException {
+        writeLock();
+        try {
+            if (role == null) {
+                role = roleManager.getUserDefaultRoleName(userIdent);
+            }
+
+            // revoke privs from role
+            roleManager.revokePrivs(role, workloadGroupPattern, privs, errOnNonExist);
+
+            if (!isReplay) {
+                PrivInfo info = new PrivInfo(userIdent, workloadGroupPattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
             LOG.info("finished to revoke privilege. is replay: {}", isReplay);
@@ -785,6 +847,10 @@ public class Auth implements Writable {
     public void replaySetLdapPassword(LdapInfo info) {
         ldapInfo = info;
         LOG.debug("finish replaying ldap admin password.");
+    }
+
+    public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
+        ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
     }
 
     // create role
@@ -960,6 +1026,24 @@ public class Auth implements Writable {
         }
     }
 
+    public String getWorkloadGroup(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getWorkloadGroup(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Pair<Boolean, String> isWorkloadGroupInUse(String groupName) {
+        readLock();
+        try {
+            return propertyMgr.isWorkloadGroupInUse(groupName);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
@@ -1012,17 +1096,24 @@ public class Auth implements Writable {
     private void getUserAuthInfo(List<List<String>> userAuthInfos, UserIdentity userIdent) {
         // AuthProcDir.TITLE_NAMES
         List<String> userAuthInfo = Lists.newArrayList();
-        User user = userManager.getUserByUserIdentity(userIdent);
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
-        // ============== Password ==============
-        userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
-        // ============== Roles ==============
-        userAuthInfo.add(Joiner.on(",").join(userRoleManager
-                .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
+            LdapUserInfo ldapUserInfo = ldapManager.getUserInfo(userIdent.getQualifiedUser());
+            // ============== Password ==============
+            userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
+            // ============== Roles ==============
+            userAuthInfo.add(ldapUserInfo.getPaloRole().getRoleName());
+        } else {
+            User user = userManager.getUserByUserIdentity(userIdent);
+            // ============== Password ==============
+            userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+            // ============== Roles ==============
+            userAuthInfo.add(Joiner.on(",").join(userRoleManager
+                    .getRolesByUser(userIdent, ConnectContext.get().getSessionVariable().showUserDefaultRole)));
+        }
         // ==============GlobalPrivs==============
-        PrivBitSet ldapGlobalPrivs = LdapPrivsChecker.getGlobalPrivFromLdap(userIdent);
-        PrivBitSet globalPrivs = ldapGlobalPrivs.copy();
+        PrivBitSet globalPrivs = new PrivBitSet();
         List<PrivEntry> globalEntries = getUserGlobalPrivTable(userIdent).entries;
         if (!CollectionUtils.isEmpty(globalEntries)) {
             globalPrivs.or(globalEntries.get(0).privSet);
@@ -1031,7 +1122,7 @@ public class Auth implements Writable {
         // ============== CatalogPrivs ========================
         String ctlPrivs = getUserCtlPrivTable(userIdent).entries.stream()
                 .map(entry -> String.format("%s: %s",
-                        ((CatalogPrivEntry) entry).getOrigCtl(), entry.privSet, user.isSetByDomainResolver()))
+                        ((CatalogPrivEntry) entry).getOrigCtl(), entry.privSet))
                 .collect(Collectors.joining("; "));
         if (Strings.isNullOrEmpty(ctlPrivs)) {
             ctlPrivs = FeConstants.null_string;
@@ -1039,28 +1130,11 @@ public class Auth implements Writable {
         userAuthInfo.add(ctlPrivs);
         // ============== DatabasePrivs ==============
         List<String> dbPrivs = Lists.newArrayList();
-        Set<String> addedDbs = Sets.newHashSet();
         for (PrivEntry entry : getUserDbPrivTable(userIdent).entries) {
             DbPrivEntry dEntry = (DbPrivEntry) entry;
-            /**
-             * Doris and Ldap may have different privs on one database.
-             * Merge these privs and add.
-             */
             PrivBitSet savedPrivs = dEntry.getPrivSet().copy();
-            savedPrivs.or(LdapPrivsChecker.getDbPrivFromLdap(userIdent, dEntry.getOrigDb()));
-            addedDbs.add(dEntry.getOrigDb());
             dbPrivs.add(String.format("%s.%s: %s", dEntry.getOrigCtl(), dEntry.getOrigDb(),
                     savedPrivs));
-        }
-        // Add privs from ldap groups that have not been added in Doris.
-        if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
-            Map<TablePattern, PrivBitSet> ldapDbPrivs = LdapPrivsChecker.getLdapAllDbPrivs(userIdent);
-            for (Entry<TablePattern, PrivBitSet> entry : ldapDbPrivs.entrySet()) {
-                if (!addedDbs.contains(entry.getKey().getQualifiedDb())) {
-                    dbPrivs.add(String.format("%s.%s: %s", entry.getKey().getQualifiedCtl(),
-                            entry.getKey().getQualifiedDb(), entry.getValue()));
-                }
-            }
         }
 
         if (dbPrivs.isEmpty()) {
@@ -1071,27 +1145,11 @@ public class Auth implements Writable {
 
         // tbl
         List<String> tblPrivs = Lists.newArrayList();
-        Set<String> addedtbls = Sets.newHashSet();
         for (PrivEntry entry : getUserTblPrivTable(userIdent).entries) {
             TablePrivEntry tEntry = (TablePrivEntry) entry;
-            /**
-             * Doris and Ldap may have different privs on one table.
-             * Merge these privs and add.
-             */
             PrivBitSet savedPrivs = tEntry.getPrivSet().copy();
-            savedPrivs.or(LdapPrivsChecker.getTblPrivFromLdap(userIdent, tEntry.getOrigDb(), tEntry.getOrigTbl()));
-            addedtbls.add(tEntry.getOrigDb().concat(".").concat(tEntry.getOrigTbl()));
             tblPrivs.add(String.format("%s.%s.%s: %s", tEntry.getOrigCtl(), tEntry.getOrigDb(),
                     tEntry.getOrigTbl(), savedPrivs));
-        }
-        // Add privs from ldap groups that have not been added in Doris.
-        if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
-            Map<TablePattern, PrivBitSet> ldapTblPrivs = LdapPrivsChecker.getLdapAllTblPrivs(userIdent);
-            for (Entry<TablePattern, PrivBitSet> entry : ldapTblPrivs.entrySet()) {
-                if (!addedtbls.contains(entry.getKey().getQualifiedDb().concat(".").concat(entry.getKey().getTbl()))) {
-                    tblPrivs.add(String.format("%s: %s", entry.getKey(), entry.getValue()));
-                }
-            }
         }
 
         if (tblPrivs.isEmpty()) {
@@ -1102,32 +1160,33 @@ public class Auth implements Writable {
 
         // resource
         List<String> resourcePrivs = Lists.newArrayList();
-        Set<String> addedResources = Sets.newHashSet();
         for (PrivEntry entry : getUserResourcePrivTable(userIdent).entries) {
             ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
-            /**
-             * Doris and Ldap may have different privs on one resource.
-             * Merge these privs and add.
-             */
             PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
             savedPrivs.or(LdapPrivsChecker.getResourcePrivFromLdap(userIdent, rEntry.getOrigResource()));
-            addedResources.add(rEntry.getOrigResource());
             resourcePrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString());
-        }
-        // Add privs from ldap groups that have not been added in Doris.
-        if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
-            Map<ResourcePattern, PrivBitSet> ldapResourcePrivs = LdapPrivsChecker.getLdapAllResourcePrivs(userIdent);
-            for (Entry<ResourcePattern, PrivBitSet> entry : ldapResourcePrivs.entrySet()) {
-                if (!addedResources.contains(entry.getKey().getResourceName())) {
-                    tblPrivs.add(entry.getKey().getResourceName().concat(": ").concat(entry.getValue().toString()));
-                }
-            }
         }
 
         if (resourcePrivs.isEmpty()) {
             userAuthInfo.add(FeConstants.null_string);
         } else {
             userAuthInfo.add(Joiner.on("; ").join(resourcePrivs));
+        }
+
+        // workload group
+        List<String> workloadGroupPrivs = Lists.newArrayList();
+        for (PrivEntry entry : getUserWorkloadGroupPrivTable(userIdent).entries) {
+            WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
+            PrivBitSet savedPrivs = workloadGroupPrivEntry.getPrivSet().copy();
+            savedPrivs.or(LdapPrivsChecker.getWorkloadGroupPrivFromLdap(userIdent,
+                    workloadGroupPrivEntry.getOrigWorkloadGroupName()));
+            workloadGroupPrivs.add(workloadGroupPrivEntry.getOrigWorkloadGroupName() + ": " + savedPrivs);
+        }
+
+        if (workloadGroupPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(workloadGroupPrivs));
         }
 
         userAuthInfos.add(userAuthInfo);
@@ -1139,6 +1198,9 @@ public class Auth implements Writable {
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getGlobalPrivTable());
         }
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getGlobalPrivTable());
+        }
         return table;
     }
 
@@ -1147,6 +1209,9 @@ public class Auth implements Writable {
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getCatalogPrivTable());
+        }
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getCatalogPrivTable());
         }
         return table;
     }
@@ -1157,6 +1222,9 @@ public class Auth implements Writable {
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getDbPrivTable());
         }
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getDbPrivTable());
+        }
         return table;
     }
 
@@ -1166,6 +1234,9 @@ public class Auth implements Writable {
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getTablePrivTable());
         }
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getTablePrivTable());
+        }
         return table;
     }
 
@@ -1174,6 +1245,22 @@ public class Auth implements Writable {
         Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roles) {
             table.merge(roleManager.getRole(roleName).getResourcePrivTable());
+        }
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
+            table.merge(ldapManager.getUserRole(userIdentity.getQualifiedUser()).getResourcePrivTable());
+        }
+        return table;
+    }
+
+    private WorkloadGroupPrivTable getUserWorkloadGroupPrivTable(UserIdentity userIdentity) {
+        WorkloadGroupPrivTable table = new WorkloadGroupPrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getWorkloadGroupPrivTable());
+        }
+        if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdentity.getQualifiedUser())) {
+            table.merge(
+                    ldapManager.getUserRole(userIdentity.getQualifiedUser()).getWorkloadGroupPrivTable());
         }
         return table;
     }

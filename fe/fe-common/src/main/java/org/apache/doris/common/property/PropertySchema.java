@@ -25,8 +25,10 @@ import com.google.common.collect.ImmutableMap;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Optional;
@@ -224,14 +226,14 @@ public abstract class PropertySchema<T> {
     }
 
     public static final class DateProperty extends PropertySchema<Date> {
-        SimpleDateFormat dateFormat;
+        DateTimeFormatter dateFormat;
 
-        public DateProperty(String name, SimpleDateFormat dateFormat) {
+        public DateProperty(String name, DateTimeFormatter dateFormat) {
             super(name);
             this.dateFormat = dateFormat;
         }
 
-        DateProperty(String name, SimpleDateFormat dateFormat, boolean isRequired) {
+        DateProperty(String name, DateTimeFormatter dateFormat, boolean isRequired) {
             super(name, isRequired);
             this.dateFormat = dateFormat;
         }
@@ -266,15 +268,15 @@ public abstract class PropertySchema<T> {
 
         public Date readTimeFormat(String timeStr) throws IllegalArgumentException {
             try {
-                return this.dateFormat.parse(timeStr);
-            } catch (ParseException e) {
+                return Date.from(LocalDateTime.parse(timeStr, dateFormat).atZone(ZoneId.systemDefault()).toInstant());
+            } catch (DateTimeParseException e) {
                 throw new IllegalArgumentException("Invalid time format, time param need "
-                        + "to be " + this.dateFormat.toPattern());
+                        + "to be " + this.dateFormat.toString());
             }
         }
 
         public String writeTimeFormat(Date timeDate) throws IllegalArgumentException {
-            return this.dateFormat.format(timeDate.getTime());
+            return LocalDateTime.ofInstant(timeDate.toInstant(), ZoneId.systemDefault()).format(this.dateFormat);
         }
     }
 

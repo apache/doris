@@ -17,21 +17,27 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
 #include <vector>
 
+#include "common/status.h"
+#include "io/io_common.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/rowid_conversion.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/utils.h"
-#include "rowset/rowset_id_generator.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
-class DataDir;
-class Merger;
+class MemTrackerLimiter;
+class RowsetWriter;
 
 // This class is a base class for compaction.
 // The entrance of this class is compact()
@@ -56,6 +62,8 @@ public:
     RowsetSharedPtr output_rowset();
 #endif
 
+    RuntimeProfile* runtime_profile() const { return _profile.get(); }
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
@@ -67,7 +75,7 @@ protected:
     virtual Status modify_rowsets(const Merger::Statistics* stats = nullptr);
     void gc_output_rowset();
 
-    Status construct_output_rowset_writer(bool is_vertical = false);
+    Status construct_output_rowset_writer(RowsetWriterContext& ctx, bool is_vertical = false);
     Status construct_input_rowset_readers();
 
     Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
@@ -83,6 +91,11 @@ protected:
     Status do_compact_ordered_rowsets();
     bool is_rowset_tidy(std::string& pre_max_key, const RowsetSharedPtr& rhs);
     void build_basic_info();
+
+    void init_profile(const std::string& label);
+
+private:
+    bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
 protected:
     // the root tracker for this compaction
@@ -108,6 +121,19 @@ protected:
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;
+
+    std::unique_ptr<RuntimeProfile> _profile;
+
+    RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
+    RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
+    RuntimeProfile::Counter* _input_row_num_counter = nullptr;
+    RuntimeProfile::Counter* _input_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _merged_rows_counter = nullptr;
+    RuntimeProfile::Counter* _filtered_rows_counter = nullptr;
+    RuntimeProfile::Counter* _output_rowset_data_size_counter = nullptr;
+    RuntimeProfile::Counter* _output_row_num_counter = nullptr;
+    RuntimeProfile::Counter* _output_segments_num_counter = nullptr;
+    RuntimeProfile::Counter* _merge_rowsets_latency_timer = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

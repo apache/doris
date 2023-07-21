@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mv_with_view") {
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """

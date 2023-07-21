@@ -26,9 +26,11 @@ suite("basic_agg_test", "types") {
 
     qt_sql_bitmap """select * from bitmap_basic_agg;"""
 
-    qt_sql_hll """select * from hll_basic_agg;"""
+    qt_sql_hll """select * from hll_basic_agg order by k1;"""
 
     qt_sql_hll_cardinality """select k1, hll_cardinality(hll_union(k2)) from hll_basic_agg group by k1 order by k1;"""
+
+    qt_sql_hll_cardinality2 """select k1, hll_cardinality(hll_raw_agg(k2)) from hll_basic_agg group by k1 order by k1;"""
 
     qt_sql_quantile_state """select * from quantile_state_basic_agg;"""
 

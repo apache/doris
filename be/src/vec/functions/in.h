@@ -18,17 +18,42 @@
 
 #pragma once
 
-#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "common/status.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -71,12 +96,13 @@ public:
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);
-        if (context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_CHAR ||
-            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_VARCHAR ||
-            context->get_arg_type(0)->type == doris::PrimitiveType::TYPE_STRING) {
+        if (context->get_arg_type(0)->type == PrimitiveType::TYPE_NULL) {
+            state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0));
+        } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_CHAR ||
+                   context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
+                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
             state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
-
         } else {
             state->hybrid_set.reset(create_set(context->get_arg_type(0)->type,
                                                (size_t)(context->get_num_args() - 1)));
@@ -115,7 +141,6 @@ public:
         col_null_map_to = ColumnUInt8::create(input_rows_count, false);
         auto& vec_null_map_to = col_null_map_to->get_data();
 
-        /// First argument may be a single column.
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
         const auto& [materialized_column, col_const] = unpack_if_const(left_arg.column);
 
@@ -123,14 +148,14 @@ public:
             if (materialized_column->is_nullable()) {
                 auto* null_col_ptr = vectorized::check_and_get_column<vectorized::ColumnNullable>(
                         materialized_column);
-                auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+                auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                          null_col_ptr->get_null_map_column())
                                          .get_data();
                 auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {
                     const auto* column_string_ptr =
-                            reinterpret_cast<const vectorized::ColumnString*>(nested_col_ptr);
+                            assert_cast<const vectorized::ColumnString*>(nested_col_ptr);
                     search_hash_set_check_null(in_state, input_rows_count, vec_res, null_map,
                                                column_string_ptr);
                 } else {
@@ -152,8 +177,7 @@ public:
             } else { // non-nullable
                 if (materialized_column->is_column_string()) {
                     const auto* column_string_ptr =
-                            reinterpret_cast<const vectorized::ColumnString*>(
-                                    materialized_column.get());
+                            assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
                 } else {
                     search_hash_set(in_state, input_rows_count, vec_res, materialized_column.get());

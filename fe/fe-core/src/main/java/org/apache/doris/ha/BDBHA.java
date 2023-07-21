@@ -91,11 +91,11 @@ public class BDBHA implements HAProtocol {
                     throw new Exception(status.toString());
                 }
             } catch (Exception e) {
-                LOG.error("fencing failed. tried {} times", i, e);
+                LOG.warn("fencing failed. tried {} times", i, e);
                 try {
                     Thread.sleep(2000);
                 } catch (InterruptedException e1) {
-                    LOG.warn("", e1);
+                    LOG.warn("fencing sleep exception:", e1);
                 }
             }
         }

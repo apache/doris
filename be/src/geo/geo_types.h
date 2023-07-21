@@ -21,8 +21,8 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
+#include "common/factory_creator.h"
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
 
@@ -53,7 +53,6 @@ public:
     static GeoShape* from_wkt(const char* data, size_t size, GeoParseStatus* status);
 
     static GeoShape* from_wkb(const char* data, size_t size, GeoParseStatus* status);
-    static GeoShape* from_ewkb(const char* data, size_t size, GeoParseStatus* status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
@@ -63,7 +62,6 @@ public:
     virtual bool contains(const GeoShape* rhs) const { return false; }
     virtual std::string to_string() const { return ""; }
     static std::string as_binary(GeoShape* rhs);
-    static std::string as_ewkb(GeoShape* rhs);
 
     static bool ComputeArea(GeoShape* rhs, double* angle, std::string square_unit);
 
@@ -73,6 +71,8 @@ protected:
 };
 
 class GeoPoint : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPoint);
+
 public:
     GeoPoint();
     ~GeoPoint() override;
@@ -109,6 +109,8 @@ private:
 };
 
 class GeoLine : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoLine);
+
 public:
     GeoLine();
     ~GeoLine() override;
@@ -134,12 +136,14 @@ private:
 };
 
 class GeoPolygon : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoPolygon);
+
 public:
     GeoPolygon();
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
-    GeoCoordinateListList* to_coords() const;
+    const std::unique_ptr<GeoCoordinateListList> to_coords() const;
 
     GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
     const S2Polygon* polygon() const { return _polygon.get(); }
@@ -160,6 +164,8 @@ private:
 };
 
 class GeoCircle : public GeoShape {
+    ENABLE_FACTORY_CREATOR(GeoCircle);
+
 public:
     GeoCircle();
     ~GeoCircle() override;

@@ -20,6 +20,15 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
 #include "util/bit_util.h"
 

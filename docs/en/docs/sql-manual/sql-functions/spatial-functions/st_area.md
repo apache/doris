@@ -28,9 +28,10 @@ under the License.
 
 ### Syntax
 
-`DOUBLE ST_Area_Square_Meters(GEOMETRY geo)`
-
-`DOUBLE ST_Area_Square_Km(GEOMETRY geo)`
+```sql
+DOUBLE ST_Area_Square_Meters(GEOMETRY geo)
+DOUBLE ST_Area_Square_Km(GEOMETRY geo)
+```
 
 ### description
 

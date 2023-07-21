@@ -18,7 +18,9 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
+#include "common/factory_creator.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -34,6 +36,8 @@ namespace doris {
  * At parent, it's used for topn runtime predicate.
 */
 class AcceptNullPredicate : public ColumnPredicate {
+    ENABLE_FACTORY_CREATOR(AcceptNullPredicate);
+
 public:
     AcceptNullPredicate(ColumnPredicate* nested)
             : ColumnPredicate(nested->column_id(), nested->opposite()), _nested {nested} {}
@@ -144,7 +148,9 @@ public:
 
     bool evaluate_and(const BloomFilter* bf) const override { return _nested->evaluate_and(bf); }
 
-    bool can_do_bloom_filter() const override { return _nested->can_do_bloom_filter(); }
+    bool can_do_bloom_filter(bool ngram) const override {
+        return _nested->can_do_bloom_filter(ngram);
+    }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
                       bool* flags) const override {
@@ -201,7 +207,7 @@ private:
         return "passnull predicate for " + _nested->debug_string();
     }
 
-    ColumnPredicate* _nested;
+    std::unique_ptr<ColumnPredicate> _nested;
 };
 
 } //namespace doris

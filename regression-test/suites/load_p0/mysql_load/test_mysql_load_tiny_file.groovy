@@ -37,13 +37,25 @@ suite("test_mysql_load_tiny_file", "p0") {
     def test_mysql_load_tiny_file = getLoalFilePath "test_mysql_load_tiny_file.csv"
 
     for (int i = 0; i < 20; i++) {
-        sql """
-            LOAD DATA 
-            LOCAL
-            INFILE '${test_mysql_load_tiny_file}'
-            INTO TABLE ${tableName}
-            COLUMNS TERMINATED BY '\t';
-        """
+        test {
+            sql """
+                LOAD DATA 
+                LOCAL
+                INFILE '${test_mysql_load_tiny_file}'
+                INTO TABLE ${tableName}
+                COLUMNS TERMINATED BY '\\t';
+            """
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    // skip publish timeout
+                    if (exception.getMessage().contains("PUBLISH_TIMEOUT")) {
+                        logger.info(exception.getMessage())
+                        return
+                    }
+                    throw exception
+                }
+            }
+        }
     }
 
     sql "sync"

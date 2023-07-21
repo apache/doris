@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/olap_file.pb.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <gflags/gflags.h>
 
 #include <filesystem>
@@ -25,8 +27,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/segment_v2.pb.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"

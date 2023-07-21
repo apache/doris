@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -78,6 +79,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -105,6 +107,14 @@ public class DatabaseTransactionMgr {
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
+
+    /**
+     * the multi table ids that are in transaction, used to check whether a table is in transaction
+     * multi table transaction state
+     * txnId -> tableId list
+     */
+    private final ConcurrentHashMap<Long, List<Long>> multiTableRunningTransactionTableIdMaps =
+            new ConcurrentHashMap<>();
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
@@ -566,10 +576,10 @@ public class DatabaseTransactionMgr {
                         if (successReplicaNum < quorumReplicaNum) {
                             LOG.warn("Failed to commit txn [{}]. "
                                             + "Tablet [{}] success replica num is {} < quorum replica num {} "
-                                            + "while error backends {} error replica info {}",
+                                            + "while error backends {} error replica info {} commitBackends {}",
                                     transactionState.getTransactionId(), tablet.getId(), successReplicaNum,
                                     quorumReplicaNum, Joiner.on(",").join(errorBackendIdsForTablet),
-                                    errorReplicaInfo);
+                                    errorReplicaInfo, commitBackends);
                             throw new TabletQuorumFailedException(transactionState.getTransactionId(), tablet.getId(),
                                     successReplicaNum, quorumReplicaNum,
                                     errorBackendIdsForTablet);
@@ -859,6 +869,7 @@ public class DatabaseTransactionMgr {
         // a blocking function, the returned result would be the existed table list which hold write lock
         Database db = env.getInternalCatalog().getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
+        LOG.debug("finish transaction {} with tables {}", transactionId, tableIdList);
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         try {
@@ -928,9 +939,14 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
+                                if (!errorReplicaIds.contains(replica.getId())) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                         ++healthReplicaNum;
+                                    } else {
+                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
+                                                 + " on replica {} due to not catchup",
+                                                 partitionCommitInfo.getVersion(), transactionState, tablet,
+                                                 replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction
@@ -938,13 +954,18 @@ public class DatabaseTransactionMgr {
                                     // TODO(cmy): actually I have no idea why we need this check
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
+                                } else {
+                                    LOG.info("publish version {} failed for transaction {} on tablet {},"
+                                             + " on replica {} due to version hole or error",
+                                             partitionCommitInfo.getVersion(), transactionState, tablet, replica);
                                 }
                             }
 
                             if (healthReplicaNum < quorumReplicaNum) {
-                                LOG.info("publish version failed for transaction {} on tablet {},"
+                                LOG.info("publish version {} failed for transaction {} on tablet {},"
                                                 + " with only {} replicas less than quorum {}",
-                                        transactionState, tablet, healthReplicaNum, quorumReplicaNum);
+                                         partitionCommitInfo.getVersion(), transactionState, tablet, healthReplicaNum,
+                                         quorumReplicaNum);
                                 String errMsg = String.format("publish on tablet %d failed."
                                                 + " succeed replica num %d less than quorum %d."
                                                 + " table: %d, partition: %d, publish version: %d",
@@ -1007,8 +1028,15 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, -1, -1);
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange, -1, -1);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
             }
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
@@ -1040,10 +1068,16 @@ public class DatabaseTransactionMgr {
         transactionState.setErrorReplicas(errorReplicaIds);
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            PartitionInfo tblPartitionInfo = table.getPartitionInfo();
             for (long partitionId : tableToPartition.get(tableId)) {
-                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 Partition partition = table.getPartition(partitionId);
-                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
+                String partitionRange = "";
+                if (tblPartitionInfo.getType() == PartitionType.RANGE
+                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    partitionRange = tblPartitionInfo.getItem(partitionId).getItems().toString();
+                }
+                PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId, partitionRange,
                         partition.getNextVersion(),
                         System.currentTimeMillis() /* use as partition visible time */);
                 tableCommitInfo.addPartitionCommitInfo(partitionCommitInfo);
@@ -1303,7 +1337,7 @@ public class DatabaseTransactionMgr {
         Preconditions.checkState(transactionState.getTransactionStatus() == TransactionStatus.ABORTED);
         // for aborted transaction, we don't know which backends are involved, so we have to send clear task
         // to all backends.
-        List<Long> allBeIds = Env.getCurrentSystemInfo().getBackendIds(false);
+        List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
         AgentBatchTask batchTask = null;
         synchronized (clearTransactionTasks) {
             for (Long beId : allBeIds) {
@@ -1614,10 +1648,7 @@ public class DatabaseTransactionMgr {
                             long newVersion = newCommitVersion;
                             long lastSuccessVersion = replica.getLastSuccessVersion();
                             if (!errorReplicaIds.contains(replica.getId())) {
-                                if (replica.getLastFailedVersion() > 0) {
-                                    // if the replica is a failed replica, then not changing version
-                                    newVersion = replica.getVersion();
-                                } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
+                                if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                     // this means the replica has error in the past, but we did not observe it
                                     // during upgrade, one job maybe in quorum finished state, for example,
                                     // A,B,C 3 replica A,B 's version is 10, C's version is 10 but C' 10 is abnormal
@@ -1876,8 +1907,34 @@ public class DatabaseTransactionMgr {
         final StackTraceElement[] stackTrace = t.getStackTrace();
         StringBuilder msgBuilder = new StringBuilder();
         for (StackTraceElement e : stackTrace) {
-            msgBuilder.append(e.toString() + "\n");
+            msgBuilder.append(e.toString()).append("\n");
         }
         return msgBuilder.toString();
+    }
+
+    public void putTransactionTableNames(long transactionId, List<Long> tableIds) {
+        if (CollectionUtils.isEmpty(tableIds)) {
+            return;
+        }
+        if (multiTableRunningTransactionTableIdMaps.contains(transactionId)) {
+            multiTableRunningTransactionTableIdMaps.get(transactionId).addAll(tableIds);
+            return;
+        }
+        multiTableRunningTransactionTableIdMaps.put(transactionId, tableIds);
+    }
+
+    /**
+     * Update transaction table ids by transaction id.
+     * it's used for multi table transaction.
+     */
+    public void updateMultiTableRunningTransactionTableIds(long transactionId, List<Long> tableIds) {
+        if (CollectionUtils.isEmpty(tableIds)) {
+            return;
+        }
+        //idToRunningTransactionState.get(transactionId).
+        if (null == idToRunningTransactionState.get(transactionId)) {
+            return;
+        }
+        idToRunningTransactionState.get(transactionId).setTableIdList(tableIds);
     }
 }

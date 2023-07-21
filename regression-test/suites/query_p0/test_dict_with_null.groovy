@@ -42,5 +42,8 @@ suite("dict_with_null", "query") {
     insert_sql += ", (101, 'abc')"
 
     sql insert_sql
-    sql "select * from test_dict_with_null where c_string > '0'"
+    qt_sql1 "select * from test_dict_with_null where c_string > '0'"
+    qt_sql2 "select * from test_dict_with_null where c_string < 'dfg'"
+    qt_sql3 "select * from test_dict_with_null where c_string = 'abc'"
+    qt_sql4 "select * from test_dict_with_null where c_string is null order by c_int desc"
 }

@@ -271,7 +271,7 @@ public class CreateTableTest {
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find 3 backend(s) for policy",
+                .expectThrowsWithMsg(DdlException.class, "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                         () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                                 + "properties('replication_num' = '3');"));
@@ -288,7 +288,9 @@ public class CreateTableTest {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, " Failed to find 1 backend(s) for policy:",
+                .expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
+                                + "Create failed replications:\n"
+                                + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
@@ -713,5 +715,28 @@ public class CreateTableTest {
                     createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
                             + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
                 });
+    }
+
+    @Test
+    public void testCreateTableWithInMemory() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Not support set 'in_memory'='true' now!",
+                () -> {
+                    createTable("create table test.test_inmemory(k1 INT, k2 INT) duplicate key (k1) "
+                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');");
+                });
+    }
+
+    @Test
+    public void testCreateTableWithStringLen() throws DdlException  {
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
+                    + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
+        Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
+        Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
+        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
+        Assert.assertEquals(10, tb.getColumn("k4").getStrLen());
     }
 }

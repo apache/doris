@@ -17,22 +17,37 @@
 
 #pragma once
 
-#include <hs/hs.h>
+#include <hs/hs_common.h>
+#include <hs/hs_runtime.h>
+#include <re2/re2.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
 #include <functional>
 #include <memory>
+#include <string>
 
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/string_search.hpp"
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_set.h"
+#include "udf/udf.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
-#include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -123,8 +138,6 @@ public:
         return std::make_shared<DataTypeUInt8>();
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t /*input_rows_count*/) override;
 
@@ -138,6 +151,9 @@ protected:
     Status execute_substring(const ColumnString::Chars& values,
                              const ColumnString::Offsets& value_offsets,
                              ColumnUInt8::Container& result, LikeSearchState* search_state);
+
+    static Status constant_allpass_fn(LikeSearchState* state, const ColumnString& val,
+                                      const StringRef& pattern, ColumnUInt8::Container& result);
 
     static Status constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
                                           const StringRef& pattern, ColumnUInt8::Container& result);
@@ -169,6 +185,12 @@ protected:
                                       const StringRef& pattern, ColumnUInt8::Container& result,
                                       const uint16_t* sel, size_t sz);
 
+    static Status constant_allpass_fn_predicate(LikeSearchState* state,
+                                                const PredicateColumnType<TYPE_STRING>& val,
+                                                const StringRef& pattern,
+                                                ColumnUInt8::Container& result, const uint16_t* sel,
+                                                size_t sz);
+
     static Status constant_starts_with_fn_predicate(LikeSearchState* state,
                                                     const PredicateColumnType<TYPE_STRING>& val,
                                                     const StringRef& pattern,
@@ -192,6 +214,9 @@ protected:
                                                   const StringRef& pattern,
                                                   ColumnUInt8::Container& result,
                                                   const uint16_t* sel, size_t sz);
+
+    static Status constant_allpass_fn_scalar(LikeSearchState* state, const StringRef& val,
+                                             const StringRef& pattern, unsigned char* result);
 
     static Status constant_starts_with_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                  const StringRef& pattern, unsigned char* result);
@@ -249,6 +274,7 @@ private:
 class FunctionRegexp : public FunctionLikeBase {
 public:
     static constexpr auto name = "regexp";
+    static constexpr auto alias = "rlike";
 
     static FunctionPtr create() { return std::make_shared<FunctionRegexp>(); }
 

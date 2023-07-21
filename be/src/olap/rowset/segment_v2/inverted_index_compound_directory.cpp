@@ -18,10 +18,11 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 
 #include "CLucene/SharedHeader.h"
-#include "CLucene/StdHeader.h"
+#include "common/status.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
-#include "olap/iterators.h"
-#include "util/md5.h"
+#include "io/fs/path.h"
+#include "util/slice.h"
 
 #ifdef _CL_HAVE_IO_H
 #include <io.h>
@@ -35,12 +36,29 @@
 #ifdef _CL_HAVE_DIRECT_H
 #include <direct.h>
 #endif
+#include <CLucene/LuceneThreads.h>
+#include <CLucene/clucene-config.h>
+#include <CLucene/debug/error.h>
+#include <CLucene/debug/mem.h>
 #include <CLucene/index/IndexReader.h>
 #include <CLucene/index/IndexWriter.h>
 #include <CLucene/store/LockFactory.h>
+#include <CLucene/store/RAMDirectory.h>
 #include <CLucene/util/Misc.h>
 #include <assert.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <stdio.h>
+#include <string.h>
+#include <wchar.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <utility>
 
 #define CL_MAX_PATH 4096
 #define CL_MAX_DIR CL_MAX_PATH
@@ -262,6 +280,7 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
             error.set(CL_ERR_IO, "Could not open file");
         }
     }
+    delete h->_shared_lock;
     _CLDECDELETE(h)
     return false;
 }
@@ -329,6 +348,11 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
     std::lock_guard<doris::Mutex> wlock(*_handle->_shared_lock);
+
+    int64_t position = getFilePointer();
+    if (_pos != position) {
+        _pos = position;
+    }
 
     if (_handle->_fpos != _pos) {
         _handle->_fpos = _pos;
@@ -442,12 +466,7 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     bool doClearLockID = false;
 
     if (lock_factory == nullptr) {
-        if (disableLocks) {
-            lock_factory = lucene::store::NoLockFactory::getNoLockFactory();
-        } else {
-            lock_factory = _CLNEW lucene::store::FSLockFactory(directory.c_str(), this->filemode);
-            doClearLockID = true;
-        }
+        lock_factory = _CLNEW lucene::store::NoLockFactory();
     }
 
     setLockFactory(lock_factory);
@@ -456,7 +475,7 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
         lockFactory->setLockPrefix(nullptr);
     }
 
-    // It's meaningless checking directory existence in S3.
+    // It's fail checking directory existence in S3.
     if (fs->type() == io::FileSystemType::S3) {
         return;
     }
@@ -465,12 +484,12 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
     if (!status.ok()) {
         auto err = "File system error: " + status.to_string();
         LOG(WARNING) << err;
-        _CLTHROWA_DEL(CL_ERR_IO, err.c_str());
+        _CLTHROWA(CL_ERR_IO, err.c_str());
     }
     if (!exists) {
         auto e = "Doris compound directory init error: " + directory + " is not a directory";
         LOG(WARNING) << e;
-        _CLTHROWA_DEL(CL_ERR_IO, e.c_str());
+        _CLTHROWA(CL_ERR_IO, e.c_str());
     }
 }
 
@@ -563,7 +582,7 @@ DorisCompoundDirectory* DorisCompoundDirectory::getDirectory(
     bool exists = false;
     _fs->exists(file, &exists);
     if (!exists) {
-        mkdir(file, 0777);
+        _fs->create_directory(file);
     }
 
     dir = _CLNEW DorisCompoundDirectory();

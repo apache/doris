@@ -17,25 +17,57 @@
 
 #include "io/fs/s3_file_system.h"
 
+#include <aws/core/client/AWSError.h>
+#include <aws/core/http/HttpResponse.h>
+#include <aws/core/utils/Outcome.h>
+#include <aws/core/utils/memory/stl/AWSAllocator.h>
+#include <aws/core/utils/memory/stl/AWSMap.h>
+#include <aws/core/utils/memory/stl/AWSStreamFwd.h>
+#include <aws/core/utils/memory/stl/AWSString.h>
+#include <aws/core/utils/memory/stl/AWSStringStream.h>
+#include <aws/core/utils/memory/stl/AWSVector.h>
 #include <aws/core/utils/threading/Executor.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
 #include <aws/s3/model/CopyObjectRequest.h>
+#include <aws/s3/model/CopyObjectResult.h>
+#include <aws/s3/model/Delete.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectResult.h>
 #include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
+#include <aws/s3/model/Error.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
 #include <aws/s3/model/HeadObjectRequest.h>
+#include <aws/s3/model/HeadObjectResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
+#include <aws/s3/model/ListObjectsV2Result.h>
+#include <aws/s3/model/Object.h>
+#include <aws/s3/model/ObjectIdentifier.h>
 #include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/PutObjectResult.h>
+#include <aws/transfer/TransferHandle.h>
 #include <aws/transfer/TransferManager.h>
-#include <opentelemetry/common/threadlocal.h>
+#include <fmt/format.h>
+#include <stddef.h>
 
+#include <algorithm>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <filesystem>
-#include <fstream>
+#include <fstream> // IWYU pragma: keep
 #include <memory>
+#include <sstream>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/stringpiece.h"
-#include "io/cache/block/cached_remote_file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
@@ -102,13 +134,13 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer) {
     return Status::OK();
 }
 
-Status S3FileSystem::open_file_internal(const Path& file, int64_t file_size,
+Status S3FileSystem::open_file_internal(const FileDescription& fd, const Path& abs_path,
                                         FileReaderSPtr* reader) {
-    int64_t fsize = file_size;
+    int64_t fsize = fd.file_size;
     if (fsize < 0) {
-        RETURN_IF_ERROR(file_size_impl(file, &fsize));
+        RETURN_IF_ERROR(file_size_impl(abs_path, &fsize));
     }
-    GET_KEY(key, file);
+    GET_KEY(key, abs_path);
     auto fs_path = Path(_s3_conf.endpoint) / _s3_conf.bucket / key;
     *reader = std::make_shared<S3FileReader>(
             std::move(fs_path), fsize, std::move(key), _s3_conf.bucket,
@@ -212,8 +244,10 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         delete_request.SetDelete(std::move(del));
         auto delete_outcome = client->DeleteObjects(delete_request);
         if (UNLIKELY(!delete_outcome.IsSuccess())) {
-            return Status::IOError("failed to delete objects: {}",
-                                   error_msg(objects.front().GetKey(), delete_outcome));
+            return Status::IOError(
+                    "failed to delete objects: {}",
+                    error_msg(delete_request.GetDelete().GetObjects().front().GetKey(),
+                              delete_outcome));
         }
         if (UNLIKELY(!delete_outcome.GetResult().GetErrors().empty())) {
             const auto& e = delete_outcome.GetResult().GetErrors().front();
@@ -286,13 +320,11 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         }
         for (const auto& obj : outcome.GetResult().GetContents()) {
             std::string key = obj.GetKey();
-            bool is_dir = (key.at(key.size() - 1) == '/');
+            bool is_dir = (key.back() == '/');
             if (only_file && is_dir) {
                 continue;
             }
             FileInfo file_info;
-            // note: if full path is s3://bucket/path/to/file.txt
-            // obj.GetKey() will be /path/to/file.txt
             file_info.file_name = obj.GetKey().substr(prefix.size());
             file_info.file_size = obj.GetSize();
             file_info.is_file = !is_dir;
@@ -374,8 +406,9 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         handle->WaitUntilFinished();
         if (handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
             // TODO(cyx): Maybe we can cancel remaining handles.
-            return Status::IOError("failed to upload: {}",
-                                   error_msg("", handle->GetLastError().GetMessage()));
+            return Status::IOError(
+                    "failed to upload: {}",
+                    error_msg(handle->GetKey(), handle->GetLastError().GetMessage()));
         }
     }
     return Status::OK();

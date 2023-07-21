@@ -20,38 +20,59 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
  * Physical Union.
  */
-public class PhysicalUnion extends PhysicalSetOperation {
+public class PhysicalUnion extends PhysicalSetOperation implements Union {
+
+    // in doris, we use union node to present one row relation
+    private final List<List<NamedExpression>> constantExprsList;
 
     public PhysicalUnion(Qualifier qualifier,
-                         LogicalProperties logicalProperties,
-                         List<Plan> inputs) {
+            List<List<NamedExpression>> constantExprsList,
+            LogicalProperties logicalProperties,
+            List<Plan> inputs) {
         super(PlanType.PHYSICAL_UNION, qualifier, logicalProperties, inputs);
+        this.constantExprsList = ImmutableList.copyOf(
+                Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
     public PhysicalUnion(Qualifier qualifier,
-                         Optional<GroupExpression> groupExpression,
-                         LogicalProperties logicalProperties,
-                         List<Plan> inputs) {
+            List<List<NamedExpression>> constantExprsList,
+            Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties,
+            List<Plan> inputs) {
         super(PlanType.PHYSICAL_UNION, qualifier, groupExpression, logicalProperties, inputs);
+        this.constantExprsList = ImmutableList.copyOf(
+                Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
     }
 
-    public PhysicalUnion(Qualifier qualifier,
+    public PhysicalUnion(Qualifier qualifier, List<List<NamedExpression>> constantExprsList,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
         super(PlanType.PHYSICAL_UNION, qualifier,
                 groupExpression, logicalProperties, physicalProperties, statistics, inputs);
+        this.constantExprsList = ImmutableList.copyOf(
+                Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
+
+    }
+
+    public List<List<NamedExpression>> getConstantExprsList() {
+        return constantExprsList;
     }
 
     @Override
@@ -63,30 +84,31 @@ public class PhysicalUnion extends PhysicalSetOperation {
     public String toString() {
         return Utils.toSqlString("PhysicalUnion" + getGroupIdAsString(),
                 "qualifier", qualifier,
+                "constantExprsList", constantExprsList,
                 "stats", statistics);
     }
 
     @Override
     public PhysicalUnion withChildren(List<Plan> children) {
-        return new PhysicalUnion(qualifier, getLogicalProperties(), children);
+        return new PhysicalUnion(qualifier, constantExprsList, getLogicalProperties(), children);
     }
 
     @Override
     public PhysicalUnion withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalUnion(qualifier, groupExpression, getLogicalProperties(), children);
+        return new PhysicalUnion(qualifier, constantExprsList, groupExpression, getLogicalProperties(), children);
     }
 
     @Override
-    public PhysicalUnion withLogicalProperties(
-            Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalUnion(qualifier, Optional.empty(), logicalProperties.get(), children);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalUnion(qualifier, constantExprsList, groupExpression, logicalProperties.get(), children);
     }
 
     @Override
     public PhysicalUnion withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalUnion(qualifier, Optional.empty(),
+        return new PhysicalUnion(qualifier, constantExprsList, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, children);
     }
 }

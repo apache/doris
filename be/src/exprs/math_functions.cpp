@@ -22,12 +22,14 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
 #include <limits>
 #include <string_view>
 
-#include "common/compiler_util.h"
 #include "udf/udf.h"
 #include "util/string_parser.hpp"
 

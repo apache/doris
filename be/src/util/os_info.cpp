@@ -20,13 +20,7 @@
 
 #include "util/os_info.h"
 
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
 #include <fstream>
-#include <iostream>
-#include <sstream>
 
 namespace doris {
 

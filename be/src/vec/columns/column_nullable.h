@@ -20,14 +20,41 @@
 
 #pragma once
 
-#include "util/sse_util.hpp"
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
+#include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -186,8 +213,12 @@ public:
     size_t allocated_bytes() const override;
     void protect() override;
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;

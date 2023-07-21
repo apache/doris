@@ -76,42 +76,18 @@ public class MysqlProto {
             return null;
         }
 
-        // check cluster, user name may contains cluster name or cluster id.
-        // eg:
-        // user_name@cluster_name
-        String clusterName = "";
-        String[] strList = tmpUser.split("@", 2);
-        if (strList.length > 1) {
-            tmpUser = strList[0];
-            clusterName = strList[1];
-            try {
-                // if cluster does not exist and it is not a valid cluster id, authenticate failed
-                if (Env.getCurrentEnv().getCluster(clusterName) == null
-                        && Integer.valueOf(strList[1]) != context.getEnv().getClusterId()) {
-                    ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
-                    return null;
-                }
-            } catch (Throwable e) {
-                ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
-                return null;
-            }
-        }
-        if (Strings.isNullOrEmpty(clusterName)) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        context.setCluster(clusterName);
+        context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
 
-        // check resource group level. user name may contains resource group level.
+        // check workload group level. user name may contains workload group level.
         // eg:
         // ...@user_name#HIGH
-        // set resource group if it is valid, or just ignore it
-        strList = tmpUser.split("#", 2);
+        // set workload group if it is valid, or just ignore it
+        String[] strList = tmpUser.split("#", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];
         }
 
-        LOG.debug("parse cluster: {}", clusterName);
-        String qualifiedUser = ClusterNamespace.getFullName(clusterName, tmpUser);
+        String qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, tmpUser);
         context.setQualifiedUser(qualifiedUser);
         return qualifiedUser;
     }
@@ -216,12 +192,6 @@ public class MysqlProto {
                 channel.setSslMode(true);
                 LOG.debug("switch to ssl mode.");
                 handshakeResponse = channel.fetchOnePacket();
-                capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
-                if (!capability.isClientUseSsl()) {
-                    ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
-                    sendResponsePacket(context);
-                    return false;
-                }
             } else {
                 handshakeResponse = clientRequestPacket;
             }
@@ -232,6 +202,9 @@ public class MysqlProto {
         if (handshakeResponse == null) {
             // receive response failed.
             return false;
+        }
+        if (capability.isDeprecatedEOF()) {
+            context.getMysqlChannel().setClientDeprecatedEOF();
         }
         MysqlAuthPacket authPacket = new MysqlAuthPacket();
         if (!authPacket.readFrom(handshakeResponse)) {

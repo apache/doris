@@ -20,9 +20,17 @@
 
 #pragma once
 
-#include <gperftools/malloc_extension.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <atomic>
 #include <string>
+
+#if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
+#include <unistd.h>
+#else
+#include <mach/vm_page_size.h>
+#endif
 
 #include "common/logging.h"
 #ifdef USE_JEMALLOC
@@ -31,9 +39,10 @@
 #include <gperftools/malloc_extension.h>
 #endif
 #include "util/perf_counters.h"
-#include "util/pretty_printer.h"
 
 namespace doris {
+
+class RuntimeProfile;
 
 // Provides the amount of physical memory available.
 // Populated from /proc/meminfo.
@@ -44,6 +53,14 @@ public:
     static void init();
 
     static inline bool initialized() { return _s_initialized; }
+
+    static int get_page_size() {
+#if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
+        return getpagesize();
+#else
+        return vm_page_size;
+#endif
+    }
 
     // Get total physical memory in bytes (if has cgroups memory limits, return the limits).
     static inline int64_t physical_mem() {
@@ -82,6 +99,28 @@ public:
 #endif
         return 0;
     }
+
+    static inline int64_t get_je_all_arena_metrics(const std::string& name) {
+#ifdef USE_JEMALLOC
+        return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
+#endif
+        return 0;
+    }
+
+    static inline void je_purge_all_arena_dirty_pages() {
+#ifdef USE_JEMALLOC
+        // https://github.com/jemalloc/jemalloc/issues/2470
+        // Occasional core dump during stress test, purge should be turned on after the heap corruption is resolved.
+        // try {
+        //     // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
+        //     jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr, nullptr,
+        //               nullptr, 0);
+        // } catch (...) {
+        //     LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
+        // }
+#endif
+    }
+
     static inline size_t allocator_virtual_mem() { return _s_virtual_memory_used; }
     static inline size_t allocator_cache_mem() { return _s_allocator_cache_mem; }
     static inline std::string allocator_cache_mem_str() { return _s_allocator_cache_mem_str; }
@@ -93,6 +132,13 @@ public:
     // obtained by the process malloc, not the physical memory actually used by the process in the OS.
     static void refresh_allocator_mem();
 
+    /** jemalloc pdirty is number of pages within unused extents that are potentially
+      * dirty, and for which madvise() or similar has not been called.
+      *
+      * So they will be subtracted from RSS to make accounting more
+      * accurate, since those pages are not really RSS but a memory
+      * that can be used at anytime via jemalloc.
+      */
     static inline void refresh_proc_mem_no_allocator_cache() {
         _s_proc_mem_no_allocator_cache =
                 PerfCounters::get_vm_rss() - static_cast<int64_t>(_s_allocator_cache_mem);
@@ -115,12 +161,17 @@ public:
         DCHECK(_s_initialized);
         return _s_soft_mem_limit_str;
     }
+    static bool is_exceed_soft_mem_limit(int64_t bytes = 0) {
+        return proc_mem_no_allocator_cache() + bytes > soft_mem_limit();
+    }
 
     static std::string debug_string();
 
-    static void process_cache_gc(int64_t& freed_mem);
     static bool process_minor_gc();
     static bool process_full_gc();
+
+    static int64_t tg_hard_memory_limit_gc();
+    static int64_t tg_soft_memory_limit_gc(int64_t request_free_memory, RuntimeProfile* profile);
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.

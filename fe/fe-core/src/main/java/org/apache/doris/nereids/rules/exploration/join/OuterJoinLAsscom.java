@@ -92,7 +92,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
      * <p>
      * Same with OtherJoinConjunct.
      */
-    private boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<ExprId> bOutputExprIdSet) {
+    public static boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<ExprId> bOutputExprIdSet) {
         return Stream.concat(
                         topJoin.getHashJoinConjuncts().stream(),
                         topJoin.getOtherJoinConjuncts().stream())

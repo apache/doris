@@ -22,6 +22,7 @@
 
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/columns_number.h"
+#include "vec/core/call_on_type_index.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -32,6 +33,8 @@ namespace doris::vectorized {
 template <typename Impl>
 class FunctionMathUnary : public IFunction {
 public:
+    using IFunction::execute;
+
     static constexpr auto name = Impl::name;
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Impl>()))>;
@@ -123,8 +126,6 @@ private:
         block.replace_by_position(result, std::move(dst));
         return true;
     }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

@@ -17,14 +17,16 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include "common/status.h"
 #include "operator.h"
+#include "vec/exec/vrepeat_node.h"
 
 namespace doris {
-namespace vectorized {
-class VRepeatNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
+class ExecNode;
+class RuntimeState;
+
 namespace pipeline {
 
 class RepeatOperatorBuilder final : public OperatorBuilder<vectorized::VRepeatNode> {

@@ -17,12 +17,20 @@
 
 #include "runtime/stream_load/stream_load_recorder.h"
 
+#include <glog/logging.h>
+#include <rocksdb/iterator.h>
+#include <rocksdb/status.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+
 #include "common/config.h"
 #include "common/status.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/time.h"
 
@@ -38,8 +46,14 @@ StreamLoadRecorder::~StreamLoadRecorder() {
             _db->DestroyColumnFamilyHandle(handle);
             handle = nullptr;
         }
+        rocksdb::Status s = _db->SyncWAL();
+        if (!s.ok()) {
+            LOG(WARNING) << "rocksdb sync wal failed: " << s.ToString();
+        }
+        rocksdb::CancelAllBackgroundWork(_db, true);
         delete _db;
         _db = nullptr;
+        LOG(INFO) << "finish close rocksdb for ~StreamLoadRecorder";
     }
 }
 

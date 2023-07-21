@@ -17,7 +17,18 @@
 
 #include "runtime/stream_load/stream_load_context.h"
 
+#include <gen_cpp/BackendService_types.h>
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/rapidjson.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
+#include <new>
 #include <sstream>
+
+#include "common/logging.h"
 
 namespace doris {
 using namespace ErrorCode;

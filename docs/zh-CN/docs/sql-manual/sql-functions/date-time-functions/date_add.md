@@ -28,7 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`INT DATE_ADD(DATETIME date,INTERVAL expr type)`
+`INT DATE_ADD(DATETIME date, INTERVAL expr type)`
 
 
 向日期添加指定的时间间隔。

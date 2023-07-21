@@ -17,22 +17,53 @@
 
 #include "io/cache/block/cached_remote_file_reader.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+#include <string.h>
+
+#include <algorithm>
+#include <list>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "io/cache/block/block_file_cache.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "io/cache/block/block_file_segment.h"
 #include "io/fs/file_reader.h"
-#include "olap/iterators.h"
-#include "olap/olap_common.h"
-#include "util/async_io.h"
+#include "io/io_common.h"
+#include "util/bit_util.h"
+#include "util/doris_metrics.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 namespace io {
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
-                                               const std::string& cache_path)
+                                               const std::string& cache_path,
+                                               const long modification_time)
         : _remote_file_reader(std::move(remote_file_reader)) {
-    _cache_key = IFileCache::hash(cache_path);
+    // Use path and modification time to build cache key
+    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
+    _cache_key = IFileCache::hash(unique_path);
     _cache = FileCacheFactory::instance().get_by_path(_cache_key);
-    _disposable_cache = FileCacheFactory::instance().get_disposable_cache(_cache_key);
+}
+
+CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
+                                               const std::string& cache_base_path,
+                                               const std::string& cache_path,
+                                               const long modification_time)
+        : _remote_file_reader(std::move(remote_file_reader)) {
+    std::string unique_path = fmt::format("{}:{}", cache_path, modification_time);
+    _cache_key = IFileCache::hash(unique_path);
+    _cache = FileCacheFactory::instance().get_by_path(cache_base_path);
+    if (_cache == nullptr) {
+        LOG(WARNING) << "Can't get cache from base path: " << cache_base_path
+                     << ", using random instead.";
+        _cache = FileCacheFactory::instance().get_by_path(_cache_key);
+    }
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
@@ -45,8 +76,9 @@ Status CachedRemoteFileReader::close() {
 
 std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
                                                               size_t read_size) const {
-    size_t segment_size = std::min(std::max(read_size, (size_t)4096), // 4k
-                                   (size_t)config::file_cache_max_file_segment_size);
+    size_t segment_size =
+            std::min(std::max(read_size, (size_t)config::file_cache_min_file_segment_size),
+                     (size_t)config::file_cache_max_file_segment_size);
     segment_size = BitUtil::next_power_of_two(segment_size);
     size_t left = offset;
     size_t right = offset + read_size - 1;
@@ -72,24 +104,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         *bytes_read = 0;
         return Status::OK();
     }
-    CloudFileCachePtr cache = io_ctx->use_disposable_cache ? _disposable_cache : _cache;
-    // cache == nullptr since use_disposable_cache = true and don't set  disposable cache in conf
-    if (cache == nullptr) {
-        return _remote_file_reader->read_at(offset, result, bytes_read, io_ctx);
-    }
     ReadStatistics stats;
-    // if state == nullptr, the method is called for read footer
-    // if state->read_segment_index, read all the end of file
-    size_t align_left = offset, align_size = size() - offset;
-    if (!io_ctx->read_segment_index) {
-        auto pair = _align_size(offset, bytes_req);
-        align_left = pair.first;
-        align_size = pair.second;
-    }
-    bool is_persistent = io_ctx->is_persistent;
-    TUniqueId query_id = io_ctx->query_id ? *(io_ctx->query_id) : TUniqueId();
-    FileBlocksHolder holder =
-            cache->get_or_set(_cache_key, align_left, align_size, is_persistent, query_id);
+    auto [align_left, align_size] = _align_size(offset, bytes_req);
+    CacheContext cache_context(io_ctx);
+    FileBlocksHolder holder = _cache->get_or_set(_cache_key, align_left, align_size, cache_context);
     std::vector<FileBlockSPtr> empty_segments;
     for (auto& segment : holder.file_segments) {
         switch (segment->state()) {

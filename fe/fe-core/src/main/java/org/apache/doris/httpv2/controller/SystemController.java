@@ -190,6 +190,10 @@ public class SystemController extends BaseController {
         if (path == null) {
             return "/rest/v1/system";
         } else {
+            final String windowsFileSystemSeparator = "\\";
+            if (windowsFileSystemSeparator.equals(path.getFileSystem().getSeparator())) {
+                return "/rest/v1/system?path=" + path.toString().replace("\\", "/");
+            }
             return "/rest/v1/system?path=" + path.toString();
         }
     }

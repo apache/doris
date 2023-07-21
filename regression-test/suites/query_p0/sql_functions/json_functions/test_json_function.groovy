@@ -48,6 +48,17 @@ suite("test_json_function") {
     qt_sql "SELECT json_quote('[1, 2, 3, 1678708107000]');"
     qt_sql "SELECT json_quote(null);"
     qt_sql "SELECT json_quote(\"\\n\\b\\r\\t\");"
+    qt_sql "SELECT json_quote('')"
+
+    qt_sql "SELECT json_unquote('')"
+    qt_sql "SELECT json_unquote('doris')"
+    qt_sql "SELECT json_unquote('\"doris\"');"
+    qt_sql "SELECT json_unquote('open-quoted\"');"
+    qt_sql "SELECT json_unquote('\"open-quoted');"
+    qt_sql "SELECT json_unquote(null);"
+    qt_sql "SELECT json_unquote('Dorr\bis\tishere\n');"
+    qt_sql "SELECT json_unquote('\"Dorr\\\\bis\\\\tishere\\\\n\"');"
+    qt_sql "SELECT json_unquote('\"\\\\u0044\\\\u004F\\\\u0052\\\\u0049\\\\u0053\"');"
 
     qt_sql "SELECT json_extract('[1, 2, 3]', '\$.[1]');"
     qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', '\$.id', '\$.name');"
@@ -55,4 +66,21 @@ suite("test_json_function") {
     qt_sql "SELECT json_extract(null, '\$.id');"
     qt_sql "SELECT json_extract('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k1', '\$.k2');"
     qt_sql "SELECT json_extract('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k2.k21', '\$.k2.k22', '\$.k2.k22[1]');"
+
+    qt_sql "SELECT '{\"id\": 123, \"name\": \"doris\"}'->'\$.name';"
+    qt_sql "SELECT null->'\$.id';"
+    qt_sql "SELECT '{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }'->'\$.k2';"
+    qt_sql "SELECT '{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }'->'\$.k2.k22[2]';"
+    qt_sql "SELECT '{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }'->'\$.k2'->'\$.k22'"
+    qt_sql "SELECT json_unquote('{\"id\": 123, \"name\": \"doris\"}'->'\$.name');"
+    qt_sql "SELECT json_extract('{\"id\": 123, \"name\": \"doris\"}', '\$.id', '\$.name')->'\$.[0]';"
+
+    qt_sql "SELECT JSON_CONTAINS('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}','1','\$.a');"
+    qt_sql "SELECT JSON_CONTAINS('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}','1','\$.b');"
+    qt_sql "SELECT JSON_CONTAINS('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}','{\"d\": 4}','\$.a');"
+    qt_sql "SELECT JSON_CONTAINS('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}','{\"d\": 4}','\$.c');"
+    qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}', '{\"age\": 31, \"hobbies\": [\"reading\"]}', '\$.');"
+    qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"projects\": [{\"name\": \"Project A\", \"year\": 2020}, {\"name\": \"Project B\", \"year\": 2021}]}', '{\"projects\": [{\"name\": \"Project A\"}]}', '\$.');"
+    qt_sql "SELECT JSON_CONTAINS('{\"name\": \"John\", \"age\": 30, \"address\": {\"city\": \"New York\", \"country\": \"USA\"}}', '{\"address\": {\"city\": \"New York\"}}', '\$.');"
+
 }

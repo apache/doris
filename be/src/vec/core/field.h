@@ -20,16 +20,37 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+
 #include <algorithm>
 #include <cassert>
 #include <functional>
+#include <map>
+#include <new>
+#include <ostream>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
-#include "vec/common/int_exp.h"
-#include "vec/common/strong_typedef.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+struct TypeId;
+template <typename T>
+struct TypeName;
+} // namespace vectorized
+struct PackedInt128;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -70,6 +91,7 @@ struct AvgNearestFieldTypeTrait<Int64> {
 };
 
 class Field;
+
 using FieldVector = std::vector<Field>;
 
 /// Array and Tuple use the same storage type -- FieldVector, but we declare
@@ -1029,7 +1051,7 @@ struct NearestFieldTypeImpl<signed char> {
 };
 template <>
 struct NearestFieldTypeImpl<unsigned char> {
-    using Type = UInt64;
+    using Type = Int64;
 };
 
 template <>
@@ -1213,8 +1235,5 @@ std::enable_if_t<!std::is_same_v<std::decay_t<T>, Field>, Field&> Field::operato
 
     return *this;
 }
-
-class ReadBuffer;
-class WriteBuffer;
 
 } // namespace doris::vectorized

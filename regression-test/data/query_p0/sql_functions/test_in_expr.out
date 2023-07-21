@@ -53,3 +53,23 @@ a
 b
 d
 
+-- !select --
+2
+3
+4
+
+-- !select --
+2
+3
+4
+
+-- !select --
+\N
+\N
+\N
+\N
+\N
+\N
+
+-- !select --
+

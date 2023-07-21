@@ -25,8 +25,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.MultiMutableState;
 
-import com.google.common.collect.ImmutableList;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -93,11 +91,6 @@ public class FakePlan implements Plan {
     }
 
     @Override
-    public List<Slot> getNonUserVisibleOutput() {
-        return ImmutableList.of();
-    }
-
-    @Override
     public String treeString() {
         return "DUMMY";
     }
@@ -108,7 +101,8 @@ public class FakePlan implements Plan {
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return this;
     }
 

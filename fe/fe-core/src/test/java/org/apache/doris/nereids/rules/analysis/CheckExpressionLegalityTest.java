@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.jobs.batch.CheckLegalityAfterRewrite;
+import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;

@@ -17,7 +17,12 @@
 
 #include "olap/short_key_index.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+
+#include <string>
+
+#include "gtest/gtest_pred_impl.h"
 
 namespace doris {
 

@@ -134,7 +134,7 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc, LoadTask.Priority.NORMAL);
         task.init();
         SparkPendingTaskAttachment attachment = Deencapsulation.getField(task, "attachment");
         Assert.assertEquals(null, attachment.getAppId());
@@ -222,7 +222,7 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc, LoadTask.Priority.NORMAL);
         EtlJobConfig etlJobConfig = Deencapsulation.getField(task, "etlJobConfig");
         Assert.assertEquals(null, etlJobConfig);
         task.init();

@@ -32,11 +32,8 @@ under the License.
 
 将一个字符串按指定的分隔符分割成多个子串。
 
-语法：
-
-```
-explode_split(str, delimiter)
-```
+#### syntax
+`explode_split(str, delimiter)`
 
 ### example
 

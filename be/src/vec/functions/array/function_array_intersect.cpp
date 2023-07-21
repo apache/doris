@@ -15,8 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/columns/column_const.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/hash_table/hash_map.h"
 #include "vec/functions/array/function_array_binary.h"
-#include "vec/functions/array/function_array_set.h"
+#include "vec/functions/array/function_array_map.h"
+#include "vec/functions/array/function_array_nary.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -25,57 +29,52 @@ struct NameArrayIntersect {
     static constexpr auto name = "array_intersect";
 };
 
-template <typename Set, typename Element>
+template <typename Map, typename ColumnType>
 struct IntersectAction {
-    // True if set has null element
-    bool null_flag = false;
+    // True if current has null element
+    bool current_null_flag = false;
     // True if result_set has null element
-    bool result_null_flag = false;
+    bool result_null_flag = true;
     // True if it should execute the left array first.
-    static constexpr auto execute_left_column_first = false;
+    typename Map::mapped_type* value = nullptr;
 
     // Handle Null element.
-    // Return true means this null element should put into result column.
-    template <bool is_left>
-    bool apply_null() {
-        if constexpr (is_left) {
-            if (!result_null_flag) {
-                result_null_flag = true;
-                return null_flag;
-            }
-        } else {
-            if (!null_flag) {
-                null_flag = true;
-            }
-        }
-        return false;
-    }
+    bool apply_null() { return result_null_flag; }
 
     // Handle Non-Null element.
-    // Return ture means this Non-Null element should put into result column.
-    template <bool is_left>
-    bool apply(Set& set, Set& result_set, const Element& elem) {
-        if constexpr (is_left) {
-            if (set.find(elem) && !result_set.find(elem)) {
-                result_set.insert(elem);
-                return true;
-            }
-        } else {
-            if (!set.find(elem)) {
-                set.insert(elem);
+    void apply(Map& map, const int arg_idx, const int row_idx,
+               const ColumnArrayExecutionData& param) {
+        current_null_flag = false;
+        size_t start_off = (*param.offsets_ptr)[row_idx - 1];
+        size_t end_off = (*param.offsets_ptr)[row_idx];
+        for (size_t off = start_off; off < end_off; ++off) {
+            if (param.nested_nullmap_data && param.nested_nullmap_data[off]) {
+                current_null_flag = true;
+            } else {
+                if constexpr (std::is_same_v<ColumnString, ColumnType>) {
+                    value = &map[param.nested_col->get_data_at(off)];
+                } else {
+                    auto& data_col = static_cast<const ColumnType&>(*param.nested_col);
+                    value = &map[data_col.get_element(off)];
+                }
+                if (*value == arg_idx) {
+                    ++(*value);
+                }
             }
         }
-        return false;
+        if (!current_null_flag) {
+            result_null_flag = false;
+        }
     }
 
     void reset() {
-        null_flag = false;
-        result_null_flag = false;
+        current_null_flag = false;
+        result_null_flag = true;
     }
 };
 
 using FunctionArrayIntersect =
-        FunctionArrayBinary<ArraySetImpl<SetOperation::INTERSECT>, NameArrayIntersect>;
+        FunctionArrayNary<ArrayMapImpl<MapOperation::INTERSECT>, NameArrayIntersect>;
 
 void register_function_array_intersect(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayIntersect>();

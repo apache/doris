@@ -60,7 +60,7 @@ public class KeysDesc implements Writable {
             throw new AnalysisException("Keys type is null.");
         }
 
-        if (keysColumnNames == null || keysColumnNames.size() == 0) {
+        if ((keysColumnNames == null || keysColumnNames.size() == 0) && type != KeysType.DUP_KEYS) {
             throw new AnalysisException("The number of key columns is 0.");
         }
 

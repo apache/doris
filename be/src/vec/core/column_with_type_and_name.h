@@ -20,8 +20,18 @@
 
 #pragma once
 
-#include "vec/columns/column.h"
+#include <stddef.h>
+
+#include <iosfwd>
+#include <memory>
+#include <string>
+
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+
+namespace doris {
+class PColumnMeta;
+} // namespace doris
 
 namespace doris::vectorized {
 

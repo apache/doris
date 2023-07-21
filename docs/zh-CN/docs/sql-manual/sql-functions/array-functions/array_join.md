@@ -36,9 +36,7 @@ array_join
 
 #### Syntax
 
-```
-VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])
-```
+`VARCHAR array_join(ARRAY<T> arr, VARCHAR sep[, VARCHAR null_replace])`
 
 根据分隔符(sep)和替换NULL的字符串(null_replace), 将数组中的所有元素组合成一个新的字符串。
 若sep为NULL，则返回值为NULL。

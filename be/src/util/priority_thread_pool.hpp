@@ -34,7 +34,7 @@ public:
     // Signature of a work-processing function. Takes the integer id of the thread which is
     // calling it (ids run from 0 to num_threads - 1) and a reference to the item to
     // process.
-    typedef std::function<void()> WorkFunction;
+    using WorkFunction = std::function<void()>;
 
     struct Task {
     public:
@@ -138,7 +138,7 @@ private:
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
     void work_thread(int thread_id) {
-        Thread::set_self_name(_name.c_str());
+        Thread::set_self_name(_name);
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {

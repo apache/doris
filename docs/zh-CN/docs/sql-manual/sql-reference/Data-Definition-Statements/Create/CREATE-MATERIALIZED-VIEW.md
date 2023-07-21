@@ -116,7 +116,7 @@ properties("replication_num" = "1");
 
    ```sql
    create materialized view k1_k2 as
-   select k1, k2 from duplicate_table;
+   select k2, k1 from duplicate_table;
    ```
 
    物化视图的 schema 如下图，物化视图仅包含两列 k1, k2 且不带任何聚合
@@ -125,8 +125,8 @@ properties("replication_num" = "1");
    +-----------------+-------+--------+------+------+---------+-------+
    | IndexName       | Field | Type   | Null | Key  | Default | Extra |
    +-----------------+-------+--------+------+------+---------+-------+
-   | k1_k2           | k1    | INT    | Yes  | true | N/A     |       |
-   |                 | k2    | INT    | Yes  | true | N/A     |       |
+   | k2_k1           | k2    | INT    | Yes  | true | N/A     |       |
+   |                 | k1    | INT    | Yes  | true | N/A     |       |
    +-----------------+-------+--------+------+------+---------+-------+
    ```
 

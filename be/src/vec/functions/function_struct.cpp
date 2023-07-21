@@ -15,15 +15,35 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column_const.h"
-#include "vec/columns/column_string.h"
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/functions/function.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 

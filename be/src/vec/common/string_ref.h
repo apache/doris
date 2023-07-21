@@ -20,8 +20,13 @@
 
 #pragma once
 
+// IWYU pragma: no_include <crc32intrin.h>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <climits>
-#include <functional>
+#include <cstring>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -29,7 +34,7 @@
 
 #include "gutil/hash/city.h"
 #include "gutil/hash/hash128to64.h"
-#include "util/cpu_info.h"
+#include "gutil/int128.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 #include "util/sse_util.hpp"

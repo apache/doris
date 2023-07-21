@@ -18,13 +18,9 @@
 #pragma once
 
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/HeartbeatService_types.h>
 #include <stdint.h>
 
-#include <string>
-
 #include "agent/topic_listener.h"
-#include "runtime/exec_env.h"
 
 namespace doris {
 

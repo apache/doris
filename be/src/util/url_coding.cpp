@@ -19,11 +19,8 @@
 
 #include <math.h>
 
-#include <exception>
 #include <memory>
 #include <sstream>
-
-#include "common/logging.h"
 
 namespace doris {
 

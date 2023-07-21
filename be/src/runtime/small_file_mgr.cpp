@@ -17,19 +17,29 @@
 
 #include "runtime/small_file_mgr.h"
 
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 #include <stdint.h>
 #include <stdio.h>
 
+#include <cstring>
+#include <memory>
 #include <sstream>
+#include <utility>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/HeartbeatService.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/doris_metrics.h"
 #include "util/md5.h"
+#include "util/metrics.h"
 #include "util/string_util.h"
 
 namespace doris {

@@ -15,16 +15,52 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <stdint.h>
+
+#include "common/status.h"
 #include "data_type_serde.h"
+#include "util/jsonb_writer.h"
+
 namespace doris {
+class PValues;
+class JsonbValue;
 
 namespace vectorized {
+class IColumn;
+class Arena;
 
 class DataTypeBitMapSerDe : public DataTypeSerDe {
 public:
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override;
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
+                                 int32_t col_id, int row_num) const override;
+
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+    void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                               arrow::ArrayBuilder* array_builder, int start,
+                               int end) const override {
+        LOG(FATAL) << "Not support write bitmap column to arrow";
+    }
+    void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
+                                int end, const cctz::time_zone& ctz) const override {
+        LOG(FATAL) << "Not support read bitmap column from arrow";
+    }
+
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+    Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                 int row_idx, bool col_const) const override;
+
+private:
+    // Bitmap is binary data which is not shown by mysql.
+    template <bool is_binary_format>
+    Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
+                                  int row_idx, bool col_const) const;
 };
 } // namespace vectorized
 } // namespace doris

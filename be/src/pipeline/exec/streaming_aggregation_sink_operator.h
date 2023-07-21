@@ -17,17 +17,22 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "operator.h"
-#include "pipeline/exec/data_queue.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
+#include "vec/exec/vaggregation_node.h"
 
 namespace doris {
-namespace vectorized {
-class AggregationNode;
-class VExprContext;
-class Block;
-} // namespace vectorized
+class ExecNode;
+class RuntimeState;
 
 namespace pipeline {
+class DataQueue;
 
 class StreamingAggSinkOperatorBuilder final : public OperatorBuilder<vectorized::AggregationNode> {
 public:

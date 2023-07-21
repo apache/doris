@@ -31,9 +31,7 @@ under the License.
 
 #### Syntax
 
-```
-split_by_string(s, separator)
-```
+`ARRAY<STRING> split_by_string(STRING s, STRING separator)`
 将字符串拆分为由字符串分隔的子字符串。它使用多个字符的常量字符串分隔符作为分隔符。如果字符串分隔符为空，它将字符串拆分为单个字符数组。
 
 #### Arguments

@@ -17,14 +17,30 @@
 
 #include "vec/data_types/data_type_time_v2.h"
 
+#include <gen_cpp/data.pb.h>
+
+#include <memory>
+#include <ostream>
 #include <string>
+#include <typeinfo>
+#include <utility>
 
 #include "util/binary_cast.hpp"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/reader_buffer.h"
 #include "vec/runtime/vdatetime_value.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
@@ -186,8 +202,8 @@ void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {
 
 DataTypePtr create_datetimev2(UInt64 scale_value) {
     if (scale_value > 6) {
-        LOG(WARNING) << "Wrong scale " << scale_value;
-        return nullptr;
+        throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR, "scale_value {} > 6",
+                               scale_value);
     }
     return std::make_shared<DataTypeDateTimeV2>(scale_value);
 }

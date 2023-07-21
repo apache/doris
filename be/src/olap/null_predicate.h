@@ -17,15 +17,31 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <stdint.h>
 
-#include <roaring/roaring.hh>
+#include <ostream>
+#include <string>
+#include <utility>
 
+#include "common/status.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/schema.h"
 #include "olap/wrapper_field.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris {
+namespace segment_v2 {
+class BitmapIndexIterator;
+class InvertedIndexIterator;
+} // namespace segment_v2
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
 
 class NullPredicate : public ColumnPredicate {
 public:
@@ -68,6 +84,8 @@ public:
     }
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
+        // null predicate can not use ngram bf, just return true to accept
+        if (bf->is_ngram_bf()) return true;
         if (_is_null) {
             return bf->test_bytes(nullptr, 0);
         } else {
@@ -76,7 +94,7 @@ public:
         }
     }
 
-    bool can_do_bloom_filter() const override { return _is_null; }
+    bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
 
     void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
 

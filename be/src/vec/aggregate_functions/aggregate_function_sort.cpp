@@ -17,6 +17,8 @@
 
 #include "vec/aggregate_functions/aggregate_function_sort.h"
 
+#include <algorithm>
+
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 
 namespace doris::vectorized {

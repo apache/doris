@@ -17,18 +17,30 @@
 
 #pragma once
 
-#include "operator.h"
+#include <stdint.h>
 
-namespace doris::vectorized {
-class VExchangeNode;
-}
+#include <memory>
+
+#include "common/status.h"
+#include "operator.h"
+#include "runtime/descriptors.h"
+
+namespace doris {
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::pipeline {
 
 class EmptySourceOperatorBuilder final : public OperatorBuilderBase {
 public:
-    EmptySourceOperatorBuilder(int32_t id, const RowDescriptor& row_descriptor)
-            : OperatorBuilderBase(id, "EmptySourceOperator"), _row_descriptor(row_descriptor) {}
+    EmptySourceOperatorBuilder(int32_t id, const RowDescriptor& row_descriptor, ExecNode* exec_node)
+            : OperatorBuilderBase(id, "EmptySourceOperator"),
+              _row_descriptor(row_descriptor),
+              _exec_node(exec_node) {}
 
     bool is_source() const override { return true; }
 
@@ -38,11 +50,14 @@ public:
 
 private:
     RowDescriptor _row_descriptor;
+    ExecNode* _exec_node = nullptr;
 };
 
 class EmptySourceOperator final : public OperatorBase {
 public:
-    EmptySourceOperator(OperatorBuilderBase* builder) : OperatorBase(builder) {}
+    EmptySourceOperator(OperatorBuilderBase* builder, ExecNode* exec_node)
+            : OperatorBase(builder), _exec_node(exec_node) {}
+
     bool can_read() override { return true; }
     bool is_pending_finish() const override { return false; }
 
@@ -57,6 +72,18 @@ public:
     }
 
     Status sink(RuntimeState*, vectorized::Block*, SourceState) override { return Status::OK(); }
+
+    Status close(RuntimeState* state) override {
+        _exec_node->close(state);
+        return Status::OK();
+    }
+
+    [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
+        return _exec_node->runtime_profile();
+    }
+
+private:
+    ExecNode* _exec_node = nullptr;
 };
 
 } // namespace doris::pipeline

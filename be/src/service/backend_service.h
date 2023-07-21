@@ -18,13 +18,8 @@
 #pragma once
 
 #include <gen_cpp/BackendService.h>
-#include <gen_cpp/DorisExternalService_types.h>
-#include <gen_cpp/TDorisExternalService.h>
 #include <stdint.h>
-#include <thrift/protocol/TDebugProtocol.h>
-#include <time.h>
 
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,23 +34,10 @@ class ThriftServer;
 class TAgentResult;
 class TAgentTaskRequest;
 class TAgentPublishRequest;
-class TPlanExecRequest;
-class TPlanExecParams;
 class TExecPlanFragmentParams;
 class TExecPlanFragmentResult;
-class TInsertResult;
-class TReportExecStatusArgs;
-class TReportExecStatusParams;
-class TReportExecStatusResult;
-class TCancelPlanFragmentArgs;
 class TCancelPlanFragmentResult;
-class TTransmitDataArgs;
 class TTransmitDataResult;
-class TNetworkAddress;
-class TClientRequest;
-class TExecRequest;
-class TSessionState;
-class TQueryOptions;
 class TExportTaskRequest;
 class TExportStatusResult;
 class TStreamLoadRecordResult;
@@ -74,6 +56,8 @@ class TStatus;
 class TTabletStatResult;
 class TTransmitDataParams;
 class TUniqueId;
+class TIngestBinlogRequest;
+class TIngestBinlogResult;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -144,6 +128,8 @@ public:
     void clean_trash() override;
 
     void check_storage_format(TCheckStorageFormatResult& result) override;
+
+    void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);

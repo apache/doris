@@ -17,14 +17,20 @@
 
 #pragma once
 
+#include <butil/macros.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+
 #include "common/status.h"
 #include "io/fs/file_system.h"
-#include "olap/inverted_index_parser.h"
-#include "olap/olap_common.h"
-#include "olap/tablet_schema.h"
 
 namespace doris {
 class CollectionValue;
+class Field;
+class TabletIndex;
 
 namespace segment_v2 {
 
@@ -46,7 +52,9 @@ public:
 
     virtual Status finish() = 0;
 
-    virtual uint64_t size() const = 0;
+    virtual int64_t size() const = 0;
+
+    virtual int64_t file_size() const = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexColumnWriter);

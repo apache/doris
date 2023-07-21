@@ -18,10 +18,18 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Core/ColumnWithTypeAndName.cpp
 // and modified by Doris
 
-#include <ostream>
-#include <sstream>
+#include "vec/core/column_with_type_and_name.h"
 
-#include "vec/core/columns_with_type_and_name.h"
+#include <gen_cpp/data.pb.h>
+#include <stddef.h>
+
+#include <memory>
+#include <sstream>
+#include <string>
+
+#include "vec/columns/column.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

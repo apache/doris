@@ -30,15 +30,12 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -95,10 +92,9 @@ public class RequestPropertyDeriverTest {
 
     @Test
     public void testShuffleHashJoin() {
-        new MockUp<JoinUtils>() {
+        new MockUp<PhysicalHashJoin>() {
             @Mock
-            Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-                    AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
+            Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
                 return Pair.of(Lists.newArrayList(new ExprId(0)), Lists.newArrayList(new ExprId(1)));
             }
         };
@@ -114,18 +110,17 @@ public class RequestPropertyDeriverTest {
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.REQUIRE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.REQUIRE))
         ));
         Assertions.assertEquals(expected, actual);
     }
 
     @Test
     public void testShuffleOrBroadcastHashJoin() {
-        new MockUp<JoinUtils>() {
+        new MockUp<PhysicalHashJoin>() {
             @Mock
-            Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-                    AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
+            Pair<List<ExprId>, List<ExprId>> getHashConjunctsExprIds() {
                 return Pair.of(Lists.newArrayList(new ExprId(0)), Lists.newArrayList(new ExprId(1)));
             }
         };
@@ -141,8 +136,8 @@ public class RequestPropertyDeriverTest {
 
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.JOIN)),
-                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.JOIN))
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(0)), ShuffleType.REQUIRE)),
+                new PhysicalProperties(new DistributionSpecHash(Lists.newArrayList(new ExprId(1)), ShuffleType.REQUIRE))
         ));
         expected.add(Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.REPLICATED));
         Assertions.assertEquals(expected, actual);
@@ -179,7 +174,7 @@ public class RequestPropertyDeriverTest {
                 new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
                 true,
                 logicalProperties,
-                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.AGGREGATE)),
+                RequireProperties.of(PhysicalProperties.createHash(ImmutableList.of(partition), ShuffleType.REQUIRE)),
                 groupPlan
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
@@ -189,7 +184,7 @@ public class RequestPropertyDeriverTest {
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
         expected.add(Lists.newArrayList(PhysicalProperties.createHash(new DistributionSpecHash(
                 Lists.newArrayList(partition.getExprId()),
-                ShuffleType.AGGREGATE
+                ShuffleType.REQUIRE
         ))));
         Assertions.assertEquals(expected, actual);
     }

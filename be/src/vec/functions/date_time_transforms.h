@@ -63,6 +63,7 @@ TO_TIME_FUNCTION(ToDayImpl, day);
 TO_TIME_FUNCTION(ToHourImpl, hour);
 TO_TIME_FUNCTION(ToMinuteImpl, minute);
 TO_TIME_FUNCTION(ToSecondImpl, second);
+TO_TIME_FUNCTION(ToMicroSecondImpl, microsecond);
 
 TIME_FUNCTION_IMPL(WeekOfYearImpl, weekofyear, week(mysql_week_mode(3)));
 TIME_FUNCTION_IMPL(DayOfYearImpl, dayofyear, day_of_year());

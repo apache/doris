@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <memory>
+
 #include "vec/aggregate_functions/aggregate_function_min_max_by.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 

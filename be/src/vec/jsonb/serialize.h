@@ -16,20 +16,37 @@
 // under the License.
 
 #pragma once
+#include <stddef.h>
+
+#include <unordered_map>
+
+#include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
+
+namespace doris {
+class TabletSchema;
+class TupleDescriptor;
+
+namespace vectorized {
+class ColumnString;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 // use jsonb codec to store row format
 class JsonbSerializeUtil {
 public:
     static void block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
-                               int num_cols);
+                               int num_cols, const DataTypeSerDeSPtrs& serdes);
     // batch rows
-    static void jsonb_to_block(const TupleDescriptor& desc, const ColumnString& jsonb_column,
+    static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const ColumnString& jsonb_column,
+                               const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                Block& dst);
     // single row
-    static void jsonb_to_block(const TupleDescriptor& desc, const char* data, size_t size,
+    static void jsonb_to_block(const DataTypeSerDeSPtrs& serdes, const char* data, size_t size,
+                               const std::unordered_map<uint32_t, uint32_t>& col_id_to_idx,
                                Block& dst);
 };
 } // namespace doris::vectorized

@@ -17,11 +17,23 @@
 
 #include "olap/primary_key_index.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include "gtest/gtest_pred_impl.h"
+#include "gutil/stringprintf.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
+#include "olap/types.h"
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -59,10 +71,10 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     EXPECT_EQ("9998", builder.max_key().to_string());
     segment_v2::PrimaryKeyIndexMetaPB index_meta;
     EXPECT_TRUE(builder.finalize(&index_meta));
+    EXPECT_EQ(builder.disk_size(), file_writer->bytes_appended());
     EXPECT_TRUE(file_writer->close().ok());
     EXPECT_EQ(num_rows, builder.num_rows());
 
-    io::FilePathDesc path_desc(filename);
     PrimaryKeyIndexReader index_reader;
     io::FileReaderSPtr file_reader;
     EXPECT_TRUE(fs->open_file(filename, &file_reader).ok());

@@ -17,12 +17,27 @@
 
 #pragma once
 
-#include "geo/geo_types.h"
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class GeoShape;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -54,7 +69,6 @@ public:
         return make_nullable(std::make_shared<ReturnType>());
     }
     bool use_default_implementation_for_nulls() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {

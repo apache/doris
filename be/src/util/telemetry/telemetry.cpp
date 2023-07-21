@@ -17,7 +17,22 @@
 
 #include "telemetry.h"
 
+#include <fmt/format.h>
+#include <opentelemetry/exporters/otlp/otlp_environment.h>
+#include <opentelemetry/sdk/resource/resource.h>
+#include <opentelemetry/sdk/resource/resource_detector.h>
+#include <opentelemetry/sdk/trace/exporter.h>
+#include <opentelemetry/sdk/trace/processor.h>
+#include <opentelemetry/sdk/trace/recordable.h>
+#include <opentelemetry/trace/canonical_code.h>
+#include <opentelemetry/trace/provider.h>
+
 #include <boost/algorithm/string/case_conv.hpp>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <memory>
+#include <ostream>
+#include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"

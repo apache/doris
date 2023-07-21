@@ -17,7 +17,9 @@
 
 #include "sort_sink_operator.h"
 
-#include "vec/exec/vsort_node.h"
+#include <string>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 

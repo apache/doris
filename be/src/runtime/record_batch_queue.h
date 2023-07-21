@@ -17,7 +17,11 @@
 
 #pragma once
 
+#include <sys/types.h>
 #include <util/spinlock.h>
+
+#include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "util/blocking_queue.hpp"

@@ -7,7 +7,7 @@ PhysicalQuickSort
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN](customer.c_nationkey = n2.n_nationkey)(customer.c_custkey = orders.o_custkey)
+--------------hashJoin[INNER_JOIN](customer.c_custkey = orders.o_custkey)(customer.c_nationkey = n2.n_nationkey)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer]
 ----------------PhysicalDistribute

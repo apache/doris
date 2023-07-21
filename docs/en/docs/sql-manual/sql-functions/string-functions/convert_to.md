@@ -30,7 +30,7 @@ under the License.
 ### description
 #### Syntax
 
-` convert_to(VARCHAR column, VARCHAR character)`
+`VARCHAR convert_to(VARCHAR column, VARCHAR character)`
 
 It is used in the order by clause. eg: order by convert(column using gbk), Now only support character can be converted to 'gbk'.
 Because when the order by column contains Chinese, it is not arranged in the order of Pinyin

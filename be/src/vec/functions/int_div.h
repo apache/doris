@@ -21,14 +21,11 @@
 #pragma once
 
 #include <libdivide.h>
+#include <string.h>
 
-#include <type_traits>
-
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
-#include "vec/functions/function_binary_arithmetic.h"
 
 namespace doris::vectorized {
 

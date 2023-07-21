@@ -40,7 +40,6 @@ Doris provides a variety of data import solutions, and you can choose different 
 | Mysql, PostgreSQL, Oracle, SQLServer | [Sync data via external table](./import-scenes/external-table-load.md) |
 | Import via JDBC                      | [Sync data using JDBC](./import-scenes/jdbc-load.md)       |
 | Import JSON format data              | [JSON format data import](./import-way/load-json-format.md) |
-| MySQL Binlog                         | [Binlog Load](./import-way/binlog-load-manual.md)          |
 
 ### Divided by import method
 
@@ -50,7 +49,6 @@ Doris provides a variety of data import solutions, and you can choose different 
 | Broker Load        | [Import external storage data via Broker](./import-way/broker-load-manual.md) |
 | Stream Load        | [Stream import data (local file and memory data)](./import-way/stream-load-manual.md) |
 | Routine Load       | [Import Kafka data](./import-way/routine-load-manual.md)   |
-| Binlog Load        | [collect Mysql Binlog import data](./import-way/binlog-load-manual.md) |
 | Insert Into        | [External table imports data through INSERT](./import-way/insert-into-manual.md) |
 | S3 Load            | [Object storage data import of S3 protocol](./import-way/s3-load-manual.md) |
 | MySql Load         | [Local data import of MySql protocol](./import-way/mysql-load-manual.md) |

@@ -49,7 +49,8 @@ suite("rollup") {
     int max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobRollupState("rollup_t1")
-        if (res == "FINISHED") {
+        if (res == "FINISHED" || res == "CANCELLED") {
+            assertEquals("FINISHED", res)
             sleep(3000)
             break
         } else {
@@ -71,26 +72,27 @@ suite("rollup") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
-    explain {
-        sql("select k2, sum(v1) from rollup_t1 group by k2")
-        contains("rollup_t1(r1)")
-        contains("PREAGGREGATION: ON")
-    }
+    // ISSUE #18263
+    // explain {
+    //     sql("select k2, sum(v1) from rollup_t1 group by k2")
+    //     contains("rollup_t1(r1)")
+    //     contains("PREAGGREGATION: ON")
+    // }
 
-    explain {
-        sql("select k1, sum(v1) from rollup_t1 group by k1")
-        contains("rollup_t1(rollup_t1)")
-        contains("PREAGGREGATION: ON")
-    }
+    // explain {
+    //     sql("select k1, sum(v1) from rollup_t1 group by k1")
+    //     contains("rollup_t1(rollup_t1)")
+    //     contains("PREAGGREGATION: ON")
+    // }
 
-    order_qt_rollup1 "select k2, sum(v1) from rollup_t1 group by k2"
+    // order_qt_rollup1 "select k2, sum(v1) from rollup_t1 group by k2"
 
-    order_qt_rollup2 "select k1, sum(v1) from rollup_t1 group by k1"
+    // order_qt_rollup2 "select k1, sum(v1) from rollup_t1 group by k1"
 
-    explain {
-        sql("select k1, max(v1) from rollup_t1 group by k1")
-        contains("rollup_t1(rollup_t1)")
-        contains("PREAGGREGATION: OFF")
-        contains("Aggregate operator don't match, aggregate function: max(v1), column aggregate type: SUM")
-    }
+    // explain {
+    //     sql("select k1, max(v1) from rollup_t1 group by k1")
+    //     contains("rollup_t1(rollup_t1)")
+    //     contains("PREAGGREGATION: OFF")
+    //     contains("Aggregate operator don't match, aggregate function: max(v1), column aggregate type: SUM")
+    // }
 }

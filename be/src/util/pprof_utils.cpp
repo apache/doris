@@ -17,7 +17,12 @@
 
 #include "util/pprof_utils.h"
 
-#include <fstream>
+#include <stdio.h>
+#include <unistd.h>
+
+#include <cstdlib>
+#include <fstream> // IWYU pragma: keep
+#include <memory>
 
 #include "agent/utils.h"
 #include "gutil/strings/substitute.h"

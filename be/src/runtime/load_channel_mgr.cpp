@@ -17,22 +17,41 @@
 
 #include "runtime/load_channel_mgr.h"
 
+#include <fmt/format.h>
+#include <gen_cpp/internal_service.pb.h>
+
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
+#include <ctime>
 #include <functional>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <queue>
+#include <string>
 #include <tuple>
 #include <vector>
 
+#include "common/config.h"
+#include "common/logging.h"
+#include "runtime/exec_env.h"
 #include "runtime/load_channel.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
+#include "util/metrics.h"
 #include "util/perf_counters.h"
-#include "util/stopwatch.hpp"
-#include "util/time.h"
+#include "util/pretty_printer.h"
+#include "util/thread.h"
 
 namespace doris {
+
+#ifndef BE_TEST
+constexpr uint32_t START_BG_INTERVAL = 60;
+#else
+constexpr uint32_t START_BG_INTERVAL = 1;
+#endif
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_channel_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_channel_mem_consumption, MetricUnit::BYTES, "",
@@ -111,7 +130,8 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
                     "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));
 #endif
             channel.reset(new LoadChannel(load_id, std::move(channel_mem_tracker),
-                                          channel_timeout_s, is_high_priority, params.sender_ip()));
+                                          channel_timeout_s, is_high_priority, params.sender_ip(),
+                                          params.backend_id(), params.enable_profile()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -121,6 +141,65 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 }
 
 static void dummy_deleter(const CacheKey& key, void* value) {}
+
+Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
+                                         const UniqueId& load_id,
+                                         const PTabletWriterAddBlockRequest& request) {
+    is_eof = false;
+    std::lock_guard<std::mutex> l(_lock);
+    auto it = _load_channels.find(load_id);
+    if (it == _load_channels.end()) {
+        auto handle = _last_success_channel->lookup(load_id.to_string());
+        // success only when eos be true
+        if (handle != nullptr) {
+            _last_success_channel->release(handle);
+            if (request.has_eos() && request.eos()) {
+                is_eof = true;
+                return Status::OK();
+            }
+        }
+        return Status::InternalError("fail to add batch in load channel. unknown load_id={}",
+                                     load_id.to_string());
+    }
+    channel = it->second;
+    return Status::OK();
+}
+
+Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
+                                 PTabletWriterAddBlockResult* response) {
+    UniqueId load_id(request.id());
+    // 1. get load channel
+    std::shared_ptr<LoadChannel> channel;
+    bool is_eof;
+    auto status = _get_load_channel(channel, is_eof, load_id, request);
+    if (!status.ok() || is_eof) {
+        return status;
+    }
+    SCOPED_TIMER(channel->get_mgr_add_batch_timer());
+
+    if (!channel->is_high_priority()) {
+        // 2. check if mem consumption exceed limit
+        // If this is a high priority load task, do not handle this.
+        // because this may block for a while, which may lead to rpc timeout.
+        SCOPED_TIMER(channel->get_handle_mem_limit_timer());
+        _handle_mem_exceed_limit();
+    }
+
+    // 3. add batch to load channel
+    // batch may not exist in request(eg: eos request without batch),
+    // this case will be handled in load channel's add batch method.
+    Status st = channel->add_batch(request, response);
+    if (UNLIKELY(!st.ok())) {
+        channel->cancel();
+        return st;
+    }
+
+    // 4. handle finish
+    if (channel->is_finished()) {
+        _finish_load_channel(load_id);
+    }
+    return Status::OK();
+}
 
 void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
@@ -156,15 +235,8 @@ Status LoadChannelMgr::_start_bg_worker() {
     RETURN_IF_ERROR(Thread::create(
             "LoadChannelMgr", "cancel_timeout_load_channels",
             [this]() {
-#ifdef GOOGLE_PROFILER
-                ProfilerRegisterThread();
-#endif
-#ifndef BE_TEST
-                uint32_t interval = 60;
-#else
-                uint32_t interval = 1;
-#endif
-                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
+                while (!_stop_background_threads_latch.wait_for(
+                        std::chrono::seconds(START_BG_INTERVAL))) {
                     _start_load_channels_clean();
                 }
             },
@@ -218,13 +290,15 @@ Status LoadChannelMgr::_start_load_channels_clean() {
 void LoadChannelMgr::_handle_mem_exceed_limit() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    int64_t process_mem_limit = MemInfo::soft_mem_limit();
+    // Record current memory status.
+    int64_t process_soft_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
     // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
     // total memory, we don't need to reduce memory of load jobs.
-    bool reduce_on_process_mem_limit = proc_mem_no_allocator_cache >= process_mem_limit &&
-                                       _mem_tracker->consumption() >= _load_hard_mem_limit / 10;
-    if (_mem_tracker->consumption() < _load_soft_mem_limit && !reduce_on_process_mem_limit) {
+    bool reduce_on_process_soft_mem_limit =
+            proc_mem_no_allocator_cache >= process_soft_mem_limit &&
+            _mem_tracker->consumption() >= _load_hard_mem_limit / 10;
+    if (_mem_tracker->consumption() < _load_soft_mem_limit && !reduce_on_process_soft_mem_limit) {
         return;
     }
     // Indicate whether current thread is reducing mem on hard limit.
@@ -233,14 +307,17 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     std::vector<std::tuple<std::shared_ptr<LoadChannel>, int64_t, int64_t, int64_t>>
             writers_to_reduce_mem;
     {
+        MonotonicStopWatch timer;
+        timer.start();
         std::unique_lock<std::mutex> l(_lock);
         while (_should_wait_flush) {
-            LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
-                      << ", waiting for flush";
             _wait_flush_cond.wait(l);
         }
+        LOG(INFO) << "Reached the load hard limit " << _load_hard_mem_limit
+                  << ", waited for flush, time_ns:" << timer.elapsed_time();
+
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
-                                  proc_mem_no_allocator_cache >= process_mem_limit;
+                                  proc_mem_no_allocator_cache >= process_soft_mem_limit;
         // Some other thread is flushing data, and not reached hard limit now,
         // we don't need to handle mem limit in current thread.
         if (_soft_reduce_mem_in_progress && !hard_limit_reached) {
@@ -266,22 +343,23 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
         for (auto& kv : _load_channels) {
             if (kv.second->is_high_priority()) {
                 // do not select high priority channel to reduce memory
-                // to avoid blocking them.
+                // to avoid blocking the.
                 continue;
             }
             std::vector<std::pair<int64_t, std::multimap<int64_t, int64_t, std::greater<int64_t>>>>
                     writers_mem_snap;
-            kv.second->get_writers_mem_consumption_snapshot(&writers_mem_snap);
+            kv.second->get_active_memtable_mem_consumption(&writers_mem_snap);
             for (auto item : writers_mem_snap) {
                 // multimap is empty
                 if (item.second.empty()) {
                     continue;
                 }
                 all_writers_mem.emplace_back(kv.second, item.first, std::move(item.second));
-                size_t pos = all_writers_mem.size() - 1;
-                tablets_mem_heap.emplace(std::get<2>(all_writers_mem[pos]).begin(),
-                                         std::get<2>(all_writers_mem[pos]).end(), pos);
             }
+        }
+        for (size_t i = 0; i < all_writers_mem.size(); i++) {
+            tablets_mem_heap.emplace(std::get<2>(all_writers_mem[i]).begin(),
+                                     std::get<2>(all_writers_mem[i]).end(), i);
         }
 
         // reduce 1/10 memory every time
@@ -301,7 +379,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
                 break;
             }
             tablets_mem_heap.pop();
-            if (std::get<0>(tablet_mem_item)++ != std::get<1>(tablet_mem_item)) {
+            if (++std::get<0>(tablet_mem_item) != std::get<1>(tablet_mem_item)) {
                 tablets_mem_heap.push(tablet_mem_item);
             }
         }
@@ -318,9 +396,10 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             << " delta writers (total mem: "
             << PrettyPrinter::print_bytes(mem_consumption_in_picked_writer) << ", max mem: "
             << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.front()))
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.front())
             << ", min mem:" << PrettyPrinter::print_bytes(std::get<3>(writers_to_reduce_mem.back()))
-            << "), ";
-        if (proc_mem_no_allocator_cache < process_mem_limit) {
+            << ", tablet_id: " << std::get<2>(writers_to_reduce_mem.back()) << "), ";
+        if (proc_mem_no_allocator_cache < process_soft_mem_limit) {
             oss << "because total load mem consumption "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption()) << " has exceeded";
             if (_mem_tracker->consumption() > _load_hard_mem_limit) {
@@ -336,11 +415,11 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
             reducing_mem_on_hard_limit = true;
             oss << "because proc_mem_no_allocator_cache consumption "
                 << PrettyPrinter::print_bytes(proc_mem_no_allocator_cache)
-                << ", has exceeded process limit " << PrettyPrinter::print_bytes(process_mem_limit)
+                << ", has exceeded process soft limit "
+                << PrettyPrinter::print_bytes(process_soft_mem_limit)
                 << ", total load mem consumption: "
                 << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                << ", vm_rss: " << PerfCounters::get_vm_rss_str()
-                << ", tc/jemalloc allocator cache: " << MemInfo::allocator_cache_mem_str();
+                << ", vm_rss: " << PerfCounters::get_vm_rss_str();
         }
         LOG(INFO) << oss.str();
     }

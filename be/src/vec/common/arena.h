@@ -31,6 +31,7 @@
 #endif
 #include "gutil/dynamic_annotations.h"
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 #include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
@@ -274,6 +275,29 @@ public:
         char* res = aligned_alloc(size, alignment);
         memcpy(res, data, size);
         return res;
+    }
+
+    /**
+    * Delete all the chunks before the head, usually the head is the largest chunk in the arena.
+    * considering the scenario of memory reuse:
+    * 1. first time, use arena alloc 64K memory, 4K each time, at this time, there are 4 chunks of 4k 8k 16k 32k in arena.
+    * 2. then, clear arena, only one 32k chunk left in the arena.
+    * 3. second time, same alloc 64K memory, there are 4 chunks of 4k 8k 16k 32k in arena.
+    * 4. then, clear arena, only one 64k chunk left in the arena.
+    * 5. third time, same alloc 64K memory, there is still only one 64K chunk in the arena, and the memory is fully reused.
+    *
+    * special case: if the chunk is larger than 128M, it will no longer be expanded by a multiple of 2.
+    * If alloc 4G memory, 128M each time, then only one 128M chunk will be reserved after clearing,
+    * and only 128M can be reused when you apply for 4G memory again.
+    */
+    void clear() {
+        if (head->prev) {
+            delete head->prev;
+            head->prev = nullptr;
+        }
+        head->pos = head->begin;
+        size_in_bytes = head->size();
+        _used_size_no_head = 0;
     }
 
     /// Size of chunks in bytes.

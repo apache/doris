@@ -67,7 +67,7 @@ export JAVA_OPTS="-Xmx1024m -Dfile.encoding=UTF-8"
 export BROKER_LOG_DIR="${BROKER_HOME}/log"
 # java
 if [[ -z "${JAVA_HOME}" ]]; then
-    JAVA="$(which java)"
+    JAVA="$(command -v java)"
 else
     JAVA="${JAVA_HOME}/bin/java"
 fi

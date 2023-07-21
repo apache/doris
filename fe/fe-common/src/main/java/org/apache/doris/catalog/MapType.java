@@ -109,6 +109,10 @@ public class MapType extends Type {
             return true;
         }
 
+        if (t.isAnyType()) {
+            return t.matchesType(this);
+        }
+
         if (!t.isMapType()) {
             return false;
         }

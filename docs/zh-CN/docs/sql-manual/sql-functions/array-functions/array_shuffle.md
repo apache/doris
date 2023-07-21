@@ -28,12 +28,19 @@ under the License.
 
 <version since="2.0">
 
-array_shuffle(array1, [seed])
-shuffle(array1, [seed])
+array_shuffle
+shuffle
 
 </version>
 
 ### description
+
+#### Syntax
+
+```sql
+ARRAY<T> array_shuffle(ARRAY<T> array1, [INT seed])
+ARRAY<T> shuffle(ARRAY<T> array1, [INT seed])
+```
 
 将数组中元素进行随机排列。其中，参数array1为要进行随机排列的数组，可选参数seed是设定伪随机数生成器用于生成伪随机数的初始数值。
 shuffle与array_shuffle功能相同。

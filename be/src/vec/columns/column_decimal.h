@@ -20,16 +20,37 @@
 
 #pragma once
 
-#include <cmath>
-#include <type_traits>
+#include <glog/logging.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/types.h>
 
-#include "olap/decimal12.h"
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <vector>
+
+#include "gutil/integral_types.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class ColumnSorter;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -160,6 +181,11 @@ public:
     void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
@@ -201,8 +227,7 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     TypeIndex get_data_type() const override { return TypeId<T>::value; }
 
@@ -226,7 +251,7 @@ public:
         return false;
     }
 
-    void insert(const T value) { data.push_back(value); }
+    void insert_value(const T value) { data.push_back(value); }
     Container& get_data() { return data; }
     const Container& get_data() const { return data; }
     const T& get_element(size_t n) const { return data[n]; }
@@ -275,6 +300,14 @@ protected:
             std::partial_sort(res.begin(), sort_end, res.end(),
                               [this](size_t a, size_t b) { return data[a] < data[b]; });
     }
+
+    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint64_t& hash) const {
+        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+        int64_t int_val = dec_val.int_value();
+        int32_t frac_val = dec_val.frac_value();
+        hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);
+        hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
+    };
 };
 
 template <typename>

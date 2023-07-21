@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
@@ -40,20 +42,20 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String ANALYZE_PARTITION_SQL_TEMPLATE = INSERT_PART_STATISTICS
             + "FROM `${dbName}`.`${tblName}` "
-            + "PARTITION ${partName}";
+            + "PARTITION ${partName} ${sampleExpr}";
 
     // TODO Currently, NDV is computed for the full table; in fact,
     //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM `${dbName}`.`${tblName}`) t2\n";
+            + "     FROM `${dbName}`.`${tblName}` ${sampleExpr}) t2\n";
 
     @VisibleForTesting
     public OlapAnalysisTask() {
         super();
     }
 
-    public OlapAnalysisTask(AnalysisTaskInfo info) {
+    public OlapAnalysisTask(AnalysisInfo info) {
         super(info);
     }
 
@@ -64,16 +66,17 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("catalogId", String.valueOf(catalog.getId()));
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
-        params.put("idxId", "-1");
+        params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
         params.put("dataSizeFunction", getDataSizeFunction(col));
         params.put("dbName", info.dbName);
         params.put("colName", String.valueOf(info.colName));
         params.put("tblName", String.valueOf(info.tblName));
+        params.put("sampleExpr", getSampleExpression());
         List<String> partitionAnalysisSQLs = new ArrayList<>();
         try {
             tbl.readLock();
-            Set<String> partNames = tbl.getPartitionNames();
+            Set<String> partNames = info.colToPartitions.get(info.colName);
             for (String partName : partNames) {
                 Partition part = tbl.getPartition(partName);
                 if (part == null) {
@@ -94,7 +97,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting
@@ -106,10 +109,21 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     @VisibleForTesting
     public void execSQL(String sql) throws Exception {
+        if (killed) {
+            return;
+        }
+        long startTime = System.currentTimeMillis();
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
-            this.stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            this.stmtExecutor.execute();
+            stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            r.connectContext.setExecutor(stmtExecutor);
+            stmtExecutor.execute();
+            QueryState queryState = r.connectContext.getState();
+            if (queryState.getStateType().equals(MysqlStateType.ERR)) {
+                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
+            }
+            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
 }

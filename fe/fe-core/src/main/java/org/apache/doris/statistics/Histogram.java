@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.statistics.util.InternalQueryResult.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -31,7 +32,6 @@ import com.google.gson.JsonParser;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.util.Collections;
 import java.util.List;
@@ -109,7 +109,7 @@ public class Histogram {
      */
     public static Histogram deserializeFromJson(String json) {
         if (Strings.isNullOrEmpty(json)) {
-            return null;
+            return Histogram.UNKNOWN;
         }
 
         try {
@@ -140,7 +140,7 @@ public class Histogram {
             LOG.error("deserialize from json error.", e);
         }
 
-        return null;
+        return Histogram.UNKNOWN;
     }
 
     /**
@@ -178,5 +178,10 @@ public class Histogram {
         }
         Bucket lastBucket = buckets.get(buckets.size() - 1);
         return lastBucket.preSum + lastBucket.count;
+    }
+
+    @Override
+    public String toString() {
+        return serializeToJson(this);
     }
 }

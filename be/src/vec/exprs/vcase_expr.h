@@ -17,12 +17,29 @@
 
 #pragma once
 
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function_case.h"
+#include "vec/functions/function.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VCaseExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VCaseExpr);
+
 public:
     VCaseExpr(const TExprNode& node);
     ~VCaseExpr() = default;
@@ -32,11 +49,8 @@ public:
                            VExprContext* context) override;
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope) override;
-    virtual void close(RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
-    virtual VExpr* clone(ObjectPool* pool) const override {
-        return pool->add(new VCaseExpr(*this));
-    }
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    VExprSPtr clone() const override { return VCaseExpr::create_shared(*this); }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;
 

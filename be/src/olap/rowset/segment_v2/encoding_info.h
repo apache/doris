@@ -17,15 +17,19 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include <functional>
+#include <memory>
 
 #include "common/status.h"
-#include "gen_cpp/segment_v2.pb.h"
-#include "olap/types.h"
+#include "olap/page_cache.h"
+#include "util/slice.h"
 
 namespace doris {
 
 class TypeInfo;
+enum class FieldType;
 
 namespace segment_v2 {
 
@@ -33,11 +37,12 @@ class PageBuilder;
 class PageDecoder;
 struct PageBuilderOptions;
 struct PageDecoderOptions;
+enum EncodingTypePB : int;
 
 // For better performance, some encodings (like BitShuffle) need to be decoded before being added to the PageCache.
 class DataPagePreDecoder {
 public:
-    virtual Status decode(std::unique_ptr<char[]>* page, Slice* page_slice,
+    virtual Status decode(std::unique_ptr<DataPage>* page, Slice* page_slice,
                           size_t size_of_tail) = 0;
     virtual ~DataPagePreDecoder() = default;
 };

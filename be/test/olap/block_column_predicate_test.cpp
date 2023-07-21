@@ -17,15 +17,19 @@
 
 #include "olap/block_column_predicate.h"
 
-#include <google/protobuf/stubs/common.h>
-#include <gtest/gtest.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+
+#include "gtest/gtest_pred_impl.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
-#include "olap/field.h"
-#include "olap/wrapper_field.h"
+#include "olap/tablet_schema.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 

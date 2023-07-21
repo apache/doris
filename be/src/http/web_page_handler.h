@@ -23,10 +23,8 @@
 #include <sstream>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "http/http_handler.h"
-#include "util/easy_json.h"
 
 namespace doris {
 

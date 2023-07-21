@@ -20,6 +20,14 @@
 
 #include "vec/json/json_parser.h"
 
+#include <assert.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <string_view>
+
+#include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
@@ -153,8 +161,9 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                 if (current_nested_sizes.size() == ctx.current_size) {
                     current_nested_sizes.push_back(array_size);
                 } else if (array_size != current_nested_sizes.back()) {
-                    LOG(FATAL) << fmt::format("Array sizes mismatched ({} and {})", array_size,
-                                              current_nested_sizes.back());
+                    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                                           "Array sizes mismatched ({} and {})", array_size,
+                                           current_nested_sizes.back());
                 }
             }
             path_array.push_back(std::move(values[i]));

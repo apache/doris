@@ -17,11 +17,11 @@
 
 #include "util/hdfs_util.h"
 
-#include <util/string_util.h>
+#include <ostream>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
+#include "io/hdfs_builder.h"
 
 namespace doris {
 namespace io {

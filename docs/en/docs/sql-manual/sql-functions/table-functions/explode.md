@@ -33,9 +33,8 @@ Table functions must be used in conjunction with Lateral View.
 explode array column to rows. `explode_outer` will return NULL, while `array` is NULL or empty.
 `explode` and `explode_outer` both keep the nested NULL elements of array.
 
-grammar:
-
-```
+#### syntax
+```sql
 explode(expr)
 explode_outer(expr)
 ```

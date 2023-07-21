@@ -67,7 +67,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     }
 
     @Override
-    public List<Plan> extraPlans() {
+    public List<? extends Plan> extraPlans() {
         return conjuncts.stream().map(Expression::children).flatMap(Collection::stream).flatMap(m -> {
             if (m instanceof SubqueryExpr) {
                 return Stream.of(new LogicalSubQueryAlias<>(m.toSql(), ((SubqueryExpr) m).getQueryPlan()));
@@ -111,19 +111,29 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         return visitor.visitLogicalFilter(this, context);
     }
 
+    public LogicalFilter<Plan> withConjuncts(Set<Expression> conjuncts) {
+        return new LogicalFilter<>(conjuncts, Optional.empty(), Optional.of(getLogicalProperties()), child());
+    }
+
     @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
+    public LogicalFilter<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalFilter<>(conjuncts, children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalFilter<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalFilter<>(conjuncts, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalFilter<>(conjuncts, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new LogicalFilter<>(conjuncts, groupExpression, logicalProperties, children.get(0));
+    }
+
+    public LogicalFilter<Plan> withConjunctsAndChild(Set<Expression> conjuncts, Plan child) {
+        return new LogicalFilter<>(conjuncts, child);
     }
 }

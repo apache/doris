@@ -54,16 +54,24 @@ public class MetaService extends RestBaseController {
 
     private static final String VERSION = "version";
     private static final String HOST = "host";
-    private static final String HOSTNAME = "hostname";
     private static final String PORT = "port";
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
     private boolean isFromValidFe(HttpServletRequest request) {
-        String clientHost = request.getRemoteHost();
-        Frontend fe = Env.getCurrentEnv().getFeByIp(clientHost);
+        String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
+        String clientPortStr = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
+        Integer clientPort;
+        try {
+            clientPort = Integer.valueOf(clientPortStr);
+        } catch (Exception e) {
+            LOG.warn("get clientPort error. clientPortStr: {}", clientPortStr, e.getMessage());
+            return false;
+        }
+
+        Frontend fe = Env.getCurrentEnv().checkFeExist(clientHost, clientPort);
         if (fe == null) {
-            LOG.warn("request is not from valid FE. client: {}", clientHost);
+            LOG.warn("request is not from valid FE. client: {}, {}", clientHost, clientPortStr);
             return false;
         }
         return true;
@@ -150,7 +158,8 @@ public class MetaService extends RestBaseController {
         checkLongParam(versionStr);
 
         String machine = request.getRemoteHost();
-        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(machine, Integer.valueOf(portStr)) + "/image?version=" + versionStr;
+        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(machine, Integer.valueOf(portStr))
+                + "/image?version=" + versionStr;
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
@@ -189,11 +198,10 @@ public class MetaService extends RestBaseController {
         // and the new hostname parameter is added.
         // host = ip
         String host = request.getParameter(HOST);
-        String hostname = request.getParameter(HOSTNAME);
         String portString = request.getParameter(PORT);
         if (!Strings.isNullOrEmpty(host) && !Strings.isNullOrEmpty(portString)) {
             int port = Integer.parseInt(portString);
-            Frontend fe = Env.getCurrentEnv().checkFeExist(host, hostname, port);
+            Frontend fe = Env.getCurrentEnv().checkFeExist(host, port);
             if (fe == null) {
                 response.setHeader("role", FrontendNodeType.UNKNOWN.name());
             } else {

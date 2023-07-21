@@ -36,9 +36,7 @@ array_distinct
 
 #### Syntax
 
-```
-ARRAY<T> array_distinct(ARRAY<T> arr)
-```
+`ARRAY<T> array_distinct(ARRAY<T> arr)`
 
 Return the array which has been removed duplicate values.
 Return NULL for NULL input.

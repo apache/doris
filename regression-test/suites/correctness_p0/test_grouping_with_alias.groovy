@@ -34,4 +34,29 @@
         col1,
         cnt;
      """
+
+    sql """DROP TABLE IF EXISTS `cf_member`; """
+    sql """ 
+        CREATE TABLE `cf_member` (
+        `id` bigint(20) NOT NULL,
+        `userinfoid` bigint(20) NULL,
+        `username` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+    sql """insert into cf_member values(2, 2, '2'); """
+
+    qt_select2 """select floor(id-1.0), count(*) from cf_member cm group by floor(id-1.0) order by floor(id-1.0);"""
+
+    qt_select3 """select floor(id-1.0), count(*) from cf_member cm group by 1 order by 1;"""
+
+    sql """DROP TABLE IF EXISTS `cf_member`; """
  } 

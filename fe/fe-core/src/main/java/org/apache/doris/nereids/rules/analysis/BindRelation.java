@@ -18,20 +18,16 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
-import org.apache.doris.catalog.external.JdbcExternalTable;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -47,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -55,22 +52,33 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
-import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Rule to bind relations in query plan.
  */
 public class BindRelation extends OneAnalysisRuleFactory {
+
+    private final Optional<CustomTableResolver> customTableResolver;
+
+    public BindRelation() {
+        this(Optional.empty());
+    }
+
+    public BindRelation(Optional<CustomTableResolver> customTableResolver) {
+        this.customTableResolver = customTableResolver;
+    }
 
     // TODO: cte will be copied to a sub-query with different names but the id of the unbound relation in them
     //  are the same, so we use new relation id when binding relation, and will fix this bug later.
@@ -95,83 +103,63 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 // Use current database name from catalog.
                 return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
             }
-            case 2: { // db.table
+            case 2:
+                // db.table
                 // Use database name from table name parts.
-                return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
-            }
-            case 3: { // catalog.db.table
+            case 3: {
+                // catalog.db.table
                 // Use catalog and database name from name parts.
-                return bindWithCatalogNameFromNamePart(ctx.cascadesContext, ctx.root);
+                return bind(ctx.cascadesContext, ctx.root);
             }
             default:
                 throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
         }
     }
 
-    private TableIf getTable(String catalogName, String dbName, String tableName, Env env) {
-        CatalogIf catalog = env.getCatalogMgr().getCatalog(catalogName);
-        if (catalog == null) {
-            throw new RuntimeException(String.format("Catalog %s does not exist.", catalogName));
-        }
-        DatabaseIf<TableIf> db = null;
-        try {
-            db = (DatabaseIf<TableIf>) catalog.getDb(dbName)
-                    .orElseThrow(() -> new RuntimeException("Database [" + dbName + "] does not exist."));
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        }
-        return db.getTable(tableName).orElseThrow(() -> new RuntimeException(
-            "Table [" + tableName + "] does not exist in database [" + dbName + "]."));
-    }
-
     private LogicalPlan bindWithCurrentDb(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
         String tableName = unboundRelation.getNameParts().get(0);
         // check if it is a CTE's name
-        CTEContext cteContext = cascadesContext.getCteContext();
-        Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTE(tableName);
-        if (analyzedCte.isPresent()) {
-            LogicalPlan ctePlan = analyzedCte.get();
-            if (ctePlan instanceof LogicalSubQueryAlias
-                    && ((LogicalSubQueryAlias<?>) ctePlan).getAlias().equals(tableName)) {
-                return ctePlan;
+        CTEContext cteContext = cascadesContext.getCteContext().findCTEContext(tableName).orElse(null);
+        if (cteContext != null) {
+            Optional<LogicalPlan> analyzedCte = cteContext.getAnalyzedCTEPlan(tableName);
+            if (analyzedCte.isPresent()) {
+                return new LogicalCTEConsumer(unboundRelation.getRelationId(),
+                        cteContext.getCteId(), tableName, analyzedCte.get());
             }
-            return new LogicalSubQueryAlias<>(unboundRelation.getNameParts(), ctePlan);
         }
-        String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
-        String dbName = cascadesContext.getConnectContext().getDatabase();
-        TableIf table = getTable(catalogName, dbName, tableName, cascadesContext.getConnectContext().getEnv());
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                unboundRelation.getNameParts());
+        TableIf table = null;
+        if (cascadesContext.getTables() != null) {
+            table = cascadesContext.getTableByName(tableName);
+        }
+        if (table == null) {
+            if (customTableResolver.isPresent()) {
+                table = customTableResolver.get().apply(tableQualifier);
+            }
+        }
+        // In some cases even if we have already called the "cascadesContext.getTableByName",
+        // it also gets the null. So, we just check it in the catalog again for safety.
+        if (table == null) {
+            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
+        }
+
         // TODO: should generate different Scan sub class according to table's type
-        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
-    private LogicalPlan bindWithDbNameFromNamePart(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
-        List<String> nameParts = unboundRelation.getNameParts();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        String catalogName = cascadesContext.getConnectContext().getCurrentCatalog().getName();
-        // if the relation is view, nameParts.get(0) is dbName.
-        String dbName = nameParts.get(0);
-        if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-            dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
+    private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                unboundRelation.getNameParts());
+        TableIf table = null;
+        if (customTableResolver.isPresent()) {
+            table = customTableResolver.get().apply(tableQualifier);
         }
-        String tableName = nameParts.get(1);
-        TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
-        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
-        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
-    }
-
-    private LogicalPlan bindWithCatalogNameFromNamePart(CascadesContext cascadesContext,
-                                                        UnboundRelation unboundRelation) {
-        List<String> nameParts = unboundRelation.getNameParts();
-        ConnectContext connectContext = cascadesContext.getConnectContext();
-        String catalogName = nameParts.get(0);
-        String dbName = nameParts.get(1);
-        if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-            dbName = connectContext.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
+        // In some cases even if we have already called the "cascadesContext.getTableByName",
+        // it also gets the null. So, we just check it in the catalog again for safety.
+        if (table == null) {
+            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        String tableName = nameParts.get(2);
-        TableIf table = getTable(catalogName, dbName, tableName, connectContext.getEnv());
-        List<String> tableQualifier = Lists.newArrayList(catalogName, dbName, tableName);
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
@@ -179,10 +167,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         LogicalOlapScan scan;
         List<Long> partIds = getPartitionIds(table, unboundRelation);
         if (!CollectionUtils.isEmpty(partIds)) {
-            scan = new LogicalOlapScan(RelationUtil.newRelationId(),
+            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds, unboundRelation.getHints());
         } else {
-            scan = new LogicalOlapScan(RelationUtil.newRelationId(),
+            scan = new LogicalOlapScan(unboundRelation.getRelationId(),
                     (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints());
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
@@ -217,24 +205,44 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
-                return new LogicalFileScan(RelationUtil.newRelationId(),
+                if (Config.enable_query_hive_views) {
+                    if (((HMSExternalTable) table).isView()
+                                && StringUtils.isNotEmpty(((HMSExternalTable) table).getViewText())) {
+                        Plan hiveViewPlan = parseAndAnalyzeHiveView(table, cascadesContext);
+                        return new LogicalSubQueryAlias<>(tableQualifier, hiveViewPlan);
+                    }
+                }
+                return new LogicalFileScan(unboundRelation.getRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));
             case SCHEMA:
-                return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
+                return new LogicalSchemaScan(unboundRelation.getRelationId(),
+                        table, ImmutableList.of(dbName));
             case JDBC_EXTERNAL_TABLE:
-                return new LogicalJdbcScan(RelationUtil.newRelationId(),
-                    (JdbcExternalTable) table, ImmutableList.of(dbName));
+            case JDBC:
+                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, ImmutableList.of(dbName));
             case ES_EXTERNAL_TABLE:
-                return new LogicalEsScan(RelationUtil.newRelationId(),
+                return new LogicalEsScan(unboundRelation.getRelationId(),
                     (EsExternalTable) table, ImmutableList.of(dbName));
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }
     }
 
+    private Plan parseAndAnalyzeHiveView(TableIf table, CascadesContext cascadesContext) {
+        HMSExternalTable hiveTable = (HMSExternalTable) table;
+        ConnectContext ctx = cascadesContext.getConnectContext();
+        String previousCatalog = ctx.getCurrentCatalog().getName();
+        String previousDb = ctx.getDatabase();
+        ctx.changeDefaultCatalog(hiveTable.getCatalog().getName());
+        Plan hiveViewPlan = parseAndAnalyzeView(hiveTable.getViewText(), cascadesContext);
+        ctx.changeDefaultCatalog(previousCatalog);
+        ctx.setDatabase(previousDb);
+        return hiveViewPlan;
+    }
+
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
-        CascadesContext viewContext = CascadesContext.newRewriteContext(
+        CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();
 
@@ -260,4 +268,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return part.getId();
         }).collect(ImmutableList.toImmutableList());
     }
+
+    /** CustomTableResolver */
+    public interface CustomTableResolver extends Function<List<String>, TableIf> {}
 }

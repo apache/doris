@@ -18,6 +18,7 @@
 suite("test_dup_tab_decimal") {
 
     def table1 = "test_dup_tab_decimal"
+    sql  "ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false')"
 
     sql "drop table if exists ${table1}"
 

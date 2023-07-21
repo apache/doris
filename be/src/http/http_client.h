@@ -26,10 +26,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "http/http_headers.h"
 #include "http/http_method.h"
-#include "http/http_response.h"
-#include "http/utils.h"
 
 namespace doris {
 
@@ -106,6 +103,12 @@ public:
         curl_off_t cl;
         auto code = curl_easy_getinfo(_curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &cl);
         if (!code) {
+            if (cl < 0) {
+                return Status::InternalError(
+                        fmt::format("failed to get content length, it should be a positive value, "
+                                    "actrual is : {}",
+                                    cl));
+            }
             *length = cl;
             return Status::OK();
         }

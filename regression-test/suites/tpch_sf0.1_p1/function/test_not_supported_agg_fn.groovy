@@ -39,5 +39,4 @@ suite("test_not_supported_agg_fn") {
         }
     } finally {
     }
-
 }

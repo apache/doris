@@ -49,8 +49,6 @@ public:
         return make_nullable(std::make_shared<DataTypeInt64>());
     }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto result_column = ColumnInt64::create();

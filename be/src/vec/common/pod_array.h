@@ -21,19 +21,23 @@
 #pragma once
 
 #include <common/compiler_util.h>
+#include <stdint.h>
 #include <string.h>
+#include <sys/types.h>
 
 #include <algorithm>
-#include <boost/iterator_adaptors.hpp>
-#include <boost/noncopyable.hpp>
+#include <boost/core/noncopyable.hpp>
+#include <boost/iterator/iterator_adaptor.hpp>
 #include <cassert>
 #include <cstddef>
-#include <memory>
+#include <initializer_list>
+#include <utility>
 
-#include "vec/common/allocator.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "vec/common/allocator.h" // IWYU pragma: keep
 #include "vec/common/bit_helpers.h"
 #include "vec/common/memcpy_small.h"
-#include "vec/common/strong_typedef.h"
 
 #ifndef NDEBUG
 #include <sys/mman.h>
@@ -421,20 +425,8 @@ public:
     /// Do not insert into the array a piece of itself. Because with the resize, the iterators on themselves can be invalidated.
     template <typename It1, typename It2, typename... TAllocatorParams>
     void insert(It1 from_begin, It2 from_end, TAllocatorParams&&... allocator_params) {
-// `place` in IAggregateFunctionHelper::streaming_agg_serialize is initialized by placement new, in IAggregateFunctionHelper::create.
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wuninitialized"
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
         insert_prepare(from_begin, from_end, std::forward<TAllocatorParams>(allocator_params)...);
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__) || defined(__GNUG__)
-#pragma GCC diagnostic pop
-#endif
+
         insert_assume_reserved(from_begin, from_end);
     }
 

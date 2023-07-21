@@ -17,18 +17,26 @@
 
 #include "vec/runtime/vsorted_run_merger.h"
 
+#include <utility>
 #include <vector>
 
-#include "runtime/descriptors.h"
-#include "util/debug_util.h"
-#include "util/defer_op.h"
 #include "util/runtime_profile.h"
+#include "util/stopwatch.hpp"
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/utils/util.hpp"
+
+namespace doris {
+namespace vectorized {
+class VExprContext;
+} // namespace vectorized
+} // namespace doris
 
 using std::vector;
 
 namespace doris::vectorized {
 
-VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
+VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
                                    const std::vector<bool>& nulls_first, const size_t batch_size,
                                    int64_t limit, size_t offset, RuntimeProfile* profile)
@@ -122,9 +130,9 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         }
     } else {
         size_t num_columns = _empty_block.columns();
-        bool mem_reuse = output_block->mem_reuse();
-        MutableColumns merged_columns =
-                mem_reuse ? output_block->mutate_columns() : _empty_block.clone_empty_columns();
+        MutableBlock m_block =
+                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
+        MutableColumns& merged_columns = m_block.mutable_columns();
 
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
@@ -146,11 +154,6 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         if (merged_rows == 0) {
             *eos = true;
             return Status::OK();
-        }
-
-        if (!mem_reuse) {
-            Block merge_block = _empty_block.clone_with_columns(std::move(merged_columns));
-            merge_block.swap(*output_block);
         }
     }
 

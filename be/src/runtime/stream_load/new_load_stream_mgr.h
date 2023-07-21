@@ -17,48 +17,57 @@
 
 #pragma once
 
+#include <iterator>
 #include <memory>
 #include <mutex>
+#include <ostream>
 #include <unordered_map>
+#include <utility>
 
+#include "common/factory_creator.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 class StreamLoadContext;
+
 // used to register all streams in process so that other module can get this stream
 class NewLoadStreamMgr {
+    ENABLE_FACTORY_CREATOR(NewLoadStreamMgr);
+
 public:
     NewLoadStreamMgr();
     ~NewLoadStreamMgr();
 
     Status put(const UniqueId& id, std::shared_ptr<StreamLoadContext> stream) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it != std::end(_stream_map)) {
-            return Status::InternalError("id already exist");
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+                return Status::InternalError("id already exist");
+            }
+            _stream_map.emplace(id, stream);
         }
-        _stream_map.emplace(id, stream);
+
         VLOG_NOTICE << "put stream load pipe: " << id;
         return Status::OK();
     }
 
     std::shared_ptr<StreamLoadContext> get(const UniqueId& id) {
-        std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it == std::end(_stream_map)) {
-            return std::shared_ptr<StreamLoadContext>(nullptr);
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+                return iter->second;
+            }
         }
-        return it->second;
+        return nullptr;
     }
 
     void remove(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
-        auto it = _stream_map.find(id);
-        if (it != std::end(_stream_map)) {
-            _stream_map.erase(it);
+        if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
+            _stream_map.erase(iter);
             VLOG_NOTICE << "remove stream load pipe: " << id;
         }
     }

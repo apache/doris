@@ -17,11 +17,19 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
+#include <stdint.h>
+
+#include <boost/random/mersenne_twister.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <cstring>
 #include <ostream>
 #include <string>
+#include <string_view>
 
-#include "gen_cpp/Types_types.h" // for TUniqueId
-#include "gen_cpp/types.pb.h"    // for PUniqueId
 #include "util/uuid_generator.h"
 
 namespace doris {

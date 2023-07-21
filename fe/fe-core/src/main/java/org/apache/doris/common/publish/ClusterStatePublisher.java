@@ -95,7 +95,7 @@ public class ClusterStatePublisher {
         @Override
         public void run() {
             // Here to publish all worker
-            TNetworkAddress addr = new TNetworkAddress(node.getIp(), node.getBePort());
+            TNetworkAddress addr = new TNetworkAddress(node.getHost(), node.getBePort());
             BackendService.Client client = null;
             try {
                 client = ClientPool.backendPool.borrowObject(addr);

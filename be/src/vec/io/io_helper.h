@@ -17,12 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/data.pb.h>
 #include <snappy/snappy.h>
 
 #include <iostream>
 
 #include "common/exception.h"
-#include "gen_cpp/data.pb.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
 #include "vec/common/arena.h"

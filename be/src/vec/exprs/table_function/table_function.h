@@ -81,7 +81,7 @@ public:
     std::string name() const { return _fn_name; }
     bool eos() const { return _eos; }
 
-    void set_vexpr_context(VExprContext* vexpr_context) { _vexpr_context = vexpr_context; }
+    void set_expr_context(const VExprContextSPtr& expr_context) { _expr_context = expr_context; }
     void set_nullable() { _is_nullable = true; }
 
     bool is_outer() const { return _is_outer; }
@@ -97,7 +97,7 @@ public:
 
 protected:
     std::string _fn_name;
-    VExprContext* _vexpr_context = nullptr;
+    VExprContextSPtr _expr_context = nullptr;
     // true if there is no more data can be read from this function.
     bool _eos = false;
     // the position of current cursor

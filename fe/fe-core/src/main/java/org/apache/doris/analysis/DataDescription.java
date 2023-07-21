@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -81,7 +82,7 @@ import java.util.TreeSet;
  * The transform after the keyword named SET is the old ways which only supports the hadoop function.
  * It old way of transform will be removed gradually. It
  */
-public class DataDescription {
+public class DataDescription implements InsertStmt.DataDesc {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
@@ -146,12 +147,14 @@ public class DataDescription {
 
     private boolean isHadoopLoad = false;
 
-    private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+    private final LoadTask.MergeType mergeType;
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
     private int skipLines = 0;
+
+    private boolean isAnalyzed = false;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -571,6 +574,10 @@ public class DataDescription {
         return columnSeparator.getSeparator();
     }
 
+    public Separator getColumnSeparatorObj() {
+        return columnSeparator;
+    }
+
     public boolean isNegative() {
         return isNegative;
     }
@@ -793,13 +800,16 @@ public class DataDescription {
             // hadoop load only supports the FunctionCallExpr
             Expr child1 = predicate.getChild(1);
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
-                throw new AnalysisException("Hadoop load only supports the designated function. "
-                        + "The error mapping function is:" + child1.toSql());
+                throw new AnalysisException(
+                        "Hadoop load only supports the designated function. " + "The error mapping function is:"
+                                + child1.toSql());
             }
-            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
+            // Must clone the expr, because in routine load, the expr will be analyzed for each task.
+            Expr cloned = child1.clone();
+            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, cloned);
             parsedColumnExprList.add(importColumnDesc);
-            if (child1 instanceof FunctionCallExpr) {
-                analyzeColumnToHadoopFunction(column, child1);
+            if (cloned instanceof FunctionCallExpr) {
+                analyzeColumnToHadoopFunction(column, cloned);
             }
         }
     }
@@ -997,6 +1007,9 @@ public class DataDescription {
     }
 
     public void analyze(String fullDbName) throws AnalysisException {
+        if (isAnalyzed) {
+            return;
+        }
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
         }
@@ -1011,6 +1024,7 @@ public class DataDescription {
         if (isNegative && mergeType != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("Negative is only used when merge type is append.");
         }
+        isAnalyzed = true;
     }
 
     public void analyzeWithoutCheckPriv(String fullDbName) throws AnalysisException {
@@ -1151,6 +1165,17 @@ public class DataDescription {
             sb.append(" DELETE ON ").append(deleteCondition.toSql());
         }
         return sb.toString();
+    }
+
+    public void checkKeyTypeForLoad(OlapTable table) throws AnalysisException {
+        if (getMergeType() != LoadTask.MergeType.APPEND) {
+            if (table.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
+            } else if (!table.hasDeleteSign()) {
+                throw new AnalysisException(
+                        "load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+        }
     }
 
     @Override

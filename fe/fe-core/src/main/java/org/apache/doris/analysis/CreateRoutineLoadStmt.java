@@ -25,18 +25,20 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -104,19 +106,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String NUM_AS_STRING = "num_as_string";
     public static final String FUZZY_PARSE = "fuzzy_parse";
 
-    // kafka type properties
-    public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
-    public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
-    // optional
-    public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
-    public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
-    public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
-    public static final String KAFKA_ORIGIN_DEFAULT_OFFSETS = "kafka_origin_default_offsets";
-
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+
+    private AbstractDataSourceProperties dataSourceProperties;
+
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
@@ -138,11 +134,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .build();
 
     private final LabelName labelName;
-    private final String tableName;
+    private String tableName;
     private final List<ParseNode> loadPropertyList;
     private final Map<String, String> jobProperties;
     private final String typeName;
-    private final RoutineLoadDataSourceProperties dataSourceProperties;
 
     // the following variables will be initialized after analyze
     // -1 as unset, the default value will set in RoutineLoadJob
@@ -176,6 +171,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     private LoadTask.MergeType mergeType;
 
+    private boolean isMultiTable = false;
+
     public static final Predicate<Long> DESIRED_CONCURRENT_NUMBER_PRED = (v) -> v > 0L;
     public static final Predicate<Long> MAX_ERROR_NUMBER_PRED = (v) -> v >= 0L;
     public static final Predicate<Long> MAX_BATCH_INTERVAL_PRED = (v) -> v >= 5 && v <= 60;
@@ -189,11 +186,15 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
         this.labelName = labelName;
+        if (StringUtils.isBlank(tableName)) {
+            this.isMultiTable = true;
+        }
         this.tableName = tableName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
-        this.dataSourceProperties = new RoutineLoadDataSourceProperties(this.typeName, dataSourceProperties, false);
+        this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
+                .createDataSource(typeName, dataSourceProperties, this.isMultiTable);
         this.mergeType = mergeType;
         if (comment != null) {
             this.comment = comment;
@@ -284,28 +285,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         return jsonRoot;
     }
 
-    public String getKafkaBrokerList() {
-        return this.dataSourceProperties.getKafkaBrokerList();
-    }
-
-    public String getKafkaTopic() {
-        return this.dataSourceProperties.getKafkaTopic();
-    }
-
-    public List<Pair<Integer, Long>> getKafkaPartitionOffsets() {
-        return this.dataSourceProperties.getKafkaPartitionOffsets();
-    }
-
-    public Map<String, String> getCustomKafkaProperties() {
-        return this.dataSourceProperties.getCustomKafkaProperties();
-    }
-
     public LoadTask.MergeType getMergeType() {
         return mergeType;
     }
 
-    public boolean isOffsetsForTimes() {
-        return this.dataSourceProperties.isOffsetsForTimes();
+    public AbstractDataSourceProperties getDataSourceProperties() {
+        return dataSourceProperties;
     }
 
     public String getComment() {
@@ -337,10 +322,13 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         labelName.analyze(analyzer);
         dbName = labelName.getDbName();
         name = labelName.getLabelName();
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
+        if (isMultiTable) {
+            return;
+        }
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
@@ -373,6 +361,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                     columnSeparator = (Separator) parseNode;
                     columnSeparator.analyze(null);
                 } else if (parseNode instanceof ImportColumnsStmt) {
+                    if (isMultiTable) {
+                        throw new AnalysisException("Multi-table load does not support setting columns info");
+                    }
                     // check columns info
                     if (importColumnsStmt != null) {
                         throw new AnalysisException("repeat setting of columns info");
@@ -474,9 +465,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 format = "json";
                 jsonPaths = jobProperties.getOrDefault(JSONPATHS, "");
                 jsonRoot = jobProperties.getOrDefault(JSONROOT, "");
-                stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
-                numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
-                fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
+                stripOuterArray = Boolean.parseBoolean(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
+                numAsString = Boolean.parseBoolean(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
+                fuzzyParse = Boolean.parseBoolean(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
             } else {
                 throw new UserException("Format type is invalid. format=`" + format + "`");
             }

@@ -86,7 +86,8 @@ suite("test_pk_uk_case") {
         UNIQUE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)
         DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 1
         PROPERTIES (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "enable_unique_key_merge_on_write" = "false"
         )       
     """
 
@@ -95,14 +96,13 @@ suite("test_pk_uk_case") {
     def part_key = rd.nextInt(1000)
     def sub_key = 13
     def line_num = 29
-    def decimal = rd.nextFloat()
+    def decimal = rd.nextInt(1000) + 0.11
     def city = RandomStringUtils.randomAlphabetic(10)
     def name = UUID.randomUUID().toString()
     def date = DateTimeFormatter.ofPattern("yyyy-MM-dd").format(LocalDateTime.now())
     for (int idx = 0; idx < 500; idx++) {
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -116,7 +116,6 @@ suite("test_pk_uk_case") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -130,7 +129,6 @@ suite("test_pk_uk_case") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -144,7 +142,6 @@ suite("test_pk_uk_case") {
 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -158,7 +155,6 @@ suite("test_pk_uk_case") {
         
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -173,7 +169,6 @@ suite("test_pk_uk_case") {
         // insert batch key 
         order_key = rd.nextInt(10)
         part_key = rd.nextInt(10)
-        decimal = rd.nextFloat()
         city = RandomStringUtils.randomAlphabetic(10)
         name = UUID.randomUUID().toString()
         sql """ INSERT INTO ${tableNamePk} VALUES
@@ -211,8 +206,6 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNamePk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus
@@ -233,8 +226,6 @@ suite("test_pk_uk_case") {
                             count(*)                                              AS count_order
                             FROM
                             ${tableNameUk}
-                            WHERE
-                            l_shipdate <= DATE '2023-01-01' - INTERVAL '90' DAY
                             GROUP BY
                             l_returnflag,
                             l_linestatus

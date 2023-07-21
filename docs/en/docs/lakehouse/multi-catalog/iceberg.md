@@ -27,18 +27,16 @@ under the License.
 
 # Iceberg
 
-## Usage
+## Limitations
 
-When connecting to Iceberg, Doris:
-
-1. Supports Iceberg V1/V2 table formats;
-2. Supports Position Delete but not Equality Delete for V2 format;
+1. Support Iceberg V1/V2.
+2. The V2 format only supports Position Delete, not Equality Delete.
 
 ## Create Catalog
 
-### Hive Metastore Catalog
+### Create Catalog Based on Hive Metastore
 
-Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive.md) for more information.
+It is basically the same as Hive Catalog, and only a simple example is given here. See [Hive Catalog](./hive.md) for other examples.
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -53,20 +51,11 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-> `specified_database_list`:
-> 
-> only synchronize the specified databases, split with ','. Default values is '' will synchronize all databases. db name is case sensitive.
-> 
+### Create Catalog based on Iceberg API
 
-### Iceberg Native Catalog
+Use the Iceberg API to access metadata, and support services such as Hive, REST, DLF and Glue as Iceberg's Catalog.
 
-<version since="dev">
-
-Access metadata with the iceberg API. The Hive, REST, Glue and other services can serve as the iceberg catalog.
-
-</version>
-
-#### Using Iceberg Hive Catalog
+#### Hive Metastore
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -82,31 +71,27 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-#### Using Iceberg Glue Catalog
+#### AWS Glue
 
 ```sql
 CREATE CATALOG glue PROPERTIES (
-"type"="iceberg",
-"iceberg.catalog.type" = "glue",
-"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
-"warehouse" = "s3://bucket/warehouse",
-"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
-"AWS_REGION" = "us-east-1",
-"AWS_ACCESS_KEY" = "ak",
-"AWS_SECRET_KEY" = "sk",
-"use_path_style" = "true"
+    "type"="iceberg",
+    "iceberg.catalog.type" = "glue",
+    "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+    "glue.access_key" = "ak",
+    "glue.secret_key" = "sk"
 );
 ```
 
-`glue.endpoint`: Glue Endpoint. See [AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
 
-`warehouse`: Glue Warehouse Location.  To determine the root path of the data warehouse in storage.
+#### Alibaba Cloud DLF
 
-The other properties can refer to [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+see [Alibaba Cloud DLF Catalog](dlf.md)
 
-- Using Iceberg REST Catalog
+#### REST Catalog
 
-RESTful service as the server side. Implementing RESTCatalog interface of iceberg to obtain metadata.
+This method needs to provide REST services in advance, and users need to implement the REST interface for obtaining Iceberg metadata.
 
 ```sql
 CREATE CATALOG iceberg PROPERTIES (
@@ -116,36 +101,51 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
-If you want to use S3 storage, the following properties need to be set.
+#### Google Dataproc Metastore
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    "type"="iceberg",
+    "iceberg.catalog.type"="hms",
+    "hive.metastore.uris" = "thrift://172.21.0.1:9083",
+    "gs.endpoint" = "https://storage.googleapis.com",
+    "gs.region" = "us-east-1",
+    "gs.access_key" = "ak",
+    "gs.secret_key" = "sk",
+    "use_path_style" = "true"
+);
+```
+
+`hive.metastore.uris`: Dataproc Metastore URI，See in Metastore Services ：[Dataproc Metastore Services](https://console.cloud.google.com/dataproc/metastore).
+
+### Iceberg On S3
+
+If the data is stored on S3, the following parameters can be used in properties:
 
 ```
-"AWS_ACCESS_KEY" = "ak"
-"AWS_SECRET_KEY" = "sk"
-"AWS_REGION" = "region-name"
-"AWS_ENDPOINT" = "http://endpoint-uri"
-"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // Optional. The default credentials class is based on BasicAWSCredentials.
+"s3.access_key" = "ak"
+"s3.secret_key" = "sk"
+"s3.endpoint" = "http://endpoint-uri"
+"s3.region" = "your-region"
+"s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 
-## Column Type Mapping
+## Column type mapping
 
-Same as that in Hive Catalogs. See the relevant section in [Hive](./hive.md).
+Consistent with Hive Catalog, please refer to the **column type mapping** section in [Hive Catalog](./hive.md).
 
 ## Time Travel
 
-<version since="1.2.2">
+Supports reading the snapshot specified by the Iceberg table.
 
-Doris supports reading the specified Snapshot of Iceberg tables.
+Every write operation to the iceberg table will generate a new snapshot.
 
-</version>
+By default, read requests will only read the latest version of the snapshot.
 
-Each write operation to an Iceberg table will generate a new Snapshot.
-
-By default, a read request will only read the latest Snapshot.
-
-You can read data of historical table versions using the  `FOR TIME AS OF`  or  `FOR VERSION AS OF`  statements based on the Snapshot ID or the timepoint the Snapshot is generated. For example:
+You can use the `FOR TIME AS OF` and `FOR VERSION AS OF` statements to read historical versions of data based on the snapshot ID or the time when the snapshot was generated. Examples are as follows:
 
 `SELECT * FROM iceberg_tbl FOR TIME AS OF "2022-10-07 17:20:37";`
 
 `SELECT * FROM iceberg_tbl FOR VERSION AS OF 868895038966572;`
 
-You can use the [iceberg_meta](https://doris.apache.org/docs/dev/sql-manual/sql-functions/table-functions/iceberg_meta/) table function to view the Snapshot details of the specified table.
+In addition, you can use the [iceberg_meta](../../sql-manual/sql-functions/table-functions/iceberg_meta.md) table function to query the snapshot information of the specified table.

@@ -7,7 +7,7 @@
 #include "gutil/strtoint.h"
 
 #include <errno.h>
-
+#include <limits.h>
 #include <limits>
 
 // Replacement strto[u]l functions that have identical overflow and underflow

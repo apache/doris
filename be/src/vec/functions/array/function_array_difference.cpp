@@ -17,7 +17,6 @@
 
 #include "vec/functions/array/function_array_difference.h"
 
-#include "vec/functions/array/function_array_mapped.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

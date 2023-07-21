@@ -56,6 +56,7 @@ struct TBrokerFileStatus {
                                   //and the entire file must be imported as a complete map task.
                                   //the return value of the compressed file is false
     5: optional i64 blockSize; //Block size in FS. e.g. HDFS and S3
+    6: optional i64 modificationTime = 0; // Last modification time
 }
 
 struct TBrokerFD {

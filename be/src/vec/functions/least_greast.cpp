@@ -15,18 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <tuple>
+#include <type_traits>
+
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/accurate_comparison.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/functions/function_multi_same_args.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
-#include "vec/utils/util.hpp"
+
+namespace doris {
+class DecimalV2Value;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -59,10 +79,10 @@ struct CompareMultiImpl {
             auto& column_res = reinterpret_cast<ColumnString&>(*result_column);
 
             for (int i = 0; i < input_rows_count; ++i) {
-                auto str_data = column_string.get_data_at(i);
+                auto str_data = column_string.get_data_at(index_check_const(i, col_const[0]));
                 for (int cmp_col = 1; cmp_col < arguments.size(); ++cmp_col) {
                     auto temp_data = assert_cast<const ColumnString&>(*cols[cmp_col])
-                                             .get_data_at(index_check_const(i, col_const[i]));
+                                             .get_data_at(index_check_const(i, col_const[cmp_col]));
                     str_data = Op<StringRef, StringRef>::apply(temp_data, str_data) ? temp_data
                                                                                     : str_data;
                 }
@@ -70,7 +90,13 @@ struct CompareMultiImpl {
             }
 
         } else {
-            result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
+            if (col_const[0]) {
+                for (int i = 0; i < input_rows_count; ++i) {
+                    result_column->insert_range_from(*(cols[0]), 0, 1);
+                }
+            } else {
+                result_column->insert_range_from(*(cols[0]), 0, input_rows_count);
+            }
             WhichDataType which(data_type);
 
 #define DISPATCH(TYPE, COLUMN_TYPE)                                                               \
@@ -84,7 +110,7 @@ struct CompareMultiImpl {
         }                                                                                         \
     }
             NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
-            DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
+            DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
             TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
         }
@@ -107,6 +133,17 @@ private:
                 result_raw_data[i] =
                         Op<DecimalV2Value, DecimalV2Value>::apply(
                                 column_raw_data[index_check_const(i, ArgConst)], result_raw_data[i])
+                                ? column_raw_data[index_check_const(i, ArgConst)]
+                                : result_raw_data[i];
+            }
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
+                             std::is_same_v<ColumnType, ColumnDecimal64> ||
+                             std::is_same_v<ColumnType, ColumnDecimal128I>) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                using type = std::decay_t<decltype(result_raw_data[0].value)>;
+                result_raw_data[i] =
+                        Op<type, type>::apply(column_raw_data[index_check_const(i, ArgConst)].value,
+                                              result_raw_data[i].value)
                                 ? column_raw_data[index_check_const(i, ArgConst)]
                                 : result_raw_data[i];
             }
@@ -178,7 +215,7 @@ struct FunctionFieldImpl {
         }                                                                                       \
     }
             NUMERIC_TYPE_TO_COLUMN_TYPE(DISPATCH)
-            DISPATCH(Decimal128, ColumnDecimal<Decimal128>)
+            DECIMAL_TYPE_TO_COLUMN_TYPE(DISPATCH)
             TIME_TYPE_TO_COLUMN_TYPE(DISPATCH)
 #undef DISPATCH
         }
@@ -202,6 +239,17 @@ private:
                 res_data[i] |= (!res_data[i] *
                                 (EqualsOp<DecimalV2Value, DecimalV2Value>::apply(
                                         first_raw_data[index_check_const(i, ArgConst)], arg_data)) *
+                                col);
+            }
+        } else if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
+                             std::is_same_v<ColumnType, ColumnDecimal64> ||
+                             std::is_same_v<ColumnType, ColumnDecimal128I>) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                using type = std::decay_t<decltype(first_raw_data[0].value)>;
+                res_data[i] |= (!res_data[i] *
+                                (EqualsOp<type, type>::apply(
+                                        first_raw_data[index_check_const(i, ArgConst)].value,
+                                        arg_data.value)) *
                                 col);
             }
         } else {

@@ -75,7 +75,7 @@ public interface Plan extends TreeNode<Plan> {
     /**
      * Get extra plans.
      */
-    default List<Plan> extraPlans() {
+    default List<? extends Plan> extraPlans() {
         return ImmutableList.of();
     }
 
@@ -88,13 +88,15 @@ public interface Plan extends TreeNode<Plan> {
      */
     List<Slot> getOutput();
 
-    List<Slot> getNonUserVisibleOutput();
-
     /**
      * Get output slot set of the plan.
      */
     default Set<Slot> getOutputSet() {
         return ImmutableSet.copyOf(getOutput());
+    }
+
+    default List<ExprId> getOutputExprIds() {
+        return getOutput().stream().map(NamedExpression::getExprId).collect(Collectors.toList());
     }
 
     default Set<ExprId> getOutputExprIdSet() {
@@ -117,19 +119,12 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
-    default List<Slot> computeNonUserVisibleOutput() {
-        return ImmutableList.of();
-    }
-
     String treeString();
-
-    default Plan withOutput(List<Slot> output) {
-        return withLogicalProperties(Optional.of(getLogicalProperties().withOutput(output)));
-    }
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
-    Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties);
+    Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children);
 
     <T> Optional<T> getMutableState(String key);
 

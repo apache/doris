@@ -31,9 +31,8 @@ under the License.
 
 #### Syntax
 
-```
-split_by_string(s, separator)
-```
+`ARRAY<STRING> split_by_string(STRING s, STRING separator)`
+
 Splits a string into substrings separated by a string. It uses a constant string separator of multiple characters as the separator. If the string separator is empty, it will split the string s into an array of single characters.
 
 #### Arguments

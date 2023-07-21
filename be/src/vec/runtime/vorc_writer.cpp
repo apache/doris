@@ -17,15 +17,36 @@
 
 #include "vec/runtime/vorc_writer.h"
 
+#include <glog/logging.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <exception>
+#include <ostream>
+
 #include "io/fs/file_writer.h"
+#include "orc/Int128.hh"
+#include "orc/MemoryPool.hh"
+#include "orc/OrcFile.hh"
+#include "orc/Vector.hh"
+#include "runtime/define_primitive_type.h"
+#include "runtime/types.h"
+#include "util/binary_cast.hpp"
+#include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_nullable.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function_helpers.h"
+#include "vec/exprs/vexpr_context.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
@@ -64,7 +85,7 @@ void VOrcOutputStream::set_written_len(int64_t written_len) {
 }
 
 VOrcWriterWrapper::VOrcWriterWrapper(doris::io::FileWriter* file_writer,
-                                     const std::vector<VExprContext*>& output_vexpr_ctxs,
+                                     const VExprContextSPtrs& output_vexpr_ctxs,
                                      const std::string& schema, bool output_object_data)
         : VFileWriterWrapper(output_vexpr_ctxs, output_object_data),
           _file_writer(file_writer),
@@ -144,9 +165,69 @@ void VOrcWriterWrapper::close() {
         RETURN_WRONG_TYPE                                                                      \
     }
 
+#define WRITE_LARGEINT_STRING_INTO_BATCH(VECTOR_BATCH, COLUMN)                                   \
+    VECTOR_BATCH* cur_batch = dynamic_cast<VECTOR_BATCH*>(root->fields[i]);                      \
+    const size_t begin_off = offset;                                                             \
+    if (null_map != nullptr) {                                                                   \
+        cur_batch->hasNulls = true;                                                              \
+        auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                 \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            if (null_data[row_id] != 0) {                                                        \
+                cur_batch->notNull[row_id] = 0;                                                  \
+            } else {                                                                             \
+                cur_batch->notNull[row_id] = 1;                                                  \
+                auto value = assert_cast<const COLUMN&>(*col).get_data()[row_id];                \
+                std::string value_str = fmt::format("{}", value);                                \
+                size_t len = value_str.size();                                                   \
+                while (buffer.size - BUFFER_RESERVED_SIZE < offset + len) {                      \
+                    char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);               \
+                    memcpy(new_ptr, buffer.data, buffer.size);                                   \
+                    free(const_cast<char*>(buffer.data));                                        \
+                    buffer.data = new_ptr;                                                       \
+                    buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                \
+                }                                                                                \
+                strcpy(const_cast<char*>(buffer.data) + offset, value_str.c_str());              \
+                offset += len;                                                                   \
+                cur_batch->length[row_id] = len;                                                 \
+            }                                                                                    \
+        }                                                                                        \
+        size_t data_off = 0;                                                                     \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            if (null_data[row_id] != 0) {                                                        \
+                cur_batch->notNull[row_id] = 0;                                                  \
+            } else {                                                                             \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off; \
+                data_off += cur_batch->length[row_id];                                           \
+            }                                                                                    \
+        }                                                                                        \
+    } else if (const auto& not_null_column = check_and_get_column<const COLUMN>(col)) {          \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            auto value = not_null_column->get_data()[row_id];                                    \
+            std::string value_str = fmt::format("{}", value);                                    \
+            size_t len = value_str.size();                                                       \
+            while (buffer.size - BUFFER_RESERVED_SIZE < offset + len) {                          \
+                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                   \
+                memcpy(new_ptr, buffer.data, buffer.size);                                       \
+                free(const_cast<char*>(buffer.data));                                            \
+                buffer.data = new_ptr;                                                           \
+                buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                    \
+            }                                                                                    \
+            strcpy(const_cast<char*>(buffer.data) + offset, value_str.c_str());                  \
+            offset += len;                                                                       \
+            cur_batch->length[row_id] = len;                                                     \
+        }                                                                                        \
+        size_t data_off = 0;                                                                     \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                         \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;     \
+            data_off += cur_batch->length[row_id];                                               \
+        }                                                                                        \
+    } else {                                                                                     \
+        RETURN_WRONG_TYPE                                                                        \
+    }
+
 #define WRITE_DATE_STRING_INTO_BATCH(FROM, TO)                                                     \
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(root->fields[i]);    \
-    size_t offset = 0;                                                                             \
+    const size_t begin_off = offset;                                                               \
     if (null_map != nullptr) {                                                                     \
         cur_batch->hasNulls = true;                                                                \
         auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                   \
@@ -157,8 +238,8 @@ void VOrcWriterWrapper::close() {
                 cur_batch->notNull[row_id] = 1;                                                    \
                 int len = binary_cast<FROM, TO>(                                                   \
                                   assert_cast<const ColumnVector<FROM>&>(*col).get_data()[row_id]) \
-                                  .to_buffer(const_cast<char*>(buffer.data));                      \
-                while (buffer.size < offset + len) {                                               \
+                                  .to_buffer(const_cast<char*>(buffer.data) + offset);             \
+                while (buffer.size - BUFFER_RESERVED_SIZE < offset + len) {                        \
                     char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
                     memcpy(new_ptr, buffer.data, buffer.size);                                     \
                     free(const_cast<char*>(buffer.data));                                          \
@@ -169,21 +250,21 @@ void VOrcWriterWrapper::close() {
                 offset += len;                                                                     \
             }                                                                                      \
         }                                                                                          \
-        offset = 0;                                                                                \
+        size_t data_off = 0;                                                                       \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
             if (null_data[row_id] != 0) {                                                          \
                 cur_batch->notNull[row_id] = 0;                                                    \
             } else {                                                                               \
-                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;                 \
-                offset += cur_batch->length[row_id];                                               \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;   \
+                data_off += cur_batch->length[row_id];                                             \
             }                                                                                      \
         }                                                                                          \
     } else if (const auto& not_null_column =                                                       \
                        check_and_get_column<const ColumnVector<FROM>>(col)) {                      \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
             int len = binary_cast<FROM, TO>(not_null_column->get_data()[row_id])                   \
-                              .to_buffer(const_cast<char*>(buffer.data));                          \
-            while (buffer.size < offset + len) {                                                   \
+                              .to_buffer(const_cast<char*>(buffer.data) + offset);                 \
+            while (buffer.size - BUFFER_RESERVED_SIZE < offset + len) {                            \
                 char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
                 memcpy(new_ptr, buffer.data, buffer.size);                                         \
                 free(const_cast<char*>(buffer.data));                                              \
@@ -193,10 +274,71 @@ void VOrcWriterWrapper::close() {
             cur_batch->length[row_id] = len;                                                       \
             offset += len;                                                                         \
         }                                                                                          \
-        offset = 0;                                                                                \
+        size_t data_off = 0;                                                                       \
         for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
-            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;                     \
-            offset += cur_batch->length[row_id];                                                   \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;       \
+            data_off += cur_batch->length[row_id];                                                 \
+        }                                                                                          \
+    } else {                                                                                       \
+        RETURN_WRONG_TYPE                                                                          \
+    }
+
+#define WRITE_DATETIMEV2_STRING_INTO_BATCH(FROM, TO)                                               \
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(root->fields[i]);    \
+    const size_t begin_off = offset;                                                               \
+    if (null_map != nullptr) {                                                                     \
+        cur_batch->hasNulls = true;                                                                \
+        auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();                   \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            if (null_data[row_id] != 0) {                                                          \
+                cur_batch->notNull[row_id] = 0;                                                    \
+            } else {                                                                               \
+                cur_batch->notNull[row_id] = 1;                                                    \
+                int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;                    \
+                int len =                                                                          \
+                        binary_cast<FROM, TO>(                                                     \
+                                assert_cast<const ColumnVector<FROM>&>(*col).get_data()[row_id])   \
+                                .to_buffer(const_cast<char*>(buffer.data) + offset, output_scale); \
+                while (buffer.size - BUFFER_RESERVED_SIZE < offset + len) {                        \
+                    char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                 \
+                    memcpy(new_ptr, buffer.data, buffer.size);                                     \
+                    free(const_cast<char*>(buffer.data));                                          \
+                    buffer.data = new_ptr;                                                         \
+                    buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                  \
+                }                                                                                  \
+                cur_batch->length[row_id] = len;                                                   \
+                offset += len;                                                                     \
+            }                                                                                      \
+        }                                                                                          \
+        size_t data_off = 0;                                                                       \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            if (null_data[row_id] != 0) {                                                          \
+                cur_batch->notNull[row_id] = 0;                                                    \
+            } else {                                                                               \
+                cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;   \
+                data_off += cur_batch->length[row_id];                                             \
+            }                                                                                      \
+        }                                                                                          \
+    } else if (const auto& not_null_column =                                                       \
+                       check_and_get_column<const ColumnVector<FROM>>(col)) {                      \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;                        \
+            int len = binary_cast<FROM, TO>(not_null_column->get_data()[row_id])                   \
+                              .to_buffer(const_cast<char*>(buffer.data) + offset, output_scale);   \
+            while (buffer.size - BUFFER_RESERVED_SIZE < offset + len) {                            \
+                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);                     \
+                memcpy(new_ptr, buffer.data, buffer.size);                                         \
+                free(const_cast<char*>(buffer.data));                                              \
+                buffer.data = new_ptr;                                                             \
+                buffer.size = buffer.size + BUFFER_UNIT_SIZE;                                      \
+            }                                                                                      \
+            cur_batch->length[row_id] = len;                                                       \
+            offset += len;                                                                         \
+        }                                                                                          \
+        size_t data_off = 0;                                                                       \
+        for (size_t row_id = 0; row_id < sz; row_id++) {                                           \
+            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + begin_off + data_off;       \
+            data_off += cur_batch->length[row_id];                                                 \
         }                                                                                          \
     } else {                                                                                       \
         RETURN_WRONG_TYPE                                                                          \
@@ -255,9 +397,10 @@ Status VOrcWriterWrapper::write(const Block& block) {
         return Status::OK();
     }
 
-    // Buffer used by date type
+    // Buffer used by date/datetime/datev2/datetimev2/largeint type
     char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
     StringRef buffer(ptr, BUFFER_UNIT_SIZE);
+    size_t offset = 0;
 
     size_t sz = block.rows();
     auto row_batch = _create_row_batch(sz);
@@ -306,7 +449,9 @@ Status VOrcWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_LARGEINT: {
-                return Status::InvalidArgument("do not support large int type.");
+                WRITE_LARGEINT_STRING_INTO_BATCH(orc::StringVectorBatch, ColumnVector<Int128>)
+                SET_NUM_ELEMENTS;
+                break;
             }
             case TYPE_FLOAT: {
                 WRITE_SINGLE_ELEMENTS_INTO_BATCH(orc::DoubleVectorBatch, ColumnVector<Float32>)
@@ -331,68 +476,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
                 break;
             }
             case TYPE_DATETIMEV2: {
-                orc::StringVectorBatch* cur_batch =
-                        dynamic_cast<orc::StringVectorBatch*>(root->fields[i]);
-                size_t offset = 0;
-                if (null_map != nullptr) {
-                    cur_batch->hasNulls = true;
-                    auto& null_data = assert_cast<const ColumnUInt8&>(*null_map).get_data();
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            cur_batch->notNull[row_id] = 0;
-                        } else {
-                            cur_batch->notNull[row_id] = 1;
-                            int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
-                            int len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                              assert_cast<const ColumnVector<UInt64>&>(*col)
-                                                      .get_data()[row_id])
-                                              .to_buffer(const_cast<char*>(buffer.data),
-                                                         output_scale);
-                            while (buffer.size < offset + len) {
-                                char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);
-                                memcpy(new_ptr, buffer.data, buffer.size);
-                                free(const_cast<char*>(buffer.data));
-                                buffer.data = new_ptr;
-                                buffer.size = buffer.size + BUFFER_UNIT_SIZE;
-                            }
-                            cur_batch->length[row_id] = len;
-                            offset += len;
-                        }
-                    }
-                    offset = 0;
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        if (null_data[row_id] != 0) {
-                            cur_batch->notNull[row_id] = 0;
-                        } else {
-                            cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;
-                            offset += cur_batch->length[row_id];
-                        }
-                    }
-                } else if (const auto& not_null_column =
-                                   check_and_get_column<const ColumnVector<UInt64>>(col)) {
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        int output_scale = _output_vexpr_ctxs[i]->root()->type().scale;
-                        int len = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                                          not_null_column->get_data()[row_id])
-                                          .to_buffer(const_cast<char*>(buffer.data), output_scale);
-                        while (buffer.size < offset + len) {
-                            char* new_ptr = (char*)malloc(buffer.size + BUFFER_UNIT_SIZE);
-                            memcpy(new_ptr, buffer.data, buffer.size);
-                            free(const_cast<char*>(buffer.data));
-                            buffer.data = new_ptr;
-                            buffer.size = buffer.size + BUFFER_UNIT_SIZE;
-                        }
-                        cur_batch->length[row_id] = len;
-                        offset += len;
-                    }
-                    offset = 0;
-                    for (size_t row_id = 0; row_id < sz; row_id++) {
-                        cur_batch->data[row_id] = const_cast<char*>(buffer.data) + offset;
-                        offset += cur_batch->length[row_id];
-                    }
-                } else {
-                    RETURN_WRONG_TYPE
-                }
+                WRITE_DATETIMEV2_STRING_INTO_BATCH(UInt64, DateV2Value<DateTimeV2ValueType>)
                 SET_NUM_ELEMENTS
                 break;
             }
@@ -500,7 +584,7 @@ Status VOrcWriterWrapper::write(const Block& block) {
             }
         }
     } catch (const std::exception& e) {
-        LOG(WARNING) << "Parquet write error: " << e.what();
+        LOG(WARNING) << "Orc write error: " << e.what();
         return Status::InternalError(e.what());
     }
     root->numElements = sz;

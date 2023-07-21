@@ -537,7 +537,7 @@ public class MaterializedViewFunctionTest {
         String query1 = "select distinct deptno from " + EMPS_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createEmpsMVsql);
         dorisAssert.query(query1).explainContains(QUERY_USE_EMPS_MV);
-        String query2 = "select deptno, sum(distinct salary) from " + EMPS_TABLE_NAME + " group by deptno;";
+        String query2 = "select /*+ SET_VAR(enable_nereids_planner=false) */ deptno, sum(distinct salary) from " + EMPS_TABLE_NAME + " group by deptno;";
         dorisAssert.query(query2).explainWithout(QUERY_USE_EMPS_MV);
     }
 
@@ -664,10 +664,9 @@ public class MaterializedViewFunctionTest {
     @Test
     public void testUniqueTableInQuery() throws Exception {
         String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
-                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'false');";
         dorisAssert.withTable(uniqueTable);
-        String createK1K2MV = "create materialized view only_k1 as select k2, k1 from " + TEST_TABLE_NAME + " group by "
-                + "k2, k1;";
+        String createK1K2MV = "create materialized view only_k1 as select k2, k1 from " + TEST_TABLE_NAME;
         String query = "select * from " + TEST_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createK1K2MV).query(query).explainContains(TEST_TABLE_NAME);
         dorisAssert.dropTable(TEST_TABLE_NAME, true);

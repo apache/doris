@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,10 +39,10 @@ import java.util.List;
 public class WeekOfYear extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE)
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateV2Type.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(DateTimeType.INSTANCE)
     );
 
     /**

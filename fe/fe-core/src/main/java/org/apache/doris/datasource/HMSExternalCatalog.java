@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AuthType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -31,10 +32,11 @@ import org.apache.doris.datasource.property.constants.HMSProperties;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -52,14 +54,15 @@ import java.util.Objects;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
-    private static final int MAX_CLIENT_POOL_SIZE = 8;
+    private static final int MIN_CLIENT_POOL_SIZE = 8;
     protected PooledHiveMetaStoreClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
-    // Reference to https://github.com/apache/doris/issues/18251
+    // Reference to https://github.com/apDdlache/doris/issues/18251
     private long lastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
+    private static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
 
     // -1 means file cache no ttl set
     public static final int FILE_META_CACHE_NO_TTL = -1;
@@ -69,9 +72,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
-        super(catalogId, name);
-        this.type = "hms";
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
+        super(catalogId, name, InitCatalogLog.Type.HMS, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -122,39 +125,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_URIS, "");
     }
 
-    @Override
-    protected void init() {
-        Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
-        Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
-        InitCatalogLog initCatalogLog = new InitCatalogLog();
-        initCatalogLog.setCatalogId(id);
-        initCatalogLog.setType(InitCatalogLog.Type.HMS);
-        List<String> allDatabases = client.getAllDatabases();
-        Map<String, Boolean> specifiedDatabaseMap = getSpecifiedDatabaseMap();
-        // Update the db name to id map.
-        for (String dbName : allDatabases) {
-            if (!specifiedDatabaseMap.isEmpty() && specifiedDatabaseMap.get(dbName) == null) {
-                continue;
-            }
-            long dbId;
-            if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
-                dbId = dbNameToId.get(dbName);
-                tmpDbNameToId.put(dbName, dbId);
-                ExternalDatabase db = idToDb.get(dbId);
-                db.setUnInitialized(invalidCacheInInit);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addRefreshDb(dbId);
-            } else {
-                dbId = Env.getCurrentEnv().getNextId();
-                tmpDbNameToId.put(dbName, dbId);
-                HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
-                tmpIdToDb.put(dbId, db);
-                initCatalogLog.addCreateDb(dbId, dbName);
-            }
-        }
-        dbNameToId = tmpDbNameToId;
-        idToDb = tmpIdToDb;
-        Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
+    public String getHiveVersion() {
+        return catalogProperty.getOrDefault(HMSProperties.HIVE_VERSION, "");
+    }
+
+    protected List<String> listDatabaseNames() {
+        return client.getAllDatabases();
     }
 
     @Override
@@ -185,13 +161,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             }
         }
 
-        client = new PooledHiveMetaStoreClient(hiveConf, MAX_CLIENT_POOL_SIZE);
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return Lists.newArrayList(dbNameToId.keySet());
+        client = new PooledHiveMetaStoreClient(hiveConf,
+                    Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size));
     }
 
     @Override
@@ -234,9 +205,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public NotificationEventResponse getNextEventResponse(HMSExternalCatalog hmsExternalCatalog)
             throws MetastoreNotificationFetchException {
         makeSureInitialized();
+        long currentEventId = getCurrentEventId();
         if (lastSyncedEventId < 0) {
-            lastSyncedEventId = getCurrentEventId();
             refreshCatalog(hmsExternalCatalog);
+            // invoke getCurrentEventId() and save the event id before refresh catalog to avoid missing events
+            // but set lastSyncedEventId to currentEventId only if there is not any problems when refreshing catalog
+            lastSyncedEventId = currentEventId;
             LOG.info(
                     "First pulling events on catalog [{}],refreshCatalog and init lastSyncedEventId,"
                             + "lastSyncedEventId is [{}]",
@@ -244,14 +218,28 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return null;
         }
 
-        long currentEventId = getCurrentEventId();
         LOG.debug("Catalog [{}] getNextEventResponse, currentEventId is {},lastSyncedEventId is {}",
                 hmsExternalCatalog.getName(), currentEventId, lastSyncedEventId);
         if (currentEventId == lastSyncedEventId) {
             LOG.info("Event id not updated when pulling events on catalog [{}]", hmsExternalCatalog.getName());
             return null;
         }
-        return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+
+        try {
+            return client.getNextNotification(lastSyncedEventId, Config.hms_events_batch_size_per_rpc, null);
+        } catch (MetastoreNotificationFetchException e) {
+            // Need a fallback to handle this because this error state can not be recovered until restarting FE
+            if (StringUtils.isNotEmpty(e.getMessage())
+                        && e.getMessage().contains(HiveMetaStoreClient.REPL_EVENTS_MISSING_IN_METASTORE)) {
+                refreshCatalog(hmsExternalCatalog);
+                // set lastSyncedEventId to currentEventId after refresh catalog successfully
+                lastSyncedEventId = currentEventId;
+                LOG.warn("Notification events are missing, maybe an event can not be handled "
+                        + "or processing rate is too low, fallback to refresh the catalog");
+                return null;
+            }
+            throw e;
+        }
     }
 
     private void refreshCatalog(HMSExternalCatalog hmsExternalCatalog) {
@@ -287,7 +275,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         LOG.debug("create database [{}]", dbName);
         dbNameToId.put(dbName, dbId);
-        HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
+        ExternalDatabase<? extends ExternalTable> db = getDbForInit(dbName, dbId, logType);
         idToDb.put(dbId, db);
     }
 
@@ -297,6 +285,14 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtl)) {
             Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).setNewFileCache();
+        }
+    }
+
+    @Override
+    public void setDefaultProps() {
+        if (catalogProperty.getOrDefault(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "").isEmpty()) {
+            // always allow fallback to simple auth, so to support both kerberos and simple auth
+            catalogProperty.addProperty(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
     }
 }

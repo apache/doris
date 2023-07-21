@@ -145,8 +145,8 @@ UNION [ALL| DISTINCT] SELECT ......
 
 ```sql
 WITH
-  cte1 AS（SELECT a，b FROM table1），
-  cte2 AS（SELECT c，d FROM table2）
+  cte1 AS (SELECT a，b FROM table1),
+  cte2 AS (SELECT c，d FROM table2)
 SELECT b，d FROM cte1 JOIN cte2
 WHERE cte1.a = cte2.c;
 ```
@@ -155,7 +155,7 @@ WHERE cte1.a = cte2.c;
 
 CTE 名称可以在其他 CTE 中引用，从而可以基于其他 CTE 定义 CTE。
 
-CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括分层或树状结构数据的序列生成和遍历。
+目前不支持递归的 CTE。
 
 ### example
 

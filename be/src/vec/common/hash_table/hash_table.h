@@ -238,6 +238,8 @@ void insert_set_mapped(MappedType* dest, const ValueType& src) {
     *dest = src.second;
 }
 
+static doris::vectorized::Int32 double_resize_threshold = doris::config::double_resize_threshold;
+
 /** Determines the size of the hash table, and when and how much it should be resized.
   */
 template <size_t initial_size_degree = 10>
@@ -246,6 +248,8 @@ struct HashTableGrower {
     doris::vectorized::UInt8 size_degree = initial_size_degree;
     doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
+    doris::vectorized::Int32 max_fill_rate = doris::config::max_fill_rate;
+
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
 
@@ -253,7 +257,7 @@ struct HashTableGrower {
     size_t max_fill() const {
         return size_degree < double_grow_degree
                        ? 1ULL << (size_degree - 1)
-                       : (1ULL << size_degree) - (1ULL << (size_degree - 2));
+                       : (1ULL << size_degree) - (1ULL << (size_degree - max_fill_rate));
     }
 
     size_t mask() const { return buf_size() - 1; }
@@ -271,7 +275,7 @@ struct HashTableGrower {
     bool overflow(size_t elems) const { return elems > max_fill(); }
 
     /// Increase the size of the hash table.
-    void increase_size() { size_degree += size_degree >= 23 ? 1 : 2; }
+    void increase_size() { size_degree += size_degree >= double_resize_threshold ? 1 : 2; }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
@@ -336,7 +340,7 @@ public:
     bool overflow(size_t elems) const { return elems > precalculated_max_fill; }
 
     /// Increase the size of the hash table.
-    void increase_size() { increase_size_degree(size_degree_ >= 23 ? 1 : 2); }
+    void increase_size() { increase_size_degree(size_degree_ >= double_resize_threshold ? 1 : 2); }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
@@ -441,8 +445,8 @@ protected:
     using Self = HashTable;
     using cell_type = Cell;
 
-    size_t m_size = 0; /// Amount of elements
-    Cell* buf;         /// A piece of memory for all elements except the element with zero key.
+    size_t m_size = 0;   /// Amount of elements
+    Cell* buf {nullptr}; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
 
@@ -458,9 +462,7 @@ protected:
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     mutable size_t collisions = 0;
-#endif
 
     void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
 
@@ -475,9 +477,7 @@ protected:
         while (!buf[place_value].is_zero(*this) &&
                !buf[place_value].key_equals(x, hash_value, *this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
-#endif
         }
 
         return place_value;
@@ -499,9 +499,7 @@ protected:
     size_t ALWAYS_INLINE find_empty_cell(size_t place_value) const {
         while (!buf[place_value].is_zero(*this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
             ++collisions;
-#endif
         }
 
         return place_value;
@@ -1086,9 +1084,7 @@ public:
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
     }
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t getCollisions() const { return collisions; }
-#endif
+    int64_t get_collisions() const { return collisions; }
 
 private:
     /// Increase the size of the buffer.

@@ -24,7 +24,7 @@ suite("test_struct_insert") {
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL,
               `k2` STRUCT<f1:BOOLEAN,f2:TINYINT,f3:SMALLINT,f4:INT,f5:INT,f6:BIGINT,f7:LARGEINT> NULL,
-              `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(3,3)> NULL,
+              `k3` STRUCT<f1:FLOAT,f2:DOUBLE,f3:DECIMAL(10,3)> NULL,
               `k4` STRUCT<f1:DATE,f2:DATETIME,f3:DATEV2,f4:DATETIMEV2> NULL,
               `k5` STRUCT<f1:CHAR(10),f2:VARCHAR(10),f3:STRING> NOT NULL
             )
@@ -64,12 +64,6 @@ suite("test_struct_insert") {
         sql "insert into ${testTable} values (113,null,null,null,{null,'12345678901234',null})"
         exception "Insert has filtered data"
     }
-    test {
-        // input decimal is invalid
-        sql "insert into ${testTable} values (114,null,{null,null,1234.1234},null,{null,'',null})"
-        exception "Insert has filtered data"
-    }
-
     // normal cases include nullable and nullable nested fields
     sql "INSERT INTO ${testTable} VALUES(1, {1,11,111,1111,11111,11111,111111},null,null,{'','',''})"
     sql "INSERT INTO ${testTable} VALUES(2, {null,null,null,null,null,null,null},{2.1,2.22,2.333},null,{null,null,null})"

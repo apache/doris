@@ -15,9 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
+#include <string>
+
+#include "gtest/gtest_pred_impl.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris::vectorized {

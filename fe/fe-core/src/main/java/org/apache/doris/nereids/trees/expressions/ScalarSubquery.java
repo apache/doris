@@ -33,6 +33,7 @@ import java.util.Optional;
  * A subquery that will return only one row and one column.
  */
 public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
+
     public ScalarSubquery(LogicalPlan subquery) {
         super(Objects.requireNonNull(subquery, "subquery can not be null"));
     }
@@ -52,7 +53,7 @@ public class ScalarSubquery extends SubqueryExpr implements LeafExpression {
     @Override
     public DataType getDataType() throws UnboundException {
         Preconditions.checkArgument(queryPlan.getOutput().size() == 1);
-        return queryPlan.getOutput().get(0).getDataType();
+        return typeCoercionExpr.orElse(queryPlan.getOutput().get(0)).getDataType();
     }
 
     @Override

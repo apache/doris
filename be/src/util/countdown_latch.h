@@ -17,6 +17,7 @@
 
 #pragma once
 
+// IWYU pragma: no_include <bits/chrono.h>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>

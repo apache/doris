@@ -20,8 +20,18 @@
 
 #include "vec/core/field.h"
 
+#include "vec/core/accurate_comparison.h"
 #include "vec/core/decimal_comparison.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
+#include "vec/io/var_int.h"
+
+namespace doris {
+namespace vectorized {
+class BufferReadable;
+class BufferWritable;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

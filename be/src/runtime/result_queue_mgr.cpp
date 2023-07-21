@@ -17,11 +17,16 @@
 
 #include "runtime/result_queue_mgr.h"
 
+#include <gen_cpp/Types_types.h>
+
+#include <utility>
+
 #include "common/config.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "runtime/exec_env.h"
+#include "runtime/record_batch_queue.h"
 #include "util/doris_metrics.h"
+#include "util/hash_util.hpp"
+#include "util/metrics.h"
 
 namespace doris {
 

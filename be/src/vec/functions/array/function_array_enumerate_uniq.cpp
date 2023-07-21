@@ -15,16 +15,52 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_nullable.h>
-#include <vec/columns/columns_number.h>
-#include <vec/common/columns_hashing.h>
-#include <vec/common/hash_table/hash_map.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/data_types/data_type_number.h>
-#include <vec/functions/function.h>
-#include <vec/functions/function_helpers.h>
-#include <vec/functions/simple_function_factory.h>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <new>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/common/arena.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/columns_hashing.h"
+#include "vec/common/hash_table/hash.h"
+#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/hash_table/hash_table.h"
+#include "vec/common/hash_table/hash_table_allocator.h"
+#include "vec/common/pod_array_fwd.h"
+#include "vec/common/string_ref.h"
+#include "vec/common/uint128.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/functions/function.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
+template <typename, typename>
+struct DefaultHash;
 
 namespace doris::vectorized {
 
@@ -68,6 +104,16 @@ public:
         }
         return return_type;
     }
+
+// When compiling `FunctionArrayEnumerateUniq::_execute_by_hash`, `AllocatorWithStackMemory::free(buf)`
+// will be called when `delete HashMapContainer`. the gcc compiler will think that `size > N` and `buf` is not heap memory,
+// and report an error `' void free(void*)' called on unallocated object 'hash_map'`
+// This only fails on doris docker + gcc 11.1, no problem on doris docker + clang 16.0.1,
+// no problem on ldb_toolchanin gcc 11.1 and clang 16.0.1.
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+#endif // __GNUC__
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -145,6 +191,12 @@ public:
                 _execute_number<ColumnDateTime>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_date_v2()) {
                 _execute_number<ColumnDateV2>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal32()) {
+                _execute_number<ColumnDecimal32>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal64()) {
+                _execute_number<ColumnDecimal64>(data_columns, *offsets, null_map, dst_values);
+            } else if (which.is_decimal128i()) {
+                _execute_number<ColumnDecimal128I>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_date_time_v2()) {
                 _execute_number<ColumnDateTimeV2>(data_columns, *offsets, null_map, dst_values);
             } else if (which.is_decimal128()) {
@@ -242,6 +294,10 @@ private:
         }
     }
 };
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif // __GNUC__
 
 void register_function_array_enumerate_uniq(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayEnumerateUniq>();

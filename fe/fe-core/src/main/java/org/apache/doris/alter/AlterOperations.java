@@ -78,6 +78,27 @@ public class AlterOperations {
         ).map(c -> ((ModifyTablePropertiesClause) c).getStoragePolicy()).findFirst().orElse("");
     }
 
+    public boolean checkCcrEnable(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_CCR_ENABLE));
+    }
+
+    public boolean checkBinlogConfigChange(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
+    }
+
+    public boolean isCcrEnable(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+            clause instanceof ModifyTablePropertiesClause
+        ).map(c -> ((ModifyTablePropertiesClause) c).isCcrEnable()).findFirst().orElse(false);
+    }
+
     // MODIFY_TABLE_PROPERTY is also processed by SchemaChangeHandler
     public boolean hasSchemaChangeOp() {
         return currentOps.contains(AlterOpType.SCHEMA_CHANGE) || currentOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY);

@@ -35,7 +35,7 @@ date_trunc
 ### Description
 #### Syntax
 
-`DATETIME DATE_TRUNC(DATETIME datetime,VARCHAR unit)`
+`DATETIME DATE_TRUNC(DATETIME datetime, VARCHAR unit)`
 
 
 Truncates datetime in the specified time unit.

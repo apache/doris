@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,7 +29,9 @@ import java.util.Map;
 
 public class TableCommitInfo implements Writable {
 
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "idToPartitionCommitInfo")
     private Map<Long, PartitionCommitInfo> idToPartitionCommitInfo;
 
     public TableCommitInfo() {

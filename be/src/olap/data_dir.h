@@ -17,28 +17,32 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "io/fs/file_system.h"
 #include "io/fs/fs_utils.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset_id_generator.h"
 #include "util/metrics.h"
 
 namespace doris {
 
 class Tablet;
 class TabletManager;
-class TabletMeta;
 class TxnManager;
+class OlapMeta;
+class RowsetIdGenerator;
 
 // A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
@@ -83,8 +87,6 @@ public:
     OlapMeta* get_meta() { return _meta; }
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
-
-    bool is_remote() const { return io::FilePathDesc::is_remote(_storage_medium); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 

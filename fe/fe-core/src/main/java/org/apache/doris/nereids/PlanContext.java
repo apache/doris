@@ -32,9 +32,10 @@ import java.util.List;
  * Inspired by GPORCA-CExpressionHandle.
  */
 public class PlanContext {
+
     private List<Statistics> childrenStats = new ArrayList<>();
     private Statistics planStats;
-    private int arity = 0;
+    private final int arity;
     private boolean isBroadcastJoin = false;
 
     /**
@@ -46,7 +47,7 @@ public class PlanContext {
             return;
         }
         planStats = groupExpression.getOwnerGroup().getStatistics();
-        childrenStats = new ArrayList<>();
+        childrenStats = new ArrayList<>(groupExpression.arity());
         for (int i = 0; i < groupExpression.arity(); i++) {
             childrenStats.add(groupExpression.childStatistics(i));
         }

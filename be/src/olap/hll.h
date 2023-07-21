@@ -17,18 +17,17 @@
 
 #pragma once
 
-#include <math.h>
-#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
 
 #include <map>
-#include <set>
 #include <string>
+#include <utility>
 
 #ifdef __x86_64__
 #include <immintrin.h>
 #endif
 
-#include "gutil/macros.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {

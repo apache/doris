@@ -18,12 +18,28 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/DataTypeObject.cpp
 // and modified by Doris
 
+#include "vec/data_types/data_type_object.h"
+
+#include <gen_cpp/data.pb.h>
+#include <string.h>
 #include <util/string_util.h>
-#include <vec/data_types/data_type_object.h>
-#include <vec/io/io_helper.h>
 
 #include <cassert>
-#include <vec/data_types/data_type_factory.hpp>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "vec/columns/column_object.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/json/path_in_data.h"
+
+namespace doris {
+namespace vectorized {
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

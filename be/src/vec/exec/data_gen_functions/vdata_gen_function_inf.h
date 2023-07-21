@@ -27,6 +27,7 @@ namespace doris {
 
 class RuntimeState;
 class Status;
+class TScanRangeParams;
 
 namespace vectorized {
 

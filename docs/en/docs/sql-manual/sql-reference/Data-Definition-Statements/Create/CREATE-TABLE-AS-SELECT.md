@@ -80,6 +80,21 @@ illustrate:
     from `test`.`varchar_table` vt join 
     `test`.`join_table` jt on vt.userId=jt.userId
     ```
+
+3. Specify table model, partitions, and buckets
+    ```sql
+    CREATE TABLE t_user(dt, id, name)
+    ENGINE=OLAP
+    UNIQUE KEY(dt, id)
+    COMMENT "OLAP"
+    PARTITION BY RANGE(dt)
+    (
+       FROM ("2020-01-01") TO ("2021-12-31") INTERVAL 1 YEAR
+    )
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES("replication_num"="1")
+    AS SELECT cast('2020-05-20' as date) as dt, 1 as id, 'Tom' as name;
+    ```
    
 ### Keywords
 

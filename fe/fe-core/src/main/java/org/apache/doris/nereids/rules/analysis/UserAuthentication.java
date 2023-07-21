@@ -23,7 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
 
 /**
@@ -34,20 +34,27 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return logicalRelation()
-                .thenApply(ctx -> checkPermission(ctx.root, ctx.connectContext))
+                .when(CatalogRelation.class::isInstance)
+                .thenApply(ctx -> checkPermission((CatalogRelation) ctx.root, ctx.connectContext))
                 .toRule(RuleType.RELATION_AUTHENTICATION);
     }
 
-    private Plan checkPermission(LogicalRelation relation, ConnectContext connectContext) {
-        String dbName = !relation.getQualifier().isEmpty() ? relation.getQualifier().get(0) : null;
+    private Plan checkPermission(CatalogRelation relation, ConnectContext connectContext) {
+        // do not check priv when replaying dump file
+        if (connectContext.getSessionVariable().isPlayNereidsDump()) {
+            return null;
+        }
+
+        String dbName = relation.getDatabase().getFullName();
         String tableName = relation.getTable().getName();
-        if (!connectContext.getEnv().getAccessManager()
-                .checkTblPriv(connectContext, dbName, tableName, PrivPredicate.SELECT)) {
+        if (!connectContext.getEnv().getAccessManager().checkTblPriv(connectContext, dbName,
+                tableName, PrivPredicate.SELECT)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     dbName + ": " + tableName);
             throw new AnalysisException(message);
         }
-        return relation;
+
+        return null;
     }
 }

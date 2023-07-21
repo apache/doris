@@ -17,23 +17,25 @@
 
 #pragma once
 
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <thrift/Thrift.h>
 #include <thrift/protocol/TBinaryProtocol.h>
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TSocket.h>
 
-#include <ostream>
+#include <memory>
 #include <sstream>
 #include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "util/thrift_server.h"
+
+namespace apache {
+namespace thrift {
+namespace transport {
+class TTransport;
+} // namespace transport
+} // namespace thrift
+} // namespace apache
 
 namespace doris {
 // Super class for templatized thrift clients.

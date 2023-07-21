@@ -17,7 +17,9 @@
 
 #include "olap/key_coder.h"
 
+#include <cstddef>
 #include <unordered_map>
+#include <utility>
 
 namespace doris {
 

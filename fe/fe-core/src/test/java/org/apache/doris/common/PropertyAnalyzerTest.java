@@ -39,7 +39,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -142,7 +144,8 @@ public class PropertyAnalyzerTest {
     @Test
     public void testStorageMedium() throws AnalysisException {
         long tomorrowTs = System.currentTimeMillis() / 1000 + 86400;
-        String tomorrowTimeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(tomorrowTs * 1000);
+        String tomorrowTimeStr = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
+                .format(Instant.ofEpochMilli(tomorrowTs * 1000));
 
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");

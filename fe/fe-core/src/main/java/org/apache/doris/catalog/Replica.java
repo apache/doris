@@ -442,6 +442,10 @@ public class Replica implements Writable {
         return state == ReplicaState.COMPACTION_TOO_SLOW;
     }
 
+    public boolean isNormal() {
+        return state == ReplicaState.NORMAL;
+    }
+
     public long getVersionCount() {
         return versionCount;
     }

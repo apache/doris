@@ -19,6 +19,12 @@
 // and modified by Doris
 
 #include "vec/core/materialize_block.h"
+
+#include <stddef.h>
+
+#include "vec/columns/column.h"
+#include "vec/core/column_with_type_and_name.h"
+
 namespace doris::vectorized {
 
 Block materialize_block(const Block& block) {

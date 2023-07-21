@@ -31,6 +31,7 @@ Broker 是 Doris 集群中一种可选进程，主要用于支持 Doris 读写�
 - Apache HDFS
 - 阿里云 OSS
 - 腾讯云 CHDFS
+- 腾讯云 GFS (1.2.0 版本支持)
 - 华为云 OBS (1.2.0 版本后支持)
 - 亚马逊 S3
 - JuiceFS (2.0.0 版本支持)

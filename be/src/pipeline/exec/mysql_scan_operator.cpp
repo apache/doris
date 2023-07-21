@@ -24,7 +24,6 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(MysqlScanOperator, SourceOperator)
 
 Status MysqlScanOperator::open(RuntimeState* state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(SourceOperator::open(state));
     return _node->open(state);
 }

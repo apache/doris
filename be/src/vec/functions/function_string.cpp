@@ -17,10 +17,10 @@
 
 #include "vec/functions/function_string.h"
 
-#include <re2/re2.h>
+#include <ctype.h>
+#include <math.h>
+#include <re2/stringpiece.h>
 
-#include <cstddef>
-#include <cstdlib>
 #include <string_view>
 
 #include "runtime/string_search.hpp"
@@ -95,7 +95,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1];
-            res[i] = get_char_len(StringRef(raw_str, str_size), str_size);
+            res[i] = simd::VStringFunctions::get_char_len(raw_str, str_size);
         }
         return Status::OK();
     }
@@ -174,37 +174,152 @@ struct NameInstr {
     static constexpr auto name = "instr";
 };
 
+// LeftDataType and RightDataType are DataTypeString
+template <typename LeftDataType, typename RightDataType>
+struct StringInStrImpl {
+    using ResultDataType = DataTypeInt32;
+    using ResultPaddedPODArray = PaddedPODArray<Int32>;
+
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        StringRef lstr_ref(ldata.data, ldata.size);
+
+        auto size = roffsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+
+            StringRef rstr_ref(r_raw_str, r_str_size);
+
+            res[i] = execute(lstr_ref, rstr_ref);
+        }
+
+        return Status::OK();
+    }
+
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        auto size = loffsets.size();
+        res.resize(size);
+
+        if (rdata.size == 0) {
+            std::fill(res.begin(), res.end(), 1);
+            return Status::OK();
+        }
+
+        const UInt8* begin = ldata.data();
+        const UInt8* end = begin + ldata.size();
+        const UInt8* pos = begin;
+
+        /// Current index in the array of strings.
+        size_t i = 0;
+        std::fill(res.begin(), res.end(), 0);
+
+        StringRef rstr_ref(rdata.data, rdata.size);
+        StringSearch search(&rstr_ref);
+
+        while (pos < end) {
+            // search return matched substring start offset
+            pos = (UInt8*)search.search((char*)pos, end - pos);
+            if (pos >= end) {
+                break;
+            }
+
+            /// Determine which index it refers to.
+            /// begin + value_offsets[i] is the start offset of string at i+1
+            while (begin + loffsets[i] < pos) {
+                ++i;
+            }
+
+            /// We check that the entry does not pass through the boundaries of strings.
+            if (pos + rdata.size <= begin + loffsets[i]) {
+                int loc = pos - begin - loffsets[i - 1];
+                int l_str_size = loffsets[i] - loffsets[i - 1];
+                size_t len = std::min(l_str_size, loc);
+                loc = simd::VStringFunctions::get_char_len((char*)(begin + loffsets[i - 1]), len);
+                res[i] = loc + 1;
+            }
+
+            // move to next string offset
+            pos = begin + loffsets[i];
+            ++i;
+        }
+
+        return Status::OK();
+    }
+
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        DCHECK_EQ(loffsets.size(), roffsets.size());
+
+        auto size = loffsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
+            int l_str_size = loffsets[i] - loffsets[i - 1];
+            StringRef lstr_ref(l_raw_str, l_str_size);
+
+            const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
+            int r_str_size = roffsets[i] - roffsets[i - 1];
+            StringRef rstr_ref(r_raw_str, r_str_size);
+
+            res[i] = execute(lstr_ref, rstr_ref);
+        }
+
+        return Status::OK();
+    }
+
+    static int execute(const StringRef& strl, const StringRef& strr) {
+        if (strr.size == 0) {
+            return 1;
+        }
+
+        StringSearch search(&strr);
+        // Hive returns positions starting from 1.
+        int loc = search.search(&strl);
+        if (loc > 0) {
+            size_t len = std::min((size_t)loc, strl.size);
+            loc = simd::VStringFunctions::get_char_len(strl.data, len);
+        }
+
+        return loc + 1;
+    }
+};
+
 // the same impl as instr
 struct NameLocate {
     static constexpr auto name = "locate";
 };
 
-struct InStrOP {
+// LeftDataType and RightDataType are DataTypeString
+template <typename LeftDataType, typename RightDataType>
+struct StringLocateImpl {
     using ResultDataType = DataTypeInt32;
     using ResultPaddedPODArray = PaddedPODArray<Int32>;
-    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
-        if (strr.length() == 0) {
-            res = 1;
-            return;
-        }
 
-        StringRef str_sv(strl.data(), strl.length());
-        StringRef substr_sv(strr.data(), strr.length());
-        StringSearch search(&substr_sv);
-        // Hive returns positions starting from 1.
-        int loc = search.search(&str_sv);
-        if (loc > 0) {
-            loc = get_char_len(str_sv, loc);
-        }
-
-        res = loc + 1;
+    static Status scalar_vector(const StringRef& ldata, const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        return StringInStrImpl<LeftDataType, RightDataType>::vector_scalar(rdata, roffsets, ldata,
+                                                                           res);
     }
-};
-struct LocateOP {
-    using ResultDataType = DataTypeInt32;
-    using ResultPaddedPODArray = PaddedPODArray<Int32>;
-    static void execute(const std::string_view& strl, const std::string_view& strr, int32_t& res) {
-        InStrOP::execute(strr, strl, res);
+
+    static Status vector_scalar(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets, const StringRef& rdata,
+                                ResultPaddedPODArray& res) {
+        return StringInStrImpl<LeftDataType, RightDataType>::scalar_vector(rdata, ldata, loffsets,
+                                                                           res);
+    }
+
+    static Status vector_vector(const ColumnString::Chars& ldata,
+                                const ColumnString::Offsets& loffsets,
+                                const ColumnString::Chars& rdata,
+                                const ColumnString::Offsets& roffsets, ResultPaddedPODArray& res) {
+        return StringInStrImpl<LeftDataType, RightDataType>::vector_vector(rdata, roffsets, ldata,
+                                                                           loffsets, res);
     }
 };
 
@@ -454,8 +569,6 @@ public:
     }
     // The second parameter of "trim" is a constant.
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-
-    bool use_default_implementation_for_constants() const override { return true; }
 
     DataTypes get_variadic_argument_types_impl() const override {
         return impl::get_variadic_argument_types();
@@ -784,12 +897,6 @@ template <typename LeftDataType, typename RightDataType>
 using StringEndsWithImpl = StringFunctionImpl<LeftDataType, RightDataType, EndsWithOp>;
 
 template <typename LeftDataType, typename RightDataType>
-using StringInstrImpl = StringFunctionImpl<LeftDataType, RightDataType, InStrOP>;
-
-template <typename LeftDataType, typename RightDataType>
-using StringLocateImpl = StringFunctionImpl<LeftDataType, RightDataType, LocateOP>;
-
-template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
@@ -802,7 +909,7 @@ using FunctionStringStartsWith =
 using FunctionStringEndsWith =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringEndsWithImpl, NameEndsWith>;
 using FunctionStringInstr =
-        FunctionBinaryToType<DataTypeString, DataTypeString, StringInstrImpl, NameInstr>;
+        FunctionBinaryToType<DataTypeString, DataTypeString, StringInStrImpl, NameInstr>;
 using FunctionStringLocate =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
@@ -854,10 +961,11 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNullOrEmpty>();
     factory.register_function<FunctionNotNullOrEmpty>();
     factory.register_function<FunctionStringConcat>();
+    factory.register_function<FunctionIntToChar>();
     factory.register_function<FunctionStringElt>();
     factory.register_function<FunctionStringConcatWs>();
     factory.register_function<FunctionStringAppendTrailingCharIfAbsent>();
-    factory.register_function<FunctionStringRepeat>();
+    factory.register_function<FunctionStringRepeat<false>>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
     factory.register_function<FunctionToBase64>();
@@ -888,6 +996,10 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringMd5AndSM3<MD5Sum>::name, "md5");
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringMd5AndSM3<SM3Sum>::name, "sm3");
+
+    /// @TEMPORARY: for be_exec_version=2
+    factory.register_alternative_function<FunctionStringEltOld>();
+    factory.register_alternative_function<FunctionStringRepeat<true>>();
 }
 
 } // namespace doris::vectorized

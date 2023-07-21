@@ -17,21 +17,26 @@
 
 #include "vec/core/block.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/segment_v2.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <string>
 
 #include "agent/be_exec_version_manager.h"
-#include "exec/schema_scanner.h"
+#include "common/config.h"
 #include "gen_cpp/data.pb.h"
+#include "gtest/gtest_pred_impl.h"
+#include "util/bitmap_value.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_complex.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_bitmap.h"
@@ -41,6 +46,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time_v2.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {

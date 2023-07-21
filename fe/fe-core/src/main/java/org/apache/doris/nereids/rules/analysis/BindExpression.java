@@ -54,6 +54,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -65,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -157,7 +160,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             ? JoinType.INNER_JOIN : using.getJoinType(),
                             using.getHashJoinConjuncts(),
                             using.getOtherJoinConjuncts(), using.getHint(), using.getMarkJoinSlotReference(),
-                            using.left(), using.right());
+                            using.children());
                     List<Expression> unboundSlots = lj.getHashJoinConjuncts();
                     Set<String> slotNames = new HashSet<>();
                     List<Slot> leftOutput = new ArrayList<>(lj.left().getOutput());
@@ -205,7 +208,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             .collect(Collectors.toList());
                     return new LogicalJoin<>(join.getJoinType(),
                             hashJoinConjuncts, cond, join.getHint(), join.getMarkJoinSlotReference(),
-                            join.left(), join.right());
+                            join.children());
                 })
             ),
             RuleType.BINDING_AGGREGATE_SLOT.build(
@@ -413,6 +416,18 @@ public class BindExpression implements AnalysisRuleFactory {
                     LogicalProject<Plan> project = sort.child();
                     return bindSort(sort, project, ctx.cascadesContext);
                 })
+            ), RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalCTEConsumer()).thenApply(ctx -> {
+                    LogicalSort<LogicalCTEConsumer> sort = ctx.root;
+                    LogicalCTEConsumer cteConsumer = sort.child();
+                    return bindSort(sort, cteConsumer, ctx.cascadesContext);
+                })
+            ), RuleType.BINDING_SORT_SLOT.build(
+                logicalSort(logicalCTE()).thenApply(ctx -> {
+                    LogicalSort<LogicalCTE<Plan>> sort = ctx.root;
+                    LogicalCTE<Plan> cteConsumer = sort.child();
+                    return bindSort(sort, cteConsumer, ctx.cascadesContext);
+                })
             ),
             RuleType.BINDING_SORT_SET_OPERATION_SLOT.build(
                 logicalSort(logicalSetOperation()).thenApply(ctx -> {
@@ -469,7 +484,7 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(project -> bindSlot(project, ImmutableList.of(), ctx.cascadesContext))
                             .map(project -> bindFunction(project, ctx.cascadesContext))
                             .collect(Collectors.toList());
-                    return new LogicalOneRowRelation(projects);
+                    return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
@@ -491,10 +506,19 @@ public class BindExpression implements AnalysisRuleFactory {
                             && (setOperation instanceof LogicalExcept || setOperation instanceof LogicalIntersect)) {
                         throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualified");
                     }
-
-                    List<List<Expression>> castExpressions = setOperation.collectCastExpressions();
-                    List<NamedExpression> newOutputs = setOperation.buildNewOutputs(castExpressions.get(0));
-
+                    // we need to do cast before set operation, because we maybe use these slot to do shuffle
+                    // so, we must cast it before shuffle to get correct hash code.
+                    List<List<NamedExpression>> childrenProjections = setOperation.collectChildrenProjections();
+                    ImmutableList.Builder<Plan> newChildren = ImmutableList.builder();
+                    for (int i = 0; i < childrenProjections.size(); i++) {
+                        if (childrenProjections.stream().allMatch(SlotReference.class::isInstance)) {
+                            newChildren.add(setOperation.child(i));
+                        } else {
+                            newChildren.add(new LogicalProject<>(childrenProjections.get(i), setOperation.child(i)));
+                        }
+                    }
+                    setOperation = (LogicalSetOperation) setOperation.withChildren(newChildren.build());
+                    List<NamedExpression> newOutputs = setOperation.buildNewOutputs();
                     return setOperation.withNewOutputs(newOutputs);
                 })
             ),
@@ -523,6 +547,13 @@ public class BindExpression implements AnalysisRuleFactory {
                 unboundTVFRelation().thenApply(ctx -> {
                     UnboundTVFRelation relation = ctx.root;
                     return bindTableValuedFunction(relation, ctx.statementContext);
+                })
+            ),
+            RuleType.BINDING_SUBQUERY_ALIAS_SLOT.build(
+                logicalSubQueryAlias().thenApply(ctx -> {
+                    LogicalSubQueryAlias<Plan> subQueryAlias = ctx.root;
+                    checkSameNameSlot(subQueryAlias.child(0).getOutput(), subQueryAlias.getAlias());
+                    return subQueryAlias;
                 })
             )
         ).stream().map(ruleCondition).collect(ImmutableList.toImmutableList());
@@ -578,7 +609,6 @@ public class BindExpression implements AnalysisRuleFactory {
             .collect(Collectors.toList());
     }
 
-    @SuppressWarnings("unchecked")
     private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext) {
         return bindSlot(expr, input, cascadesContext, true, true);
     }
@@ -660,7 +690,19 @@ public class BindExpression implements AnalysisRuleFactory {
         if (!(function instanceof TableValuedFunction)) {
             throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getId(), (TableValuedFunction) function);
+        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) function);
+    }
+
+    private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
+        Set<String> nameSlots = new HashSet<>();
+        for (Slot s : childOutputs) {
+            if (nameSlots.contains(s.getName())) {
+                throw new AnalysisException("Duplicated inline view column alias: '" + s.getName()
+                        + "'" + " in inline view: '" + subQueryAlias + "'");
+            } else {
+                nameSlots.add(s.getName());
+            }
+        }
     }
 
     private BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,

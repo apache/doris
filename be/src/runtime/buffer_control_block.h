@@ -17,14 +17,18 @@
 
 #pragma once
 
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/Types_types.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <list>
+#include <memory>
 #include <mutex>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/query_statistics.h"
 
 namespace google {
@@ -39,7 +43,6 @@ class Controller;
 
 namespace doris {
 
-class TFetchDataResult;
 class PFetchDataResult;
 
 struct GetResultBatchCtx {
@@ -90,8 +93,6 @@ public:
         }
     }
 
-    // TODO: The value of query peak mem usage in fe.audit.log comes from a random BE,
-    // not the BE with the largest peak mem usage
     void update_max_peak_memory_bytes() {
         if (_query_statistics != nullptr) {
             int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();

@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 #include <vector>
 

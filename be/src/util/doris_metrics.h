@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include <memory>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "util/metrics.h"
@@ -120,12 +120,6 @@ public:
 
     IntCounter* memtable_flush_total;
     IntCounter* memtable_flush_duration_us;
-
-    IntCounter* attach_task_thread_count;
-    IntCounter* add_thread_mem_tracker_consumer_count;
-    IntCounter* thread_mem_tracker_exceed_call_back_count;
-    // brpc server response count
-    IntCounter* switch_bthread_count;
 
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;

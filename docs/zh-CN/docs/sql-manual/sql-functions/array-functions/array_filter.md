@@ -34,6 +34,12 @@ array_filter(lambda,array)
 
 ### description
 
+#### Syntax
+```sql
+ARRAY<T> array_filter(lambda, ARRAY<T> arr1, ARRAY<T> arr2, ... )
+ARRAY<T> array_filter(ARRAY<T> arr)
+```
+
 使用lambda表达式作为输入参数，计算筛选另外的输入参数ARRAY列的数据。
 并过滤掉在结果中0和NULL的值。
 

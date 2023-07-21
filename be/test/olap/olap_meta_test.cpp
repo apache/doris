@@ -17,12 +17,16 @@
 
 #include "olap/olap_meta.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stddef.h>
 
 #include <filesystem>
+#include <memory>
 #include <sstream>
 #include <string>
 
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 
@@ -71,7 +75,7 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
 
     // abnormal cases
     s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
-    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(), s);
+    EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(""), s);
 }
 
 TEST_F(OlapMetaTest, TestRemove) {

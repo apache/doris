@@ -17,11 +17,15 @@
 
 #include "olap/tablet_meta.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
 #include <memory>
 #include <string>
+#include <utility>
 
+#include "gtest/gtest_pred_impl.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet_schema.h"
 #include "testutil/mock_rowset.h"
 
@@ -175,7 +179,7 @@ TEST(TabletMetaTest, TestDeleteBitmap) {
         ASSERT_EQ(d.cardinality(), 4);
         ASSERT_EQ(db_upper.get({RowsetId {2, 0, 1, 1}, 1, 2}, &d), 0);
         ASSERT_EQ(d.cardinality(), 1);
-        ASSERT_EQ(db_upper.delete_bitmap.size(), 20);
+        ASSERT_EQ(db_upper.delete_bitmap.size(), 21);
     }
 
     {

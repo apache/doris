@@ -20,23 +20,26 @@
 
 #include "vec/columns/column_vector.h"
 
+#include <fmt/format.h>
 #include <pdqsort.h>
-#include <vec/common/radix_sort.h>
 
-#include <cmath>
-#include <cstring>
+#include <limits>
+#include <ostream>
+#include <string>
 
+#include "util/hash_util.hpp"
 #include "util/simd/bits.h"
-#include "util/stack_util.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
 #include "vec/common/nan_utils.h"
+#include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 
@@ -542,18 +545,18 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnVector<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column,
-                                size_t begin, int count_sz) const {
-    size_t size = count_sz < 0 ? data.size() : count_sz;
-    if (size == 0) return;
-
+void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target_size,
+                                IColumn& column) const {
     auto& res = reinterpret_cast<ColumnVector<T>&>(column);
     typename Self::Container& res_data = res.get_data();
-    res_data.reserve(target_size);
+    DCHECK(res_data.empty());
+    res_data.resize(target_size);
+    auto* __restrict left = res_data.data();
+    auto* __restrict right = data.data();
+    auto* __restrict idxs = indexs;
 
-    size_t end = begin + size;
-    for (size_t i = begin; i < end; ++i) {
-        res_data.add_num_element_without_reserve(data[i], counts[i]);
+    for (size_t i = 0; i < target_size; ++i) {
+        left[i] = right[idxs[i]];
     }
 }
 

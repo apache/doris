@@ -1,3 +1,6 @@
+set enable_nereids_planner=true;
+set enable_fallback_to_original_planner=false;
+
 SELECT
 *
 FROM

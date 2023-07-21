@@ -17,14 +17,19 @@
 
 #include "vec/functions/function_rpc.h"
 
+#include <brpc/controller.h>
 #include <fmt/format.h>
+#include <gen_cpp/function_service.pb.h>
+#include <gen_cpp/types.pb.h>
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 
-#include "gen_cpp/Exprs_types.h"
-#include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
+#include "util/brpc_client_cache.h"
+#include "vec/columns/column.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 
@@ -85,16 +90,20 @@ FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
         : _argument_types(argument_types), _return_type(return_type), _tfn(fn) {}
 
 Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    _fn = std::make_unique<RPCFnImpl>(_tfn);
-
-    if (!_fn->available()) {
-        return Status::InternalError("rpc env init error");
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        std::shared_ptr<RPCFnImpl> fn = std::make_shared<RPCFnImpl>(_tfn);
+        if (!fn->available()) {
+            return Status::InternalError("rpc env init error");
+        }
+        context->set_function_state(FunctionContext::FRAGMENT_LOCAL, fn);
     }
     return Status::OK();
 }
 
 Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                             size_t result, size_t input_rows_count, bool dry_run) {
-    return _fn->vec_call(context, block, arguments, result, input_rows_count);
+    RPCFnImpl* fn = reinterpret_cast<RPCFnImpl*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    return fn->vec_call(context, block, arguments, result, input_rows_count);
 }
 } // namespace doris::vectorized

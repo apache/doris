@@ -427,7 +427,7 @@ public class GraphSimplifier {
             Statistics leftStats, Statistics rightStats) {
         LogicalJoin join = edge.getJoin();
         PlanContext planContext = new PlanContext(stats, leftStats, rightStats);
-        Cost cost = Cost.zero();
+        Cost cost;
         if (JoinUtils.shouldNestedLoopJoin(join)) {
             PhysicalNestedLoopJoin nestedLoopJoin = new PhysicalNestedLoopJoin<>(
                     join.getJoinType(),

@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <fmt/core.h>
 #include <fmt/format.h>
 #include <rapidjson/document.h>
-#include <simdjson.h>
+#include <simdjson.h> // IWYU pragma: keep
 
 #include <sstream>
 #include <string>
@@ -28,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "udf/udf.h"
 
 namespace simdjson {
 namespace fallback {
@@ -48,8 +46,6 @@ enum JsonFunctionType {
 
     JSON_FUN_UNKNOWN //The last
 };
-
-class OpcodeRegistry;
 
 struct JsonPath {
     std::string key; // key of a json object

@@ -17,8 +17,14 @@
 
 #include "level_decoder.h"
 
+#include <gen_cpp/parquet_types.h>
+
+#include <algorithm>
+
+#include "util/bit_stream_utils.inline.h"
 #include "util/bit_util.h"
 #include "util/coding.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 
 static constexpr size_t V1_LEVEL_SIZE = 4;
 

@@ -220,7 +220,7 @@ public class AmbariDeployManager extends DeployManager {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;
             }
-            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, null, hostPort.second));
+            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, hostPort.second));
         }
 
         LOG.info("get {} hosts from ambari: {}", groupName, hostPorts);

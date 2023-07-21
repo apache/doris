@@ -132,6 +132,9 @@ Status SchemaViewsScanner::get_next_block(vectorized::Block* block, bool* eos) {
 Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto tables_num = _table_result.tables.size();
+    if (tables_num == 0) {
+        return Status::OK();
+    }
     std::vector<void*> null_datas(tables_num, nullptr);
     std::vector<void*> datas(tables_num);
 

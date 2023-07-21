@@ -18,13 +18,23 @@
 #include "vec/sink/vjdbc_table_sink.h"
 
 #include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/Descriptors_types.h>
+#include <opentelemetry/nostd/shared_ptr.h>
+#include <stdint.h>
 
-#include <sstream>
-
+#include "exec/data_sink.h"
+#include "runtime/runtime_state.h"
+#include "util/telemetry/telemetry.h"
+#include "vec/core/block.h"
 #include "vec/core/materialize_block.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/sink/vtable_sink.h"
 
 namespace doris {
+class ObjectPool;
+class RowDescriptor;
+class TExpr;
+
 namespace vectorized {
 
 VJdbcTableSink::VJdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -45,6 +55,7 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
     _jdbc_param.driver_checksum = t_jdbc_sink.jdbc_table.jdbc_driver_checksum;
     _jdbc_param.resource_name = t_jdbc_sink.jdbc_table.jdbc_resource_name;
     _jdbc_param.table_type = t_jdbc_sink.table_type;
+    _jdbc_param.query_string = t_jdbc_sink.insert_sql;
     _table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     _use_transaction = t_jdbc_sink.use_transaction;
 
@@ -52,7 +63,6 @@ Status VJdbcTableSink::init(const TDataSink& t_sink) {
 }
 
 Status VJdbcTableSink::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::open");
     RETURN_IF_ERROR(VTableSink::open(state));
 
     // create writer
@@ -67,21 +77,21 @@ Status VJdbcTableSink::open(RuntimeState* state) {
 }
 
 Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
-    INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VJdbcTableSink::send");
     Status status = Status::OK();
     if (block == nullptr || block->rows() == 0) {
         return status;
     }
-
-    auto output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _output_vexpr_ctxs, *block, status);
+    Block output_block;
+    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
+            _output_vexpr_ctxs, *block, &output_block));
     materialize_block_inplace(output_block);
 
     uint32_t start_send_row = 0;
     uint32_t num_row_sent = 0;
     while (start_send_row < output_block.rows()) {
         RETURN_IF_ERROR(_writer->append(_table_name, &output_block, _output_vexpr_ctxs,
-                                        start_send_row, &num_row_sent, _jdbc_param.table_type));
+                                        start_send_row, &num_row_sent, false,
+                                        _jdbc_param.table_type));
         start_send_row += num_row_sent;
         num_row_sent = 0;
     }
@@ -90,7 +100,6 @@ Status VJdbcTableSink::send(RuntimeState* state, Block* block, bool eos) {
 }
 
 Status VJdbcTableSink::close(RuntimeState* state, Status exec_status) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VJdbcTableSink::close");
     RETURN_IF_ERROR(VTableSink::close(state, exec_status));
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());

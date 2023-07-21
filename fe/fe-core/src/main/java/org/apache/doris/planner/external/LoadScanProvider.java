@@ -18,7 +18,6 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
@@ -32,7 +31,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -55,7 +53,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 
-public class LoadScanProvider implements FileScanProviderIf {
+public class LoadScanProvider {
 
     private FileGroupInfo fileGroupInfo;
     private TupleDescriptor destTupleDesc;
@@ -65,27 +63,22 @@ public class LoadScanProvider implements FileScanProviderIf {
         this.destTupleDesc = destTupleDesc;
     }
 
-    @Override
     public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         return null;
     }
 
-    @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
         return null;
     }
 
-    @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return null;
     }
 
-    @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
         return null;
     }
 
-    @Override
     public FileLoadScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
         FileLoadScanNode.ParamCreateContext ctx = new FileLoadScanNode.ParamCreateContext();
         ctx.destTupleDescriptor = destTupleDesc;
@@ -138,7 +131,6 @@ public class LoadScanProvider implements FileScanProviderIf {
         return "";
     }
 
-    @Override
     public void createScanRangeLocations(FileLoadScanNode.ParamCreateContext context,
                                          FederationBackendPolicy backendPolicy,
                                          List<TScanRangeLocations> scanRangeLocations) throws UserException {
@@ -147,18 +139,10 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileGroupInfo.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
     }
 
-    @Override
-    public void createScanRangeLocations(List<Expr> conjuncts, TFileScanRangeParams params,
-                                         FederationBackendPolicy backendPolicy,
-                                         List<TScanRangeLocations> scanRangeLocations) throws UserException {
-    }
-
-    @Override
     public int getInputSplitNum() {
         return fileGroupInfo.getFileStatuses().size();
     }
 
-    @Override
     public long getInputFileSize() {
         long res = 0;
         for (TBrokerFileStatus fileStatus : fileGroupInfo.getFileStatuses()) {
@@ -207,7 +191,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
                 formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
-                VectorizedUtil.isVectorized());
+                fileGroupInfo.isPartialUpdate());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {
@@ -250,7 +234,6 @@ public class LoadScanProvider implements FileScanProviderIf {
         }
     }
 
-    @Override
     public TableIf getTargetTable() {
         return fileGroupInfo.getTargetTable();
     }

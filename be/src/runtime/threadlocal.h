@@ -41,6 +41,8 @@
 
 #pragma once
 
+#include <stddef.h>
+
 #include "gutil/port.h"
 
 #define BLOCK_STATIC_THREAD_LOCAL(T, t, ...) \

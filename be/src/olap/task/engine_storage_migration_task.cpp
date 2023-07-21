@@ -17,10 +17,32 @@
 
 #include "olap/task/engine_storage_migration_task.h"
 
-#include <ctime>
+#include <fmt/format.h>
+#include <gen_cpp/olap_file.pb.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <ctime>
+#include <memory>
+#include <new>
+#include <ostream>
+#include <set>
+#include <utility>
+
+#include "common/config.h"
+#include "common/logging.h"
+#include "gutil/strings/numbers.h"
+#include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/rowset/rowset_meta.h"
 #include "olap/snapshot_manager.h"
-#include "olap/tablet_meta_manager.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
+#include "util/doris_metrics.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -126,9 +148,6 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     }
     std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
     RETURN_IF_ERROR(new_tablet_meta->save(new_meta_file));
-
-    // reset tablet id and rowset id
-    RETURN_IF_ERROR(TabletMeta::reset_tablet_uid(new_meta_file));
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load

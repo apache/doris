@@ -17,8 +17,15 @@
 
 #include "vec/aggregate_functions/aggregate_function_histogram.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 

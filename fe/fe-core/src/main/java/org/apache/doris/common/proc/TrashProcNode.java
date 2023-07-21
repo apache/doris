@@ -71,7 +71,7 @@ public class TrashProcNode implements ProcNodeInterface {
         boolean ok = false;
         List<TDiskTrashInfo> diskTrashInfos = null;
         try {
-            address = new TNetworkAddress(backend.getIp(), backend.getBePort());
+            address = new TNetworkAddress(backend.getHost(), backend.getBePort());
             client = ClientPool.backendPool.borrowObject(address);
             diskTrashInfos = client.getDiskTrashUsedCapacity();
             ok = true;

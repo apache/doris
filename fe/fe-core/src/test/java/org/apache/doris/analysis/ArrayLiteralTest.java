@@ -35,7 +35,7 @@ public class ArrayLiteralTest  {
         DateLiteral dateLiteral = new DateLiteral("2022-10-10", Type.DATE);
         DateLiteral datetimeLiteral = new DateLiteral("2022-10-10 12:10:10", Type.DATETIME);
         ArrayLiteral arrayLiteral1 = new ArrayLiteral(intLiteral1, floatLiteral);
-        Assert.assertEquals("[\"1.0\", \"2.15\"]", arrayLiteral1.getStringValueForArray());
+        Assert.assertEquals("[\"1\", \"2.15\"]", arrayLiteral1.getStringValueForArray());
 
         ArrayLiteral arrayLiteral2 = new ArrayLiteral(boolLiteral, boolLiteral);
         Assert.assertEquals("[\"1\", \"1\"]", arrayLiteral2.getStringValueForArray());

@@ -41,11 +41,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -440,10 +442,11 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
         long ackTime = positionMeta.getAckTime();
         StringBuilder sb = new StringBuilder();
         if (ackPosition != null) {
-            SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
+            DateTimeFormatter format = DateTimeFormatter.ofPattern(DATE_FORMAT).withZone(ZoneId.systemDefault());
             long executeTime = ackPosition.getExecuteTime();
             long delayTime = ackTime - executeTime;
-            Date date = new Date(executeTime);
+            LocalDateTime date = LocalDateTime.ofInstant(Instant.ofEpochMilli(System.currentTimeMillis()),
+                    ZoneId.systemDefault());
             sb.append("position:").append(ackPosition)
                     .append(", executeTime:[").append(format.format(date)).append("], ")
                     .append("delay:").append(delayTime).append("ms");

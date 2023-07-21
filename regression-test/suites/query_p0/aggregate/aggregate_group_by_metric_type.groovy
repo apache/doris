@@ -16,7 +16,7 @@
 // under the License.
 
 suite("aggregate_group_by_metric_type") {
-    def error_msg = "column must use with specific function, and don't support filter or group by"
+    def error_msg = "column must use with specific function, and don't support filter"
     sql "DROP TABLE IF EXISTS test_group_by_hll_and_bitmap"
 
     sql """

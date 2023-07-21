@@ -59,6 +59,7 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -68,13 +69,15 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
                     .build();
     public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
-            new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount").build();
+            new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount")
+            .add("RemoteSize").build();
 
     public static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
-                    .add("RowCount").build();
+                    .add("RowCount").add("RemoteSize").build();
 
     TableName tableName;
     String dbName;
@@ -124,7 +127,7 @@ public class ShowDataStmt extends ShowStmt {
             try {
                 long totalSize = 0;
                 long totalReplicaCount = 0;
-
+                long totalRemoteSize = 0;
                 // sort by table name
                 List<Table> tables = db.getTables();
                 SortedSet<Table> sortedTables = new TreeSet<>(new Comparator<Table>() {
@@ -144,26 +147,29 @@ public class ShowDataStmt extends ShowStmt {
                 }
 
                 for (Table table : sortedTables) {
-                    if (table.getType() != TableType.OLAP) {
+                    if (!table.isManagedTable()) {
                         continue;
                     }
 
                     OlapTable olapTable = (OlapTable) table;
                     long tableSize = 0;
                     long replicaCount = 0;
+                    long remoteSize = 0;
                     olapTable.readLock();
                     try {
                         tableSize = olapTable.getDataSize();
                         replicaCount = olapTable.getReplicaCount();
+                        remoteSize = olapTable.getRemoteDataSize();
                     } finally {
                         olapTable.readUnlock();
                     }
-                    //|TableName|Size|ReplicaCount|
-                    List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount);
+                    //|TableName|Size|ReplicaCount|RemoteSize
+                    List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize);
                     totalRowsObject.add(row);
 
                     totalSize += tableSize;
                     totalReplicaCount += replicaCount;
+                    totalRemoteSize += remoteSize;
                 } // end for tables
 
                 // sort by
@@ -179,19 +185,26 @@ public class ShowDataStmt extends ShowStmt {
 
                 // for output
                 for (List<Object> row : totalRowsObject) {
-                    //|TableName|Size|ReplicaCount|
+                    //|TableName|Size|ReplicaCount|RemoteSize
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(1));
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                             + tableSizePair.second;
+                    Pair<Double, String> remoteSizePair = DebugUtil.getByteUint((long) row.get(3));
+                    String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(remoteSizePair.first) + " "
+                            + remoteSizePair.second;
                     List<String> result = Arrays.asList(String.valueOf(row.get(0)),
-                            readableSize, String.valueOf(row.get(2)));
+                            readableSize, String.valueOf(row.get(2)), remoteReadableSize);
                     totalRows.add(result);
                 }
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount));
+                Pair<Double, String> totalRemoteSizePair = DebugUtil.getByteUint(totalRemoteSize);
+                String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteSizePair.first) + " "
+                        + totalRemoteSizePair.second;
+                List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount),
+                         remoteReadableSize);
                 totalRows.add(total);
 
                 // quota
@@ -201,7 +214,7 @@ public class ShowDataStmt extends ShowStmt {
                 String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaPair.first) + " "
                         + quotaPair.second;
 
-                List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota));
+                List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota), "");
                 totalRows.add(quotaRow);
 
                 // left
@@ -210,13 +223,13 @@ public class ShowDataStmt extends ShowStmt {
                 Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
                 String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
                         + leftPair.second;
-                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft));
+                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft), "");
                 totalRows.add(leftRow);
 
                 // txn quota
                 long txnQuota = db.getTransactionQuotaSize();
                 List<String> transactionQuotaList = Arrays.asList("Transaction Quota",
-                        String.valueOf(txnQuota), String.valueOf(txnQuota));
+                        String.valueOf(txnQuota), String.valueOf(txnQuota), "");
                 totalRows.add(transactionQuotaList);
             } finally {
                 db.readUnlock();
@@ -230,10 +243,11 @@ public class ShowDataStmt extends ShowStmt {
                         dbName + ": " + tableName);
             }
 
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName.getTbl(), TableType.OLAP);
+            OlapTable olapTable = (OlapTable) db
+                    .getTableOrMetaException(tableName.getTbl(), TableType.OLAP, TableType.MATERIALIZED_VIEW);
             long totalSize = 0;
             long totalReplicaCount = 0;
-
+            long totalRemoteSize = 0;
             olapTable.readLock();
             try {
                 // sort by index name
@@ -247,20 +261,25 @@ public class ShowDataStmt extends ShowStmt {
                     long indexSize = 0;
                     long indexReplicaCount = 0;
                     long indexRowCount = 0;
+                    long indexRemoteSize = 0;
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize();
                         indexReplicaCount += mIndex.getReplicaCount();
                         indexRowCount += mIndex.getRowCount();
+                        indexRemoteSize += mIndex.getRemoteDataSize();
                     }
 
                     String indexName = olapTable.getIndexNameById(indexId);
-                    //         .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
-                    List<Object> row = Arrays.asList(tableName, indexName, indexSize, indexReplicaCount, indexRowCount);
+                    // .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
+                    //      .add("RemoteSize")
+                    List<Object> row = Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
+                             indexRowCount, indexRemoteSize);
                     totalRowsObject.add(row);
 
                     totalSize += indexSize;
                     totalReplicaCount += indexReplicaCount;
+                    totalRemoteSize += indexRemoteSize;
                 } // end for indices
 
                 // sort by
@@ -276,20 +295,23 @@ public class ShowDataStmt extends ShowStmt {
 
                 // for output
                 for (int index = 0; index <= totalRowsObject.size() - 1; index++) {
-                    //| TableName| IndexName | Size | ReplicaCount | RowCount |
+                    //| TableName| IndexName | Size | ReplicaCount | RowCount | RemoteSize
                     List<Object> row = totalRowsObject.get(index);
                     List<String> result;
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(2));
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first)
                             + " " + tableSizePair.second;
+                    Pair<Double, String> remoteSizePair = DebugUtil.getByteUint((long) row.get(5));
+                    String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(remoteSizePair.first) + " "
+                            + remoteSizePair.second;
                     if (index == 0) {
                         result = Arrays.asList(tableName.getTbl(), String.valueOf(row.get(1)),
                                 readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)));
+                                String.valueOf(row.get(4)), remoteReadableSize);
                     } else {
                         result = Arrays.asList("", String.valueOf(row.get(1)),
                                 readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)));
+                                String.valueOf(row.get(4)), remoteReadableSize);
                     }
                     totalRows.add(result);
                 }
@@ -297,7 +319,11 @@ public class ShowDataStmt extends ShowStmt {
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "");
+                Pair<Double, String> totalRemoteSizePair = DebugUtil.getByteUint(totalRemoteSize);
+                String remoteReadableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalRemoteSizePair.first) + " "
+                        + totalRemoteSizePair.second;
+                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "",
+                         remoteReadableSize);
                 totalRows.add(row);
             } finally {
                 olapTable.readUnlock();

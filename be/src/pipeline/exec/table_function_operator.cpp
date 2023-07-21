@@ -17,6 +17,15 @@
 
 #include "table_function_operator.h"
 
+#include <memory>
+
+#include "pipeline/exec/operator.h"
+#include "vec/core/block.h"
+
+namespace doris {
+class RuntimeState;
+} // namespace doris
+
 namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(TableFunctionOperator, StatefulOperator)

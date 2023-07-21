@@ -19,11 +19,36 @@
 // and modified by Doris
 
 #pragma once
+#include <glog/logging.h>
 #include <pdqsort.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <utility>
+#include <vector>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/simd/bits.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/memcmp_small.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_description.h"
+#include "vec/core/types.h"
+
+namespace doris {
+namespace vectorized {
+template <typename T>
+class ColumnDecimal;
+template <typename>
+class ColumnVector;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

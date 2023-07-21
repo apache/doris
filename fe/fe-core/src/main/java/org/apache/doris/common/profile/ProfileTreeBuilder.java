@@ -132,7 +132,7 @@ public class ProfileTreeBuilder {
     public void build() throws UserException {
         reset();
         checkProfile();
-        analyzeAndBuildFragmentTrees();
+        analyzeAndBuild();
         assembleFragmentTrees();
     }
 
@@ -151,8 +151,33 @@ public class ProfileTreeBuilder {
         }
     }
 
-    private void analyzeAndBuildFragmentTrees() throws UserException {
+    private void analyzeAndBuild() throws UserException {
         List<Pair<RuntimeProfile, Boolean>> childrenFragment = profileRoot.getChildList();
+        for (Pair<RuntimeProfile, Boolean> pair : childrenFragment) {
+            String name = pair.first.getName();
+            if (name.equals("Fragments")) {
+                analyzeAndBuildFragmentTrees(pair.first);
+            } else if (name.equals("LoadChannels")) {
+                analyzeAndBuildLoadChannels(pair.first);
+            } else {
+                throw new UserException("Invalid execution profile name: " + name);
+            }
+        }
+    }
+
+    private void analyzeAndBuildLoadChannels(RuntimeProfile loadChannelsProfile) throws UserException {
+        List<Pair<RuntimeProfile, Boolean>> childrenFragment = loadChannelsProfile.getChildList();
+        for (Pair<RuntimeProfile, Boolean> pair : childrenFragment) {
+            analyzeAndBuildLoadChannel(pair.first);
+        }
+    }
+
+    private void analyzeAndBuildLoadChannel(RuntimeProfile loadChannelsProfil) throws UserException {
+        // TODO, `show load profile` add load channel profile, or add `show load channel profile`.
+    }
+
+    private void analyzeAndBuildFragmentTrees(RuntimeProfile fragmentsProfile) throws UserException {
+        List<Pair<RuntimeProfile, Boolean>> childrenFragment = fragmentsProfile.getChildList();
         for (Pair<RuntimeProfile, Boolean> pair : childrenFragment) {
             analyzeAndBuildFragmentTree(pair.first);
         }
@@ -168,19 +193,20 @@ public class ProfileTreeBuilder {
         // 1. Get max active time of instances in this fragment
         List<Triple<String, String, Long>> instanceIdAndActiveTimeList = Lists.newArrayList();
         List<String> instances = Lists.newArrayList();
-        Map<String, String> instanceIdToTime = Maps.newHashMap();
+        Map<String, Instance> instanceIdToInstance = Maps.newHashMap();
         long maxActiveTimeNs = 0;
         for (Pair<RuntimeProfile, Boolean> pair : fragmentChildren) {
             Triple<String, String, Long> instanceIdAndActiveTime = getInstanceIdHostAndActiveTime(pair.first);
-            instanceIdToTime.put(instanceIdAndActiveTime.getLeft(),
-                    RuntimeProfile.printCounter(instanceIdAndActiveTime.getRight(), TUnit.TIME_NS));
+            instanceIdToInstance.put(instanceIdAndActiveTime.getLeft(),
+                    new Instance(instanceIdAndActiveTime.getMiddle(),
+                            RuntimeProfile.printCounter(instanceIdAndActiveTime.getRight(), TUnit.TIME_NS)));
             maxActiveTimeNs = Math.max(instanceIdAndActiveTime.getRight(), maxActiveTimeNs);
             instanceIdAndActiveTimeList.add(instanceIdAndActiveTime);
             instances.add(instanceIdAndActiveTime.getLeft());
         }
         instanceActiveTimeMap.put(fragmentId, instanceIdAndActiveTimeList);
         fragmentsInstances.add(new FragmentInstances(fragmentId,
-                RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS), instanceIdToTime));
+                RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS), instanceIdToInstance));
 
         // 2. Build tree for all fragments
         //    All instance in a fragment are same, so use first instance to build the fragment tree
@@ -191,7 +217,7 @@ public class ProfileTreeBuilder {
             fragmentTreeRoot = instanceTreeRoot;
         }
 
-        // 2. Build tree for each single instance
+        // 3. Build tree for each single instance
         int i = 0;
         Map<String, ProfileTreeNode> instanceTrees = Maps.newHashMap();
         for (Pair<RuntimeProfile, Boolean> pair : fragmentChildren) {
@@ -405,12 +431,27 @@ public class ProfileTreeBuilder {
         @JsonProperty("time")
         private String maxActiveTimeNs;
         @JsonProperty("instance_id")
-        private Map<String, String> instanceIdToTime;
+        private Map<String, Instance> instanceIdToInstance;
 
-        public FragmentInstances(String fragmentId, String maxActiveTimeNs, Map<String, String> instanceIdToTime) {
+        public FragmentInstances(String fragmentId, String maxActiveTimeNs,
+                Map<String, Instance> instanceIdToInstance) {
             this.fragmentId = fragmentId;
             this.maxActiveTimeNs = maxActiveTimeNs;
-            this.instanceIdToTime = instanceIdToTime;
+            this.instanceIdToInstance = instanceIdToInstance;
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class Instance {
+        @JsonProperty("host")
+        private String host;
+        @JsonProperty("active_time")
+        private String activeTime;
+
+        public Instance(String host, String activeTime) {
+            this.host = host;
+            this.activeTime = activeTime;
         }
     }
 }

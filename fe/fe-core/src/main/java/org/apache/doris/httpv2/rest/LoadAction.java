@@ -212,7 +212,7 @@ public class LoadAction extends RestBaseController {
     }
 
     private TNetworkAddress selectRedirectBackend(String clusterName) throws LoadException {
-        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(clusterName).needLoadAvailable().build();
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
         List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
@@ -222,6 +222,6 @@ public class LoadAction extends RestBaseController {
         if (backend == null) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
-        return new TNetworkAddress(backend.getIp(), backend.getHttpPort());
+        return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 }

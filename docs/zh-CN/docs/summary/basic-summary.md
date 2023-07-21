@@ -61,7 +61,7 @@ Doris**整体架构**如下图所示，Doris 架构非常简单，只有两类�
 
 ![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/mnz20ae3s23vv3e9ltmi.png)
 
-在**使用接口**方面，Doris 采用 MySQL 协议，高度兼容 MySQL 语法，支持标准 SQL，用户可以通过各类客户端工具来访问 Doris，并支持与 BI 工具的无缝对接。
+在**使用接口**方面，Doris 采用 MySQL 协议，高度兼容 MySQL 语法，支持标准 SQL，用户可以通过各类客户端工具来访问 Doris，并支持与 BI 工具的无缝对接。Doris 当前支持多种主流的 BI 产品，包括不限于 SmartBI、DataEase、FineBI、Tableau、Power BI、SuperSet 等，只要支持 MySQL 协议的 BI 工具，Doris 就可以作为数据源提供查询支持。
 
 在**存储引擎**方面，Doris 采用列式存储，按列进行数据的编码压缩和读取，能够实现极高的压缩比，同时减少大量非相关数据的扫描，从而更加有效利用 IO 和 CPU 资源。
 

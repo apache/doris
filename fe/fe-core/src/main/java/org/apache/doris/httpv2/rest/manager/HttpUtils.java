@@ -24,7 +24,9 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.base.Strings;
 import com.google.gson.reflect.TypeToken;
+import org.apache.commons.io.IOUtils;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -33,13 +35,14 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
-import org.apache.parquet.Strings;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import javax.servlet.http.HttpServletRequest;
 
 /*
  * used to forward http requests from manager to be.
@@ -49,7 +52,7 @@ public class HttpUtils {
 
     static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getIp(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
                 .collect(Collectors.toList());
     }
 
@@ -115,5 +118,9 @@ public class HttpUtils {
             throw new RuntimeException(responseEntity.getMsg());
         }
         return GsonUtils.GSON.toJson(responseEntity.getData());
+    }
+
+    public static String getBody(HttpServletRequest request) throws IOException {
+        return IOUtils.toString(request.getInputStream(), StandardCharsets.UTF_8);
     }
 }

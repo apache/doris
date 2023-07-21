@@ -54,12 +54,6 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
-#clucene
-CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.9.tar.gz"
-CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.9.tar.gz"
-CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.9"
-CLUCENE_MD5SUM="2d5c48bd24b0757d0fecb74111b9b2ed"
-
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -304,6 +298,12 @@ JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
 JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
+# libunwind
+LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.6.2"
+LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
@@ -332,10 +332,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.211.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.211.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.211"
-AWS_SDK_MD5SUM="667b8e08baf0b9967c19224198e33160"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
+AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -386,16 +386,16 @@ LIBDIVIDE_SOURCE="libdivide-5.0"
 LIBDIVIDE_MD5SUM="7fd16b0bb4ab6812b2e2fdc7bfb81641"
 
 #pdqsort
-PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
-PDQSORT_NAME="pdqsort.tar.gz"
-PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
-PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
+PDQSORT_DOWNLOAD="https://raw.githubusercontent.com/orlp/pdqsort/b1ef26a55cdb60d236a5cb199c4234c704f46726/pdqsort.h"
+PDQSORT_NAME="pdqsort.h"
+PDQSORT_FILE="pdqsort.h"
+PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
-BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"
-BENCHMARK_NAME=benchmark-1.5.6.tar.gz
-BENCHMARK_SOURCE=benchmark-1.5.6
-BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
+BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
+BENCHMARK_NAME=v1.8.0.tar.gz
+BENCHMARK_SOURCE=benchmark-1.8.0
+BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
@@ -417,16 +417,16 @@ NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
 # opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.18.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.18.0.tar.gz
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.18.0
-OPENTELEMETRY_PROTO_MD5SUM="5179f58bb4edbd805590bffd2cf4df85"
+OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v0.19.0.tar.gz"
+OPENTELEMETRY_PROTO_NAME=opentelemetry-proto-0.19.0.tar.gz
+OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-0.19.0
+OPENTELEMETRY_PROTO_MD5SUM="8a5fb1ba721341994a5e7cae8b38bcc6"
 
 # opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.4.0.tar.gz"
-OPENTELEMETRY_NAME=opentelemetry-cpp-1.4.0.tar.gz
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.4.0
-OPENTELEMETRY_MD5SUM="511b670dd1abb596da53684d23742c5f"
+OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.8.3.tar.gz"
+OPENTELEMETRY_NAME=opentelemetry-cpp-1.8.3.tar.gz
+OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.8.3
+OPENTELEMETRY_MD5SUM="a051dbbced2b7eb7a7227bdf5b3b9a10"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
@@ -459,14 +459,13 @@ FAST_FLOAT_SOURCE=fast_float-3.9.0
 FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
 
 # libhdfs
-HADOOP_LIBS_X86_DOWNLOAD="https://github.com/apache/doris-thirdparty/releases/download/hadoop-libs-3.3.4/hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_NAME="hadoop_lib_3.3.4-x86.tar.gz"
-HADOOP_LIBS_X86_SOURCE="hadoop_lib_3.3.4-x86"
-HADOOP_LIBS_X86_MD5SUM="96117450170487f007ffeca5ddf62f7e"
+HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_NAME="hadoop-3.3.4.4-for-doris.tar.gz"
+HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.4-for-doris"
+HADOOP_LIBS_MD5SUM="00f0042dd3900ba016f079ee9c550efb"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
-    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -506,6 +505,7 @@ export TP_ARCHIVES=(
     'ORC'
     'JEMALLOC_ARROW'
     'JEMALLOC_DORIS'
+    'LIBUNWIND'
     'CCTZ'
     'DATATABLES'
     'BOOTSTRAP_TABLE_JS'
@@ -531,7 +531,7 @@ export TP_ARCHIVES=(
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
-    'HADOOP_LIBS_X86'
+    'HADOOP_LIBS'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

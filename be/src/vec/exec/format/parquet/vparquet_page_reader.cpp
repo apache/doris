@@ -17,10 +17,25 @@
 
 #include "vparquet_page_reader.h"
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#include <algorithm>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "io/fs/buffered_reader.h"
+#include "util/runtime_profile.h"
+#include "util/slice.h"
 #include "util/thrift_util.h"
+
+namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -57,13 +72,23 @@ Status PageReader::next_page_header() {
             break;
         }
         if (_offset + header_size >= _end_offset || real_header_size > MAX_PAGE_HEADER_SIZE) {
-            return Status::IOError("Failed to deserialize parquet page header");
+            return Status::IOError(
+                    "Failed to deserialize parquet page header. offset: {}, "
+                    "header size: {}, end offset: {}, real header size: {}",
+                    _offset, header_size, _end_offset, real_header_size);
         }
         header_size <<= 2;
     }
 
     _offset += real_header_size;
-    _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+    if (_cur_page_header.__isset.data_page_header_v2) {
+        auto& page_v2 = _cur_page_header.data_page_header_v2;
+        _next_header_offset = _offset + _cur_page_header.compressed_page_size +
+                              page_v2.repetition_levels_byte_length +
+                              page_v2.definition_levels_byte_length;
+    } else {
+        _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+    }
     _state = HEADER_PARSED;
     return Status::OK();
 }

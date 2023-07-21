@@ -17,7 +17,28 @@
 
 #include "olap/rowset/vertical_beta_rowset_writer.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
+#include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <ostream>
+#include <string>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "gutil/strings/substitute.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer_context.h"
+#include "util/slice.h"
+#include "util/spinlock.h"
+#include "vec/core/block.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -116,7 +137,8 @@ Status VerticalBetaRowsetWriter::_flush_columns(
         _segment_num_rows.resize(_cur_writer_idx + 1);
         _segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
-    _total_index_size += static_cast<int64_t>(index_size);
+    _total_index_size +=
+            static_cast<int64_t>(index_size) + (*segment_writer)->get_inverted_index_file_size();
     return Status::OK();
 }
 
@@ -134,11 +156,16 @@ Status VerticalBetaRowsetWriter::flush_columns(bool is_key) {
 Status VerticalBetaRowsetWriter::_create_segment_writer(
         const std::vector<uint32_t>& column_ids, bool is_key,
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    // TODO: just for pass DCHECK now, we should align the meaning
+    // of _num_segment and _next_segment_id with BetaRowsetWriter.
+    // i.e. _next_segment_id means next available segment id,
+    // and _num_segment means num of flushed segments.
+    allocate_segment_id();
     auto path =
             BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, _num_segment++);
     auto fs = _rowset_meta->fs();
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("get fs failed");
     }
     io::FileWriterPtr file_writer;
     Status st = fs->create_file(path, &file_writer);
@@ -151,9 +178,9 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &_context;
-    writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segment,
-                                                _context.tablet_schema, _context.data_dir,
-                                                _context.max_rows_per_segment, writer_options));
+    writer->reset(new segment_v2::SegmentWriter(
+            file_writer.get(), _num_segment, _context.tablet_schema, _context.tablet,
+            _context.data_dir, _context.max_rows_per_segment, writer_options, nullptr));
     {
         std::lock_guard<SpinLock> l(_lock);
         _file_writers.push_back(std::move(file_writer));
@@ -177,7 +204,7 @@ Status VerticalBetaRowsetWriter::final_flush() {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
-        _total_data_size += segment_size;
+        _total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
         segment_writer.reset();
     }
     return Status::OK();

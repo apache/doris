@@ -261,6 +261,14 @@ public class Partition extends MetaObject implements Writable {
         return dataSize;
     }
 
+    public long getRemoteDataSize() {
+        long remoteDataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            remoteDataSize += mIndex.getRemoteDataSize();
+        }
+        return remoteDataSize;
+    }
+
     public long getReplicaCount() {
         long replicaCount = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {

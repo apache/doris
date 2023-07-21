@@ -20,13 +20,19 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <tuple>
+#include <type_traits>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/call_on_type_index.h"
 #include "vec/core/column_numbers.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {

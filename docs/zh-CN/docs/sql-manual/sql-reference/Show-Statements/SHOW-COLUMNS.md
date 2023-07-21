@@ -37,7 +37,7 @@ SHOW FULL COLUMNS
 语法：
 
 ```sql
-SHOW FULL COLUMNS FROM tbl;
+SHOW [FULL] COLUMNS FROM tbl;
 ```
 
 ### Example

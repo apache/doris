@@ -17,14 +17,26 @@
 
 #include "util/doris_metrics.h"
 
-#include <sys/types.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <glog/logging.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
+#include <functional>
+#include <ostream>
+
+#include "common/status.h"
 #include "io/fs/local_file_system.h"
-#include "util/debug_util.h"
 #include "util/system_metrics.h"
 
 namespace doris {
+namespace io {
+struct FileInfo;
+} // namespace io
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fragment_requests_total, MetricUnit::REQUESTS,
                                      "Total fragment requests received.");
@@ -122,11 +134,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_bytes, MetricUnit::BYTES);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
-
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(attach_task_thread_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(add_thread_mem_tracker_consumer_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_mem_tracker_exceed_call_back_count, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_bthread_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_pool_bytes_total, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(process_thread_num, MetricUnit::NOUNIT);
@@ -285,11 +292,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_rows);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, load_bytes);
-
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, attach_task_thread_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, add_thread_mem_tracker_consumer_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, thread_mem_tracker_exceed_call_back_count);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_bthread_count);
 
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, upload_total_byte);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, upload_rowset_count);

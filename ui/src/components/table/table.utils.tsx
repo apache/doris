@@ -30,7 +30,10 @@ function getLinkItem(text, record, index, isInner, item, hrefColumn, path){
         if (record.__hrefPaths[hrefColumn.indexOf(item)].includes('http')) {
             return <a href={record.__hrefPaths[hrefColumn.indexOf(item)]} target="_blank">{text}</a>;
         }
-        return <Link  to={path+(location.search?location.search:isInner)+'/'+text}>{text}</Link>;
+        if (location.search[location.search.length -1] === '/') {
+            return <Link to={path+location.search+text}>{text}</Link>;
+        }
+        return <Link to={path+(location.search?location.search:isInner)+'/'+text}>{text}</Link>;
     }
     return text === '\\N' ? '-' : text;
 }

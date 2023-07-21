@@ -17,10 +17,25 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <jni.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "gen_cpp/Exprs_types.h"
+#include <memory>
+#include <mutex>
+#include <ostream>
+
+#include "common/logging.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "util/jni-util.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -62,17 +77,12 @@ public:
 
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
+    bool is_use_default_implementation_for_constants() const override { return true; }
+
 private:
     const TFunction& fn_;
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
-
-    /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
-    /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
-    jclass executor_cl_;
-    jmethodID executor_ctor_id_;
-    jmethodID executor_evaluate_id_;
-    jmethodID executor_close_id_;
 
     struct IntermediateState {
         size_t buffer_size;
@@ -81,9 +91,25 @@ private:
         IntermediateState() : buffer_size(0), row_idx(0) {}
     };
 
-    struct JniContext {
-        JavaFunctionCall* parent = nullptr;
+    struct JniEnv {
+        /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
+        /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
+        jclass executor_cl;
+        jmethodID executor_ctor_id;
+        jmethodID executor_evaluate_id;
+        jmethodID executor_convert_basic_argument_id;
+        jmethodID executor_convert_array_argument_id;
+        jmethodID executor_result_basic_batch_id;
+        jmethodID executor_result_array_batch_id;
+        jmethodID executor_close_id;
+    };
 
+    struct JniContext {
+        // Do not save parent directly, because parent is in VExpr, but jni context is in FunctionContext
+        // The deconstruct sequence is not determined, it will core.
+        // JniContext's lifecycle should same with function context, not related with expr
+        jclass executor_cl_;
+        jmethodID executor_close_id_;
         jobject executor = nullptr;
         bool is_closed = false;
 
@@ -105,8 +131,9 @@ private:
         // intermediate_state includes two parts: reserved / used buffer size and rows
         std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
 
-        JniContext(int64_t num_args, JavaFunctionCall* parent)
-                : parent(parent),
+        JniContext(int64_t num_args, jclass executor_cl, jmethodID executor_close_id)
+                : executor_cl_(executor_cl),
+                  executor_close_id_(executor_close_id),
                   input_values_buffer_ptr(new int64_t[num_args]),
                   input_nulls_buffer_ptr(new int64_t[num_args]),
                   input_offsets_ptrs(new int64_t[num_args]),
@@ -131,8 +158,7 @@ private:
                 LOG(WARNING) << "errors while get jni env " << status;
                 return;
             }
-            env->CallNonvirtualVoidMethodA(executor, parent->executor_cl_,
-                                           parent->executor_close_id_, NULL);
+            env->CallNonvirtualVoidMethodA(executor, executor_cl_, executor_close_id_, NULL);
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) LOG(WARNING) << s;
             env->DeleteGlobalRef(executor);

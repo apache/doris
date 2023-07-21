@@ -18,11 +18,12 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/DataTypes/Serializations/PathInData.cpp
 // and modified by Doris
 
-#include <vec/common/sip_hash.h>
-#include <vec/json/path_in_data.h>
+#include "vec/json/path_in_data.h"
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/split.hpp>
+#include <assert.h>
+
+#include "vec/common/sip_hash.h"
+
 namespace doris::vectorized {
 PathInData::PathInData(std::string_view path_) : path(path_) {
     const char* begin = path.data();

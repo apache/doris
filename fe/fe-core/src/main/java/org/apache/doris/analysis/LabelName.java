@@ -32,6 +32,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+// TODO(tsy): maybe better to rename as `LoadLabel`
 // label name used to identify a load job
 public class LabelName implements Writable {
     private String dbName;

@@ -22,7 +22,8 @@
 
 #include <memory>
 
-#include "common/compiler_util.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 
 namespace doris {

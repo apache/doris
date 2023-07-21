@@ -30,7 +30,7 @@ All import operations in Doris have atomicity guarantees, that is, the data in a
 
 In [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md) we can also implement atomic import of multiple tables .
 
-For the [materialized view](../../../advanced/materialized-view.md) attached to the table, atomicity and consistency with the base table are also guaranteed.
+For the [materialized view](../../../query-acceleration/materialized-view.md) attached to the table, atomicity and consistency with the base table are also guaranteed.
 
 ## Label mechanism
 

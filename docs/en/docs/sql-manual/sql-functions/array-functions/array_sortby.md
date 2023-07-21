@@ -34,7 +34,7 @@ array_sortby
 
 #### Syntax
 
-```
+```sql
 ARRAY<T> array_sortby(ARRAY<T> src,Array<T> key)
 ARRAY<T> array_sortby(lambda,array....)
 ```

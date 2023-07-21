@@ -17,16 +17,13 @@
 
 #include "util/zlib.h"
 
-#include <zconf.h>
+#include <butil/macros.h>
 #include <zlib.h>
 
-#include <cstdint>
 #include <cstring>
 #include <memory>
+#include <ostream>
 #include <string>
-
-#include "gutil/macros.h"
-#include "gutil/strings/substitute.h"
 
 using std::ostream;
 using std::string;

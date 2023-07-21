@@ -55,7 +55,7 @@ suite("load") {
         sql new File("""${context.file.parent}/ddl/${table}.sql""").text
     }
 
-    sql "set global exec_mem_limit=8G;"
+    sql "set exec_mem_limit=8G;"
 
     for (String tableName in tables) {
         streamLoad {
@@ -98,5 +98,6 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+        sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 }

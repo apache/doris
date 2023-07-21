@@ -14,16 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <string_view>
+#include <fmt/format.h>
+#include <glog/logging.h>
+#include <stddef.h>
 
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/string_ref.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
+#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 

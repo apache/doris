@@ -415,7 +415,8 @@ public class DeleteHandler implements Writable {
             throws AnalysisException {
         ColumnRange result = ColumnRange.create();
         Type type =
-                table.getBaseSchema().stream().filter(c -> c.getName().equals(colName)).findFirst().get().getType();
+                table.getBaseSchema().stream().filter(c -> c.getName().equalsIgnoreCase(colName))
+                        .findFirst().get().getType();
 
         boolean hasRange = false;
         for (Predicate predicate : conditions) {

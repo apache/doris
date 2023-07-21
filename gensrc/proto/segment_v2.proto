@@ -59,6 +59,7 @@ enum PageTypePB {
     INDEX_PAGE = 2;
     DICTIONARY_PAGE = 3;
     SHORT_KEY_PAGE = 4;
+    PRIMARY_KEY_INDEX_PAGE = 5;
 }
 
 message DataPageFooterPB {

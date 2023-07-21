@@ -25,11 +25,11 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.parquet.Strings;
 
 import java.util.List;
 import java.util.Map;
@@ -42,7 +42,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class LdapManager {
     private static final Logger LOG = LogManager.getLogger(LdapManager.class);
 
-    private static final String LDAP_GROUPS_PRIVS_NAME = "ldapGroupsPrivs";
+    public static final String LDAP_GROUPS_PRIVS_NAME = "ldapGroupsPrivs";
 
     private final LdapClient ldapClient = new LdapClient();
 
@@ -89,7 +89,8 @@ public class LdapManager {
         if (!checkParam(fullName)) {
             return false;
         }
-        return !Objects.isNull(getUserInfo(fullName));
+        LdapUserInfo info = getUserInfo(fullName);
+        return !Objects.isNull(info) && info.isExists();
     }
 
     public boolean checkUserPasswd(String fullName, String passwd) {
@@ -98,7 +99,7 @@ public class LdapManager {
             return false;
         }
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
-        if (Objects.isNull(ldapUserInfo)) {
+        if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
             return false;
         }
 
@@ -115,10 +116,15 @@ public class LdapManager {
 
     public boolean checkUserPasswd(String fullName, String passwd, String remoteIp, List<UserIdentity> currentUser) {
         if (checkUserPasswd(fullName, passwd)) {
-            currentUser.add(UserIdentity.createAnalyzedUserIdentWithIp(fullName, remoteIp));
+            currentUser.addAll(Env.getCurrentEnv().getAuth().getUserIdentityForLdap(fullName, remoteIp));
             return true;
         }
         return false;
+    }
+
+    public Role getUserRole(String fullName) {
+        LdapUserInfo info = getUserInfo(fullName);
+        return !Objects.isNull(info) && info.isExists() ? info.getPaloRole() : new Role(LDAP_GROUPS_PRIVS_NAME);
     }
 
     private boolean checkParam(String fullName) {
@@ -132,8 +138,7 @@ public class LdapManager {
         if (Strings.isNullOrEmpty(userName)) {
             return null;
         } else if (!ldapClient.doesUserExist(userName)) {
-            removeUserIfExist(fulName);
-            return null;
+            return makeUserNotExists(fulName);
         }
         checkTimeoutCleanCache();
 
@@ -157,15 +162,10 @@ public class LdapManager {
         }
     }
 
-    private void removeUserIfExist(String fullName) {
-        LdapUserInfo ldapUserInfo = getUserInfoFromCache(fullName);
-        if (ldapUserInfo == null) {
-            return;
-        }
-
+    private LdapUserInfo makeUserNotExists(String fullName) {
         writeLock();
         try {
-            ldapUserInfoCache.remove(ldapUserInfo.getUserName());
+            return ldapUserInfoCache.put(fullName, new LdapUserInfo(fullName));
         } finally {
             writeUnlock();
         }
@@ -218,5 +218,21 @@ public class LdapManager {
             Env.getCurrentEnv().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);
         }
         return ldapGroupsPrivs;
+    }
+
+    public void refresh(boolean isAll, String fullName) {
+        writeLock();
+        try {
+            if (isAll) {
+                ldapUserInfoCache.clear();
+                lastTimestamp = System.currentTimeMillis();
+                LOG.info("refreshed all ldap info.");
+            } else {
+                ldapUserInfoCache.remove(fullName);
+                LOG.info("refreshed ldap info for " + fullName);
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 }

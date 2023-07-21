@@ -150,5 +150,10 @@ public class ShowLoadProfileStmt extends ShowStmt {
                 return null;
         }
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }
 

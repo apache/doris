@@ -28,6 +28,8 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+
 /**
  * This class is used for LDAP authentication login and LDAP group authorization.
  * This means that users can log in to Doris with a user name and LDAP password,
@@ -64,11 +66,15 @@ public class LdapAuthenticate {
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
         // Search the user in doris.
-        UserIdentity userIdentity = Env.getCurrentEnv().getAuth().getCurrentUserIdentity(tempUserIdentity);
-        if (userIdentity == null) {
+        List<UserIdentity> userIdentities = Env.getCurrentEnv().getAuth()
+                .getUserIdentityForLdap(qualifiedUser, remoteIp);
+        UserIdentity userIdentity;
+        if (userIdentities.isEmpty()) {
             userIdentity = tempUserIdentity;
             LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
             context.setIsTempUser(true);
+        } else {
+            userIdentity = userIdentities.get(0);
         }
 
         context.setCurrentUserIdentity(userIdentity);

@@ -17,32 +17,64 @@
 
 #pragma once
 
+#include <rapidjson/allocators.h>
 #include <rapidjson/document.h>
-#include <rapidjson/error/en.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include <rapidjson/encodings.h>
+#include <rapidjson/rapidjson.h>
+#include <simdjson/common_defs.h>
+#include <simdjson/simdjson.h> // IWYU pragma: keep
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "common/status.h"
+#include "exec/line_reader.h"
+#include "exprs/json_functions.h"
 #include "io/file_factory.h"
-#include "io/fs/file_reader.h"
-#include "olap/iterators.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "util/runtime_profile.h"
 #include "vec/common/hash_table/hash_map.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
+#include "vec/json/json_parser.h"
+#include "vec/json/simd_json_parser.h"
+
+namespace simdjson {
+namespace fallback {
+namespace ondemand {
+class object;
+} // namespace ondemand
+} // namespace fallback
+} // namespace simdjson
 
 namespace doris {
 
-class FileReader;
-struct JsonPath;
-class LineReader;
 class SlotDescriptor;
+class RuntimeState;
+class TFileRangeDesc;
+class TFileScanRangeParams;
+
+namespace io {
+class FileSystem;
+class IOContext;
+} // namespace io
+struct TypeDescriptor;
 
 namespace vectorized {
 
 struct ScannerCounter;
-template <typename ParserImpl>
-class JSONDataParser;
-class SimdJSONParser;
+class Block;
+class IColumn;
 
 class NewJsonReader : public GenericReader {
+    ENABLE_FACTORY_CREATOR(NewJsonReader);
+
 public:
     NewJsonReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                   const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -54,7 +86,8 @@ public:
                   io::IOContext* io_ctx);
     ~NewJsonReader() override = default;
 
-    Status init_reader();
+    Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+                               col_default_value_ctx);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -144,13 +177,21 @@ private:
     Status (NewJsonReader::*_vhandle_json_callback)(Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
+    Status _get_column_default_value(
+            const std::vector<SlotDescriptor*>& slot_descs,
+            const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
+                    col_default_value_ctx);
+
+    Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+                                bool* valid);
+
     RuntimeState* _state;
     RuntimeProfile* _profile;
     ScannerCounter* _counter;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
-    FileSystemProperties _system_properties;
-    FileDescription _file_description;
+    io::FileSystemProperties _system_properties;
+    io::FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
     std::shared_ptr<io::FileSystem> _file_system;
@@ -213,6 +254,7 @@ private:
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
     std::string _simdjson_ondemand_padding_buffer;
+    std::string _simdjson_ondemand_unscape_padding_buffer;
     // char _simdjson_ondemand_padding_buffer[_padded_size];
     simdjson::ondemand::document _original_json_doc;
     simdjson::ondemand::value _json_value;
@@ -222,6 +264,9 @@ private:
     simdjson::ondemand::array _array;
     std::unique_ptr<JSONDataParser<SimdJSONParser>> _json_parser;
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
+    // column to default value string map
+    std::unordered_map<std::string, std::string> _col_default_value_map;
+    int32_t _cur_parsed_variant_rows = 0;
 };
 
 } // namespace vectorized

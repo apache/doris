@@ -36,9 +36,7 @@ array_compact
 
 #### Syntax
 
-```sql
-array_compact(arr)
-```
+`Array<T> array_compact(arr)`
 
 #### Arguments
 

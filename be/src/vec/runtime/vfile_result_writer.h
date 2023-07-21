@@ -17,22 +17,43 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <iosfwd>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
 #include "io/fs/file_writer.h"
+#include "runtime/descriptors.h"
+#include "runtime/result_writer.h"
+#include "util/runtime_profile.h"
+#include "vec/core/block.h"
 #include "vec/runtime/vparquet_writer.h"
-#include "vec/sink/vresult_sink.h"
+
+namespace doris {
+class BufferControlBlock;
+class RuntimeState;
+
+namespace vectorized {
+class VExprContext;
+struct ResultFileOptions;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
-class VFileWriterWrapper;
 
 // write result to file
-class VFileResultWriter final : public VResultWriter {
+class VFileResultWriter final : public ResultWriter {
 public:
     VFileResultWriter(const ResultFileOptions* file_option,
                       const TStorageBackendType::type storage_type,
                       const TUniqueId fragment_instance_id,
-                      const std::vector<VExprContext*>& _output_vexpr_ctxs,
-                      RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                      Block* output_block, bool output_object_data,
+                      const VExprContextSPtrs& _output_vexpr_ctxs, RuntimeProfile* parent_profile,
+                      BufferControlBlock* sinker, Block* output_block, bool output_object_data,
                       const RowDescriptor& output_row_descriptor);
     virtual ~VFileResultWriter() = default;
 
@@ -72,12 +93,14 @@ private:
     Status _send_result();
     // save result into batch rather than send it
     Status _fill_result_block();
+    // delete the dir of file_path
+    Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
-    const std::vector<VExprContext*>& _output_vexpr_ctxs;
+    const VExprContextSPtrs& _output_vexpr_ctxs;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.

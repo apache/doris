@@ -113,39 +113,39 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     return Status::OK();
 }
 
-SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
+std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type) {
     switch (type) {
     case TSchemaTableType::SCH_TABLES:
-        return new (std::nothrow) SchemaTablesScanner();
+        return SchemaTablesScanner::create_unique();
     case TSchemaTableType::SCH_SCHEMATA:
-        return new (std::nothrow) SchemaSchemataScanner();
+        return SchemaSchemataScanner::create_unique();
     case TSchemaTableType::SCH_COLUMNS:
-        return new (std::nothrow) SchemaColumnsScanner();
+        return SchemaColumnsScanner::create_unique();
     case TSchemaTableType::SCH_CHARSETS:
-        return new (std::nothrow) SchemaCharsetsScanner();
+        return SchemaCharsetsScanner::create_unique();
     case TSchemaTableType::SCH_COLLATIONS:
-        return new (std::nothrow) SchemaCollationsScanner();
+        return SchemaCollationsScanner::create_unique();
     case TSchemaTableType::SCH_GLOBAL_VARIABLES:
-        return new (std::nothrow) SchemaVariablesScanner(TVarType::GLOBAL);
+        return SchemaVariablesScanner::create_unique(TVarType::GLOBAL);
     case TSchemaTableType::SCH_SESSION_VARIABLES:
     case TSchemaTableType::SCH_VARIABLES:
-        return new (std::nothrow) SchemaVariablesScanner(TVarType::SESSION);
+        return SchemaVariablesScanner::create_unique(TVarType::SESSION);
     case TSchemaTableType::SCH_VIEWS:
-        return new (std::nothrow) SchemaViewsScanner();
+        return SchemaViewsScanner::create_unique();
     case TSchemaTableType::SCH_TABLE_PRIVILEGES:
-        return new (std::nothrow) SchemaTablePrivilegesScanner();
+        return SchemaTablePrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_SCHEMA_PRIVILEGES:
-        return new (std::nothrow) SchemaSchemaPrivilegesScanner();
+        return SchemaSchemaPrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_USER_PRIVILEGES:
-        return new (std::nothrow) SchemaUserPrivilegesScanner();
+        return SchemaUserPrivilegesScanner::create_unique();
     case TSchemaTableType::SCH_FILES:
-        return new (std::nothrow) SchemaFilesScanner();
+        return SchemaFilesScanner::create_unique();
     case TSchemaTableType::SCH_PARTITIONS:
-        return new (std::nothrow) SchemaPartitionsScanner();
+        return SchemaPartitionsScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
-        return new (std::nothrow) SchemaRowsetsScanner();
+        return SchemaRowsetsScanner::create_unique();
     default:
-        return new (std::nothrow) SchemaDummyScanner();
+        return SchemaDummyScanner::create_unique();
         break;
     }
 }

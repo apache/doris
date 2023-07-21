@@ -19,13 +19,6 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.metrics.CounterType;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.enhancer.AddCounterEventEnhancer;
-import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
@@ -39,6 +32,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,10 +45,7 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete plan node.
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
-    private static final EventProducer PLAN_CONSTRUCT_TRACER = new EventProducer(CounterEvent.class,
-            EventChannel.getDefaultChannel()
-                    .addEnhancers(new AddCounterEventEnhancer())
-                    .addConsumers(new LogConsumer(CounterEvent.class, EventChannel.LOG)));
+    public static final String FRAGMENT_ID = "fragment";
 
     protected final Statistics statistics;
     protected final PlanType type;
@@ -71,10 +63,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this(type, Optional.empty(), Optional.empty(), null, children);
     }
 
-    public AbstractPlan(PlanType type, Optional<LogicalProperties> optLogicalProperties, Plan... children) {
-        this(type, Optional.empty(), optLogicalProperties, null, children);
-    }
-
     /**
      * all parameter constructor.
      */
@@ -88,7 +76,21 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
         this.statistics = statistics;
-        PLAN_CONSTRUCT_TRACER.log(CounterEvent.of(Memo.getStateId(), CounterType.PLAN_CONSTRUCTOR, null, null, null));
+    }
+
+    /**
+     * all parameter constructor.
+     */
+    public AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> optLogicalProperties, @Nullable Statistics statistics,
+            List<Plan> children) {
+        super(groupExpression, children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
+        Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
+        this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
+                this::computeLogicalProperties));
+        this.statistics = statistics;
     }
 
     @Override
@@ -123,6 +125,21 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
                 plan -> ((Plan) plan).displayExtraPlanFirst());
     }
 
+    /** top toJson method, can be override by specific operator */
+    public JSONObject toJson() {
+        JSONObject json = new JSONObject();
+        json.put("PlanType", getType().toString());
+        if (this.children().size() == 0) {
+            return json;
+        }
+        JSONArray childrenJson = new JSONArray();
+        for (Plan child : children) {
+            childrenJson.put(((AbstractPlan) child).toJson());
+        }
+        json.put("children", childrenJson);
+        return json;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -145,11 +162,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public List<Slot> getOutput() {
         return getLogicalProperties().getOutput();
-    }
-
-    @Override
-    public List<Slot> getNonUserVisibleOutput() {
-        return getLogicalProperties().getNonUserVisibleOutput();
     }
 
     @Override
@@ -187,12 +199,18 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     /**
      * used in treeString()
+     *
      * @return "" if groupExpression is empty, o.w. string format of group id
      */
     public String getGroupIdAsString() {
-        String groupId = getGroupExpression().isPresent()
-                ? "#" + getGroupExpression().get().getOwnerGroup().getGroupId().asInt()
-                : "";
+        String groupId;
+        if (getGroupExpression().isPresent()) {
+            groupId = "@" + groupExpression.get().getOwnerGroup().getGroupId().asInt();
+        } else if (getMutableState("group").isPresent()) {
+            groupId = "@" + getMutableState("group").get();
+        } else {
+            groupId = "";
+        }
         return groupId;
     }
 

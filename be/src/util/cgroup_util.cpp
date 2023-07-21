@@ -21,9 +21,11 @@
 #include <cfloat>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
+#include <memory>
 #include <utility>
+#include <vector>
 
+#include "gutil/stringprintf.h"
 #include "gutil/strings/escaping.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"

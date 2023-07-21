@@ -34,7 +34,7 @@ suite("test_external_catalog_icebergv2", "p2") {
         // test parquet format format
         def q01 = {
             qt_q01 """ select count(1) as c from customer_small """
-            qt_q02 """ select c_custkey from customer_small group by c_custkey limit 4 """
+            qt_q02 """ select c_custkey from customer_small group by c_custkey order by c_custkey limit 4 """
             qt_q03 """ select count(1) from orders_small """
             qt_q04 """ select count(1) from customer_small where c_name = 'Customer#000000005' or c_name = 'Customer#000000006' """
             qt_q05 """ select * from customer_small order by c_custkey limit 3 """
@@ -49,8 +49,14 @@ suite("test_external_catalog_icebergv2", "p2") {
             qt_q11 """ select c_custkey from customer for version as of 906874575350293177 order by c_custkey limit 3 """
             qt_q12 """ select c_custkey from customer for version as of 6352416983354893547 order by c_custkey desc limit 3 """
         }
+        // in predicate
+        def q03 = {
+            qt_q13 """ select c_custkey from customer_small where c_custkey in (1, 2, 4, 7) order by c_custkey """
+            qt_q14 """ select c_name from customer_small where c_name in ('Customer#000000004', 'Customer#000000007') order by c_custkey """
+        }
         sql """ use `tpch_1000_icebergv2`; """
         q01()
         q02()
+        q03()
     }
 }

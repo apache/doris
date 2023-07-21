@@ -19,13 +19,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
-#include <map>
-#include <string>
+#include <algorithm>
 #include <vector>
 
-#include "common/logging.h"
+#include "gutil/port.h"
 #include "gutil/strings/substitute.h"
 #include "util/coding.h"
 #include "util/faststring.h"

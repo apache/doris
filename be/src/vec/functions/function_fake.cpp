@@ -17,9 +17,20 @@
 
 #include "vec/functions/function_fake.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <ostream>
+#include <string>
+
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -92,6 +103,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_json_array_int");
     register_table_function_expand_outer_default<DataTypeString>(factory,
                                                                  "explode_json_array_string");
+    register_table_function_expand_outer_default<DataTypeString>(factory,
+                                                                 "explode_json_array_json");
     register_table_function_expand_outer_default<DataTypeFloat64>(factory,
                                                                   "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_bitmap");

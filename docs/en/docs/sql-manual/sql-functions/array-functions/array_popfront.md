@@ -34,9 +34,7 @@ array_popfront
 
 #### Syntax
 
-```
-ARRAY<T> array_popfront(ARRAY<T> arr)
-```
+`ARRAY<T> array_popfront(ARRAY<T> arr)`
 
 Remove the first element from array.
 

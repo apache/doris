@@ -17,13 +17,26 @@
 
 #pragma once
 
+#include <stddef.h>
+
+#include <memory>
+
+#include "common/status.h"
 #include "util/bitmap_value.h"
-#include "vec/columns/column.h"
+#include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
+
+namespace doris {
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
 class VExplodeBitmapTableFunction final : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VExplodeBitmapTableFunction);
+
 public:
     VExplodeBitmapTableFunction();
     ~VExplodeBitmapTableFunction() override = default;

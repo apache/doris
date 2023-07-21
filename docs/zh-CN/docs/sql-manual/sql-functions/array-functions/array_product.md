@@ -34,6 +34,10 @@ array_product
 
 ### description
 
+#### Syntax
+
+`T array_product(ARRAY<T> arr)`
+
 返回数组中所有元素的乘积，数组中的`NULL`值会被跳过。空数组以及元素全为`NULL`值的数组，结果返回`NULL`值。
 
 ### example

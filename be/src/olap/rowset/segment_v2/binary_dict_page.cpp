@@ -17,11 +17,26 @@
 
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/logging.h"
+#include "gutil/casts.h"
+#include "gutil/port.h"
 #include "gutil/strings/substitute.h" // for Substitute
-#include "util/slice.h"               // for Slice
+#include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "util/coding.h"
+#include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
 
 namespace doris {
+struct StringRef;
+
 namespace segment_v2 {
 
 using strings::Substitute;

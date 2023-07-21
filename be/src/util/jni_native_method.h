@@ -19,10 +19,12 @@
 
 #include <jni.h>
 
+#include "jni_md.h"
+
 namespace doris {
 
 /**
- * Java native methods for org.apache.doris.udf.JNINativeMethod.
+ * Java native methods for org.apache.doris.common.jni.utils.JNINativeMethod.
  */
 struct JavaNativeMethods {
     /**

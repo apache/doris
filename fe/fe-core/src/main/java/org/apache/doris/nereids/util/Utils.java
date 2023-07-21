@@ -30,9 +30,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -123,16 +123,6 @@ public class Utils {
     }
 
     /**
-     * equals for List but ignore order.
-     */
-    public static <E> boolean equalsIgnoreOrder(List<E> one, List<E> other) {
-        if (one.size() != other.size()) {
-            return false;
-        }
-        return new HashSet<>(one).containsAll(other) && new HashSet<>(other).containsAll(one);
-    }
-
-    /**
      * Get sql string for plan.
      *
      * @param planName name of plan, like LogicalJoin.
@@ -156,24 +146,6 @@ public class Utils {
         }
 
         return stringBuilder.append(" )").toString();
-    }
-
-    /**
-     * See if there are correlated columns in a subquery expression.
-     */
-    public static boolean containCorrelatedSlot(List<Expression> correlatedSlots, Expression expr) {
-        if (correlatedSlots.isEmpty() || expr == null) {
-            return false;
-        }
-        if (expr instanceof SlotReference) {
-            return correlatedSlots.contains(expr);
-        }
-        for (Expression child : expr.children()) {
-            if (containCorrelatedSlot(correlatedSlots, child)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -279,5 +251,9 @@ public class Utils {
                                 .collect(ImmutableList.toImmutableList())
                         )
                 ).collect(ImmutableList.toImmutableList());
+    }
+
+    public static <T> List<T> copyRequiredList(List<T> list) {
+        return ImmutableList.copyOf(Objects.requireNonNull(list, "non-null list is required"));
     }
 }

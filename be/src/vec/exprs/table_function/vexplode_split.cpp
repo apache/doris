@@ -17,10 +17,21 @@
 
 #include "vec/exprs/table_function/vexplode_split.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <iterator>
+#include <ostream>
+
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
 
@@ -33,17 +44,17 @@ Status VExplodeSplitTableFunction::open() {
 }
 
 Status VExplodeSplitTableFunction::process_init(Block* block) {
-    CHECK(_vexpr_context->root()->children().size() == 2)
+    CHECK(_expr_context->root()->children().size() == 2)
             << "VExplodeSplitTableFunction must be have 2 children but have "
-            << _vexpr_context->root()->children().size();
+            << _expr_context->root()->children().size();
 
     int text_column_idx = -1;
     int delimiter_column_idx = -1;
 
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[0]->execute(_vexpr_context, block,
-                                                                   &text_column_idx));
-    RETURN_IF_ERROR(_vexpr_context->root()->children()[1]->execute(_vexpr_context, block,
-                                                                   &delimiter_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
+                                                                  &text_column_idx));
+    RETURN_IF_ERROR(_expr_context->root()->children()[1]->execute(_expr_context.get(), block,
+                                                                  &delimiter_column_idx));
 
     // dispose test column
     _text_column =
@@ -60,6 +71,10 @@ Status VExplodeSplitTableFunction::process_init(Block* block) {
     auto& delimiter_const_column = block->get_by_position(delimiter_column_idx).column;
     if (is_column_const(*delimiter_const_column)) {
         _delimiter = delimiter_const_column->get_data_at(0);
+        if (_delimiter.empty()) {
+            return Status::InvalidArgument(
+                    "explode_split(test, delimiter) delimiter column must be not empty");
+        }
     } else {
         return Status::NotSupported(
                 "explode_split(test, delimiter) delimiter column must be const");
@@ -84,11 +99,10 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
                 if (first != second) {
                     output.emplace_back(strv.substr(std::distance(strv.begin(), first),
                                                     std::distance(first, second)));
-                    first = std::next(second);
                 } else {
                     output.emplace_back("", 0);
-                    first = std::next(second, delims.size());
                 }
+                first = std::next(second, delims.size());
 
                 if (second == last) {
                     break;

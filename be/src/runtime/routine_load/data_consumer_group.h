@@ -17,11 +17,25 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <vector>
+
+#include "common/status.h"
 #include "runtime/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
 #include "util/priority_thread_pool.hpp"
+#include "util/uid_util.h"
+
+namespace RdKafka {
+class Message;
+} // namespace RdKafka
 
 namespace doris {
+class StreamLoadContext;
 
 // data consumer group saves a group of data consumers.
 // These data consumers share the same stream load pipe.

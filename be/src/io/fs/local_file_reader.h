@@ -17,14 +17,21 @@
 
 #pragma once
 
-#include <atomic>
+#include <stddef.h>
 
+#include <atomic>
+#include <memory>
+
+#include "common/status.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace io {
+class IOContext;
 
 class LocalFileReader final : public FileReader {
 public:

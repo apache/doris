@@ -54,4 +54,52 @@ suite("test_union_subquery_groupby") {
     sql """
         drop table if exists t_union_subquery_group_by;
     """
+
+    sql """
+        drop table if exists union_table_test;
+    """
+    
+    sql """
+        CREATE TABLE IF NOT EXISTS `union_table_test`
+        (
+            `dt` DATEV2 NOT NULL,
+            `label` VARCHAR(30) NOT NULL,
+            `uid_bitmap` BITMAP BITMAP_UNION NULL
+        )
+        AGGREGATE KEY (`dt`, `label`)
+        DISTRIBUTED BY HASH(`label`) BUCKETS AUTO
+        PROPERTIES
+        (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        INSERT INTO union_table_test (dt, label, uid_bitmap) VALUES
+        ('2023-04-01', 'new_user', bitmap_from_string("1,2,3,4,5,6,7,8,9"));
+    """
+
+    qt_select2 """
+        SELECT 
+            AVG(`source`.`uid_count`) AS `avg`
+        FROM (with temp1 AS 
+            (SELECT dt,
+                label,
+                bitmap_count(uid_bitmap) AS uid_count
+            FROM union_table_test
+            
+            UNION
+            all SELECT t1.dt,
+                'new/active' AS label, bitmap_count(t1.uid_bitmap) / bitmap_count(t1.uid_bitmap) AS uid_count
+            FROM union_table_test t1)
+            SELECT *
+            FROM temp1
+            ) AS `source`
+        WHERE (`source`.`label` = 'new_user')
+        GROUP BY  DATE(`source`.`dt`); 
+    """
+
+    sql """
+        drop table if exists union_table_test;
+    """
 }

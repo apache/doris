@@ -174,16 +174,17 @@ suite("colocate_join_with_rollup", "nereids_p0") {
         contains "COLOCATE"
     }
 
-    explain {
-        // hit diffrent rollup, no colocate
-        sql("""select sum_col1,sum_col2 
-                from 
-                (select datekey,sum(sum_col1) as sum_col1 from test_query_no_colocate group by datekey) t1
-                left join
-                (select datekey,sum(sum_col2) as sum_col2 from test_query_no_colocate group by datekey) t2
-                on t1.datekey = t2.datekey""")
-        notContains "COLOCATE"
-    }
+    // ISSUE #18263
+    // explain {
+    //     // hit diffrent rollup, no colocate
+    //     sql("""select sum_col1,sum_col2 
+    //             from 
+    //             (select datekey,sum(sum_col1) as sum_col1 from test_query_no_colocate group by datekey) t1
+    //             left join
+    //             (select datekey,sum(sum_col2) as sum_col2 from test_query_no_colocate group by datekey) t2
+    //             on t1.datekey = t2.datekey""")
+    //     notContains "COLOCATE"
+    // }
 
     sql """ DROP TABLE IF EXISTS test_query_colocate1 """
     sql """ DROP TABLE IF EXISTS test_query_colocate2 """

@@ -16,10 +16,24 @@
 // under the License.
 
 #pragma once
-#include "vec/common/schema_util.h"
-#include "vec/data_types/data_type_object.h"
+#include <gen_cpp/Exprs_types.h>
+#include <stdint.h>
+
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
+#include "udf/udf.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
+
+namespace doris {
+class RowDescriptor;
+class RuntimeState;
+
+namespace vectorized {
+class Block;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -28,6 +42,8 @@ namespace doris::vectorized {
 // from it's type and name.It contains an inner slot which indicated it's variant
 // column.
 class VSchemaChangeExpr : public VExpr {
+    ENABLE_FACTORY_CREATOR(VSchemaChangeExpr);
+
 public:
     VSchemaChangeExpr(const TExprNode& node) : VExpr(node), _tnode(node) {}
     ~VSchemaChangeExpr() = default;
@@ -37,11 +53,8 @@ public:
                    VExprContext* context) override;
     Status open(doris::RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
-    void close(doris::RuntimeState* state, VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override;
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VSchemaChangeExpr(*this));
-    }
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    VExprSPtr clone() const override { return VSchemaChangeExpr::create_shared(*this); }
     const std::string& expr_name() const override;
     std::string debug_string() const override;
 

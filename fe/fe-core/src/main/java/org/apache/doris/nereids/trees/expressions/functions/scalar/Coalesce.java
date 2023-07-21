@@ -64,8 +64,8 @@ public class Coalesce extends ScalarFunction
             FunctionSignature.ret(DateType.INSTANCE).varArgs(DateType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).varArgs(DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE).varArgs(DateV2Type.INSTANCE),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).varArgs(DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(BitmapType.INSTANCE).varArgs(BitmapType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE)

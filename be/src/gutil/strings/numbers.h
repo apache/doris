@@ -6,22 +6,25 @@
 #pragma once
 
 #include <stddef.h>
-#include <stdlib.h>
-#include <string.h>
 #include <time.h>
-
+#include <stdint.h>
 #include <functional>
+
 using std::less;
 #include <limits>
+
 using std::numeric_limits;
 #include <string>
+
 using std::string;
 #include <vector>
+
 using std::vector;
 
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
-#include "gutil/macros.h"
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 #include "gutil/port.h"
 #include "gutil/stringprintf.h"
 

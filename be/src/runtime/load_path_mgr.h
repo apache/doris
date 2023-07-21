@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <pthread.h>
+#include <stdint.h>
+#include <time.h>
 
 #include <mutex>
 #include <string>
@@ -25,13 +26,13 @@
 
 #include "common/status.h"
 #include "gutil/ref_counted.h"
-#include "util/thread.h"
-#include "util/uid_util.h"
+#include "util/countdown_latch.h"
 
 namespace doris {
 
 class TUniqueId;
 class ExecEnv;
+class Thread;
 
 // In every directory, '.trash' directory is used to save data need to delete
 // daemon thread is check no used directory to delete

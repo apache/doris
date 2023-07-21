@@ -17,16 +17,17 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "slice.h"
-#include "tdigest.h"
 
 namespace doris {
 
-struct Slice;
 class TDigest;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;

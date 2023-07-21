@@ -20,10 +20,13 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+#include <sys/un.h>
+
+#include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -44,6 +47,10 @@ private:
 // an error status if any system call failed, otherwise OK. Even if OK
 // is returned, addresses may still be of zero length.
 Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* addresses);
+
+bool is_valid_ip(const std::string& ip);
+
+Status hostname_to_ip(const std::string& host, std::string& ip);
 
 // Finds the first non-localhost IP address in the given list. Returns
 // true if such an address was found, false otherwise.

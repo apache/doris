@@ -17,9 +17,11 @@
 
 #include "olap/rowset/segment_v2/index_page.h"
 
-#include <string>
+#include <gen_cpp/segment_v2.pb.h>
 
-#include "common/logging.h"
+#include <algorithm>
+#include <ostream>
+
 #include "util/coding.h"
 
 namespace doris {

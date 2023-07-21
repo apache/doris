@@ -193,4 +193,6 @@ suite("cast") {
         sql "select true + 1 + 'x'"
         exception "string literal 'x' cannot be cast to double"
     }
+
+    qt_sql_test_DecimalV3_mode """select cast(1 as DECIMALV3(1, 0)) % 2.1;""";
 }

@@ -17,12 +17,19 @@
 
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
-#include "common/logging.h"
+#include <gen_cpp/segment_v2.pb.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <ostream>
+#include <string>
+
 #include "io/fs/file_writer.h"
-#include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {

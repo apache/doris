@@ -4,11 +4,10 @@
 
 #pragma once
 
-#include <common/logging.h>
 
-#include "gutil/basictypes.h"
 #include "gutil/integral_types.h"
-#include "gutil/macros.h"
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 
 class Bits {
 public:

@@ -17,12 +17,20 @@
 
 #include "olap/skiplist.h"
 
-#include <gtest/gtest.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdint.h>
+#include <stdio.h>
 
+#include <condition_variable>
+#include <functional>
+#include <iterator>
+#include <memory>
+#include <mutex>
 #include <set>
-#include <thread>
+#include <utility>
 
-#include "olap/schema.h"
+#include "gtest/gtest_pred_impl.h"
 #include "testutil/test_util.h"
 #include "util/hash_util.hpp"
 #include "util/priority_thread_pool.hpp"

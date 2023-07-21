@@ -18,16 +18,20 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Lists;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -74,6 +78,7 @@ public class SearchSignature {
         // search every round
         for (BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate : typePredicatePerRound) {
             int candidateNonStrictMatched = Integer.MAX_VALUE;
+            int candidateDateToDateV2Count = Integer.MIN_VALUE;
             FunctionSignature candidate = null;
             for (FunctionSignature signature : signatures) {
                 if (doMatchArity(signature, arguments) && doMatchTypes(signature, arguments, typePredicate)) {
@@ -89,10 +94,17 @@ public class SearchSignature {
                         }
                     }
                     // has most identical matched signature has the highest priority
-                    int currentNonStrictMatched = nonStrictMatchedCount(signature, arguments);
-                    if (currentNonStrictMatched < candidateNonStrictMatched) {
-                        candidateNonStrictMatched = currentNonStrictMatched;
+                    Pair<Integer, Integer> currentNonStrictMatched = nonStrictMatchedCount(signature, arguments);
+                    if (currentNonStrictMatched.first < candidateNonStrictMatched) {
+                        candidateNonStrictMatched = currentNonStrictMatched.first;
+                        candidateDateToDateV2Count = currentNonStrictMatched.second;
                         candidate = signature;
+                    } else if (currentNonStrictMatched.first == candidateNonStrictMatched) {
+                        // if we need to do same count cast, then we choose the signature need to do more v1 to v2 cast
+                        if (candidateDateToDateV2Count < currentNonStrictMatched.second) {
+                            candidateDateToDateV2Count = currentNonStrictMatched.second;
+                            candidate = signature;
+                        }
                     }
                 }
             }
@@ -141,8 +153,14 @@ public class SearchSignature {
             if (finalType == null) {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
-                finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
-                        DecimalV3Type.forType(arguments.get(i).getDataType()), true);
+                Expression arg = arguments.get(i);
+                if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
+                    // create decimalV3 with minimum scale enough to hold the integral literal
+                    finalType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
+                } else {
+                    finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
+                            DecimalV3Type.forType(arg.getDataType()), true);
+                }
             }
             if (!finalType.isDecimalV3Type()) {
                 return false;
@@ -161,17 +179,26 @@ public class SearchSignature {
         return true;
     }
 
-    private int nonStrictMatchedCount(FunctionSignature sig, List<Expression> arguments) {
+    /**
+     * return non-strict matched count and convert v1 to v2 count.
+     *
+     * @return the first value indic non-strict matched count, the second value indic date to datev2 count
+     */
+    private Pair<Integer, Integer> nonStrictMatchedCount(FunctionSignature sig, List<Expression> arguments) {
         int nonStrictMatched = 0;
+        int dateToDateV2Count = 0;
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             AbstractDataType sigArgType = sig.getArgType(i);
             AbstractDataType realType = arguments.get(i).getDataType();
             if (!IdenticalSignature.isIdentical(sigArgType, realType)) {
                 nonStrictMatched++;
+                if (sigArgType instanceof DateV2Type && realType instanceof DateType) {
+                    dateToDateV2Count++;
+                }
             }
         }
-        return nonStrictMatched;
+        return Pair.of(nonStrictMatched, dateToDateV2Count);
     }
 
     private boolean doMatchTypes(FunctionSignature sig, List<Expression> arguments,

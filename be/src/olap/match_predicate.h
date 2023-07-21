@@ -18,16 +18,29 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_MATCH_PREDICATE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_MATCH_PREDICATE_H
 
-#include <memory>
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <ostream>
 #include <string>
 
-#include "gen_cpp/Exprs_types.h"
+#include "common/status.h"
 #include "olap/column_predicate.h"
-#include "runtime/string_search.hpp"
+#include "olap/schema.h"
+
+namespace roaring {
+class Roaring;
+} // namespace roaring
 
 namespace doris {
 
 enum class MatchType;
+
+namespace segment_v2 {
+class BitmapIndexIterator;
+class InvertedIndexIterator;
+enum class InvertedIndexQueryType;
+} // namespace segment_v2
 
 class MatchPredicate : public ColumnPredicate {
 public:
@@ -51,6 +64,7 @@ private:
         std::string info = "MatchPredicate";
         return info;
     }
+    bool _skip_evaluate(InvertedIndexIterator* iterator) const;
 
 private:
     std::string _value;

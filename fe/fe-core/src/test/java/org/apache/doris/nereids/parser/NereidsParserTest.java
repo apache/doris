@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -256,7 +258,7 @@ public class NereidsParserTest extends ParserTestBase {
                 .stream()
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
-        Assertions.assertEquals(doubleCount, 1);
+        Assertions.assertEquals(doubleCount, Config.enable_decimal_conversion ? 0 : 1);
     }
 
     @Test
@@ -334,8 +336,14 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
         Cast cast = (Cast) logicalPlan.getExpressions().get(0).child(0);
-        DecimalV2Type decimalV2Type = (DecimalV2Type) cast.getDataType();
-        Assertions.assertEquals(20, decimalV2Type.getPrecision());
-        Assertions.assertEquals(6, decimalV2Type.getScale());
+        if (Config.enable_decimal_conversion) {
+            DecimalV3Type decimalV3Type = (DecimalV3Type) cast.getDataType();
+            Assertions.assertEquals(20, decimalV3Type.getPrecision());
+            Assertions.assertEquals(6, decimalV3Type.getScale());
+        } else {
+            DecimalV2Type decimalV2Type = (DecimalV2Type) cast.getDataType();
+            Assertions.assertEquals(20, decimalV2Type.getPrecision());
+            Assertions.assertEquals(6, decimalV2Type.getScale());
+        }
     }
 }

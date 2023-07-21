@@ -17,18 +17,30 @@
 #pragma once
 
 #include <common/status.h>
-#include <vec/columns/column.h>
-#include <vec/json/json_parser.h>
-#include <vec/json/simd_json_parser.h>
+
+#include <vector>
+
+#include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+
+namespace doris {
+namespace vectorized {
+class ColumnString;
+class SimdJSONParser;
+enum class ExtractType;
+template <typename ParserImpl>
+class JSONDataParser;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
-// parse a batch of json strings into column object
-Status parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
+// parse a batch of json strings into column object, throws doris::Execption when failed
+void parse_json_to_variant(IColumn& column, const std::vector<StringRef>& jsons);
 
-// parse a single json
-Status parse_json_to_variant(IColumn& column, const StringRef& jsons,
-                             JSONDataParser<SimdJSONParser>* parser);
+// parse a single json, throws doris::Execption when failed
+void parse_json_to_variant(IColumn& column, const StringRef& jsons,
+                           JSONDataParser<SimdJSONParser>* parser);
 
 // extract keys columns from json strings into columns
 bool extract_key(MutableColumns& columns, const std::vector<StringRef>& jsons,

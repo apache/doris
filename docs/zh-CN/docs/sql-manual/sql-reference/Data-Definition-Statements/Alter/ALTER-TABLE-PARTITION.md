@@ -32,7 +32,7 @@ ALTER TABLE PARTITION
 
 ### Description
 
-该语句用于对已有 table 的 partition 进行修改操作。
+该语句用于对有 partition 的 table 进行修改操作。
 
 这个操作是同步的，命令返回表示执行完毕。
 
@@ -134,7 +134,7 @@ MODIFY PARTITION p1 SET("replication_num"="1");
 
 ```sql
 ALTER TABLE example_db.my_table
-MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+MODIFY PARTITION (p1, p2, p4) SET("replication_num"="1");
 ```
 
 6. 批量修改所有分区

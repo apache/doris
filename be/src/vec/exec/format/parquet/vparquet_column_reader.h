@@ -18,9 +18,34 @@
 #pragma once
 #include <common/status.h>
 #include <gen_cpp/parquet_types.h>
+#include <glog/logging.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "schema_desc.h"
+#include <list>
+#include <memory>
+#include <ostream>
+#include <vector>
+
+#include "io/fs/buffered_reader.h"
+#include "io/fs/file_reader_writer_fwd.h"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_column_chunk_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace io {
+class IOContext;
+} // namespace io
+namespace vectorized {
+class ColumnString;
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -30,6 +55,7 @@ public:
         Statistics()
                 : read_time(0),
                   read_calls(0),
+                  meta_read_calls(0),
                   read_bytes(0),
                   decompress_time(0),
                   decompress_cnt(0),
@@ -43,6 +69,7 @@ public:
                    int64_t null_map_time)
                 : read_time(fs.read_time),
                   read_calls(fs.read_calls),
+                  meta_read_calls(0),
                   read_bytes(fs.read_bytes),
                   decompress_time(cs.decompress_time),
                   decompress_cnt(cs.decompress_cnt),
@@ -54,6 +81,7 @@ public:
 
         int64_t read_time;
         int64_t read_calls;
+        int64_t meta_read_calls;
         int64_t read_bytes;
         int64_t decompress_time;
         int64_t decompress_cnt;
@@ -67,6 +95,7 @@ public:
             read_time += statistics.read_time;
             read_calls += statistics.read_calls;
             read_bytes += statistics.read_bytes;
+            meta_read_calls += statistics.meta_read_calls;
             decompress_time += statistics.decompress_time;
             decompress_cnt += statistics.decompress_cnt;
             decode_header_time += statistics.decode_header_time;

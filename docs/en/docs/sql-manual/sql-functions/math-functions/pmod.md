@@ -27,8 +27,10 @@ under the License.
 ### description
 #### Syntax
 
-`BIGINT PMOD(BIGINT x, BIGINT y)`
-`DOUBLE PMOD(DOUBLE x, DOUBLE y)`
+```sql
+BIGINT PMOD(BIGINT x, BIGINT y)
+DOUBLE PMOD(DOUBLE x, DOUBLE y)
+```
 Returns the positive result of x mod y in the residue systems.
 Formally, return `(x%y+y)%y`.
 

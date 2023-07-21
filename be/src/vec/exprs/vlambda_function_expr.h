@@ -22,6 +22,8 @@
 
 namespace doris::vectorized {
 class VLambdaFunctionExpr final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VLambdaFunctionExpr);
+
 public:
     VLambdaFunctionExpr(const TExprNode& node) : VExpr(node) {}
     ~VLambdaFunctionExpr() override = default;
@@ -31,9 +33,7 @@ public:
         return get_child(0)->execute(context, block, result_column_id);
     }
 
-    VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VLambdaFunctionExpr(*this));
-    }
+    VExprSPtr clone() const override { return VLambdaFunctionExpr::create_shared(*this); }
 
     const std::string& expr_name() const override { return _expr_name; }
 

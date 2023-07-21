@@ -17,8 +17,24 @@
 
 #include "vec/functions/like.h"
 
+#include <fmt/format.h>
+#include <hs/hs_compile.h>
+#include <re2/stringpiece.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <ostream>
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -36,12 +52,15 @@ static const RE2 STARTS_WITH_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\
 
 // A regex to match any regex pattern which is equivalent to a constant string match.
 static const RE2 EQUALS_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)\\$");
+// A regex to match .*
+static const RE2 ALLPASS_RE("(\\\\.\\*)+");
 
 // Like patterns
 static const re2::RE2 LIKE_SUBSTRING_RE("(?:%+)(((\\\\_)|([^%_\\\\]))+)(?:%+)");
 static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\_)|([^%_]))+)");
 static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_\\\\]))+)(?:%+)");
 static const re2::RE2 LIKE_EQUALS_RE("(((\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_ALLPASS_RE("%+");
 
 Status LikeSearchState::clone(LikeSearchState& cloned) {
     cloned.escape_char = escape_char;
@@ -69,6 +88,16 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
         }
     }
 
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_allpass_fn(LikeSearchState* state, const ColumnString& val,
+                                             const StringRef& pattern,
+                                             ColumnUInt8::Container& result) {
+    auto sz = val.size();
+    for (size_t i = 0; i < sz; i++) {
+        result[i] = 1;
+    }
     return Status::OK();
 }
 
@@ -115,6 +144,17 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Col
             result[i] = true;
         }
         result[i] = state->substring_pattern.search(val.get_data_at(i)) != -1;
+    }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_allpass_fn_predicate(LikeSearchState* state,
+                                                       const PredicateColumnType<TYPE_STRING>& val,
+                                                       const StringRef& pattern,
+                                                       ColumnUInt8::Container& result,
+                                                       const uint16_t* sel, size_t sz) {
+    for (size_t i = 0; i < sz; i++) {
+        result[i] = 1;
     }
     return Status::OK();
 }
@@ -167,6 +207,13 @@ Status FunctionLikeBase::constant_substring_fn_predicate(
         }
         result[i] = state->substring_pattern.search(data_ptr[sel[i]]) != -1;
     }
+    return Status::OK();
+}
+
+Status FunctionLikeBase::constant_allpass_fn_scalar(LikeSearchState* state, const StringRef& val,
+                                                    const StringRef& pattern,
+                                                    unsigned char* result) {
+    *result = 1;
     return Status::OK();
 }
 
@@ -390,8 +437,9 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
     hs_compile_error_t* compile_err;
-    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, nullptr,
-                          database, &compile_err);
+    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
+                          HS_MODE_BLOCK, nullptr, database, &compile_err);
+
     if (res != HS_SUCCESS) {
         *database = nullptr;
         if (context) {
@@ -435,7 +483,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // for constant_substring_fn, use long run length search for performance
     if (constant_substring_fn ==
-        *(state->function.target<doris::Status (*)(LikeSearchState * state, const ColumnString&,
+        *(state->function.target<doris::Status (*)(LikeSearchState* state, const ColumnString&,
                                                    const StringRef&, ColumnUInt8::Container&)>())) {
         RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
                                           &state->search_state));
@@ -655,7 +703,13 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
         state->search_state.pattern_str = pattern_str;
         std::string search_string;
 
-        if (pattern_str.empty() || RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
+        if (!pattern_str.empty() && RE2::FullMatch(pattern_str, LIKE_ALLPASS_RE)) {
+            state->search_state.set_search_string("");
+            state->function = constant_allpass_fn;
+            state->predicate_like_function = constant_allpass_fn_predicate;
+            state->scalar_function = constant_allpass_fn_scalar;
+        } else if (pattern_str.empty() ||
+                   RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
             if (VLOG_DEBUG_IS_ON) {
                 verbose_log_match(pattern_str, "LIKE_EQUALS_RE", LIKE_EQUALS_RE);
                 VLOG_DEBUG << "search_string : " << search_string
@@ -768,7 +822,12 @@ Status FunctionRegexp::open(FunctionContext* context, FunctionContext::FunctionS
 
         std::string pattern_str = pattern.to_string();
         std::string search_string;
-        if (RE2::FullMatch(pattern_str, EQUALS_RE, &search_string)) {
+        if (RE2::FullMatch(pattern_str, ALLPASS_RE)) {
+            state->search_state.set_search_string("");
+            state->function = constant_allpass_fn;
+            state->predicate_like_function = constant_allpass_fn_predicate;
+            state->scalar_function = constant_allpass_fn_scalar;
+        } else if (RE2::FullMatch(pattern_str, EQUALS_RE, &search_string)) {
             state->search_state.set_search_string(search_string);
             state->function = constant_equals_fn;
             state->predicate_like_function = constant_equals_fn_predicate;
@@ -822,6 +881,7 @@ void register_function_like(SimpleFunctionFactory& factory) {
 
 void register_function_regexp(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRegexp>();
+    factory.register_alias(FunctionRegexp::name, FunctionRegexp::alias);
 }
 
 } // namespace doris::vectorized

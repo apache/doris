@@ -27,9 +27,7 @@ under the License.
 ## week
 ### description
 #### Syntax
-
-`INT WEEK(DATE date)`
-`INT WEEK(DATE date, INT mode)`
+`INT WEEK(DATE date[, INT mode])`
 
 返回指定日期的星期数。mode的值默认为0。
 参数mode的作用参见下面的表格：

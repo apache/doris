@@ -29,7 +29,7 @@ suite("test_view") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 10
         PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
-            "in_memory" = "true",
+            "in_memory" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
             "disable_auto_compaction" = "false"

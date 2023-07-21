@@ -64,8 +64,6 @@ import scala.Tuple2;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -198,7 +196,7 @@ public final class SparkDpp implements java.io.Serializable {
                 .foreachPartition((VoidFunction<Iterator<Tuple2<List<Object>, Object[]>>>) t -> {
                     // write the data to dst file
                     Configuration conf = new Configuration(serializableHadoopConf.value());
-                    FileSystem fs = FileSystem.get(URI.create(etlJobConfig.outputPath), conf);
+                    FileSystem fs = FileSystem.get(new Path(etlJobConfig.outputPath).toUri(), conf);
                     String lastBucketKey = null;
                     ParquetWriter<InternalRow> parquetWriter = null;
                     TaskContext taskContext = TaskContext.get();
@@ -859,12 +857,11 @@ public final class SparkDpp implements java.io.Serializable {
                                                List<String> filePaths,
                                                EtlJobConfig.EtlFileGroup fileGroup,
                                                StructType dstTableSchema)
-            throws SparkDppException, IOException, URISyntaxException {
+            throws SparkDppException, IOException {
         Dataset<Row> fileGroupDataframe = null;
         for (String filePath : filePaths) {
             try {
-                URI uri = new URI(filePath);
-                FileSystem fs = FileSystem.get(uri, serializableHadoopConf.value());
+                FileSystem fs = FileSystem.get(new Path(filePath).toUri(), serializableHadoopConf.value());
                 FileStatus[] fileStatuses = fs.globStatus(new Path(filePath));
                 if (fileStatuses == null) {
                     throw new SparkDppException("fs list status failed: " + filePath);
@@ -1130,8 +1127,7 @@ public final class SparkDpp implements java.io.Serializable {
     private void writeDppResult(DppResult dppResult) throws Exception {
         String outputPath = etlJobConfig.getOutputPath();
         String resultFilePath = outputPath + "/" + DPP_RESULT_FILE;
-        URI uri = new URI(outputPath);
-        FileSystem fs = FileSystem.get(uri, serializableHadoopConf.value());
+        FileSystem fs = FileSystem.get(new Path(outputPath).toUri(), serializableHadoopConf.value());
         Path filePath = new Path(resultFilePath);
         FSDataOutputStream outputStream = fs.create(filePath);
         Gson gson = new Gson();

@@ -144,7 +144,7 @@ public class SortNode extends PlanNode {
     }
 
     public boolean getUseTwoPhaseReadOpt() {
-        return useTopnOpt;
+        return this.useTwoPhaseReadOpt;
     }
 
     public void setUseTwoPhaseReadOpt(boolean useTwoPhaseReadOpt) {

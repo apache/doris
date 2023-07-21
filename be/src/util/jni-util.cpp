@@ -17,20 +17,22 @@
 
 #include "util/jni-util.h"
 
+#include <fmt/format.h>
+#include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
-#include <stdlib.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "common/config.h"
 #include "gutil/strings/substitute.h"
-#include "util/defer_op.h"
 #include "util/jni_native_method.h"
 #include "util/libjvm_loader.h"
 
@@ -42,31 +44,51 @@ namespace {
 JavaVM* g_vm;
 [[maybe_unused]] std::once_flag g_vm_once;
 
-const std::string GetDorisJNIClasspath() {
+const std::string GetDorisJNIDefaultClasspath() {
+    const auto* doris_home = getenv("DORIS_HOME");
+    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
+
+    std::ostringstream out;
+    std::string path(doris_home);
+    path += "/lib";
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(path)) {
+        if (entry.path().extension() != ".jar") {
+            continue;
+        }
+        if (out.str().empty()) {
+            out << entry.path().string();
+        } else {
+            out << ":" << entry.path().string();
+        }
+    }
+
+    DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
+    return out.str();
+}
+
+const std::string GetDorisJNIClasspathOption() {
     const auto* classpath = getenv("DORIS_CLASSPATH");
     if (classpath) {
         return classpath;
     } else {
-        const auto* doris_home = getenv("DORIS_HOME");
-        DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
-
-        std::ostringstream out;
-        std::string path(doris_home);
-        path += "/lib";
-        for (const auto& entry : std::filesystem::directory_iterator(path)) {
-            if (entry.path().extension() != ".jar") {
-                continue;
-            }
-            if (out.str().empty()) {
-                out << "-Djava.class.path=" << entry.path().string();
-            } else {
-                out << ":" << entry.path().string();
-            }
-        }
-
-        DCHECK(!out.str().empty()) << "Empty classpath is invalid.";
-        return out.str();
+        return "-Djava.class.path=" + GetDorisJNIDefaultClasspath();
     }
+}
+
+[[maybe_unused]] void SetEnvIfNecessary() {
+    const auto* doris_home = getenv("DORIS_HOME");
+    DCHECK(doris_home) << "Environment variable DORIS_HOME is not set.";
+
+    // CLASSPATH
+    static const std::string classpath =
+            fmt::format("{}/conf:{}", doris_home, GetDorisJNIDefaultClasspath());
+    setenv("CLASSPATH", classpath.c_str(), 0);
+
+    // LIBHDFS_OPTS
+    setenv("LIBHDFS_OPTS",
+           fmt::format("-Djava.library.path={}/lib/hadoop_hdfs/native", getenv("DORIS_HOME"))
+                   .c_str(),
+           0);
 }
 
 // Only used on non-x86 platform
@@ -79,7 +101,7 @@ const std::string GetDorisJNIClasspath() {
         char* java_opts = getenv("JAVA_OPTS");
         if (java_opts == nullptr) {
             options = {
-                    GetDorisJNIClasspath(), fmt::format("-Xmx{}", "1g"),
+                    GetDorisJNIClasspathOption(), fmt::format("-Xmx{}", "1g"),
                     fmt::format("-DlogPath={}/log/jni.log", getenv("DORIS_HOME")),
                     fmt::format("-Dsun.java.command={}", "DorisBE"), "-XX:-CriticalJNINatives",
 #ifdef __APPLE__
@@ -94,7 +116,7 @@ const std::string GetDorisJNIClasspath() {
             std::istringstream stream(java_opts);
             options = std::vector<std::string>(std::istream_iterator<std::string> {stream},
                                                std::istream_iterator<std::string>());
-            options.push_back(GetDorisJNIClasspath());
+            options.push_back(GetDorisJNIClasspathOption());
         }
         std::unique_ptr<JavaVMOption[]> jvm_options(new JavaVMOption[options.size()]);
         for (int i = 0; i < options.size(); ++i) {
@@ -176,6 +198,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     }
 #else
     // the hadoop libhdfs will do all the stuff
+    SetEnvIfNecessary();
     tls_env_ = getJNIEnv();
 #endif
     *env = tls_env_;
@@ -220,6 +243,87 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     return Status::InternalError("{}{}", prefix, msg_str_guard.get());
 }
 
+jobject JniUtil::convert_to_java_map(JNIEnv* env, const std::map<std::string, std::string>& map) {
+    jclass hashmap_class = env->FindClass("java/util/HashMap");
+    jmethodID hashmap_constructor = env->GetMethodID(hashmap_class, "<init>", "(I)V");
+    jobject hashmap_object = env->NewObject(hashmap_class, hashmap_constructor, map.size());
+    jmethodID hashmap_put = env->GetMethodID(
+            hashmap_class, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+    for (const auto& it : map) {
+        jstring key = env->NewStringUTF(it.first.c_str());
+        jstring value = env->NewStringUTF(it.second.c_str());
+        env->CallObjectMethod(hashmap_object, hashmap_put, key, value);
+        env->DeleteLocalRef(key);
+        env->DeleteLocalRef(value);
+    }
+    env->DeleteLocalRef(hashmap_class);
+    return hashmap_object;
+}
+
+std::map<std::string, std::string> JniUtil::convert_to_cpp_map(JNIEnv* env, jobject map) {
+    std::map<std::string, std::string> resultMap;
+
+    // Get the class and method ID of the java.util.Map interface
+    jclass mapClass = env->FindClass("java/util/Map");
+    jmethodID entrySetMethod = env->GetMethodID(mapClass, "entrySet", "()Ljava/util/Set;");
+
+    // Get the class and method ID of the java.util.Set interface
+    jclass setClass = env->FindClass("java/util/Set");
+    jmethodID iteratorSetMethod = env->GetMethodID(setClass, "iterator", "()Ljava/util/Iterator;");
+
+    // Get the class and method ID of the java.util.Iterator interface
+    jclass iteratorClass = env->FindClass("java/util/Iterator");
+    jmethodID hasNextMethod = env->GetMethodID(iteratorClass, "hasNext", "()Z");
+    jmethodID nextMethod = env->GetMethodID(iteratorClass, "next", "()Ljava/lang/Object;");
+
+    // Get the class and method ID of the java.util.Map.Entry interface
+    jclass entryClass = env->FindClass("java/util/Map$Entry");
+    jmethodID getKeyMethod = env->GetMethodID(entryClass, "getKey", "()Ljava/lang/Object;");
+    jmethodID getValueMethod = env->GetMethodID(entryClass, "getValue", "()Ljava/lang/Object;");
+
+    // Call the entrySet method to get the set of key-value pairs
+    jobject entrySet = env->CallObjectMethod(map, entrySetMethod);
+
+    // Call the iterator method on the set to iterate over the key-value pairs
+    jobject iteratorSet = env->CallObjectMethod(entrySet, iteratorSetMethod);
+
+    // Iterate over the key-value pairs
+    while (env->CallBooleanMethod(iteratorSet, hasNextMethod)) {
+        // Get the current entry
+        jobject entry = env->CallObjectMethod(iteratorSet, nextMethod);
+
+        // Get the key and value from the entry
+        jobject javaKey = env->CallObjectMethod(entry, getKeyMethod);
+        jobject javaValue = env->CallObjectMethod(entry, getValueMethod);
+
+        // Convert the key and value to C++ strings
+        const char* key = env->GetStringUTFChars(static_cast<jstring>(javaKey), nullptr);
+        const char* value = env->GetStringUTFChars(static_cast<jstring>(javaValue), nullptr);
+
+        // Store the key-value pair in the map
+        resultMap[key] = value;
+
+        // Release the string references
+        env->ReleaseStringUTFChars(static_cast<jstring>(javaKey), key);
+        env->ReleaseStringUTFChars(static_cast<jstring>(javaValue), value);
+
+        // Delete local references
+        env->DeleteLocalRef(entry);
+        env->DeleteLocalRef(javaKey);
+        env->DeleteLocalRef(javaValue);
+    }
+
+    // Delete local references
+    env->DeleteLocalRef(iteratorSet);
+    env->DeleteLocalRef(entrySet);
+    env->DeleteLocalRef(mapClass);
+    env->DeleteLocalRef(setClass);
+    env->DeleteLocalRef(iteratorClass);
+    env->DeleteLocalRef(entryClass);
+
+    return resultMap;
+}
+
 Status JniUtil::GetGlobalClassRef(JNIEnv* env, const char* class_str, jclass* class_ref) {
     *class_ref = NULL;
     jclass local_cl = env->FindClass(class_str);
@@ -244,7 +348,7 @@ Status JniUtil::Init() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");
     // Find JniUtil class and create a global ref.
-    jclass local_jni_util_cl = env->FindClass("org/apache/doris/udf/JniUtil");
+    jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
     if (local_jni_util_cl == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil class.");
@@ -260,7 +364,8 @@ Status JniUtil::Init() {
     }
 
     // Find InternalException class and create a global ref.
-    jclass local_internal_exc_cl = env->FindClass("org/apache/doris/udf/InternalException");
+    jclass local_internal_exc_cl =
+            env->FindClass("org/apache/doris/common/exception/InternalException");
     if (local_internal_exc_cl == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil class.");
@@ -276,7 +381,8 @@ Status JniUtil::Init() {
     }
 
     // Find JNINativeMethod class and create a global ref.
-    jclass local_jni_native_exc_cl = env->FindClass("org/apache/doris/udf/JNINativeMethod");
+    jclass local_jni_native_exc_cl =
+            env->FindClass("org/apache/doris/common/jni/utils/JNINativeMethod");
     if (local_jni_native_exc_cl == nullptr) {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();

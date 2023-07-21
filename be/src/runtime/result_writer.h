@@ -17,24 +17,25 @@
 
 #pragma once
 
+#include <stdint.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
-
-class Status;
-class RuntimeState;
 
 namespace vectorized {
 class Block;
 }
+class RuntimeState;
 
 // abstract class of the result writer
 class ResultWriter {
 public:
-    ResultWriter() {}
+    ResultWriter() = default;
     ResultWriter(bool output_object_data) : _output_object_data(output_object_data) {}
-    ~ResultWriter() {}
+    virtual ~ResultWriter() = default;
 
     virtual Status init(RuntimeState* state) = 0;
 
@@ -43,6 +44,10 @@ public:
     virtual int64_t get_written_rows() const { return _written_rows; }
 
     virtual bool output_object_data() const { return _output_object_data; }
+
+    virtual Status append_block(vectorized::Block& block) = 0;
+
+    virtual bool can_sink() { return true; }
 
     void set_output_object_data(bool output_object_data) {
         _output_object_data = output_object_data;
@@ -57,8 +62,8 @@ public:
 protected:
     int64_t _written_rows = 0; // number of rows written
     bool _output_object_data = false;
-    std::string _header_type = "";
-    std::string _header = "";
+    std::string _header_type;
+    std::string _header;
 };
 
 } // namespace doris

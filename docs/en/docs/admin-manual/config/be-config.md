@@ -133,18 +133,6 @@ There are two ways to configure BE configuration items:
 * Description: Whether https is supported. If so, configure `ssl_certificate_path` and `ssl_private_key_path` in be.conf.
 * Default value: false
 
-#### `single_replica_load_brpc_port`
-
-* Type: int32
-* Description: The port of BRPC on BE, used for single replica load. There is a independent BRPC thread pool for the communication between the Master replica and Slave replica during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for data distribution and query tasks when the load concurrency is large.
-* Default value: 9070
-
-#### `single_replica_load_download_port`
-
-* Type: int32
-* Description: The port of http for segment download on BE, used for single replica load. There is a independent HTTP thread pool for the Slave replica to download segments during single replica load, which prevents data synchronization between the replicas from preempt the thread resources for other http tasks when the load concurrency is large.
-* Default value: 8050
-
 #### `priority_networks`
 
 * Description: Declare a selection strategy for those servers with many IPs. Note that at most one ip should match this list. This is a semicolon-separated list in CIDR notation, such as 10.10.10.0/24. If there is no IP matching this rule, one will be randomly selected
@@ -327,6 +315,12 @@ There are two ways to configure BE configuration items:
 * Description:  When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
 * Default value: 100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* Type: int32
+* Description: The soft limit of the maximum length of JSONB type.
+* Default value: 1,048,576
+
 ### Query
 
 #### `fragment_pool_queue_size`
@@ -431,12 +425,6 @@ There are two ways to configure BE configuration items:
 * Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
 * Default value: 5
 
-#### `serialize_batch`
-
-* Type: bool
-* Description: Whether the rpc communication between BEs serializes RowBatch for data transmission between query layers
-* Default value: false
-
 #### `doris_scan_range_max_mb`
 
 * Type: int32
@@ -460,21 +448,21 @@ There are two ways to configure BE configuration items:
 
 #### `vertical_compaction_num_columns_per_group`
 
-* Type: bool
+* Type: int32
 * Description: In vertical compaction, column number for every group
-* Default value: true
+* Default value: 5
 
 #### `vertical_compaction_max_row_source_memory_mb`
 
-* Type: bool
-* Description: In vertical compaction, max memory usage for row_source_buffer
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max memory usage for row_source_buffer,The unit is MB.
+* Default value: 200
 
 #### `vertical_compaction_max_segment_size`
 
-* Type: bool
-* Description: In vertical compaction, max dest segment file size
-* Default value: true
+* Type: int32
+* Description: In vertical compaction, max dest segment file size, The unit is m bytes.
+* Default value: 268435456
 
 #### `enable_ordered_data_compaction`
 
@@ -484,9 +472,9 @@ There are two ways to configure BE configuration items:
 
 #### `ordered_data_compaction_min_segment_size`
 
-* Type: bool
-* Description: In ordered data compaction, min segment size for input rowset
-* Default value: true
+* Type: int32
+* Description: In ordered data compaction, min segment size for input rowset, The unit is m bytes.
+* Default value: 10485760
 
 #### `max_base_compaction_threads`
 
@@ -571,7 +559,18 @@ There are two ways to configure BE configuration items:
 Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:
 
 ```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] execute base compaction cost 0.00319222
+BaseCompaction:546859:
+  - filtered_rows: 0
+   - input_row_num: 10
+   - input_rowsets_count: 10
+   - input_rowsets_data_size: 2.17 KB
+   - input_segments_num: 10
+   - merge_rowsets_latency: 100000.510ms
+   - merged_rows: 0
+   - output_row_num: 10
+   - output_rowset_data_size: 224.00 B
+   - output_segments_num: 1
 0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
 0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
 0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
@@ -584,7 +583,6 @@ W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
 0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
 0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
 0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
 ```
 
 #### `cumulative_compaction_trace_threshold`
@@ -650,6 +648,50 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
   - If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
 * Default value: true
 
+#### `pick_rowset_to_compact_interval_sec`
+
+* Type: int64
+* Description: select the time interval in seconds for rowset to be compacted.
+* Default value: 86400
+
+#### `max_single_replica_compaction_threads`
+
+* Type: int32
+* Description: The maximum of thread number in single replica compaction thread pool.
+* Default value: 10
+
+#### `update_replica_infos_interval_seconds`
+
+* Description: Minimal interval (s) to update peer replica infos
+* Default value: 60 (s)
+
+#### `compaction_policy`
+
+* Type: string
+* Description: Configure the compaction strategy in the compression phase. Currently, two compaction strategies are implemented, size_based and time_series.
+  - size_based: Version merging can only be performed when the disk volume of the rowset is the same order of magnitude. After merging, qualified rowsets are promoted to the base compaction stage. In the case of a large number of small batch imports, it can reduce the write magnification of base compact, balance the read magnification and space magnification, and reduce the data of file versions.
+  - time_series: When the disk size of a rowset accumulates to a certain threshold, version merging takes place. The merged rowset is directly promoted to the base compaction stage. This approach effectively reduces the write amplification rate of compaction, especially in scenarios with continuous imports in a time series context.
+* Default value: size_based
+
+#### `time_series_compaction_goal_size_mbytes`
+
+* Type: int64
+* Description: Enabling time series compaction will utilize this parameter to adjust the size of input files for each compaction. The output file size will be approximately equal to the input file size.
+* Default value: 512
+
+#### `time_series_compaction_file_count_threshold`
+
+* Type: int64
+* Description: Enabling time series compaction will utilize this parameter to adjust the minimum number of input files for each compaction. It comes into effect only when the condition specified by time_series_compaction_goal_size_mbytes is not met.
+  - If the number of files in a tablet exceeds the configured threshold, it will trigger a compaction process.
+* Default value: 2000
+
+#### `time_series_compaction_time_threshold_seconds`
+
+* Type: int64
+* Description: When time series compaction is enabled, a significant duration passes without a compaction being executed, a compaction will be triggered.
+* Default value: 3600 (s)
+
 
 ### Load
 
@@ -695,18 +737,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The thread pool size of the routine load task. This should be greater than the FE configuration'max_concurrent_task_num_per_be'
 * Default value: 10
 
-#### `single_replica_load_brpc_num_threads`
-
-* Type: int32
-* Description: This configuration is mainly used to modify the number of bthreads for single replica load brpc. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
-#### `single_replica_load_download_num_workers`
-
-* Type: int32
-* Description:This configuration is mainly used to modify the number of http threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely.
-* Default value: 64
-
 #### `slave_replica_writer_rpc_timeout_sec`
 
 * Type: int32
@@ -730,6 +760,18 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Type: int32
 * Description: The number of caches for the data consumer used by the routine load.
 * Default value: 10
+
+#### `multi_table_batch_plan_threshold`
+
+* Type: int32
+* Description: For single-stream-multi-table load. When receive a batch of messages from kafka, if the size of batch is more than this threshold, we will request plans for all related tables.
+* Default value: 200
+
+#### `single_replica_load_download_num_workers`
+
+* Type: int32
+* Description:This configuration is mainly used to modify the number of http worker threads for segment download, used for single replica load. When the load concurrency increases, you can adjust this parameter to ensure that the Slave replica synchronizes data files from the Master replica timely. If needed, `webserver_num_workers` should also be increased for better IO performance.
+* Default value: 64
 
 #### `load_task_high_priority_threshold_second`
 
@@ -1243,6 +1285,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The number of threads making schema changes
 * Default value: 3
 
+### `alter_index_worker_count`
+
+* Description: The number of threads making index change
+* Default value: 3
+
 #### `ignore_load_tablet_failure`
 
 * Type: bool
@@ -1378,7 +1425,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `max_runnings_transactions_per_txn_map`
 
 * Description: Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
-* Default value: 100
+* Default value: 2000
 
 #### `max_download_speed_kbps`
 
@@ -1420,6 +1467,11 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
-* Default value: false
+* Default value: true
 
 </version>
+
+#### `enable_query_memory_overcommit`
+
+* Description: If true, when the process does not exceed the soft mem limit, the query memory will not be limited; when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently used memory and the exec_mem_limit will be canceled. If false, cancel query when the memory used exceeds exec_mem_limit.
+* Default value: true

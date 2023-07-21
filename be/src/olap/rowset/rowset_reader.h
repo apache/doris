@@ -18,10 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <memory>
 #include <unordered_map>
 
-#include "gen_cpp/olap_file.pb.h"
 #include "olap/iterators.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader_context.h"

@@ -19,8 +19,9 @@
 
 #include <brpc/server.h>
 #include <brpc/ssl_options.h>
-#include <bthread/errno.h>
 #include <butil/endpoint.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <gflags/gflags_declare.h>
 #include <string.h>
 

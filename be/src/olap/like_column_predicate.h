@@ -16,14 +16,36 @@
 // under the License.
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+
+#include <boost/iterator/iterator_facade.hpp>
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "olap/column_predicate.h"
-#include "udf/udf.h"
+#include "olap/rowset/segment_v2/bloom_filter.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/functions/like.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris {
+class FunctionContext;
+
+namespace segment_v2 {
+class BitmapIndexIterator;
+} // namespace segment_v2
 
 class LikeColumnPredicate : public ColumnPredicate {
 public:
@@ -54,12 +76,14 @@ public:
         _page_ng_bf = std::move(src);
     }
     bool evaluate_and(const BloomFilter* bf) const override {
+        // like predicate can not use normal bf, just return true to accept
+        if (!bf->is_ngram_bf()) return true;
         if (_page_ng_bf) {
             return bf->contains(*_page_ng_bf);
         }
         return true;
     }
-    bool can_do_bloom_filter() const override { return true; }
+    bool can_do_bloom_filter(bool ngram) const override { return ngram; }
 
 private:
     template <bool is_and>

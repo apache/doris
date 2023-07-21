@@ -17,37 +17,49 @@
 
 #include "util/arrow/block_convertor.h"
 
-#include <arrow/array.h>
+#include <arrow/array/builder_base.h>
+#include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
-#include <arrow/buffer.h>
-#include <arrow/builder.h>
-#include <arrow/io/memory.h>
-#include <arrow/ipc/writer.h>
-#include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
-#include <arrow/visit_array_inline.h>
+#include <arrow/util/decimal.h>
 #include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
-#include <cstdlib>
+#include <algorithm>
 #include <ctime>
 #include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
 
-#include "gutil/strings/substitute.h"
-#include "runtime/descriptor_helper.h"
-#include "runtime/descriptors.h"
-#include "runtime/jsonb_value.h"
+#include "gutil/integral_types.h"
 #include "runtime/large_int_value.h"
 #include "util/arrow/utils.h"
+#include "util/jsonb_utils.h"
 #include "util/types.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
+#include "vec/columns/column_decimal.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/runtime/vdatetime_value.h"
+
+namespace arrow {
+class Array;
+} // namespace arrow
 
 namespace doris {
 
@@ -377,10 +389,8 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
             return to_status(arrow_st);
         }
         _cur_builder = builder.get();
-        arrow_st = arrow::VisitTypeInline(*_schema->field(idx)->type(), this);
-        if (!arrow_st.ok()) {
-            return to_status(arrow_st);
-        }
+        _cur_type->get_serde()->write_column_to_arrow(*_cur_col, nullptr, _cur_builder, _cur_start,
+                                                      _cur_start + _cur_rows);
         arrow_st = _cur_builder->Finish(&_arrays[_cur_field_idx]);
         if (!arrow_st.ok()) {
             return to_status(arrow_st);

@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -47,9 +48,10 @@ public class MysqlSslContext {
     private SSLContext sslContext;
     private String protocol;
     private ByteBuffer serverAppData;
-    private static final String keyStoreFile = Config.mysql_ssl_default_certificate;
-    private static final String trustStoreFile = Config.mysql_ssl_default_certificate;
-    private static final String certificatePassword = Config.mysql_ssl_default_certificate_password;
+    private static final String keyStoreFile = Config.mysql_ssl_default_server_certificate;
+    private static final String trustStoreFile = Config.mysql_ssl_default_ca_certificate;
+    private static final String caCertificatePassword = Config.mysql_ssl_default_ca_certificate_password;
+    private static final String serverCertificatePassword = Config.mysql_ssl_default_server_certificate_password;
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
@@ -68,13 +70,18 @@ public class MysqlSslContext {
             KeyStore ks = KeyStore.getInstance("PKCS12");
             KeyStore ts = KeyStore.getInstance("PKCS12");
 
-            char[] password = certificatePassword.toCharArray();
+            char[] serverPassword = serverCertificatePassword.toCharArray();
+            char[] caPassword = caCertificatePassword.toCharArray();
 
-            ks.load(Files.newInputStream(Paths.get(keyStoreFile)), password);
-            ts.load(Files.newInputStream(Paths.get(trustStoreFile)), password);
+            try (InputStream stream = Files.newInputStream(Paths.get(keyStoreFile))) {
+                ks.load(stream, serverPassword);
+            }
+            try (InputStream stream = Files.newInputStream(Paths.get(trustStoreFile))) {
+                ts.load(stream, caPassword);
+            }
 
             KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-            kmf.init(ks, password);
+            kmf.init(ks, serverPassword);
 
             TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(ts);
@@ -91,6 +98,10 @@ public class MysqlSslContext {
         // set to server mode
         sslEngine.setUseClientMode(false);
         sslEngine.setEnabledCipherSuites(sslEngine.getSupportedCipherSuites());
+        sslEngine.setWantClientAuth(true);
+        if (Config.ssl_force_client_auth) {
+            sslEngine.setNeedClientAuth(true);
+        }
     }
 
     public SSLEngine getSslEngine() {

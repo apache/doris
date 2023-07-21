@@ -51,6 +51,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/logging.h"
 #include "udf/udf.h"
 #include "util/debug_util.h"
@@ -119,6 +120,7 @@ struct CentroidComparator {
 };
 
 class TDigest {
+    ENABLE_FACTORY_CREATOR(TDigest);
     struct TDigestRadixSortTraits {
         using Element = Centroid;
         using Key = Value;

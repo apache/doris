@@ -21,9 +21,29 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <stddef.h>
+#include <stdint.h>
 
+#include <memory>
+#include <string>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "serde/data_type_array_serde.h"
+#include "vec/core/field.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+class PColumnMeta;
+
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -54,26 +74,22 @@ public:
 
     Field get_default() const override;
 
+    [[noreturn]] Field get_field(const TExprNode& node) const override {
+        LOG(FATAL) << "Unimplemented get_field for array";
+    }
+
     bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
-    bool cannot_be_stored_in_tables() const override {
-        return nested->cannot_be_stored_in_tables();
-    }
     bool text_can_contain_only_valid_utf8() const override {
         return nested->text_can_contain_only_valid_utf8();
     }
     bool is_comparable() const override { return nested->is_comparable(); }
-    bool can_be_compared_with_collation() const override {
-        return nested->can_be_compared_with_collation();
-    }
 
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return nested->is_value_unambiguously_represented_in_contiguous_memory_region();
     }
-
-    //SerializationPtr doGetDefaultSerialization() const override;
 
     const DataTypePtr& get_nested_type() const { return nested; }
 

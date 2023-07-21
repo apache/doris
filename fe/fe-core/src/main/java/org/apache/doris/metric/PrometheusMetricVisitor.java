@@ -219,9 +219,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
                 .append(Env.getCurrentEnv().getFrontends(null).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
-                .append(Env.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
+                .append(Env.getCurrentSystemInfo().getAllBackendIds(false).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
-                .append(Env.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
+                .append(Env.getCurrentSystemInfo().getAllBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Env.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(

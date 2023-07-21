@@ -17,9 +17,29 @@
 
 #pragma once
 
-#include "gen_cpp/function_service.pb.h"
-#include "util/brpc_client_cache.h"
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/status.h"
+#include "udf/udf.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
+
+namespace doris {
+class PFunctionCallRequest;
+class PFunctionService_Stub;
+class PValues;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -81,11 +101,12 @@ public:
 
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
+    bool is_use_default_implementation_for_constants() const override { return true; }
+
 private:
     DataTypes _argument_types;
     DataTypePtr _return_type;
     TFunction _tfn;
-    std::unique_ptr<RPCFnImpl> _fn;
 };
 
 } // namespace doris::vectorized

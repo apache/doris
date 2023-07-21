@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <gen_cpp/parquet_types.h>
+#include <stddef.h>
+
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -24,12 +27,28 @@
 
 #include "common/status.h"
 #include "decoder.h"
-#include "gen_cpp/parquet_types.h"
-#include "io/fs/buffered_reader.h"
 #include "level_decoder.h"
-#include "schema_desc.h"
-#include "util/block_compression.h"
+#include "util/slice.h"
+#include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type.h"
+#include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+class BlockCompressionCodec;
+
+namespace io {
+class BufferedStreamReader;
+class IOContext;
+} // namespace io
+namespace vectorized {
+class ColumnString;
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 

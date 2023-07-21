@@ -19,7 +19,7 @@
 
 #include <memory>
 
-#include "gen_cpp/FrontendService_types.h"
+#include "common/factory_creator.h"
 
 namespace doris {
 
@@ -27,8 +27,11 @@ class ExecEnv;
 class StreamLoadContext;
 class Status;
 class TTxnCommitAttachment;
+class TLoadTxnCommitRequest;
 
 class StreamLoadExecutor {
+    ENABLE_FACTORY_CREATOR(StreamLoadExecutor);
+
 public:
     StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
 

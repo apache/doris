@@ -28,8 +28,7 @@ under the License.
 ### description
 #### Syntax
 
-`INT YEARWEEK(DATE date)`
-`INT YEARWEEK(DATE date, INT mode)`
+`INT YEARWEEK(DATE date[, INT mode])`
 
 返回指定日期的年份和星期数。mode的值默认为0。
 当日期所在的星期属于上一年时，返回的是上一年的年份和星期数；

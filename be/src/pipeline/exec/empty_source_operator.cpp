@@ -17,9 +17,11 @@
 
 #include "empty_source_operator.h"
 
+#include "pipeline/exec/operator.h"
+
 namespace doris::pipeline {
 OperatorPtr EmptySourceOperatorBuilder::build_operator() {
-    return std::make_shared<EmptySourceOperator>(this);
+    return std::make_shared<EmptySourceOperator>(this, _exec_node);
 }
 
 } // namespace doris::pipeline

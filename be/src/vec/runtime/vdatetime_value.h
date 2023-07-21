@@ -17,18 +17,27 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include <re2/re2.h>
 #include <stdint.h>
+#include <string.h>
 
-#include <chrono>
-#include <climits>
+#include <algorithm>
 #include <cstddef>
 #include <iostream>
+#include <iterator>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <type_traits>
 
-#include "cctz/time_zone.h"
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
 #include "util/timezone_utils.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
 
 namespace doris {
 
@@ -861,6 +870,10 @@ public:
         return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
     }
 
+    int64_t time_part_to_microsecond() const {
+        return time_part_to_seconds() * 1000 * 1000 + microsecond();
+    }
+
     uint16_t year() const { return date_v2_value_.year_; }
     uint8_t month() const { return date_v2_value_.month_; }
     int quarter() const { return (date_v2_value_.month_ - 1) / 3 + 1; }
@@ -1056,9 +1069,25 @@ public:
         return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
+    //only calculate the diff of dd:mm:ss.SSSSSS
+    template <typename RHS>
+    int64_t time_part_diff_microsecond(const RHS& rhs) const {
+        return time_part_to_microsecond() - rhs.time_part_to_microsecond();
+    }
+
     template <typename RHS>
     int64_t second_diff(const RHS& rhs) const {
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
+    }
+
+    template <typename RHS>
+    double microsecond_diff(const RHS& rhs) const {
+        int64_t diff_m = (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY * 1000 * 1000 +
+                         time_part_diff_microsecond(rhs);
+        if (diff_m > (int64_t)3020399 * 1000 * 1000) {
+            diff_m = (int64_t)3020399 * 1000 * 1000;
+        }
+        return diff_m;
     }
 
     bool can_cast_to_date_without_loss_accuracy() {

@@ -35,7 +35,7 @@ array_repeat
 
 #### Syntax
 
-```
+```sql
 ARRAY<T> array_with_constant(n, T)
 ARRAY<T> array_repeat(T, n)
 ```

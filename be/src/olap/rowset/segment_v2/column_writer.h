@@ -17,22 +17,29 @@
 
 #pragma once
 
-#include <memory> // for unique_ptr
+#include <gen_cpp/segment_v2.pb.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include "common/status.h"         // for Status
-#include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
-#include "olap/field.h"            // for Field
-#include "olap/inverted_index_parser.h"
+#include <algorithm>
+#include <memory> // for unique_ptr
+#include <ostream>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/status.h" // for Status
+#include "olap/field.h"    // for Field
 #include "olap/rowset/segment_v2/common.h"
-#include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
-#include "olap/tablet_schema.h"                  // for TabletColumn
-#include "util/bitmap.h"                         // for BitmapChange
-#include "util/slice.h"                          // for OwnedSlice
+#include "olap/rowset/segment_v2/inverted_index_writer.h"
+#include "util/bitmap.h" // for BitmapChange
+#include "util/slice.h"  // for OwnedSlice
 
 namespace doris {
 
-class TypeInfo;
 class BlockCompressionCodec;
+class TabletColumn;
+class TabletIndex;
 
 namespace io {
 class FileWriter;
@@ -69,7 +76,6 @@ struct ColumnWriterOptions {
 };
 
 class BitmapIndexWriter;
-class InvertedIndexColumnWriter;
 class EncodingInfo;
 class NullBitmapBuilder;
 class OrdinalIndexWriter;
@@ -136,6 +142,8 @@ public:
 
     virtual Status write_inverted_index() = 0;
 
+    virtual size_t get_inverted_index_size() = 0;
+
     virtual Status write_bloom_filter_index() = 0;
 
     virtual ordinal_t get_next_rowid() const = 0;
@@ -155,6 +163,7 @@ private:
 
 class FlushPageCallback {
 public:
+    virtual ~FlushPageCallback() = default;
     virtual Status put_extra_info_in_page(DataPageFooterPB* footer) { return Status::OK(); }
 };
 
@@ -185,6 +194,7 @@ public:
     Status write_zone_map() override;
     Status write_bitmap_index() override;
     Status write_inverted_index() override;
+    size_t get_inverted_index_size() override;
     Status write_bloom_filter_index() override;
     ordinal_t get_next_rowid() const override { return _next_rowid; }
 
@@ -301,6 +311,7 @@ public:
         return Status::OK();
     }
     Status write_inverted_index() override;
+    size_t get_inverted_index_size() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("struct not support bloom filter index");
@@ -351,6 +362,7 @@ public:
         return Status::OK();
     }
     Status write_inverted_index() override;
+    size_t get_inverted_index_size() override;
     Status write_bloom_filter_index() override {
         if (_opts.need_bloom_filter) {
             return Status::NotSupported("array not support bloom filter index");
@@ -390,6 +402,7 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
+    size_t get_inverted_index_size() override;
     Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;

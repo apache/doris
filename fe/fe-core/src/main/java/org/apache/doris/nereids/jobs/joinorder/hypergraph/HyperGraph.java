@@ -24,12 +24,15 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -96,6 +99,8 @@ public class HyperGraph {
         slotToNodeMap.put(aliasSlot, bitmap);
         if (!complexProject.containsKey(bitmap)) {
             complexProject.put(bitmap, new ArrayList<>());
+        } else if (!(alias.child() instanceof SlotReference)) {
+            alias = (Alias) PlanUtils.mergeProjections(complexProject.get(bitmap), Lists.newArrayList(alias)).get(0);
         }
         complexProject.get(bitmap).add(alias);
         return true;

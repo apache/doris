@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "util/hash_util.hpp"
 #include "util/string_parser.hpp"
 
 namespace doris {

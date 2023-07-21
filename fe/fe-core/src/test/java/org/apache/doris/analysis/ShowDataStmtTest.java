@@ -147,7 +147,7 @@ public class ShowDataStmtTest {
         ShowDataStmt stmt = new ShowDataStmt(null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATA FROM `testCluster:testDb`", stmt.toString());
-        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(false, stmt.hasTable());
 
         SlotRef slotRefOne = new SlotRef(null, "ReplicaCount");
@@ -161,7 +161,7 @@ public class ShowDataStmtTest {
         Assert.assertEquals(
                 "SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC",
                 stmt.toString());
-        Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(6, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
 
         stmt = new ShowDataStmt(null, Arrays.asList(orderByElementOne, orderByElementTwo));

@@ -21,6 +21,8 @@
 #include "thread.h"
 
 #ifndef __APPLE__
+// IWYU pragma: no_include <bits/types/struct_sched_param.h>
+#include <sched.h>
 #include <sys/prctl.h>
 #else
 #include <pthread.h>
@@ -28,22 +30,32 @@
 #include <cstdint>
 #endif
 
-#include <sys/types.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
+#include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
 
+#include <algorithm>
+// IWYU pragma: no_include <bits/chrono.h>
+#include <chrono> // IWYU pragma: keep
 #include <cstring>
 #include <functional>
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <ostream>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
 #include "gutil/map-util.h"
+#include "gutil/stringprintf.h"
 #include "gutil/strings/substitute.h"
-#include "olap/olap_define.h"
+#include "http/web_page_handler.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
 #include "util/os_util.h"

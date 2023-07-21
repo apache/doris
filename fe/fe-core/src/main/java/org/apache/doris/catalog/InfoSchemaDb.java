@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.SystemIdGenerator;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,14 +27,15 @@ import java.io.IOException;
 // Information schema used for MySQL compatible.
 public class InfoSchemaDb extends Database {
     public static final String DATABASE_NAME = "information_schema";
+    public static final long DATABASE_ID = 0L;
 
     public InfoSchemaDb() {
-        super(SystemIdGenerator.getNextId(), DATABASE_NAME);
+        super(DATABASE_ID, DATABASE_NAME);
         initTables();
     }
 
     public InfoSchemaDb(String cluster) {
-        super(SystemIdGenerator.getNextId(), ClusterNamespace.getFullName(cluster, DATABASE_NAME));
+        super(DATABASE_ID, ClusterNamespace.getFullName(cluster, DATABASE_NAME));
         initTables();
     }
 

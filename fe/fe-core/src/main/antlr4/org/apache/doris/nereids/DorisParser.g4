@@ -34,12 +34,25 @@ singleStatement
     ;
 
 statement
-    : explain? query                                                   #statementDefault
+    : explain? query outFileClause?                                    #statementDefault
     | CREATE ROW POLICY (IF NOT EXISTS)? name=identifier
         ON table=multipartIdentifier
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO user=userIdentify
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
+    | explain? INSERT INTO tableName=multipartIdentifier
+        (PARTITION partition=identifierList)?  // partition define
+        (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
+        (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
+        query                                                          #insertIntoQuery
+    | explain? UPDATE tableName=multipartIdentifier tableAlias
+        SET updateAssignmentSeq
+        fromClause?
+        whereClause                                                    #update
+    | explain? DELETE FROM tableName=multipartIdentifier tableAlias
+        (PARTITION partition=identifierList)?
+        (USING relation (COMMA relation)*)
+        whereClause                                                    #delete
     ;
 
 // -----------------Command accessories-----------------
@@ -65,12 +78,20 @@ planType
     | REWRITTEN | LOGICAL  // same type
     | OPTIMIZED | PHYSICAL   // same type
     | SHAPE
+    | MEMO
     | ALL // default type
     ;
 
 //  -----------------Query-----------------
 // add queryOrganization for parse (q1) union (q2) union (q3) order by keys, otherwise 'order' will be recognized to be
 // identifier.
+
+outFileClause
+    : INTO OUTFILE filePath=constant
+        (FORMAT AS format=identifier)?
+        (PROPERTIES LEFT_PAREN properties+=tvfProperty (COMMA properties+=tvfProperty)* RIGHT_PAREN)?
+    ;
+
 query
     : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
     | {doris_legacy_SQL_syntax}? queryTerm queryOrganization
@@ -177,13 +198,22 @@ hintStatement
     ;
 
 hintAssignment
-    : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
+    : key=identifierOrText (EQ (constantValue=constant | identifierValue=identifier))?
+    ;
+    
+updateAssignment
+    : col=multipartIdentifier EQ (expression | DEFAULT)
+    ;
+    
+updateAssignmentSeq
+    : assignments+=updateAssignment (COMMA assignments+=updateAssignment)*
     ;
 
 lateralView
     : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
       tableName=identifier AS columnName=identifier
     ;
+
 queryOrganization
     : sortClause? limitClause?
     ;
@@ -253,7 +283,6 @@ multipartIdentifier
     : parts+=errorCapturingIdentifier (DOT parts+=errorCapturingIdentifier)*
     ;
 
-
 // -----------------Expression-----------------
 namedExpression
     : expression (AS? (identifierOrText))?
@@ -281,8 +310,9 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
+    | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
     ;
 
@@ -338,7 +368,7 @@ primaryExpression
       (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
       (OVER windowSpec)?                                                                        #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
-    | ATSIGN identifier                                                                        #userVariable
+    | ATSIGN identifierOrText                                                                        #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
@@ -347,7 +377,11 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
-functionIdentifier
+functionIdentifier 
+    : (dbName=identifier DOT)? functionNameIdentifier
+    ;
+
+functionNameIdentifier
     : identifier
     | LEFT | RIGHT
     ;
@@ -579,6 +613,7 @@ nonReserved
     | IS
     | ITEMS
     | KEYS
+    | LABEL
     | LAST
     | LAZY
     | LEADING

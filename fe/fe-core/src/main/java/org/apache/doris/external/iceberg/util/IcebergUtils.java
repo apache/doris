@@ -59,8 +59,10 @@ import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -370,7 +372,8 @@ public class IcebergUtils {
             return boolLiteral.getValue();
         } else if (expr instanceof DateLiteral) {
             DateLiteral dateLiteral = (DateLiteral) expr;
-            SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+                    .withZone(ZoneId.systemDefault());
             StringBuilder sb = new StringBuilder();
             sb.append(dateLiteral.getYear())
                     .append(dateLiteral.getMonth())
@@ -380,8 +383,9 @@ public class IcebergUtils {
                     .append(dateLiteral.getSecond());
             Date date;
             try {
-                date = formatter.parse(sb.toString());
-            } catch (ParseException e) {
+                date = Date.from(
+                        LocalDateTime.parse(sb.toString(), formatter).atZone(ZoneId.systemDefault()).toInstant());
+            } catch (DateTimeParseException e) {
                 return null;
             }
             return date.getTime();

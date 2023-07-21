@@ -7,22 +7,23 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include <iterator>
+#include <ostream>
+
 using std::back_insert_iterator;
 using std::iterator_traits;
 #include <limits>
+
 using std::numeric_limits;
 
 using std::unordered_map;
 using std::unordered_set;
 
-#include <common/logging.h>
+#include "common/logging.h"
 
-#include "gutil/hash/hash.h"
 #include "gutil/integral_types.h"
-#include "gutil/logging-inl.h"
-#include "gutil/macros.h"
+// IWYU pragma: no_include <butil/macros.h>
+#include "gutil/macros.h" // IWYU pragma: keep
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/util.h"
 #include "gutil/strtoint.h"

@@ -17,6 +17,15 @@
 
 #include "vec/functions/array/function_array_utils.h"
 
+#include <stddef.h>
+
+#include <algorithm>
+#include <utility>
+
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+
 namespace doris::vectorized {
 
 bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& data) {

@@ -49,7 +49,8 @@ Result description:
            PauseTime: The last job pause time
              EndTime: Job end time
               DbName: corresponding database name
-           TableName: corresponding table name
+           TableName: The name of the corresponding table (In the case of multiple tables, since it is a dynamic table, the specific table name is not displayed, and we uniformly display it as "multi-table").
+           IsMultiTbl: Indicates whether it is a multi-table
                State: job running state
       DataSourceType: Data source type: KAFKA
       CurrentTaskNum: The current number of subtasks
@@ -66,7 +67,7 @@ ReasonOfStateChanged: The reason for the job state change
 
 * State
 
-      There are the following 4 states:
+      There are the following 5 states:
       * NEED_SCHEDULE: The job is waiting to be scheduled
       * RUNNING: The job is running
       * PAUSED: The job is paused

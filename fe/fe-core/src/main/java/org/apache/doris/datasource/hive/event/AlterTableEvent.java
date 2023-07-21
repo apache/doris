@@ -40,6 +40,19 @@ public class AlterTableEvent extends MetastoreTableEvent {
 
     // true if this alter event was due to a rename operation
     private final boolean isRename;
+    private final boolean isView;
+    private final boolean willCreateOrDropTable;
+
+    // for test
+    public AlterTableEvent(long eventId, String catalogName, String dbName,
+                           String tblName, boolean isRename, boolean isView) {
+        super(eventId, catalogName, dbName, tblName);
+        this.isRename = isRename;
+        this.isView = isView;
+        this.tableBefore = null;
+        this.tableAfter = null;
+        this.willCreateOrDropTable = isRename || isView;
+    }
 
     private AlterTableEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
@@ -59,14 +72,29 @@ public class AlterTableEvent extends MetastoreTableEvent {
         // this is a rename event if either dbName or tblName of before and after object changed
         isRename = !tableBefore.getDbName().equalsIgnoreCase(tableAfter.getDbName())
                 || !tableBefore.getTableName().equalsIgnoreCase(tableAfter.getTableName());
-
+        isView = tableBefore.isSetViewExpandedText() || tableBefore.isSetViewOriginalText();
+        this.willCreateOrDropTable = isRename || isView;
     }
 
     public static List<MetastoreEvent> getEvents(NotificationEvent event,
-            String catalogName) {
+                                                 String catalogName) {
         return Lists.newArrayList(new AlterTableEvent(event, catalogName));
     }
 
+    @Override
+    protected boolean willCreateOrDropTable() {
+        return willCreateOrDropTable;
+    }
+
+    private void processRecreateTable() throws DdlException {
+        if (!isView) {
+            return;
+        }
+        Env.getCurrentEnv().getCatalogMgr()
+                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
+        Env.getCurrentEnv().getCatalogMgr()
+                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
+    }
 
     private void processRename() throws DdlException {
         if (!isRename) {
@@ -81,10 +109,18 @@ public class AlterTableEvent extends MetastoreTableEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr()
-                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName);
+                .dropExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         Env.getCurrentEnv().getCatalogMgr()
-                .createExternalTable(tableAfter.getDbName(), tableAfter.getTableName(), catalogName);
+                .createExternalTableFromEvent(tableAfter.getDbName(), tableAfter.getTableName(), catalogName, true);
 
+    }
+
+    public boolean isRename() {
+        return isRename;
+    }
+
+    public boolean isView() {
+        return isView;
     }
 
     /**
@@ -100,12 +136,36 @@ public class AlterTableEvent extends MetastoreTableEvent {
                 processRename();
                 return;
             }
+            if (isView) {
+                // if this table is a view, `viewExpandedText/viewOriginalText` of this table may be changed,
+                // so we need to recreate the table to make sure `remoteTable` will be rebuild
+                processRecreateTable();
+                return;
+            }
             //The scope of refresh can be narrowed in the future
             Env.getCurrentEnv().getCatalogMgr()
-                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName);
+                    .refreshExternalTable(tableBefore.getDbName(), tableBefore.getTableName(), catalogName, true);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
+    }
+
+    @Override
+    protected boolean canBeBatched(MetastoreEvent that) {
+        if (!isSameTable(that)) {
+            return false;
+        }
+
+        // `that` event must not be a rename table event
+        // so if the process of this event will drop this table,
+        // it can merge all the table's events before
+        if (willCreateOrDropTable) {
+            return true;
+        }
+
+        // that event must be a MetastoreTableEvent event
+        // otherwise `isSameTable` will return false
+        return !((MetastoreTableEvent) that).willCreateOrDropTable();
     }
 }

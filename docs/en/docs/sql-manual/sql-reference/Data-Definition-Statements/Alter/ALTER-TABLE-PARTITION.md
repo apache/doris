@@ -32,7 +32,7 @@ ALTER TABLE PARTITION
 
 ### Description
 
-This statement is used to modify the partition of an existing table.
+This statement is used to modify a table with a partition.
 
 This operation is synchronous, and the return of the command indicates the completion of the execution.
 
@@ -134,7 +134,7 @@ MODIFY PARTITION p1 SET("replication_num"="1");
 
 ```sql
 ALTER TABLE example_db.my_table
-MODIFY PARTITION (p1, p2, p4) SET("in_memory"="true");
+MODIFY PARTITION (p1, p2, p4) SET("replication_num"="1");
 ```
 
 6. Batch modify all partitions

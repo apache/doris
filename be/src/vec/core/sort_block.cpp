@@ -20,8 +20,7 @@
 
 #include "vec/core/sort_block.h"
 
-#include "vec/columns/column_string.h"
-#include "vec/common/typeid_cast.h"
+#include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
 

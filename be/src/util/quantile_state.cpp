@@ -19,9 +19,13 @@
 #include <string.h>
 
 #include <cmath>
+#include <ostream>
+#include <utility>
 
 #include "common/logging.h"
 #include "util/coding.h"
+#include "util/slice.h"
+#include "util/tdigest.h"
 
 namespace doris {
 

@@ -105,7 +105,11 @@ public class ModifyPartitionClause extends AlterTableClause {
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
 
         // 2. in memory
-        PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        boolean isInMemory =
+                    PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+        if (isInMemory == true) {
+            throw new AnalysisException("Not support set 'in_memory'='true' now!");
+        }
 
         // 3. tablet type
         PropertyAnalyzer.analyzeTabletType(properties);

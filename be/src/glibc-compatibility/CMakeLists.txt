@@ -64,9 +64,21 @@ if (GLIBC_COMPATIBILITY)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
 
     if (COMPILER_CLANG)
-        target_compile_options(glibc-compatibility PRIVATE -Wno-unused-command-line-argument -Wno-unused-but-set-variable -Wno-unused-macros)
+        target_compile_options(
+            glibc-compatibility
+            PRIVATE
+            -Wno-unused-command-line-argument
+            -Wno-unused-but-set-variable
+            -Wno-unused-macros
+            )
     elseif (COMPILER_GCC)
-        target_compile_options(glibc-compatibility PRIVATE -Wno-unused-but-set-variable -Wno-unused-but-set-variable -Wno-implicit-fallthrough)
+        target_compile_options(
+            glibc-compatibility
+            PRIVATE
+            -Wno-unused-but-set-variable
+            -Wno-implicit-fallthrough
+            -Wno-maybe-uninitialized
+            )
     endif ()
 
     target_include_directories(glibc-compatibility PRIVATE ${musl_arch_include_dir})

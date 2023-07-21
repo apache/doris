@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -102,7 +103,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private ArrayList<Expr> outputExprs;
 
     // created in finalize() or set in setSink()
-    private DataSink sink;
+    protected DataSink sink;
 
     // data source(or sender) of specific partition in the fragment;
     // an UNPARTITIONED fragment is executed on only a single node
@@ -122,7 +123,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // specification of how the output of this fragment is partitioned (i.e., how
     // it's sent to its destination);
     // if the output is UNPARTITIONED, it is being broadcast
-    private DataPartition outputPartition;
+    protected DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
     // statistics correctly when query contains limit, it is necessary to send query
@@ -165,6 +166,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition, DataPartition partitionForThrift) {
         this(id, root, partition);
         this.dataPartitionForThrift = partitionForThrift;
+    }
+
+    public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
+            Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
+        this(id, root, partition);
+        this.builderRuntimeFilterIds = ImmutableSet.copyOf(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = ImmutableSet.copyOf(targetRuntimeFilterIds);
     }
 
     /**
@@ -248,7 +256,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             Preconditions.checkState(sink == null);
             // we're streaming to an exchange node
             DataStreamSink streamSink = new DataStreamSink(destNode.getId());
-            streamSink.setPartition(outputPartition);
+            streamSink.setOutputPartition(outputPartition);
             streamSink.setFragment(this);
             sink = streamSink;
         } else {

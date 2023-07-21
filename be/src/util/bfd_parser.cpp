@@ -17,7 +17,12 @@
 
 #include "util/bfd_parser.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <algorithm>
 #include <memory>
+#include <ostream>
 
 #include "common/logging.h"
 

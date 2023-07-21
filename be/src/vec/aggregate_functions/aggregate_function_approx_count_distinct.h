@@ -17,14 +17,33 @@
 
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <string>
+
 #include "olap/hll.h"
-#include "udf/udf.h"
+#include "util/hash_util.hpp"
+#include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/common/hash_table/hash.h"
+#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+
+namespace doris {
+namespace vectorized {
+class Arena;
+class BufferReadable;
+class BufferWritable;
+class IColumn;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -79,12 +98,12 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         if constexpr (IsFixLenColumnType<ColumnDataType>::value) {
-            auto column = static_cast<const ColumnDataType*>(columns[0]);
+            auto column = assert_cast<const ColumnDataType*>(columns[0]);
             auto value = column->get_element(row_num);
             this->data(place).add(
                     HashUtil::murmur_hash64A((char*)&value, sizeof(value), HashUtil::MURMUR_SEED));
         } else {
-            auto value = static_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
+            auto value = assert_cast<const ColumnDataType*>(columns[0])->get_data_at(row_num);
             uint64_t hash_value =
                     HashUtil::murmur_hash64A(value.data, value.size, HashUtil::MURMUR_SEED);
             this->data(place).add(hash_value);
@@ -108,7 +127,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& column = static_cast<ColumnInt64&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().push_back(this->data(place).get());
     }
 };

@@ -17,10 +17,14 @@
 
 #include "olap/lru_cache.h"
 
-#include <gtest/gtest.h>
+#include <gen_cpp/Metrics_types.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
 
+#include <iosfwd>
 #include <vector>
 
+#include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "testutil/test_util.h"
 

@@ -16,14 +16,25 @@
 // under the License.
 
 #pragma once
-#include "runtime/runtime_state.h"
+#include <string>
+
+#include "common/object_pool.h"
+#include "common/status.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/functions/function.h"
 
 namespace doris {
 class SlotDescriptor;
+class RowDescriptor;
+class RuntimeState;
+class TExprNode;
+
 namespace vectorized {
+class Block;
+class VExprContext;
+
 class VSlotRef final : public VExpr {
+    ENABLE_FACTORY_CREATOR(VSlotRef);
+
 public:
     VSlotRef(const doris::TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
@@ -31,9 +42,7 @@ public:
                                   int* result_column_id) override;
     virtual doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                   VExprContext* context) override;
-    virtual VExpr* clone(doris::ObjectPool* pool) const override {
-        return pool->add(new VSlotRef(*this));
-    }
+    VExprSPtr clone() const override { return VSlotRef::create_shared(*this); }
 
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;

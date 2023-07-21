@@ -35,7 +35,7 @@ date_trunc
 ### description
 #### Syntax
 
-`DATETIME DATE_TRUNC(DATETIME datetime,VARCHAR unit)`
+`DATETIME DATE_TRUNC(DATETIME datetime, VARCHAR unit)`
 
 
 将datetime按照指定的时间单位截断。

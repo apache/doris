@@ -44,7 +44,6 @@ import com.google.common.collect.Lists;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -171,47 +170,6 @@ public class JoinUtils {
         return result;
     }
 
-    /**
-     * Get all used slots from onClause of join.
-     * Return pair of left used slots and right used slots.
-     */
-    public static Pair<List<ExprId>, List<ExprId>> getOnClauseUsedSlots(
-            AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
-
-        List<ExprId> exprIds1 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
-        List<ExprId> exprIds2 = Lists.newArrayListWithCapacity(join.getHashJoinConjuncts().size());
-
-        JoinSlotCoverageChecker checker = new JoinSlotCoverageChecker(
-                join.left().getOutputExprIdSet(),
-                join.right().getOutputExprIdSet());
-
-        for (Expression expr : join.getHashJoinConjuncts()) {
-            EqualTo equalTo = (EqualTo) expr;
-            // TODO: we could meet a = cast(b as xxx) here, need fix normalize join hash equals future
-            Optional<Slot> leftSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.left());
-            Optional<Slot> rightSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.right());
-            if (!leftSlot.isPresent() || !rightSlot.isPresent()) {
-                continue;
-            }
-
-            ExprId leftExprId = leftSlot.get().getExprId();
-            ExprId rightExprId = rightSlot.get().getExprId();
-
-            if (checker.isCoveredByLeftSlots(leftExprId)
-                    && checker.isCoveredByRightSlots(rightExprId)) {
-                exprIds1.add(leftExprId);
-                exprIds2.add(rightExprId);
-            } else if (checker.isCoveredByLeftSlots(rightExprId)
-                    && checker.isCoveredByRightSlots(leftExprId)) {
-                exprIds1.add(rightExprId);
-                exprIds2.add(leftExprId);
-            } else {
-                throw new RuntimeException("Could not generate valid equal on clause slot pairs for join: " + join);
-            }
-        }
-        return Pair.of(exprIds1, exprIds2);
-    }
-
     public static boolean shouldNestedLoopJoin(Join join) {
         return join.getHashJoinConjuncts().isEmpty();
     }
@@ -221,7 +179,7 @@ public class JoinUtils {
     }
 
     /**
-     * The left and right child of origin predicates need to be swap sometimes.
+     * The left and right child of origin predicates need to swap sometimes.
      * Case A:
      * select * from t1 join t2 on t2.id=t1.id
      * The left plan node is t1 and the right plan node is t2.
@@ -237,12 +195,26 @@ public class JoinUtils {
     }
 
     /**
+     * return true if we should do bucket shuffle join when translate plan.
+     */
+    public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
+        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
+        if (!(rightDistributionSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
+        return rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED;
+    }
+
+    /**
      * return true if we should do broadcast join when translate plan.
      */
     public static boolean shouldBroadcastJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
         PhysicalPlan right = join.right();
-        DistributionSpec rightDistributionSpec = right.getPhysicalProperties().getDistributionSpec();
-        return rightDistributionSpec instanceof DistributionSpecReplicated;
+        if (right instanceof PhysicalDistribute) {
+            return ((PhysicalDistribute<?>) right).getDistributionSpec() instanceof DistributionSpecReplicated;
+        }
+        return false;
     }
 
     /**
@@ -253,6 +225,7 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
+        // TODO: not rely on physical properties?
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
@@ -267,38 +240,6 @@ public class JoinUtils {
         return leftHash.getShuffleType() == ShuffleType.NATURAL
                 && rightHash.getShuffleType() == ShuffleType.NATURAL
                 && joinHash.getShuffleType() == ShuffleType.NATURAL;
-    }
-
-    /**
-     * return true if we should do bucket shuffle join when translate plan.
-     */
-    public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (ConnectContext.get() == null
-                || !ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
-            return false;
-        }
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
-        DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
-        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
-        if (join.left() instanceof PhysicalDistribute) {
-            return false;
-        }
-        if (!(joinDistributionSpec instanceof DistributionSpecHash)
-                || !(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        // when we plan a bucket shuffle join, the left should not add a distribution enforce.
-        // so its shuffle type should be NATURAL(olap scan node or result of colocate join / bucket shuffle join with
-        // left child's shuffle type is also NATURAL), or be BUCKETED(result of join / agg).
-        if (leftHash.getShuffleType() != ShuffleType.BUCKETED && leftHash.getShuffleType() != ShuffleType.NATURAL) {
-            return false;
-        }
-        // there must use left as required and join as source.
-        // Because after property derive upper node's properties is contains lower node
-        // if their properties are satisfy.
-        return joinDistributionSpec.satisfy(leftDistributionSpec);
     }
 
     /**

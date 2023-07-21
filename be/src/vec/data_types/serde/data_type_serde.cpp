@@ -16,9 +16,30 @@
 // under the License.
 #include "data_type_serde.h"
 
+#include "runtime/descriptors.h"
+#include "vec/data_types/data_type.h"
+
 namespace doris {
 namespace vectorized {
 DataTypeSerDe::DataTypeSerDe() = default;
 DataTypeSerDe::~DataTypeSerDe() = default;
+
+DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
+    DataTypeSerDeSPtrs serdes;
+    serdes.reserve(types.size());
+    for (const DataTypePtr& type : types) {
+        serdes.push_back(type->get_serde());
+    }
+    return serdes;
+}
+
+DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots) {
+    DataTypeSerDeSPtrs serdes;
+    serdes.reserve(slots.size());
+    for (const SlotDescriptor* slot : slots) {
+        serdes.push_back(slot->get_data_type_ptr()->get_serde());
+    }
+    return serdes;
+}
 } // namespace vectorized
 } // namespace doris

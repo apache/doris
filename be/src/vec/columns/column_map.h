@@ -20,12 +20,37 @@
 
 #pragma once
 
+#include <glog/logging.h>
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <functional>
+#include <ostream>
+#include <string>
+#include <type_traits>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_impl.h"
-#include "vec/common/arena.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/cow.h"
+#include "vec/common/sip_hash.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+
+class SipHash;
+
+namespace doris {
+namespace vectorized {
+class Arena;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -141,6 +166,20 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     void protect() override;
+
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                const uint8_t* __restrict null_data = nullptr) const override;
 
     /******************** keys and values ***************/
     const ColumnPtr& get_keys_ptr() const { return keys_column; }

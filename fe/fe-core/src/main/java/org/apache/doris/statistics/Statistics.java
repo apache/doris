@@ -27,11 +27,14 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 public class Statistics {
+    private static int K_BYTES = 1024;
+
     private final double rowCount;
 
     private final Map<Expression, ColumnStatistic> expressionToColumnStats;
 
-    private double computeSize;
+    // the byte size of one tuple
+    private double tupleSize;
 
     @Deprecated
     private double width;
@@ -47,6 +50,9 @@ public class Statistics {
      * @return the new ndv after filter
      */
     public static double computeNdv(double ndv, double newRowCount, double oldRowCount) {
+        if (newRowCount > oldRowCount) {
+            return ndv;
+        }
         double selectOneTuple = newRowCount / StatsMathUtil.nonZeroDivisor(oldRowCount);
         double allTuplesOfSameDistinctValueNotSelected = Math.pow((1 - selectOneTuple), oldRowCount / ndv);
         return Math.min(ndv * (1 - allTuplesOfSameDistinctValueNotSelected), newRowCount);
@@ -143,17 +149,36 @@ public class Statistics {
         return this;
     }
 
-    public double computeSize() {
-        if (computeSize <= 0) {
-            computeSize = Math.max(1, expressionToColumnStats.values().stream()
-                    .map(s -> s.avgSizeByte).reduce(0D, Double::sum)
-            ) * rowCount;
+    private double computeTupleSize() {
+        if (tupleSize <= 0) {
+            double tempSize = 0.0;
+            for (ColumnStatistic s : expressionToColumnStats.values()) {
+                tempSize += s.avgSizeByte;
+            }
+            tupleSize = Math.max(1, tempSize);
         }
-        return computeSize;
+        return tupleSize;
+    }
+
+    public double computeSize() {
+        return computeTupleSize() * rowCount;
+    }
+
+    public double dataSizeFactor() {
+        return computeTupleSize() / K_BYTES;
     }
 
     @Override
     public String toString() {
+        if (Double.isNaN(rowCount)) {
+            return "NaN";
+        }
+        if (Double.POSITIVE_INFINITY == rowCount) {
+            return "Infinite";
+        }
+        if (Double.NEGATIVE_INFINITY == rowCount) {
+            return "-Infinite";
+        }
         DecimalFormat format = new DecimalFormat("#,###.##");
         return format.format(rowCount);
     }
@@ -202,4 +227,31 @@ public class Statistics {
         return colStats.isUnKnown;
     }
 
+    /**
+     * merge this and other colStats.ndv, choose min
+     * @param other
+     */
+    public void updateNdv(Statistics other) {
+        for (Expression expr : expressionToColumnStats.keySet()) {
+            ColumnStatistic otherColStats = other.findColumnStatistics(expr);
+            if (otherColStats != null) {
+                ColumnStatistic thisColStats = expressionToColumnStats.get(expr);
+                if (thisColStats.ndv > otherColStats.ndv) {
+                    expressionToColumnStats.put(expr,
+                            new ColumnStatisticBuilder(thisColStats).setNdv(otherColStats.ndv).build());
+                }
+            }
+        }
+    }
+
+    public String detail(String prefix) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(prefix).append("rows=").append(rowCount).append("\n");
+        builder.append(prefix).append("tupleSize=").append(computeTupleSize()).append("\n");
+
+        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
+            builder.append(prefix).append(entry.getKey()).append(" -> ").append(entry.getValue()).append("\n");
+        }
+        return builder.toString();
+    }
 }

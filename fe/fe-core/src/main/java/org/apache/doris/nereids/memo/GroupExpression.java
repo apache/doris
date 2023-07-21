@@ -32,7 +32,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -42,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Representation for group expression in cascades optimizer.
@@ -50,7 +53,7 @@ public class GroupExpression {
     private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
             EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
                     EventChannel.LOG)));
-    private double cost = 0.0;
+    private Cost cost;
     private Group ownerGroup;
     private final List<Group> children;
     private final Plan plan;
@@ -74,7 +77,7 @@ public class GroupExpression {
     // After mergeGroup(), source Group was cleaned up, but it may be in the Job Stack. So use this to mark and skip it.
     private boolean isUnused = false;
 
-    private ObjectId id = StatementScopeIdGenerator.newObjectId();
+    private final ObjectId id = StatementScopeIdGenerator.newObjectId();
 
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
@@ -161,12 +164,12 @@ public class GroupExpression {
         ruleMasks.set(rule.getRuleType().ordinal());
     }
 
-    public void setApplied(RuleType ruleType) {
-        ruleMasks.set(ruleType.ordinal());
-    }
-
     public void propagateApplied(GroupExpression toGroupExpression) {
         toGroupExpression.ruleMasks.or(ruleMasks);
+    }
+
+    public void clearApplied() {
+        ruleMasks.clear();
     }
 
     public boolean isStatDerived() {
@@ -200,6 +203,11 @@ public class GroupExpression {
     public List<PhysicalProperties> getInputPropertiesList(PhysicalProperties require) {
         Preconditions.checkState(lowestCostTable.containsKey(require));
         return lowestCostTable.get(require).second;
+    }
+
+    public List<PhysicalProperties> getInputPropertiesListOrEmpty(PhysicalProperties require) {
+        Pair<Cost, List<PhysicalProperties>> costAndChildRequire = lowestCostTable.get(require);
+        return costAndChildRequire == null ? ImmutableList.of() : costAndChildRequire.second;
     }
 
     /**
@@ -240,9 +248,14 @@ public class GroupExpression {
         return lowestCostTable.get(property).first;
     }
 
-    public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
-            PhysicalProperties requiredPropertySet) {
-        this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    public void putOutputPropertiesMap(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.put(requiredProperties, outputProperties);
+    }
+
+    public void putOutputPropertiesMapIfAbsent(PhysicalProperties outputProperties,
+            PhysicalProperties requiredProperties) {
+        this.requestPropertiesMap.putIfAbsent(requiredProperties, outputProperties);
     }
 
     /**
@@ -271,11 +284,11 @@ public class GroupExpression {
         this.ownerGroup = null;
     }
 
-    public double getCost() {
+    public Cost getCost() {
         return cost;
     }
 
-    public void setCost(double cost) {
+    public void setCost(Cost cost) {
         this.cost = cost;
     }
 
@@ -315,13 +328,16 @@ public class GroupExpression {
         } else {
             builder.append("#").append(ownerGroup.getGroupId().asInt());
         }
-        builder.append(" cost=").append(format.format((long) cost));
-        builder.append(" estRows=").append(format.format(estOutputRowCount));
-        builder.append(" (plan=").append(plan.toString()).append(") children=[");
-        for (Group group : children) {
-            builder.append(group.getGroupId()).append(" ");
+        if (cost != null) {
+            builder.append(" cost=").append(format.format((long) cost.getValue()) + " " + cost);
+        } else {
+            builder.append(" cost=null");
         }
-        builder.append("]");
+        builder.append(" estRows=").append(format.format(estOutputRowCount));
+        builder.append(" children=[").append(Joiner.on(", ").join(
+                        children.stream().map(Group::getGroupId).collect(Collectors.toList())))
+                .append(" ]");
+        builder.append(" (plan=").append(plan.toString()).append(")");
         return builder.toString();
     }
 }

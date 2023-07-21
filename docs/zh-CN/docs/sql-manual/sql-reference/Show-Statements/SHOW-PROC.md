@@ -90,7 +90,7 @@ mysql> show proc "/";
 5. catalogs : 查看当前已创建的数据目录，等同于 [SHOW CATALOGS](./SHOW-CATALOGS.md)
 6. cluster_balance  ： 查看集群均衡情况，具体参照 [数据副本管理](../../../admin-manual/maint-monitor/tablet-repair-and-balance.md)
 7. cluster_health : 通过 <code>SHOW PROC '/cluster_health/tablet_health'</code>; 命令可以查看整个集群的副本状态。
-8. colocation_group :   该命令可以查看集群内已存在的 Group 信息, 具体可以查看 [Colocation Join](../../../advanced/join-optimization/colocation-join.md) 章节
+8. colocation_group :   该命令可以查看集群内已存在的 Group 信息, 具体可以查看 [Colocation Join](../../../query-acceleration/join-optimization/colocation-join.md) 章节
 9. current_backend_instances ：显示当前正在执行作业的be节点列表
 10. current_queries  : 查看正在执行的查询列表，当前正在运行的SQL语句。                          
 11. current_query_stmts : 返回当前正在执行的 query。

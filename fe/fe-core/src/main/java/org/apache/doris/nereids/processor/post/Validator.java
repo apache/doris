@@ -42,6 +42,8 @@ public class Validator extends PlanPostProcessor {
 
     @Override
     public Plan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
+        Preconditions.checkArgument(!project.getProjects().isEmpty(), "Project list can't be empty");
+
         Plan child = project.child();
         // Forbidden project-project, we must merge project.
         if (child instanceof PhysicalProject) {
@@ -54,7 +56,7 @@ public class Validator extends PlanPostProcessor {
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         Preconditions.checkArgument(!filter.getConjuncts().isEmpty()
-                && filter.getPredicate() != BooleanLiteral.TRUE);
+                && filter.getPredicate() != BooleanLiteral.TRUE, "Filter predicate can't be empty or true");
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
@@ -45,6 +46,11 @@ public abstract class Sm4CryptoFunction extends CryptoFunction {
 
     /** getDefaultBlockEncryptionMode */
     static StringLiteral getDefaultBlockEncryptionMode() {
-        return CryptoFunction.getDefaultBlockEncryptionMode("SM4_128_ECB");
+        StringLiteral encryptionMode = CryptoFunction.getDefaultBlockEncryptionMode("SM4_128_ECB");
+        if (!SM4_MODES.contains(encryptionMode.getValue())) {
+            throw new AnalysisException(
+                    "session variable block_encryption_mode is invalid with sm4");
+        }
+        return encryptionMode;
     }
 }

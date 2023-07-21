@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <bthread/errno.h>
 #include <butil/macros.h>
-#include <errno.h>
+// IWYU pragma: no_include <bthread/errno.h>
+#include <errno.h> // IWYU pragma: keep
 #include <fcntl.h>
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 #include <libgen.h>
@@ -50,10 +50,12 @@
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "io/fs/s3_file_write_bufferpool.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -61,7 +63,6 @@
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
-#include "service/single_replica_load_download_service.h"
 #include "util/debug_util.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
@@ -282,6 +283,10 @@ int main(int argc, char** argv) {
         fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
         exit(-1);
     }
+    if (getenv("PID_DIR") == nullptr) {
+        fprintf(stderr, "you need set PID_DIR environment variable.\n");
+        exit(-1);
+    }
 
     using doris::Status;
     using std::string;
@@ -341,10 +346,6 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    if (doris::config::memory_mode == std::string("performance")) {
-        doris::MemTrackerLimiter::disable_oom_avoidance();
-    }
-
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (!olap_res) {
@@ -391,6 +392,7 @@ int main(int argc, char** argv) {
     }
 
     if (doris::config::enable_file_cache) {
+        std::unordered_set<std::string> cache_path_set;
         std::vector<doris::CachePath> cache_paths;
         olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
         if (!olap_res) {
@@ -399,34 +401,23 @@ int main(int argc, char** argv) {
             exit(-1);
         }
         for (auto& cache_path : cache_paths) {
+            if (cache_path_set.find(cache_path.path) != cache_path_set.end()) {
+                LOG(WARNING) << fmt::format("cache path {} is duplicate", cache_path.path);
+                continue;
+            }
+            cache_path_set.emplace(cache_path.path);
             Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-                    cache_path.path, cache_path.init_settings(), doris::io::FileCacheType::NORMAL);
+                    cache_path.path, cache_path.init_settings());
             if (!st) {
                 LOG(FATAL) << st;
                 exit(-1);
             }
         }
-
-        if (!doris::config::disposable_file_cache_path.empty()) {
-            cache_paths.clear();
-            olap_res = doris::parse_conf_cache_paths(doris::config::disposable_file_cache_path,
-                                                     cache_paths);
-            if (!olap_res) {
-                LOG(FATAL) << "parse config disposable file cache path failed, path="
-                           << doris::config::disposable_file_cache_path;
-                exit(-1);
-            }
-            for (auto& cache_path : cache_paths) {
-                Status st = doris::io::FileCacheFactory::instance().create_file_cache(
-                        cache_path.path, cache_path.init_settings(),
-                        doris::io::FileCacheType::DISPOSABLE);
-                if (!st) {
-                    LOG(FATAL) << st;
-                    exit(-1);
-                }
-            }
-        }
     }
+
+    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
+    // will work only after additional call of this function.
+    updatePHDRCache();
 
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;
@@ -442,6 +433,12 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
+
+    // init s3 write buffer pool
+    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
+    s3_buffer_pool->init(doris::config::s3_write_buffer_whole_size,
+                         doris::config::s3_write_buffer_size,
+                         exec_env->buffered_reader_prefetch_thread_pool());
 
     // init and open storage engine
     doris::EngineOptions options;
@@ -484,18 +481,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    doris::BRpcService single_replica_load_brpc_service(exec_env);
-    if (doris::config::enable_single_replica_load) {
-        status = single_replica_load_brpc_service.start(
-                doris::config::single_replica_load_brpc_port,
-                doris::config::single_replica_load_brpc_num_threads);
-        if (!status.ok()) {
-            LOG(ERROR) << "single replica load BRPC service did not start correctly, exiting";
-            doris::shutdown_logging();
-            exit(1);
-        }
-    }
-
     // 3. http service
     doris::HttpService http_service(exec_env, doris::config::webserver_port,
                                     doris::config::webserver_num_workers);
@@ -504,18 +489,6 @@ int main(int argc, char** argv) {
         LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
         doris::shutdown_logging();
         exit(1);
-    }
-
-    doris::SingleReplicaLoadDownloadService download_service(
-            exec_env, doris::config::single_replica_load_download_port,
-            doris::config::single_replica_load_download_num_workers);
-    if (doris::config::enable_single_replica_load) {
-        status = download_service.start();
-        if (!status.ok()) {
-            LOG(ERROR) << "Doris Be download service did not start correctly, exiting";
-            doris::shutdown_logging();
-            exit(1);
-        }
     }
 
     // 4. heart beat server
@@ -545,12 +518,9 @@ int main(int argc, char** argv) {
         sleep(10);
     }
 
+    doris::TabletSchemaCache::stop_and_join();
     http_service.stop();
     brpc_service.join();
-    if (doris::config::enable_single_replica_load) {
-        download_service.stop();
-        single_replica_load_brpc_service.join();
-    }
     daemon.stop();
     heartbeat_thrift_server->stop();
     heartbeat_thrift_server->join();
@@ -565,9 +535,9 @@ int main(int argc, char** argv) {
     heartbeat_thrift_server = nullptr;
 
     doris::ExecEnv::destroy(exec_env);
-
     delete engine;
     engine = nullptr;
+
     return 0;
 }
 

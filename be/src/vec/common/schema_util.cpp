@@ -15,27 +15,49 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vec/columns/column_array.h>
-#include <vec/columns/column_object.h>
-#include <vec/common/schema_util.h>
-#include <vec/core/field.h>
-#include <vec/data_types/data_type_array.h>
-#include <vec/functions/simple_function_factory.h>
+#include "vec/common/schema_util.h"
 
-#include <vec/data_types/data_type_factory.hpp>
+#include <assert.h>
+#include <fmt/format.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/HeartbeatService_types.h>
+#include <gen_cpp/MasterService_types.h>
+#include <gen_cpp/Status_types.h>
+#include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <memory>
+#include <ostream>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include "common/config.h"
+#include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_object.h"
+#include "vec/common/assert_cast.h"
+#include "vec/common/typeid_cast.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/field.h"
+#include "vec/core/names.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized::schema_util {
 
@@ -204,6 +226,9 @@ Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
     return Status::OK();
 }
 
+static const std::regex COLUMN_NAME_REGEX(
+        "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,:]{0,255}$");
+
 // Do batch add columns schema change
 // only the base table supported
 Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
@@ -220,7 +245,18 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     // TODO(lhy) more configurable
     req.__set_allow_type_conflict(true);
     req.__set_addColumns({});
+    // Deduplicate Column like `Level` and `level`
+    // TODO we will implement new version of dynamic column soon to handle this issue,
+    // also ignore column missmatch with regex
+    std::set<std::string> dedup;
     for (const auto& column_type_name : column_type_names) {
+        if (dedup.contains(to_lower(column_type_name.name))) {
+            continue;
+        }
+        if (!std::regex_match(column_type_name.name, COLUMN_NAME_REGEX)) {
+            continue;
+        }
+        dedup.insert(to_lower(column_type_name.name));
         TColumnDef col;
         get_column_def(column_type_name.type, column_type_name.name, &col);
         req.addColumns.push_back(col);
@@ -241,7 +277,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
                 fmt::format("Failed to do schema change, {}", res.status.error_msgs[0]));
     }
     size_t sz = res.allColumns.size();
-    if (sz < column_type_names.size()) {
+    if (sz < dedup.size()) {
         return Status::InternalError(
                 fmt::format("Unexpected result columns {}, expected at least {}",
                             res.allColumns.size(), column_type_names.size()));
@@ -253,11 +289,11 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     return Status::OK();
 }
 
-void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
+Status unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_original_type) {
     auto dynamic_col = block.get_by_position(dynamic_col_position).column->assume_mutable();
     auto* column_object_ptr = assert_cast<ColumnObject*>(dynamic_col.get());
     if (column_object_ptr->empty()) {
-        return;
+        return Status::OK();
     }
     size_t num_rows = column_object_ptr->size();
     CHECK(block.rows() <= num_rows);
@@ -288,7 +324,8 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
             }
             if (cast_to_original_type && !dst_type->equals(*types[i])) {
                 // Cast static columns to original slot type
-                schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column);
+                RETURN_IF_ERROR(
+                        schema_util::cast_column({subcolumns[i], types[i], ""}, dst_type, &column));
             }
             // replace original column
             column_type_name->column = column;
@@ -306,6 +343,16 @@ void unfold_object(size_t dynamic_col_position, Block& block, bool cast_to_origi
             entry.column->assume_mutable()->insert_many_defaults(num_rows - entry.column->size());
         }
     }
+#ifndef NDEBUG
+    for (const auto& column_type_name : block) {
+        if (column_type_name.column->size() != num_rows) {
+            LOG(FATAL) << "unmatched column:" << column_type_name.name
+                       << ", expeted rows:" << num_rows
+                       << ", but meet:" << column_type_name.column->size();
+        }
+    }
+#endif
+    return Status::OK();
 }
 
 void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,

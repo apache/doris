@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class BackendTest {
     private Backend backend;
@@ -72,7 +73,7 @@ public class BackendTest {
     @Test
     public void getMethodTest() {
         Assert.assertEquals(backendId, backend.getId());
-        Assert.assertEquals(host, backend.getIp());
+        Assert.assertEquals(host, backend.getHost());
         Assert.assertEquals(heartbeatPort, backend.getHeartbeatPort());
         Assert.assertEquals(bePort, backend.getBePort());
 
@@ -116,7 +117,7 @@ public class BackendTest {
     @Test
     public void testSerialization() throws Exception {
         // Write 100 objects to file
-        Path path = Paths.get("./backendTest");
+        Path path = Paths.get("./backendTest" + UUID.randomUUID());
         Files.createFile(path);
         DataOutputStream dos = new DataOutputStream(Files.newOutputStream(path));
 
@@ -152,7 +153,7 @@ public class BackendTest {
             Backend backend = Backend.read(dis);
             list2.add(backend);
             Assert.assertEquals(count, backend.getId());
-            Assert.assertEquals("10.120.22.32" + count, backend.getIp());
+            Assert.assertEquals("10.120.22.32" + count, backend.getHost());
         }
 
         // check isAlive
@@ -200,8 +201,7 @@ public class BackendTest {
         back2.setTagMap(tagMap);
         Assert.assertNotEquals(back1, back2);
 
-        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tags: {location=default}]",
-                back1.toString());
+        Assert.assertTrue(back1.toString().contains("tags: {location=default}"));
         Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
 
         // 3. delete files

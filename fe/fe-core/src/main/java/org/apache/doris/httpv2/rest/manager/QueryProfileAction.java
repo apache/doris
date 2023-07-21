@@ -177,7 +177,7 @@ public class QueryProfileAction extends RestBaseController {
 
         // add node information
         for (List<String> query : queries) {
-            query.add(1, Env.getCurrentEnv().getSelfNode().getIp() + ":" + Config.http_port);
+            query.add(1, Env.getCurrentEnv().getSelfNode().getHost() + ":" + Config.http_port);
         }
 
         if (!Strings.isNullOrEmpty(search)) {

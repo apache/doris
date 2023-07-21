@@ -22,8 +22,9 @@
 
 #include <rapidjson/document.h>
 #include <simdjson.h>
-#include <vec/core/types.h>
-#include <vec/json/path_in_data.h>
+
+#include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris::vectorized {
 

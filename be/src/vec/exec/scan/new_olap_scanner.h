@@ -17,34 +17,55 @@
 
 #pragma once
 
-#include "exec/olap_utils.h"
-#include "exprs/function_filter.h"
+#include <gen_cpp/PaloInternalService_types.h>
+#include <stdint.h>
+
+#include <memory>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/factory_creator.h"
+#include "common/status.h"
+#include "olap/data_dir.h"
 #include "olap/reader.h"
-#include "util/runtime_profile.h"
+#include "olap/rowset/rowset_reader.h"
+#include "olap/tablet.h"
+#include "olap/tablet_schema.h"
 #include "vec/exec/scan/vscanner.h"
 
 namespace doris {
 
 struct OlapScanRange;
+class FunctionFilter;
+class RuntimeProfile;
+class RuntimeState;
+class TPaloScanRange;
 
 namespace vectorized {
 
 class NewOlapScanNode;
 struct FilterPredicates;
+class Block;
 
 class NewOlapScanner : public VScanner {
+    ENABLE_FACTORY_CREATOR(NewOlapScanner);
+
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
                    const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<RowsetReaderSharedPtr>& rs_readers,
                    const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                   bool need_agg_finalize, RuntimeProfile* profile);
+                   RuntimeProfile* profile);
 
     Status init() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
+
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 
@@ -67,7 +88,6 @@ private:
     Status _init_return_columns();
 
     bool _aggregation;
-    bool _need_agg_finalize;
 
     TabletSchemaSPtr _tablet_schema;
     TabletSharedPtr _tablet;

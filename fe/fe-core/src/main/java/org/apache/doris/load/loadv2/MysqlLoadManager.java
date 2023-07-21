@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -40,6 +41,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.EvictingQueue;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -60,6 +62,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -148,9 +151,12 @@ public class MysqlLoadManager {
 
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt, String loadId)
             throws IOException, UserException {
+        return executeMySqlLoadJobFromStmt(context, stmt.getDataDescriptions().get(0), loadId);
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, DataDescription dataDesc, String loadId)
+            throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
-        // Mysql data load only have one data desc
-        DataDescription dataDesc = stmt.getDataDescriptions().get(0);
         List<String> filePaths = dataDesc.getFilePaths();
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();
@@ -177,7 +183,9 @@ public class MysqlLoadManager {
                     String body = EntityUtils.toString(response.getEntity());
                     JsonObject result = JsonParser.parseString(body).getAsJsonObject();
                     if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
-                        failedRecords.offer(new MySqlLoadFailRecord(loadId, result.get("ErrorURL").getAsString()));
+                        String errorUrl = Optional.ofNullable(result.get("ErrorURL"))
+                                .map(JsonElement::getAsString).orElse("");
+                        failedRecords.offer(new MySqlLoadFailRecord(loadId, errorUrl));
                         LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
                         throw new LoadException(result.get("Message").getAsString() + " with load id " + loadId);
                     }
@@ -207,6 +215,11 @@ public class MysqlLoadManager {
             loadContextMap.remove(loadId);
         }
         return loadResult;
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, InsertStmt insertStmt, String loadId)
+            throws UserException, IOException {
+        return executeMySqlLoadJobFromStmt(context, (DataDescription) insertStmt.getDataDescList().get(0), loadId);
     }
 
     public void cancelMySqlLoad(String loadId) {
@@ -409,7 +422,7 @@ public class MysqlLoadManager {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("http://");
-        sb.append(backend.getIp());
+        sb.append(backend.getHost());
         sb.append(":");
         sb.append(backend.getHttpPort());
         sb.append("/api/");

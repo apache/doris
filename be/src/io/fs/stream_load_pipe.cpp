@@ -17,12 +17,22 @@
 
 #include "stream_load_pipe.h"
 
-#include "olap/iterators.h"
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <ostream>
+#include <utility>
+
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
 
 namespace doris {
 namespace io {
+class IOContext;
+
 StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
                                int64_t total_length, bool use_proto)
         : _buffered_bytes(0),
@@ -33,7 +43,7 @@ StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
           _use_proto(use_proto) {}
 
 StreamLoadPipe::~StreamLoadPipe() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+    SCOPED_TRACK_MEMORY_TO_UNKNOWN();
     while (!_buf_queue.empty()) {
         _buf_queue.pop_front();
     }
@@ -238,6 +248,13 @@ void StreamLoadPipe::cancel(const std::string& reason) {
     }
     _get_cond.notify_all();
     _put_cond.notify_all();
+}
+
+TUniqueId StreamLoadPipe::calculate_pipe_id(const UniqueId& query_id, int32_t fragment_id) {
+    TUniqueId pipe_id;
+    pipe_id.lo = query_id.lo + fragment_id;
+    pipe_id.hi = query_id.hi;
+    return pipe_id;
 }
 
 } // namespace io

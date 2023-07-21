@@ -17,8 +17,27 @@
 
 #include "vparquet_page_index.h"
 
+#include <gen_cpp/parquet_types.h>
+
+#include <algorithm>
+#include <limits>
+#include <ostream>
+#include <string>
+
+#include "common/logging.h"
+#include "common/status.h"
 #include "parquet_pred_cmp.h"
 #include "util/thrift_util.h"
+#include "vec/exec/format/parquet/parquet_common.h"
+
+namespace cctz {
+class time_zone;
+} // namespace cctz
+namespace doris {
+namespace vectorized {
+struct FieldSchema;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -48,9 +67,10 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
 
     const int num_of_pages = column_index->null_pages.size();
     for (int page_id = 0; page_id < num_of_pages; page_id++) {
-        if (ParquetPredicate::filter_by_min_max(col_val_range, col_schema,
-                                                encoded_min_vals[page_id],
-                                                encoded_max_vals[page_id], ctz)) {
+        bool is_all_null = column_index->null_pages[page_id];
+        if (ParquetPredicate::filter_by_stats(col_val_range, col_schema, !is_all_null,
+                                              encoded_min_vals[page_id], encoded_max_vals[page_id],
+                                              is_all_null, ctz)) {
             skipped_ranges.emplace_back(page_id);
         }
     }

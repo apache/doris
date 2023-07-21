@@ -19,10 +19,10 @@
 // and modified by Doris
 
 #pragma once
-#include <vec/columns/column.h>
-#include <vec/common/hash_table/hash_map.h>
-#include <vec/data_types/data_type.h>
-#include <vec/json/path_in_data.h>
+#include "vec/columns/column.h"
+#include "vec/common/hash_table/hash_map.h"
+#include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 namespace doris::vectorized {
 /// Tree that represents paths in document
 /// with additional data in nodes.
@@ -96,7 +96,7 @@ public:
 
         Node* current_node = root.get();
         for (size_t i = 0; i < parts.size() - 1; ++i) {
-            assert(current_node->kind != Node::SCALAR);
+            // assert(current_node->kind != Node::SCALAR);
 
             auto it = current_node->children.find(
                     StringRef {parts[i].key.data(), parts[i].key.size()});

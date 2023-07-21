@@ -17,28 +17,44 @@
 
 #include "olap/task/engine_storage_migration_task.h"
 
-#include <gtest/gtest.h>
-#include <sys/file.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/types.pb.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <stdlib.h>
+#include <unistd.h>
 
+#include <algorithm>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 
+#include "common/config.h"
+#include "common/object_pool.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "olap/data_dir.h"
 #include "olap/delta_writer.h"
-#include "olap/field.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/utils.h"
+#include "olap/tablet_manager.h"
+#include "olap/task/engine_publish_version_task.h"
+#include "olap/txn_manager.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
+class OlapMeta;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
@@ -166,10 +182,14 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req = {
+            10005, 270068377, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
+            false, &param};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, &delta_writer);
+
+    std::unique_ptr<RuntimeProfile> profile;
+    profile = std::make_unique<RuntimeProfile>("LoadChannels");
+    DeltaWriter::open(&write_req, &delta_writer, profile.get());
     EXPECT_NE(delta_writer, nullptr);
 
     res = delta_writer->close();
@@ -188,9 +208,10 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    tablet->tablet_id(), tablet->schema_hash(),
-                                                   tablet->tablet_uid(), version);
+                                                   tablet->tablet_uid(), version, &stats);
         EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);

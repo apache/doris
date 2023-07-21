@@ -17,19 +17,23 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
-#include "io/fs/remote_file_system.h"
 #include "olap/tablet.h"
-#include "runtime/client_cache.h"
 
 namespace doris {
+namespace io {
+class RemoteFileSystem;
+} // namespace io
+
+class TRemoteTabletSnapshot;
 
 struct FileStat {
     std::string name;
@@ -37,7 +41,6 @@ struct FileStat {
     int64_t size;
 };
 class ExecEnv;
-class StorageBackend;
 
 /*
  * Upload:
@@ -75,6 +78,9 @@ public:
 
     Status download(const std::map<std::string, std::string>& src_to_dest_path,
                     std::vector<int64_t>* downloaded_tablet_ids);
+
+    Status remote_http_download(const std::vector<TRemoteTabletSnapshot>& remote_tablets,
+                                std::vector<int64_t>* downloaded_tablet_ids);
 
     Status move(const std::string& snapshot_path, TabletSharedPtr tablet, bool overwrite);
 

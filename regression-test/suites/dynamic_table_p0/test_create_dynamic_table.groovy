@@ -17,32 +17,15 @@
 
 suite("test_dynamic_table", "dynamic_table"){
 
-    def create_none_dynamic_table_result = "fail"
-    try {
-        sql """
-                CREATE TABLE IF NOT EXISTS t_dynamic1
-                (
-                    ... 
-                )
-                DISTRIBUTED BY HASH(`name`) BUCKETS 10
-                PROPERTIES("replication_num" = "1")
-            """
-        create_none_dynamic_table_result = "success"
-    } catch(Exception ex) {
-        logger.info("create none dynamic table result: " + ex)
-    }
-    assertEquals(create_none_dynamic_table_result, "fail")
-
     def create_dynamic_table_assign_not_exist_key_result = "fail"
     try {
         sql """
                 CREATE TABLE IF NOT EXISTS t_dynamic1
                 (
                     name varchar(50),
-                    ... 
                 )
                 DISTRIBUTED BY HASH(`id`) BUCKETS 10
-                PROPERTIES("replication_num" = "1")
+                PROPERTIES("replication_num" = "1", "deprecated_dynamic_schema" = "true")
             """
         create_dynamic_table_assign_not_exist_key_result = "success"
     } catch(Exception ex) {
@@ -55,12 +38,11 @@ suite("test_dynamic_table", "dynamic_table"){
     sql """
         CREATE TABLE IF NOT EXISTS ${TbName1}
                 (
-                    name varchar(50),
-                    ... 
+                    name varchar(50)
                 )
                 DUPLICATE KEY(`name`)
                 DISTRIBUTED BY HASH(`name`) BUCKETS 10
-                PROPERTIES("replication_num" = "1")
+                PROPERTIES("replication_num" = "1", "deprecated_dynamic_schema" = "true")
         """
 
     def TbName2 = "test_ceate_dymanic_table_2"
@@ -73,12 +55,11 @@ suite("test_dynamic_table", "dynamic_table"){
                     date datetime,
                     index id_idx(`id`) USING INVERTED COMMENT 'id index',
                     index name_idx(`name`) USING INVERTED PROPERTIES("parser"="english") COMMENT 'name index',
-                    index date_idx(`date`) COMMENT 'date index',
-                    ... 
+                    index date_idx(`date`) COMMENT 'date index'
                 )
                 DUPLICATE KEY(`id`)
                 DISTRIBUTED BY HASH(`id`) BUCKETS 10
-                PROPERTIES("replication_num" = "1")
+                PROPERTIES("replication_num" = "1", "deprecated_dynamic_schema" = "true")
         """
 
     def TbName3 = "test_ceate_dymanic_table_3"
@@ -86,12 +67,11 @@ suite("test_dynamic_table", "dynamic_table"){
     sql """
         CREATE TABLE IF NOT EXISTS ${TbName3}
                 (
-                    `repo.id` int,
-                    ... 
+                    `repo.id` int
                 )
                 DUPLICATE KEY(`repo.id`)
                 DISTRIBUTED BY HASH(`repo.id`) BUCKETS 10
-                PROPERTIES("replication_num" = "1");
+                PROPERTIES("replication_num" = "1", "deprecated_dynamic_schema" = "true");
         """
 
     
@@ -101,12 +81,11 @@ suite("test_dynamic_table", "dynamic_table"){
         sql """
             CREATE TABLE IF NOT EXISTS ${TbName4}
                 (
-                    repo.id int,
-                    ... 
+                    repo.id int
                 )
                 DUPLICATE KEY(`repo.id`)
                 DISTRIBUTED BY HASH(`repo.id`) BUCKETS 10
-                PROPERTIES("replication_num" = "1");
+                PROPERTIES("replication_num" = "1", "deprecated_dynamic_schema" = "true");
             """
         create_children_colume_without_single_quota_result = "success"
     }catch(Exception ex) {
@@ -123,12 +102,11 @@ suite("test_dynamic_table", "dynamic_table"){
                 date datetime,
                 `name.list` array<int>,
                 tag ARRAY<NOT_NULL(ARRAY<text>)>,
-                data ARRAY<ARRAY<NOT_NULL(ARRAY<date>)>>,
-                ...
+                data ARRAY<ARRAY<NOT_NULL(ARRAY<date>)>>
             )
             DUPLICATE KEY(`date`)
             DISTRIBUTED BY HASH(`date`) BUCKETS 10
-            PROPERTIES("replication_num" = "3");
+            PROPERTIES("replication_num" = "3", "deprecated_dynamic_schema" = "true");
             """
     }catch(Exception ex) {
         logger.info("create array table, result: " + ex)

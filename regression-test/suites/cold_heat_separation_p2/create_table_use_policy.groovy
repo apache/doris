@@ -34,7 +34,7 @@ suite("create_table_use_policy") {
     // data_sizes is one arrayList<Long>, t is tablet
     def fetchDataSize = { data_sizes, t ->
         def tabletId = t[0]
-        String meta_url = t[16]
+        String meta_url = t[17]
         def clos = {  respCode, body ->
             logger.info("test ttl expired resp Code {}", "${respCode}".toString())
             assertEquals("${respCode}".toString(), "200")
@@ -43,11 +43,12 @@ suite("create_table_use_policy") {
             data_sizes[0] = obj.local_data_size
             data_sizes[1] = obj.remote_data_size
         }
-        fetchBeHttp(clos, meta_url)
+        fetchBeHttp(clos, meta_url.replace("header", "data_size"))
     }
     // used as passing out parameter to fetchDataSize
     List<Long> sizes = [-1, -1]
     def tableName = "lineitem2"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
     def stream_load_one_part = { partnum ->
         streamLoad {
             table tableName

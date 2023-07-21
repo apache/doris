@@ -97,7 +97,7 @@ public final class GlobalVariable {
     @VariableMgr.VarAttr(name = VALIDATE_PASSWORD_POLICY, flag = VariableMgr.GLOBAL)
     public static long validatePasswordPolicy = 0;
 
-    // Don't allow create instance.
+    // Don't allow to create instance.
     private GlobalVariable() {
     }
 

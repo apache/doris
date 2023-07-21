@@ -83,6 +83,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String headerType = "";
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
+    private boolean isPartialUpdate = false;
+
     private int skipLines = 0;
     private boolean enableProfile = false;
 
@@ -268,6 +270,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return enableProfile;
     }
 
+    @Override
+    public boolean isPartialUpdate() {
+        return isPartialUpdate;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -375,6 +382,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetEnableProfile()) {
             enableProfile = request.isEnableProfile();
+        }
+        if (request.isSetPartialUpdate()) {
+            isPartialUpdate = request.isPartialUpdate();
         }
     }
 

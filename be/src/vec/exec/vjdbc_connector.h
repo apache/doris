@@ -17,19 +17,30 @@
 
 #pragma once
 
+#include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 #include <jni.h>
+#include <stdint.h>
 
-#include <string_view>
+#include <map>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "runtime/define_primitive_type.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+class RuntimeState;
+class SlotDescriptor;
+class TupleDescriptor;
+
 namespace vectorized {
 
-class NewJdbcScanner;
+class Block;
+class IColumn;
+class VExprContext;
 
 struct JdbcConnectorParam {
     std::string driver_path;
@@ -65,10 +76,12 @@ public:
     Status query() override;
 
     Status exec_write_sql(const std::u16string& insert_stmt,
-                          const fmt::memory_buffer& insert_stmt_buffer) override;
+                          const fmt::memory_buffer& insert_stmt_buffer) override {
+        return Status::OK();
+    }
 
-    Status exec_stmt_write(Block* block,
-                           const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs);
+    Status exec_stmt_write(Block* block, const VExprContextSPtrs& output_vexpr_ctxs,
+                           uint32_t* num_rows_sent) override;
 
     Status get_next(bool* eos, std::vector<MutableColumnPtr>& columns, Block* block,
                     int batch_size);
@@ -89,6 +102,10 @@ private:
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
     Status _cast_string_to_array(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                  int rows);
+    Status _cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block, int column_index,
+                               int rows);
+    Status _cast_string_to_json(const SlotDescriptor* slot_desc, Block* block, int column_index,
+                                int rows);
     Status _convert_batch_result_set(JNIEnv* env, jobject jobj, const SlotDescriptor* slot_desc,
                                      vectorized::IColumn* column_ptr, int num_rows,
                                      int column_index);
@@ -107,6 +124,7 @@ private:
     jmethodID _executor_has_next_id;
     jmethodID _executor_block_rows_id;
     jmethodID _executor_get_blocks_id;
+    jmethodID _executor_get_blocks_new_id;
     jmethodID _executor_get_boolean_result;
     jmethodID _executor_get_tinyint_result;
     jmethodID _executor_get_smallint_result;
@@ -126,6 +144,8 @@ private:
     jmethodID _executor_get_decimal64_result;
     jmethodID _executor_get_decimal128_result;
     jmethodID _executor_get_array_result;
+    jmethodID _executor_get_json_result;
+    jmethodID _executor_get_hll_result;
     jmethodID _executor_get_types_id;
     jmethodID _executor_close_id;
     jmethodID _executor_get_list_id;
@@ -138,6 +158,14 @@ private:
     std::vector<DataTypePtr> _input_array_string_types;
     std::vector<MutableColumnPtr>
             str_array_cols; // for array type to save data like big string [1,2,3]
+
+    std::map<int, int> _map_column_idx_to_cast_idx_hll;
+    std::vector<DataTypePtr> _input_hll_string_types;
+    std::vector<MutableColumnPtr> str_hll_cols; // for hll type to save data like string
+
+    std::map<int, int> _map_column_idx_to_cast_idx_json;
+    std::vector<DataTypePtr> _input_json_string_types;
+    std::vector<MutableColumnPtr> str_json_cols; // for json type to save data like string
 
     JdbcStatistic _jdbc_statistic;
 };

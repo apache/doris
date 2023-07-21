@@ -25,21 +25,15 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-#include <cstddef>
-#include <ostream>
+#include <algorithm>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "gutil/macros.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
-#include "gutil/strings/stringpiece.h"
 #include "gutil/strings/substitute.h"
-#include "gutil/strings/util.h"
-#include "io/fs/fs_utils.h"
 #include "io/fs/local_file_system.h"
-#include "util/faststring.h"
 
 using std::string;
 using std::vector;
@@ -109,9 +103,8 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats) {
         return Status::NotSupported("ThreadStats not supported");
     }
     std::string buf;
-    RETURN_IF_ERROR(io::read_file_to_string(io::global_local_filesystem(),
-                                            strings::Substitute("/proc/self/task/$0/stat", tid),
-                                            &buf));
+    RETURN_IF_ERROR(io::global_local_filesystem()->read_file_to_string(
+            strings::Substitute("/proc/self/task/$0/stat", tid), &buf));
     return parse_stat(buf, nullptr, stats);
 }
 void disable_core_dumps() {

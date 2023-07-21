@@ -24,7 +24,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.AnalysisTaskInfo.AnalysisType;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
+import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
@@ -86,7 +87,7 @@ public abstract class BaseAnalysisTask {
             + "     ${internalDB}.${columnStatTbl}.part_id IS NOT NULL"
             + "     ) t1, \n";
 
-    protected AnalysisTaskInfo info;
+    protected AnalysisInfo info;
 
     protected CatalogIf catalog;
 
@@ -98,16 +99,16 @@ public abstract class BaseAnalysisTask {
 
     protected StmtExecutor stmtExecutor;
 
-    protected AnalysisState analysisState;
-
     protected Set<PrimitiveType> unsupportedType = new HashSet<>();
+
+    protected volatile boolean killed;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
 
     }
 
-    public BaseAnalysisTask(AnalysisTaskInfo info) {
+    public BaseAnalysisTask(AnalysisInfo info) {
         this.info = info;
         init(info);
     }
@@ -121,7 +122,7 @@ public abstract class BaseAnalysisTask {
         unsupportedType.add(PrimitiveType.STRUCT);
     }
 
-    private void init(AnalysisTaskInfo info) {
+    private void init(AnalysisInfo info) {
         initUnsupportedType();
         catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(info.catalogName);
         if (catalog == null) {
@@ -141,7 +142,11 @@ public abstract class BaseAnalysisTask {
                     info, AnalysisState.FAILED,
                     String.format("Table with name %s not exists", info.tblName), System.currentTimeMillis());
         }
-        if (info.analysisType != null && (info.analysisType.equals(AnalysisType.COLUMN)
+        // External Table level task doesn't contain a column. Don't need to do the column related analyze.
+        if (info.externalTableLevelTask) {
+            return;
+        }
+        if (info.analysisType != null && (info.analysisType.equals(AnalysisType.FUNDAMENTALS)
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
@@ -158,6 +163,7 @@ public abstract class BaseAnalysisTask {
     public abstract void execute() throws Exception;
 
     public void cancel() {
+        killed = true;
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
@@ -166,7 +172,7 @@ public abstract class BaseAnalysisTask {
                         String.format("Job has been cancelled: %s", info.toString()), -1);
     }
 
-    public int getLastExecTime() {
+    public long getLastExecTime() {
         return info.lastExecTimeInMs;
     }
 
@@ -174,10 +180,7 @@ public abstract class BaseAnalysisTask {
         return info.jobId;
     }
 
-    public AnalysisState getAnalysisState() {
-        return analysisState;
-    }
-
+    // TODO : time cost is intolerable when column is string type, return 0 directly for now.
     protected String getDataSizeFunction(Column column) {
         if (column.getType().isStringType()) {
             return "SUM(LENGTH(`${colName}`))";
@@ -189,4 +192,15 @@ public abstract class BaseAnalysisTask {
         return unsupportedType.contains(type);
     }
 
+    protected String getSampleExpression() {
+        if (info.analysisMethod == AnalysisMethod.FULL) {
+            return "";
+        }
+        // TODO Add sampling methods for external tables
+        if (info.samplePercent > 0) {
+            return String.format("TABLESAMPLE(%d PERCENT)", info.samplePercent);
+        } else {
+            return String.format("TABLESAMPLE(%d ROWS)", info.sampleRows);
+        }
+    }
 }

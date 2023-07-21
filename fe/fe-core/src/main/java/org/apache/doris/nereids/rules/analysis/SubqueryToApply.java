@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -357,6 +358,21 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         }
 
         @Override
+        public Expression visitIsNull(IsNull isNull, SubqueryContext context) {
+            // Need to re-update scalarSubQuery unequal conditions into subqueryCorrespondingConject
+            if (isNull.child() instanceof BinaryOperator
+                    && (((BinaryOperator) isNull.child()).left().containsType(ScalarSubquery.class)
+                    || ((BinaryOperator) isNull.child()).right().containsType(ScalarSubquery.class))) {
+                Expression newChild = replace(isNull.child(), context);
+                ScalarSubquery subquery = collectScalarSubqueryForBinaryOperator((BinaryOperator) isNull.child());
+                context.updateSubqueryCorrespondingConjunctIsNull(subquery);
+                return context.getSubqueryToMarkJoinSlotValue(subquery).isPresent() ? newChild : new IsNull(newChild);
+            }
+
+            return visit(isNull, context);
+        }
+
+        @Override
         public Expression visitBinaryOperator(BinaryOperator binaryOperator, SubqueryContext context) {
             boolean atLeastOneChildContainsScalarSubquery =
                     binaryOperator.left().containsType(ScalarSubquery.class)
@@ -403,36 +419,43 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             subqueryExprs.forEach(subqueryExpr -> subqueryToMarkJoinSlot.put(subqueryExpr, Optional.empty()));
         }
 
-        public Map<SubqueryExpr, Optional<MarkJoinSlotReference>> getSubqueryToMarkJoinSlot() {
+        private Map<SubqueryExpr, Optional<MarkJoinSlotReference>> getSubqueryToMarkJoinSlot() {
             return subqueryToMarkJoinSlot;
         }
 
-        public Map<SubqueryExpr, Expression> getSubqueryCorrespondingConjunct() {
+        private Map<SubqueryExpr, Expression> getSubqueryCorrespondingConjunct() {
             return subqueryCorrespondingConjunct;
         }
 
-        public Optional<MarkJoinSlotReference> getSubqueryToMarkJoinSlotValue(SubqueryExpr subqueryExpr) {
+        private Optional<MarkJoinSlotReference> getSubqueryToMarkJoinSlotValue(SubqueryExpr subqueryExpr) {
             return subqueryToMarkJoinSlot.get(subqueryExpr);
         }
 
-        public void setSubqueryToMarkJoinSlot(SubqueryExpr subquery,
+        private void setSubqueryToMarkJoinSlot(SubqueryExpr subquery,
                                               Optional<MarkJoinSlotReference> markJoinSlotReference) {
             subqueryToMarkJoinSlot.put(subquery, markJoinSlotReference);
         }
 
-        public void setSubqueryCorrespondingConject(SubqueryExpr subquery,
+        private void setSubqueryCorrespondingConject(SubqueryExpr subquery,
                                                     Expression expression) {
             subqueryCorrespondingConjunct.put(subquery, expression);
         }
 
-        public boolean onlySingleSubquery() {
+        private boolean onlySingleSubquery() {
             return subqueryToMarkJoinSlot.size() == 1;
         }
 
-        public void updateSubqueryCorrespondingConjunctInNot(SubqueryExpr subquery) {
+        private void updateSubqueryCorrespondingConjunctInNot(SubqueryExpr subquery) {
             if (subqueryCorrespondingConjunct.containsKey(subquery)) {
                 subqueryCorrespondingConjunct.replace(subquery,
                     new Not(subqueryCorrespondingConjunct.get(subquery)));
+            }
+        }
+
+        private void updateSubqueryCorrespondingConjunctIsNull(SubqueryExpr subquery) {
+            if (subqueryCorrespondingConjunct.containsKey(subquery)) {
+                subqueryCorrespondingConjunct.replace(subquery,
+                        new IsNull(subqueryCorrespondingConjunct.get(subquery)));
             }
         }
 
@@ -443,7 +466,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
          *  -->
          *  logicalFilter(predicate=$c$1 or $c$2)
          */
-        public Expression replaceBinaryOperator(BinaryOperator binaryOperator,
+        private Expression replaceBinaryOperator(BinaryOperator binaryOperator,
                                                 Expression left,
                                                 Expression right,
                                                 boolean isProject) {

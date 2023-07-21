@@ -27,22 +27,11 @@ under the License.
 ## CAST
 ### Description
 
+#### Syntax
 
-```
-cast (input as type)
-```
-
-#### BIGINT type
-
-#### Syntax (BIGINT)
-
-``` cast (input as BIGINT) ```
-
+`T cast (input as Type)`
 
 Converts input to the specified type
-
-
-Converting the current column input to BIGINT type
 
 ### example
 
@@ -77,6 +66,14 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 |                                     11 |
 +----------------------------------------+
 1 row in set (0.00 sec)
+
+For the DECIMALV3 type, the cast operation performs rounding half up.
+mysql> select cast (1.115 as DECIMALV3(16, 2));
++---------------------------------+
+| cast(1.115 as DECIMALV3(16, 2)) |
++---------------------------------+
+|                            1.12 |
++---------------------------------+
 ```
 ### keywords
 CAST

@@ -33,6 +33,7 @@ import java.util.List;
 @Developing
 //TODO: memory cost and network cost should be estimated by byte size.
 public class CostCalculator {
+
     /**
      * Calculate cost for groupExpression
      */
@@ -65,9 +66,9 @@ public class CostCalculator {
     }
 
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
-        if (!ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
-            return CostModelV1.addChildCost(plan, planCost, childCost, index);
+        if (ConnectContext.get().getSessionVariable().getEnableNewCostModel()) {
+            return CostModelV2.addChildCost(plan, planCost, childCost, index);
         }
-        return CostModelV2.addChildCost(plan, planCost, childCost, index);
+        return CostModelV1.addChildCost(plan, planCost, childCost, index);
     }
 }

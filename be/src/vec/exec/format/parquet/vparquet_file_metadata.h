@@ -16,8 +16,11 @@
 // under the License.
 
 #pragma once
+#include <gen_cpp/parquet_types.h>
+
+#include <string>
+
 #include "common/status.h"
-#include "gen_cpp/parquet_types.h"
 #include "schema_desc.h"
 
 namespace doris::vectorized {

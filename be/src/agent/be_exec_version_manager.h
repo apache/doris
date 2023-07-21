@@ -46,12 +46,20 @@ private:
     static const int min_be_exec_version;
 };
 
-// When we have some breaking change for execute engine, we should update be_exec_version.
-// 0: not contain be_exec_version.
-// 1: start from doris 1.2
-//    a. remove ColumnString terminating zero.
-//    b. runtime filter use new hash method.
-inline const int BeExecVersionManager::max_be_exec_version = 1;
+/*
+ * When we have some breaking change for execute engine, we should update be_exec_version.
+ * 0: not contain be_exec_version.
+ * 1: start from doris 1.2
+ *    a. remove ColumnString terminating zero.
+ *    b. runtime filter use new hash method.
+ * 2: start from doris 2.0
+ *    a. function month/day/hour/minute/second's return type is changed to smaller type.
+ *    b. in order to solve agg of sum/count is not compatibility during the upgrade process
+ *    c. change the string hash method in runtime filter
+ *    d. elt funciton return type change to nullable(string)
+ *    e. add repeat_max_num in repeat function
+*/
+inline const int BeExecVersionManager::max_be_exec_version = 2;
 inline const int BeExecVersionManager::min_be_exec_version = 0;
 
 } // namespace doris

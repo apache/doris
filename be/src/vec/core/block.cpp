@@ -20,29 +20,46 @@
 
 #include "vec/core/block.h"
 
+#include <assert.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
+#include <gen_cpp/data.pb.h>
 #include <snappy.h>
+#include <sys/types.h>
+
+#include <algorithm>
+#include <iomanip>
+#include <iterator>
+#include <limits>
 
 #include "agent/be_exec_version_manager.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/thread_context.h"
-#include "udf/udf.h"
 #include "util/block_compression.h"
 #include "util/faststring.h"
+#include "util/runtime_profile.h"
 #include "util/simd/bits.h"
+#include "util/slice.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/schema_util.h"
-#include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
+
+class SipHash;
+
+namespace doris {
+namespace segment_v2 {
+enum CompressionTypePB : int;
+} // namespace segment_v2
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -109,6 +126,11 @@ Block::Block(const PBlock& pblock) {
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
+}
+
+void Block::reserve(size_t count) {
+    index_by_name.reserve(count);
+    data.reserve(count);
 }
 
 void Block::initialize_index_by_name() {
@@ -684,6 +706,12 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
             if (column->size() != count) {
                 if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
+                    if (result_size != count) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "filter_size={}",
+                                        result_size, count);
+                    }
                     CHECK_EQ(result_size, count);
                 } else {
                     column = column->filter(filter, count);
@@ -811,8 +839,8 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
         faststring buf_compressed;
-        RETURN_IF_ERROR(codec->compress(Slice(column_values.data(), content_uncompressed_size),
-                                        &buf_compressed));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
+                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
         size_t compressed_size = buf_compressed.size();
         if (LIKELY(compressed_size < content_uncompressed_size)) {
             pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
@@ -887,8 +915,10 @@ void MutableBlock::add_row(const Block* block, int row) {
 }
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
+    DCHECK_LE(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
+        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_indices_from(src, row_begin, row_end);
@@ -896,12 +926,39 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
 }
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
+    DCHECK_LE(columns(), block->columns());
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
+        DCHECK_EQ(_data_types[i]->get_name(), block_data[i].type->get_name());
         auto& dst = _columns[i];
         auto& src = *block_data[i].column.get();
         dst->insert_range_from(src, row_begin, length);
     }
+}
+
+void MutableBlock::erase(const String& name) {
+    auto index_it = index_by_name.find(name);
+    if (index_it == index_by_name.end()) {
+        LOG(FATAL) << fmt::format("No such name in Block::erase(): '{}'", name);
+    }
+
+    auto position = index_it->second;
+
+    _columns.erase(_columns.begin() + position);
+    _data_types.erase(_data_types.begin() + position);
+    _names.erase(_names.begin() + position);
+
+    for (auto it = index_by_name.begin(); it != index_by_name.end();) {
+        if (it->second == position)
+            index_by_name.erase(it++);
+        else {
+            if (it->second > position) --it->second;
+            ++it;
+        }
+    }
+    // if (position < row_same_bit.size()) {
+    //     row_same_bit.erase(row_same_bit.begin() + position);
+    // }
 }
 
 Block MutableBlock::to_block(int start_column) {
@@ -971,7 +1028,7 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
 }
 
 std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
-    auto temp_block = std::make_unique<Block>();
+    auto temp_block = Block::create_unique();
     for (const auto& d : data) {
         auto column = d.type->create_column();
         column->resize(size);

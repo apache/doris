@@ -28,8 +28,10 @@ under the License.
 ### description
 #### Syntax
 
-`VARCHAR reverse(VARCHAR str)`
-`ARRAY<T> reverse(ARRAY<T> arr)`
+```sql
+VARCHAR reverse(VARCHAR str)
+ARRAY<T> reverse(ARRAY<T> arr)
+```
 
 The REVERSE() function reverses a string or array and returns the result.
 

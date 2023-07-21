@@ -69,7 +69,7 @@ public class RefreshManager {
             refreshInternalCtlIcebergTable(stmt, env);
         } else {
             // Process external catalog table refresh
-            env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName);
+            env.getCatalogMgr().refreshExternalTable(dbName, tableName, catalogName, false);
         }
         LOG.info("Successfully refresh table: {} from db: {}", tableName, dbName);
     }
@@ -189,6 +189,11 @@ public class RefreshManager {
                     CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
                     if (catalog != null) {
                         String catalogName = catalog.getName();
+                        /**
+                         * Now do not invoke
+                         * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
+                         * because the default value of invalidCache is true.
+                         * */
                         RefreshCatalogStmt refreshCatalogStmt = new RefreshCatalogStmt(catalogName, null);
                         try {
                             DdlExecutor.execute(Env.getCurrentEnv(), refreshCatalogStmt);

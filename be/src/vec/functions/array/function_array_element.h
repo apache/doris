@@ -19,17 +19,40 @@
 // and modified by Doris
 #pragma once
 
-#include <string_view>
+#include <glog/logging.h>
+#include <string.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <memory>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/columns_number.h"
+#include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+
+namespace doris {
+class FunctionContext;
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -84,7 +107,8 @@ public:
             args = {col_left, block.get_by_position(arguments[1])};
         }
         ColumnPtr res_column = nullptr;
-        if (args[0].column->is_column_map()) {
+        if (args[0].column->is_column_map() ||
+            check_column_const<ColumnMap>(args[0].column.get())) {
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
         } else {
             res_column = _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);

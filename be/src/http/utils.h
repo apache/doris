@@ -20,12 +20,10 @@
 #include <string>
 
 #include "common/utils.h"
-#include "http/http_common.h"
 #include "http/http_request.h"
 
 namespace doris {
 
-class HttpRequest;
 struct AuthInfo;
 
 std::string encode_basic_auth(const std::string& user, const std::string& passwd);

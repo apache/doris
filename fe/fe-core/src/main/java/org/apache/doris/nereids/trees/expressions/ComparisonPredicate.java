@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -58,4 +59,16 @@ public abstract class ComparisonPredicate extends BinaryOperator {
      * Commute between left and right children.
      */
     public abstract ComparisonPredicate commute();
+
+    @Override
+    public TypeCheckResult checkInputDataTypes() {
+        for (int i = 0; i < super.children().size(); i++) {
+            Expression input = super.children().get(i);
+            if (input.getDataType().isObjectType()) {
+                return new TypeCheckResult(false,
+                    "Bitmap type does not support operator:" + this.toSql());
+            }
+        }
+        return TypeCheckResult.SUCCESS;
+    }
 }

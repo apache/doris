@@ -45,7 +45,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     }
 
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
-                                Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
         this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
     }
@@ -55,8 +55,8 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     }
 
     @Override
-    public List<Plan> extraPlans() {
-        return (List) aliasQueries;
+    public List<? extends Plan> extraPlans() {
+        return aliasQueries;
     }
 
     /**
@@ -72,7 +72,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalCTE",
-            "aliasQueries", aliasQueries
+                "aliasQueries", aliasQueries
         );
     }
 
@@ -120,7 +120,9 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     }
 
     @Override
-    public LogicalCTE<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalCTE<>(aliasQueries, Optional.empty(), logicalProperties, child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(aliasQueries.size() > 0);
+        return new LogicalCTE<>(aliasQueries, groupExpression, logicalProperties, children.get(0));
     }
 }

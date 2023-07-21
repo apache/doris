@@ -20,12 +20,35 @@
 
 #pragma once
 
-#include <cstdint>
+#include <gen_cpp/Types_types.h>
+#include <stddef.h>
 
+#include <algorithm>
+#include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <type_traits>
+
+#include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "serde/data_type_number_serde.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/uint128.h"
+#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/serde/data_type_serde.h"
+
+namespace doris {
+namespace vectorized {
+class BufferWritable;
+class IColumn;
+class ReadBuffer;
+template <typename T>
+struct TypeId;
+} // namespace vectorized
+} // namespace doris
 
 namespace doris::vectorized {
 
@@ -92,6 +115,8 @@ public:
     }
     Field get_default() const override;
 
+    Field get_field(const TExprNode& node) const override;
+
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
@@ -112,7 +137,6 @@ public:
     }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(T); }
-    bool is_categorial() const override { return is_value_represented_by_integer(); }
     bool can_be_inside_low_cardinality() const override { return true; }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;

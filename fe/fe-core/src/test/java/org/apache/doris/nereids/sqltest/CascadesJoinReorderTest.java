@@ -17,8 +17,7 @@
 
 package org.apache.doris.nereids.sqltest;
 
-import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
-import org.apache.doris.nereids.rules.exploration.join.JoinCommute;
+import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
@@ -46,16 +45,17 @@ public class CascadesJoinReorderTest extends SqlTestBase {
         int plansNumber = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .applyExploration(JoinCommute.ZIG_ZAG.build())
-                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
-                .applyExploration(JoinCommute.ZIG_ZAG.build())
+                .applyExploration(RuleSet.ZIG_ZAG_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.ZIG_ZAG_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.ZIG_ZAG_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.ZIG_ZAG_TREE_JOIN_REORDER)
                 .plansNumber();
 
         Assertions.assertEquals(8, plansNumber);
     }
 
     @Test
-    void testStarFourJoin() {
+    void testStarFourJoinZigzag() {
         // Four join
         // (n-1)! * 2^(n-1) = 48
         String sql = "SELECT * FROM T1 "
@@ -66,16 +66,100 @@ public class CascadesJoinReorderTest extends SqlTestBase {
         int plansNumber = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .applyExploration(JoinCommute.ZIG_ZAG.build())
-                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
-                .applyExploration(JoinCommute.ZIG_ZAG.build())
-                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
-                .applyExploration(JoinCommute.ZIG_ZAG.build())
-                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
-                .applyExploration(JoinCommute.ZIG_ZAG.build())
-                .applyExploration(InnerJoinLAsscom.INSTANCE.build())
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
                 .plansNumber();
 
         Assertions.assertEquals(48, plansNumber);
+    }
+
+    @Test
+    void testStarFourJoinBushy() {
+        // Four join
+        // (n-1)! * 2^(n-1) = 48
+        String sql = "SELECT * FROM T1 "
+                + "JOIN T2 ON T1.id = T2.id "
+                + "JOIN T3 ON T1.id = T3.id "
+                + "JOIN T4 ON T1.id = T4.id ";
+
+        int plansNumber = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .plansNumber();
+
+        Assertions.assertEquals(48, plansNumber);
+    }
+
+    @Test
+    void testChainFourJoinBushy() {
+        // Four join
+        // 2^(n-1) * C(n-1) = 40
+        String sql = "SELECT * FROM T1 "
+                + "JOIN T2 ON T1.id = T2.id "
+                + "JOIN T3 ON T2.id = T3.id "
+                + "JOIN T4 ON T3.id = T4.id ";
+
+        int plansNumber = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .plansNumber();
+
+        Assertions.assertEquals(40, plansNumber);
+    }
+
+    @Test
+    void testChainFiveJoinBushy() {
+        // Five join
+        // 2^(n-1) * C(n-1) = 224
+        String sql = "SELECT * FROM T1 "
+                + "JOIN T2 ON T1.id = T2.id "
+                + "JOIN T3 ON T2.id = T3.id "
+                + "JOIN T4 ON T3.id = T4.id "
+                + "JOIN T1 T5 ON T4.ID = T5.ID";
+
+        int plansNumber = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .plansNumber();
+
+        Assertions.assertEquals(224, plansNumber);
     }
 }

@@ -185,7 +185,7 @@ public class BaseController {
         public String toString() {
             StringBuilder sb = new StringBuilder();
             sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
-            sb.append(", password: ").append(password).append(", cluster: ").append(cluster);
+            sb.append(", password: ").append("********").append(", cluster: ").append(cluster);
             return sb.toString();
         }
     }
@@ -244,7 +244,7 @@ public class BaseController {
         if (Strings.isNullOrEmpty(encodedAuthString)) {
             return false;
         }
-        String[] parts = encodedAuthString.split(" ");
+        String[] parts = encodedAuthString.split("\\s+");
         if (parts.length != 2) {
             return false;
         }

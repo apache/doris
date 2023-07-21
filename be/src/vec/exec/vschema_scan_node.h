@@ -17,25 +17,32 @@
 
 #pragma once
 
+#include <iosfwd>
 #include <memory>
+#include <string>
+#include <vector>
 
+#include "common/global_types.h"
 #include "exec/scan_node.h"
 #include "exec/schema_scanner.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "runtime/descriptors.h"
+
 namespace doris {
 
-class TextConverter;
 class TupleDescriptor;
 class RuntimeState;
 class Status;
+class DescriptorTbl;
+class ObjectPool;
+class TPlanNode;
+class TScanRangeParams;
 
 namespace vectorized {
+class Block;
 
 class VSchemaScanNode : public ScanNode {
 public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~VSchemaScanNode();
+    ~VSchemaScanNode() override;
     Status prepare(RuntimeState* state) override;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 

@@ -22,22 +22,18 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
+
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "util/string_util.h"
-#include "util/time.h"
 
 namespace doris {
-
-struct TrackerGroup {
-    std::list<MemTracker*> trackers;
-    std::mutex group_lock;
-};
 
 // Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
 // When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
 // Multiple groups are used to reduce the impact of locks.
-static std::vector<TrackerGroup> mem_tracker_pool(1000);
+std::vector<MemTracker::TrackerGroup> MemTracker::mem_tracker_pool(1000);
 
 MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
                        const std::string& profile_counter_name)
@@ -112,7 +108,7 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
                                      int64_t group_num, std::string parent_label) {
     std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
     for (auto tracker : mem_tracker_pool[group_num].trackers) {
-        if (tracker->parent_label() == parent_label && tracker->consumption() != 0) {
+        if (tracker->parent_label() == parent_label && tracker->peak_consumption() != 0) {
             snapshots->push_back(tracker->make_snapshot());
         }
     }

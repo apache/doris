@@ -20,6 +20,8 @@
 
 #include "vec/data_types/data_type_nothing.h"
 
+#include <typeinfo>
+
 #include "vec/columns/column_nothing.h"
 
 namespace doris::vectorized {

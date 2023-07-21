@@ -17,7 +17,9 @@
 
 #include "select_operator.h"
 
-#include "vec/exec/vselect_node.h"
+#include <string>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 

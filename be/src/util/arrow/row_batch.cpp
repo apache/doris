@@ -17,30 +17,26 @@
 
 #include "util/arrow/row_batch.h"
 
-#include <arrow/array.h>
-#include <arrow/array/builder_primitive.h>
 #include <arrow/buffer.h>
-#include <arrow/builder.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
-#include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
+#include <arrow/result.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
-#include <arrow/visit_array_inline.h>
-#include <arrow/visit_type_inline.h>
-#include <arrow/visitor.h>
+#include <glog/logging.h>
+#include <stdint.h>
 
+#include <algorithm>
 #include <cstdlib>
-#include <ctime>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "gutil/strings/substitute.h"
-#include "runtime/descriptor_helper.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/descriptors.h"
-#include "runtime/large_int_value.h"
-#include "util/arrow/utils.h"
-#include "util/types.h"
+#include "runtime/types.h"
 
 namespace doris {
 
@@ -69,10 +65,12 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_TIME:
         *result = arrow::float64();
         break;
+    case TYPE_LARGEINT:
+        *result = arrow::fixed_size_binary(sizeof(int128_t));
+        break;
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
-    case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
     case TYPE_DATEV2:

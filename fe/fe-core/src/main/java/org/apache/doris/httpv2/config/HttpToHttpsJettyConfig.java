@@ -31,11 +31,29 @@ public class HttpToHttpsJettyConfig extends AbstractConfiguration {
 
         ConstraintSecurityHandler handler = new ConstraintSecurityHandler();
 
-        ConstraintMapping mappingGet = new ConstraintMapping();
-        mappingGet.setConstraint(constraint);
-        mappingGet.setPathSpec("/*");
-        mappingGet.setMethod("GET");
-        handler.addConstraintMapping(mappingGet);
+        ConstraintMapping mappingGetRest = new ConstraintMapping();
+        mappingGetRest.setConstraint(constraint);
+        mappingGetRest.setPathSpec("/rest/*");
+        mappingGetRest.setMethod("GET");
+        handler.addConstraintMapping(mappingGetRest);
+
+        ConstraintMapping mappingGetAPI = new ConstraintMapping();
+        mappingGetAPI.setConstraint(constraint);
+        mappingGetAPI.setPathSpec("/api/*");
+        mappingGetAPI.setMethod("GET");
+        handler.addConstraintMapping(mappingGetAPI);
+
+        ConstraintMapping mappingGetDump = new ConstraintMapping();
+        mappingGetDump.setConstraint(constraint);
+        mappingGetDump.setPathSpec("/dump");
+        mappingGetDump.setMethod("GET");
+        handler.addConstraintMapping(mappingGetDump);
+
+        ConstraintMapping mappingGetMetrics = new ConstraintMapping();
+        mappingGetMetrics.setConstraint(constraint);
+        mappingGetMetrics.setPathSpec("/metrics");
+        mappingGetMetrics.setMethod("GET");
+        handler.addConstraintMapping(mappingGetMetrics);
 
         ConstraintMapping mappingDel = new ConstraintMapping();
         mappingDel.setConstraint(constraint);

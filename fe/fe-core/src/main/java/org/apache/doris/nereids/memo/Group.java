@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -179,6 +180,10 @@ public class Group {
         return move;
     }
 
+    public void clearLowestCostPlans() {
+        lowestCostPlans.clear();
+    }
+
     public double getCostLowerBound() {
         return -1D;
     }
@@ -290,6 +295,10 @@ public class Group {
         return parentExpressions.size();
     }
 
+    public void removeParentPhysicalExpressions() {
+        parentExpressions.entrySet().removeIf(entry -> entry.getKey().getPlan() instanceof PhysicalPlan);
+    }
+
     /**
      * move the ownerGroup to target group.
      *
@@ -297,7 +306,7 @@ public class Group {
      */
     public void mergeTo(Group target) {
         // move parentExpressions Ownership
-        parentExpressions.keySet().forEach(target::addParentExpression);
+        parentExpressions.keySet().forEach(parent -> target.addParentExpression(parent));
         // PhysicalEnforcer isn't in groupExpressions, so mergeGroup() can't replace its children.
         // So we need to manually replace the children of PhysicalEnforcer in here.
         // TODO: SortEnforcer?
@@ -367,9 +376,12 @@ public class Group {
      */
     public boolean isInnerJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
-        if (plan instanceof LogicalJoin) {
+        if (plan instanceof LogicalJoin
+                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN) {
             // Right now, we only support inner join
-            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN;
+            Preconditions.checkArgument(!((LogicalJoin) plan).getExpressions().isEmpty(),
+                    "inner join must have join conjuncts");
+            return true;
         }
         return false;
     }

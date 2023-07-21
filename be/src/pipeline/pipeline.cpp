@@ -17,7 +17,11 @@
 
 #include "pipeline.h"
 
-#include "pipeline_fragment_context.h"
+#include <ostream>
+#include <typeinfo>
+#include <utility>
+
+#include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
 

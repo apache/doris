@@ -110,7 +110,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null, "");
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, (BrokerDesc) null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
         Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
@@ -137,7 +137,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null, "");
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, (BrokerDesc) null, null, "");
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");
@@ -150,13 +150,13 @@ public class LoadStmtTest {
         columnDescs.descs = columns1;
         columnDescs.isColumnDescsRewrited = false;
         Load.rewriteColumns(columnDescs);
-        String orig = "`c1` + 1 + 1";
+        String orig = "((`c1` + 1) + 1)";
         Assert.assertEquals(orig, columns1.get(4).getExpr().toString());
 
         List<ImportColumnDesc> columns2 = getColumns("c1,c2,c3,tmp_c5 = tmp_c4+1, tmp_c4=c1 + 1");
         columnDescs.descs = columns2;
         columnDescs.isColumnDescsRewrited = false;
-        String orig2 = "`tmp_c4` + 1";
+        String orig2 = "(`tmp_c4` + 1)";
         Load.rewriteColumns(columnDescs);
         Assert.assertEquals(orig2, columns2.get(3).getExpr().toString());
 
@@ -239,6 +239,14 @@ public class LoadStmtTest {
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getLabel().getDbName());
         Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
+
+        // unified load stmt
+        UnifiedLoadStmt unifiedStmt = UnifiedLoadStmt.buildMysqlLoadStmt(desc, Maps.newHashMap(), "");
+        Config.mysql_load_server_secure_path = "/";
+        unifiedStmt.analyze(analyzer);
+        Assert.assertTrue(unifiedStmt.getProxyStmt() instanceof LoadStmt);
+        Assert.assertNull(((LoadStmt) unifiedStmt.getProxyStmt()).getLabel().getDbName());
+        Assert.assertEquals(unifiedStmt.getRedirectStatus(), RedirectStatus.NO_FORWARD);
     }
 
     @Test

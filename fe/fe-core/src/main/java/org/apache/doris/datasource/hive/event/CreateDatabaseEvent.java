@@ -32,6 +32,11 @@ import java.util.List;
  */
 public class CreateDatabaseEvent extends MetastoreEvent {
 
+    // for test
+    public CreateDatabaseEvent(long eventId, String catalogName, String dbName) {
+        super(eventId, catalogName, dbName, null);
+    }
+
     private CreateDatabaseEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
@@ -48,10 +53,10 @@ public class CreateDatabaseEvent extends MetastoreEvent {
         try {
             infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
             Env.getCurrentEnv().getCatalogMgr()
-                    .createExternalDatabase(dbName, catalogName);
+                    .createExternalDatabase(dbName, catalogName, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"));
+                    debugString("Failed to process event"), e);
         }
     }
 }

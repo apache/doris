@@ -34,9 +34,7 @@ array_sort
 
 #### Syntax
 
-```
-ARRAY<T> array_sort(ARRAY<T> arr)
-```
+`ARRAY<T> array_sort(ARRAY<T> arr)`
 
 Return the array which has been sorted in ascending order. Return NULL for NULL input.
 If the element of array is NULL, it will be placed in the front of the sorted array.
