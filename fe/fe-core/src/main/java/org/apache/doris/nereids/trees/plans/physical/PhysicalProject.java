@@ -176,14 +176,17 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         if (scan instanceof PhysicalCTEConsumer) {
             // update the probeExpr
             int projIndex = -1;
-            for (int i = 0; projIndex < 0 && i < getProjects().size(); i++) {
+            for (int i = 0; i < getProjects().size(); i++) {
                 NamedExpression expr = getProjects().get(i);
                 if (expr.getName().equals(probeSlot.getName())) {
                     projIndex = i;
                     break;
                 }
             }
-            Preconditions.checkState(projIndex >= 0 && projIndex < getProjects().size());
+            if (projIndex < 0 || projIndex >= getProjects().size()) {
+                // the pushed down path can't contain the probe expr
+                return false;
+            }
             NamedExpression newProbeExpr = this.getProjects().get(projIndex);
             if (newProbeExpr instanceof Alias) {
                 newProbeExpr = (NamedExpression) newProbeExpr.child(0);

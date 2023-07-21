@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -142,8 +143,8 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                                          AbstractPhysicalJoin builderNode,
                                          Expression src, Expression probeExpr,
                                          TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         boolean pushedDown = false;
-        int projIndex = -1;
         for (int i = 0; i < this.children().size(); i++) {
             AbstractPhysicalPlan child = (AbstractPhysicalPlan) this.child(i);
             // TODO: replace this special logic with dynamic handling
@@ -152,18 +153,21 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
             }
             if (child instanceof PhysicalProject) {
                 PhysicalProject project = (PhysicalProject) child;
+                int projIndex = -1;
                 Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
-                if (probeSlot == null) {
-                    break;
+                if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+                    continue;
                 }
-                for (int j = 0; projIndex < 0 && j < project.getProjects().size(); j++) {
+                for (int j = 0; j < project.getProjects().size(); j++) {
                     NamedExpression expr = (NamedExpression) project.getProjects().get(j);
                     if (expr.getName().equals(probeSlot.getName())) {
                         projIndex = j;
                         break;
                     }
                 }
-                Preconditions.checkState(projIndex >= 0 && projIndex < project.getProjects().size());
+                if (projIndex < 0 || projIndex >= project.getProjects().size()) {
+                    continue;
+                }
                 NamedExpression newProbeExpr = (NamedExpression) project.getProjects().get(projIndex);
                 if (newProbeExpr instanceof Alias) {
                     newProbeExpr = (NamedExpression) newProbeExpr.child(0);
