@@ -22,14 +22,25 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStoredKey;
 
+import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 
 public class StoredKey implements Writable {
+    private static final Logger LOG = LogManager.getLogger(StoredKey.class);
+
+    @SerializedName(value = "name")
     private String name;
+
+    @SerializedName(value = "catalogName")
     private String catalogName;
+
+    @SerializedName(value = "dbName")
     private String dbName;
 
     public StoredKey(String name, String catalogName, String dbName) {
