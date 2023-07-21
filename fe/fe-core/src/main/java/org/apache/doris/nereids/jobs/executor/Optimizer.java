@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.jobs.executor;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
@@ -57,9 +56,10 @@ public class Optimizer {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         serializeStatUsed(cascadesContext.getConnectContext());
         // DPHyp optimize
-        StatementContext statementContext = cascadesContext.getStatementContext();
-        boolean isDpHyp = getSessionVariable().enableDPHypOptimizer || statementContext.getMaxNAryInnerJoin()
-                > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
+        int maxJoinCount = cascadesContext.getMemo().countMaxContinuousJoin();
+        cascadesContext.getStatementContext().setMaxContinuousJoin(maxJoinCount);
+        boolean isDpHyp = getSessionVariable().enableDPHypOptimizer
+                || maxJoinCount > getSessionVariable().getMaxTableCountUseCascadesJoinReorder();
         cascadesContext.getStatementContext().setDpHyp(isDpHyp);
         cascadesContext.getStatementContext().setOtherJoinReorder(false);
         if (!getSessionVariable().isDisableJoinReorder() && isDpHyp) {

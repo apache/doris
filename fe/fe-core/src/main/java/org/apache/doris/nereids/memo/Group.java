@@ -21,7 +21,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -374,16 +373,11 @@ public class Group {
     /**
      * This function used to check whether the group is an end node in DPHyp
      */
-    public boolean isInnerJoinGroup() {
+    public boolean isValidJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
-        if (plan instanceof LogicalJoin
-                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN) {
-            // Right now, we only support inner join
-            Preconditions.checkArgument(!((LogicalJoin) plan).getExpressions().isEmpty(),
-                    "inner join must have join conjuncts");
-            return true;
-        }
-        return false;
+        return plan instanceof LogicalJoin
+                && !((LogicalJoin) plan).isMarkJoin()
+                && ((LogicalJoin) plan).getExpressions().size() > 0;
     }
 
     public boolean isProjectGroup() {

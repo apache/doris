@@ -77,6 +77,8 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
 
     auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
     _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
+    _add_batch_timer = ADD_TIMER(_profile, "AddBatchTime");
+    _write_block_timer = ADD_TIMER(_profile, "WriteBlockTime");
     _memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Total", TUnit::BYTES);
     _write_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Write", TUnit::BYTES);
     _flush_memory_usage_counter = memory_usage->AddHighWaterMarkCounter("Flush", TUnit::BYTES);
@@ -239,6 +241,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
         // unused required field.
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
+        tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
@@ -371,6 +374,7 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key) {
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
                                  PTabletWriterAddBlockResult* response) {
+    SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
     _add_batch_number_counter->update(1);
 
@@ -437,10 +441,12 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     };
 
     if (request.is_single_tablet_block()) {
+        SCOPED_TIMER(_write_block_timer);
         RETURN_IF_ERROR(write_tablet_data(request.tablet_ids(0), [&](DeltaWriter* writer) {
             return writer->append(&send_data);
         }));
     } else {
+        SCOPED_TIMER(_write_block_timer);
         for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
             RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](DeltaWriter* writer) {
                 return writer->write(&send_data, tablet_to_rowidxs_it.second);

@@ -17,7 +17,11 @@ Unless required by applicable law or agreed to in writing, software distributed 
 漏斗分析函数搜索滑动时间窗口内最大的发生的最大事件序列长度。
 
 - window ：滑动时间窗口大小，单位为秒。
-- mode ：保留，目前只支持default。
+- mode ：模式，共有四种模式
+    - "default": 默认模式。
+    - "deduplication": 当某个事件重复发生时，这个重复发生的事件会阻止后续的处理过程。如，指定事件链为[event1='A', event2='B', event3='C', event4='D']，原始事件链为"A-B-C-B-D"。由于B事件重复，最终的结果事件链为A-B-C，最大长度为3。
+    - "fixed": 不允许事件的顺序发生交错，即事件发生的顺序必须和指定的事件链顺序一致。如，指定事件链为[event1='A', event2='B', event3='C', event4='D']，原始事件链为"A-B-D-C"，则结果事件链为A-B，最大长度为2
+    - "increase": 选中的事件的时间戳必须按照指定事件链严格递增。
 - timestamp_column ：指定时间列，类型为DATETIME, 滑动窗口沿着此列工作。
 - eventN ：表示事件的布尔表达式。
 

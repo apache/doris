@@ -1891,7 +1891,9 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                Expr newConjunct = conjunct.getResultValue(true);
+                // getResultValue will modify the conjunct internally
+                // we have to use a clone to keep conjunct unchanged
+                Expr newConjunct = conjunct.clone().getResultValue(true);
                 newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;

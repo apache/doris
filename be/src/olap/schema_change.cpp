@@ -952,7 +952,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             std::lock_guard<std::mutex> rwlock(new_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
             SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-            int64_t new_max_version = new_tablet->max_version().second;
+            int64_t new_max_version = new_tablet->max_version_unlocked().second;
             rowsets.clear();
             if (max_version < new_max_version) {
                 LOG(INFO)
