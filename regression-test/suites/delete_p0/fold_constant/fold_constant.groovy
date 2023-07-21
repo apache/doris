@@ -26,7 +26,8 @@ suite("fold_constant") {
             )
             duplicate key (k1)
             distributed BY hash(k1) buckets 3
-            properties("replication_num" = "1");
+            properties("replication_num" = "1",
+            "disable_auto_compaction" = "false");
         """
     sql "insert into d_table values(1,curdate());"
     sql "insert into d_table values(2,'2020-01-01');"
@@ -78,7 +79,8 @@ suite("fold_constant") {
     DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
     PROPERTIES
     (
-        "replication_num" = "1"
+        "replication_num" = "1",
+        "disable_auto_compaction" = "false"
     ); 
     """
     sql """insert into delete_condition values(1,"2017-01-01 00:00:00");"""
@@ -88,6 +90,37 @@ suite("fold_constant") {
     sql """
     delete from  delete_condition PARTITION p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
     """
-    "sync"
     qt_select """select * from delete_condition order by 1,2;"""
+
+
+    sql """ DROP TABLE IF EXISTS delete_condition2; """
+    sql """
+    CREATE TABLE IF NOT EXISTS delete_condition2
+    (
+        `user_id` LARGEINT NOT NULL COMMENT "用户id",
+        `create_date` DATETIMe NOT NULL COMMENT "数据灌入日期时间",
+    )
+    ENGINE=OLAP
+    unique KEY(`user_id`, `create_date`)
+    PARTITION BY RANGE(`create_date`)
+    (
+        PARTITION `p201701` VALUES LESS THAN ("2017-02-01 00:00:00"),
+        PARTITION `p201702` VALUES LESS THAN ("2017-03-01 00:00:00"),
+        PARTITION `p201703` VALUES LESS THAN ("2017-04-01 00:00:00")
+    )
+    DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
+    PROPERTIES
+    (
+        "replication_num" = "1",
+        "disable_auto_compaction" = "true"
+    ); 
+    """
+    sql """insert into delete_condition2 values(1,"2017-01-01 00:00:00");"""
+    sql """insert into delete_condition2 values(2,"2017-02-02 00:00:00");"""
+    sql """insert into delete_condition2 values(3,"2017-02-03 00:00:00");"""
+    sql """insert into delete_condition2 values(4,"2017-03-02 00:00:00");"""
+    sql """
+    delete from  delete_condition2 PARTITION p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
+    """
+    qt_select """select * from delete_condition2 order by 1,2;"""
 }

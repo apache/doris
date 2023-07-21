@@ -264,7 +264,6 @@ DECLARE_Int32(be_service_threads);
 DECLARE_Int32(num_threads_per_core);
 // if true, compresses tuple data in Serialize
 DECLARE_mBool(compress_rowbatches);
-DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
 // if true, each disk will have a separate thread pool for scanner
