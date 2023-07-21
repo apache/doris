@@ -5382,6 +5382,9 @@ public class Env {
     }
 
     public boolean isMajorVersionUpgrade() {
+        if (previousFeVersion == null) {
+            return false;
+        }
         return previousFeVersion.charAt(0) != latestFeVersion.charAt(0);
     }
 
