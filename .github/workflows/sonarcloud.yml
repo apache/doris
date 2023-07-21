@@ -61,9 +61,7 @@ jobs:
         run: |
           # Install Bash if necessary
           sudo apt-get update
-          sudo apt-get install -y bash
-      - name: Run shell script with pipefail
-        shell: bash    
+          sudo apt-get install -y bash  
       - name: Generated Source Code
         shell: bash
         run: |
