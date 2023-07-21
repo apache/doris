@@ -173,8 +173,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, bool large_memory_check) 
     }
     // Large memory alloc should use allocator.h
     // Direct malloc or new large memory, unable to catch std::bad_alloc, BE may OOM.
-    if (large_memory_check && size > 1024l * 1024 * 1024 &&
-        !doris::config::disable_memory_gc) { // 1G
+    if (large_memory_check && size > doris::config::large_memory_check_bytes) {
         _stop_consume = true;
         LOG(WARNING) << fmt::format(
                 "malloc or new large memory: {}, looking forward to using Allocator, this is just "
