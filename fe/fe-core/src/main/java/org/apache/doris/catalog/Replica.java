@@ -130,7 +130,7 @@ public class Replica implements Writable {
     private static final long FURTHER_REPAIR_TIMEOUT_MS = 20 * 60 * 1000L; // 20min
 
 
-    /* Decommission a backend B has three steps:
+    /* Decommission a backend B, steps are as follow:
      * 1. wait peer backends catchup with B;
      * 2. B change state to DECOMMISSION, set preWatermarkTxnId. B can load data now.
      * 3. wait txn before preWatermarkTxnId finished, set postWatermarkTxnId. B can't load data now.
