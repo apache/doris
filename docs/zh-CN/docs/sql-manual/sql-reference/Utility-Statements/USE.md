@@ -41,7 +41,7 @@ USE <[CATALOG_NAME].DATABASE_NAME>
 ```
 
 说明:
-1. 使用`USE CATALOG_NAME.DATABASE_NAME`, 会先将当前的Catalog切换为`CATALOG_NAME`, 然后再讲当前的Database切换为`DATABASE_NAME`
+1. 使用`USE CATALOG_NAME.DATABASE_NAME`, 会先将当前的Catalog切换为`CATALOG_NAME`, 然后再将当前的Database切换为`DATABASE_NAME`
 
 ### Example
 
