@@ -242,7 +242,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitLogicalFileSink(LogicalFileSink<? extends Plan> olapTableSink, Void context) {
+    public Statistics visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 
@@ -379,7 +379,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
-    public Statistics visitPhysicalFileSink(PhysicalFileSink<? extends Plan> olapTableSink, Void context) {
+    public Statistics visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, Void context) {
         return groupExpression.childStatistics(0);
     }
 
