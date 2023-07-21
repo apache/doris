@@ -70,7 +70,7 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id, uin
     } else {
         if (req_table_id == "") {
             try {
-                *table_id = std::stoull(req_table_id);
+                *tablet_id = std::stoull(req_tablet_id);
             } catch (const std::exception& e) {
                 return Status::InternalError("convert tablet_id or table_id failed, {}", e.what());
             }
