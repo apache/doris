@@ -535,7 +535,7 @@ public class AggregateTest extends TestWithFeService {
         // normal.
         do {
             String query = "select count_by_enum(name) from "
-                + DB_NAME + "." + TABLE_NAME;
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
@@ -545,7 +545,7 @@ public class AggregateTest extends TestWithFeService {
 
         do {
             String query = "select count_by_enum(name, commission) from "
-                + DB_NAME + "." + TABLE_NAME;
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (Exception e) {
@@ -556,7 +556,7 @@ public class AggregateTest extends TestWithFeService {
         // less argument.
         do {
             String query = "select count_by_enum() from "
-                + DB_NAME + "." + TABLE_NAME;
+                    + DB_NAME + "." + TABLE_NAME;
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {

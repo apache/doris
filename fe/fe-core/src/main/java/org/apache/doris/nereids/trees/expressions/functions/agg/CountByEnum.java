@@ -17,20 +17,20 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.HllType;
 import org.apache.doris.nereids.types.StringType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
+
+/** count_by_enum agg function. */
 public class CountByEnum extends AggregateFunction implements CustomSignature, AlwaysNotNullable {
 
     public CountByEnum() {
@@ -59,6 +59,11 @@ public class CountByEnum extends AggregateFunction implements CustomSignature, A
     }
 
     @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitCountByEnum(this, context);
+    }
+
+    @Override
     public AggregateFunction withAggregateParam(AggregateParam aggregateParam) {
         if (arity() == 0) {
             return new CountByEnum(aggregateParam);
@@ -70,11 +75,6 @@ public class CountByEnum extends AggregateFunction implements CustomSignature, A
     @Override
     protected List<DataType> intermediateTypes(List<DataType> argumentTypes, List<Expression> arguments) {
         return ImmutableList.of(StringType.INSTANCE);
-    }
-
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCountByEnum(this, context);
     }
 
     @Override

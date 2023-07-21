@@ -161,7 +161,6 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
-
         for (int i = 0; i < arg_count; i++) {
             const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
             if (nullable_column == nullptr) {

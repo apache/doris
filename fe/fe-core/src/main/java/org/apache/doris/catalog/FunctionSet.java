@@ -1600,18 +1600,18 @@ public class FunctionSet<T> {
 
         // count_by_enum
         addBuiltin(AggregateFunction.createBuiltin(COUNT_BY_ENUM,
-            Lists.newArrayList(Type.STRING),
-            Type.STRING,
-            Type.STRING,
-            true,
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            false, true, false, true));
+                Lists.newArrayList(Type.STRING),
+                Type.STRING,
+                Type.STRING,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false, true, false, true));
 
     }
 
