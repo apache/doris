@@ -49,7 +49,7 @@ public class MultiPartitionDesc implements AllPartitionDesc {
     public static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
 
-    private final String partitionPrefix = "p";
+    private final String partitionPrefix = "p_";
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 
