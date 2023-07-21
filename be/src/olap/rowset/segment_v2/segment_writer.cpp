@@ -393,10 +393,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                           _mow_context->max_version, segment_caches, &rowset);
         if (st.is<NOT_FOUND>()) {
             if (_tablet_schema->is_strict_mode()) {
-                    ++num_rows_filtered;
-                    // delete the invalid newly inserted row
-                    _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
-                                                     pos);
+                ++num_rows_filtered;
+                // delete the invalid newly inserted row
+                _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id, 0},
+                                                 pos);
             }
 
             if (!_tablet_schema->can_insert_new_rows_in_partial_update()) {
