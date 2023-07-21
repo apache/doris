@@ -55,6 +55,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.ExportExportingTask;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -75,6 +76,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -170,6 +172,8 @@ public class ExportJob implements Writable {
     // The selectStmt is sql 'select ... into outfile ...'
     @Getter
     private List<SelectStmt> selectStmtList = Lists.newArrayList();
+
+    private List<StmtExecutor> stmtExecutorList;
 
     private List<String> exportColumns = Lists.newArrayList();
 
@@ -294,7 +298,7 @@ public class ExportJob implements Writable {
             selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
             selectStmtList.add(selectStmt);
         }
-
+        stmtExecutorList = Arrays.asList(new StmtExecutor[selectStmtList.size()]);
         if (LOG.isDebugEnabled()) {
             for (int i = 0; i < selectStmtList.size(); i++) {
                 LOG.debug("Outfile clause {} is: {}", i, selectStmtList.get(i).toSql());
@@ -526,6 +530,14 @@ public class ExportJob implements Writable {
         this.doExportingThread = isExportingThread;
     }
 
+    public synchronized void setStmtExecutor(int idx, StmtExecutor executor) {
+        this.stmtExecutorList.set(idx, executor);
+    }
+
+    public synchronized StmtExecutor getStmtExecutor(int idx) {
+        return this.stmtExecutorList.get(idx);
+    }
+
     public List<TScanRangeLocations> getTabletLocations() {
         return tabletLocations;
     }
@@ -562,6 +574,14 @@ public class ExportJob implements Writable {
         if (msg != null) {
             failMsg = new ExportFailMsg(type, msg);
         }
+
+        // maybe user cancel this job
+        if (task != null && state == JobState.EXPORTING && stmtExecutorList != null) {
+            for (int idx = 0; idx < stmtExecutorList.size(); ++idx) {
+                stmtExecutorList.get(idx).cancel();
+            }
+        }
+
         if (updateState(ExportJob.JobState.CANCELLED, false)) {
             // release snapshot
             // Status releaseSnapshotStatus = releaseSnapshotPaths();
@@ -592,7 +612,6 @@ public class ExportJob implements Writable {
         if (isFinalState() || (isReplay && newState == JobState.EXPORTING)) {
             return false;
         }
-        ExportJob.JobState oldState = state;
         state = newState;
         switch (newState) {
             case PENDING:
@@ -615,10 +634,6 @@ public class ExportJob implements Writable {
                 // if isReplay == true, finishTimeMs will be read from log
                 if (!isReplay) {
                     finishTimeMs = System.currentTimeMillis();
-                    // maybe user cancel this job
-                    if (task != null && oldState == JobState.EXPORTING && task.getStmtExecutor() != null) {
-                        task.getStmtExecutor().cancel();
-                    }
                 }
                 break;
             default:

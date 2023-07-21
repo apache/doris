@@ -55,7 +55,6 @@ public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
 
     protected final ExportJob job;
-    private StmtExecutor stmtExecutor;
 
     ThreadPoolExecutor exportExecPool = ThreadPoolManager.newDaemonCacheThreadPool(
             Config.maximum_parallelism_of_export_job, "exporting-pool-", false);
@@ -63,10 +62,6 @@ public class ExportExportingTask extends MasterTask {
     public ExportExportingTask(ExportJob job) {
         this.job = job;
         this.signature = job.getId();
-    }
-
-    public StmtExecutor getStmtExecutor() {
-        return stmtExecutor;
     }
 
     private class ExportResult {
@@ -160,8 +155,9 @@ public class ExportExportingTask extends MasterTask {
                             new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL, e.getMessage()), null);
                 }
                 try (AutoCloseConnectContext r = buildConnectContext()) {
-                    this.stmtExecutor = new StmtExecutor(r.connectContext, selectStmtList.get(idx));
-                    this.stmtExecutor.execute();
+                    StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, selectStmtList.get(idx));
+                    job.setStmtExecutor(idx, stmtExecutor);
+                    stmtExecutor.execute();
                     if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
                         return new ExportResult(true, new ExportFailMsg(ExportFailMsg.CancelType.RUN_FAIL,
                                 r.connectContext.getState().getErrorMessage()), null);
@@ -173,7 +169,7 @@ public class ExportExportingTask extends MasterTask {
                             e.getMessage()),
                             null);
                 } finally {
-                    this.stmtExecutor.addProfileToSpan();
+                    job.getStmtExecutor(idx).addProfileToSpan();
                 }
             });
         }
@@ -207,6 +203,12 @@ public class ExportExportingTask extends MasterTask {
             failMsg.setCancelType(CancelType.RUN_FAIL);
             failMsg.setMsg(e.getMessage());
         } finally {
+            // cancel all executor
+            if (isFailed) {
+                for (int idx = 0; idx < parallelNum; ++idx) {
+                    job.getStmtExecutor(idx).cancel();
+                }
+            }
             exportExecPool.shutdownNow();
         }
 
