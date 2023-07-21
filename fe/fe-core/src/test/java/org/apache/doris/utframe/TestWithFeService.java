@@ -125,7 +125,7 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
-        FeConstants.disableInternalSchemaDb = true;
+        FeConstants.enableInternalSchemaDb = false;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
         beforeCluster();
