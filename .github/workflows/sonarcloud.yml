@@ -65,7 +65,7 @@ jobs:
       - name: Generated Source Code
         shell: bash
         run: |
-           sh generated-source.sh
+           bash generated-source.sh
       - name: Analyze FE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
