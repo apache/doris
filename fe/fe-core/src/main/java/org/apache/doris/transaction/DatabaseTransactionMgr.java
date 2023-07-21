@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaHealthUtils;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
@@ -81,6 +82,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -842,7 +844,7 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void finishTransaction(long transactionId, Set<Long> errorReplicaIds) throws UserException {
+    public void finishTransaction(long transactionId) throws UserException {
         TransactionState transactionState = null;
         readLock();
         try {
@@ -850,15 +852,9 @@ public class DatabaseTransactionMgr {
         } finally {
             readUnlock();
         }
-        // add all commit errors and publish errors to a single set
-        if (errorReplicaIds == null) {
-            errorReplicaIds = Sets.newHashSet();
-        }
-        Set<Long> originalErrorReplicas = transactionState.getErrorReplicas();
-        if (originalErrorReplicas != null) {
-            errorReplicaIds.addAll(originalErrorReplicas);
-        }
-        Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
+
+        final TransactionState finalTs = transactionState;
+        Predicate<Replica> hasPublishVersion = replica -> finalTs.isPublishReplicaSucc(replica);
 
         // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are
         // already force dropped, we just ignore the transaction with all tables been force dropped.
@@ -874,7 +870,6 @@ public class DatabaseTransactionMgr {
         List<? extends TableIf> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
         tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         try {
-            boolean hasError = false;
             Iterator<TableCommitInfo> tableCommitInfoIterator
                     = transactionState.getIdToTableCommitInfos().values().iterator();
             while (tableCommitInfoIterator.hasNext()) {
@@ -889,7 +884,6 @@ public class DatabaseTransactionMgr {
                             transactionState);
                     continue;
                 }
-                PartitionInfo partitionInfo = table.getPartitionInfo();
                 Iterator<PartitionCommitInfo> partitionCommitInfoIterator
                         = tableCommitInfo.getIdToPartitionCommitInfo().values().iterator();
                 while (partitionCommitInfoIterator.hasNext()) {
@@ -903,95 +897,27 @@ public class DatabaseTransactionMgr {
                                         + " and remove it from transaction state {}", partitionId, transactionState);
                         continue;
                     }
-                    if (partition.getVisibleVersion() != partitionCommitInfo.getVersion() - 1) {
-                        LOG.debug("transactionId {} partition commitInfo version {} is not equal with "
-                                        + "partition visible version {} plus one, need wait",
-                                transactionId,
-                                partitionCommitInfo.getVersion(),
-                                partition.getVisibleVersion());
-                        String errMsg = String.format("wait for publishing partition %d version %d."
-                                        + " self version: %d. table %d", partitionId, partition.getVisibleVersion() + 1,
-                                partitionCommitInfo.getVersion(), tableId);
-                        transactionState.setErrorMsg(errMsg);
+
+                    try {
+                        Set<Long> indexIds = null;
+                        if (!transactionState.getLoadedTblIndexes().isEmpty()) {
+                            indexIds = transactionState.getLoadedTblIndexes().get(tableId);
+                        }
+
+                        ReplicaHealthUtils.checkPartitionReadyVisibleOnVersion(table, partition, indexIds,
+                                partitionCommitInfo.getVersion(), hasPublishVersion);
+                    } catch (UserException e) {
+                        transactionState.setErrorMsg(e.getMessage());
+                        LOG.warn("publish version failed for transaction {}, err: {}", transactionState,
+                                e.getMessage());
                         return;
                     }
-                    int quorumReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
-
-                    List<MaterializedIndex> allIndices;
-                    if (transactionState.getLoadedTblIndexes().isEmpty()) {
-                        allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                    } else {
-                        allIndices = Lists.newArrayList();
-                        for (long indexId : transactionState.getLoadedTblIndexes().get(tableId)) {
-                            MaterializedIndex index = partition.getIndex(indexId);
-                            if (index != null) {
-                                allIndices.add(index);
-                            }
-                        }
-                    }
-
-                    // check success replica number for each tablet.
-                    // a success replica means:
-                    //  1. Not in errorReplicaIds: succeed in both commit and publish phase
-                    //  2. last failed version < 0: is a health replica before
-                    //  3. version catch up: not with a stale version
-                    // Here we only check number, the replica version will be updated in updateCatalogAfterVisible()
-                    for (MaterializedIndex index : allIndices) {
-                        for (Tablet tablet : index.getTablets()) {
-                            int healthReplicaNum = 0;
-                            for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
-                                    errorReplicaIds.remove(replica.getId());
-                                    ++healthReplicaNum;
-                                } else if (publishBackends.contains(replica.getBackendId())) {
-                                    // BE publish version without reponse with latest version
-                                    // maybe FE replica version still equals partition's visible version
-                                    if (!errorReplicaIds.contains(replica.getId())) {
-                                        if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
-                                            ++healthReplicaNum;
-                                        } else {
-                                            LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                                    + " on replica {} due to not catchup",
-                                                    partitionCommitInfo.getVersion(), transactionState, tablet,
-                                                    replica);
-                                        }
-                                    } else {
-                                        LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                                + " on replica {} due to version hole or error",
-                                                partitionCommitInfo.getVersion(), transactionState, tablet, replica);
-                                    }
-                                } else {
-                                    errorReplicaIds.add(replica.getId());
-                                    LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                             + " on replica {} due to join replica",
-                                             partitionCommitInfo.getVersion(), transactionState, tablet, replica);
-                                }
-                            }
-
-                            if (healthReplicaNum < quorumReplicaNum) {
-                                LOG.info("publish version {} failed for transaction {} on tablet {},"
-                                                + " with only {} replicas less than quorum {}",
-                                         partitionCommitInfo.getVersion(), transactionState, tablet, healthReplicaNum,
-                                         quorumReplicaNum);
-                                String errMsg = String.format("publish on tablet %d failed."
-                                                + " succeed replica num %d less than quorum %d."
-                                                + " table: %d, partition: %d, publish version: %d",
-                                        tablet.getId(), healthReplicaNum, quorumReplicaNum, tableId,
-                                        partitionId, partition.getVisibleVersion() + 1);
-                                transactionState.setErrorMsg(errMsg);
-                                hasError = true;
-                            }
-                        }
-                    }
                 }
-            }
-            if (hasError) {
-                return;
             }
             boolean txnOperated = false;
             writeLock();
             try {
-                transactionState.setErrorReplicas(errorReplicaIds);
+                //transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
@@ -1626,8 +1552,10 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private boolean updateCatalogAfterVisible(TransactionState transactionState, Database db) {
-        Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
+    private void updateCatalogAfterVisible(TransactionState transactionState, Database db) {
+        final TransactionState finalTs = transactionState;
+        Predicate<Replica> hasPublishVersion = replica -> finalTs.isPublishReplicaSucc(replica);
+
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1638,7 +1566,6 @@ public class DatabaseTransactionMgr {
             }
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
-                long newCommitVersion = partitionCommitInfo.getVersion();
                 Partition partition = table.getPartition(partitionId);
                 if (partition == null) {
                     LOG.warn("partition {} in table {} does not exist when update catalog after visible."
@@ -1646,54 +1573,11 @@ public class DatabaseTransactionMgr {
                             partitionId, tableId, transactionState.getTransactionId(), db.getId());
                     continue;
                 }
-                List<MaterializedIndex> allIndices = partition
-                        .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
-                for (MaterializedIndex index : allIndices) {
-                    for (Tablet tablet : index.getTablets()) {
-                        for (Replica replica : tablet.getReplicas()) {
-                            long lastFailedVersion = replica.getLastFailedVersion();
-                            long newVersion = newCommitVersion;
-                            long lastSuccessVersion = replica.getLastSuccessVersion();
-                            if (!errorReplicaIds.contains(replica.getId())) {
-                                if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
-                                    // this means the replica has error in the past, but we did not observe it
-                                    // during upgrade, one job maybe in quorum finished state, for example,
-                                    // A,B,C 3 replica A,B 's version is 10, C's version is 10 but C' 10 is abnormal
-                                    // should be rollback then we will detect this and set C's last failed version to
-                                    // 10 and last success version to 11 this logic has to be replayed
-                                    // in checkpoint thread
-                                    lastFailedVersion = partition.getVisibleVersion();
-                                    newVersion = replica.getVersion();
-                                }
 
-                                // success version always move forward
-                                lastSuccessVersion = newCommitVersion;
-                            } else {
-                                // for example, A,B,C 3 replicas, B,C failed during publish version,
-                                // then B C will be set abnormal all loading will failed, B,C will have to recovery
-                                // by clone, it is very inefficient and maybe lost data Using this method, B,C will
-                                // publish failed, and fe will publish again, not update their last failed version
-                                // if B is publish successfully in next turn, then B is normal and C will be set
-                                // abnormal so that quorum is maintained and loading will go on.
-                                newVersion = replica.getVersion();
-                                if (newCommitVersion > lastFailedVersion) {
-                                    lastFailedVersion = newCommitVersion;
-                                }
-                            }
-                            replica.updateVersionWithFailedInfo(newVersion, lastFailedVersion, lastSuccessVersion);
-                        }
-                    }
-                } // end for indices
-                long version = partitionCommitInfo.getVersion();
-                long versionTime = partitionCommitInfo.getVersionTime();
-                partition.updateVisibleVersionAndTime(version, versionTime);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("transaction state {} set partition {}'s version to [{}]",
-                            transactionState, partition.getId(), version);
-                }
+                ReplicaHealthUtils.udpatePartitionVisibleVersion(partition, partitionCommitInfo.getVersion(),
+                        partitionCommitInfo.getVersionTime(), hasPublishVersion);
             }
         }
-        return true;
     }
 
     public boolean isPreviousTransactionsFinished(long endTransactionId, List<Long> tableIdList) {

@@ -19,9 +19,11 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
@@ -207,9 +209,22 @@ public class TransactionState implements Writable {
     private long finishTime;
     @SerializedName(value = "reason")
     private String reason = "";
+
+
     // error replica ids
+    // Deprecated, use commitErrorReplicas + publishErrorReplicas
     @SerializedName(value = "errorReplicas")
     private Set<Long> errorReplicas;
+
+    @SerializedName(value = "commitErrorReplicas")
+    private Map<Long, Set<Long>> commitErrorReplicas;
+
+    // for a backend, backendErrorReplicas[backendId]:
+    // 1. if equals null, then this BE's replicas all failed
+    // 2. if not equals null && it's empty, then this BE's replicas all succ
+    @SerializedName(value = "publishErrorReplicas")
+    private Map<Long, Set<Long>> publishErrorReplicas;
+
     // this latch will be counted down when txn status change to VISIBLE
     private CountDownLatch visibleLatch;
 
@@ -269,6 +284,8 @@ public class TransactionState implements Writable {
         this.finishTime = -1;
         this.reason = "";
         this.errorReplicas = Sets.newHashSet();
+        this.commitErrorReplicas = Maps.newHashMap();
+        this.publishErrorReplicas = Maps.newHashMap();
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
@@ -291,6 +308,8 @@ public class TransactionState implements Writable {
         this.finishTime = -1;
         this.reason = "";
         this.errorReplicas = Sets.newHashSet();
+        this.commitErrorReplicas = Maps.newHashMap();
+        this.publishErrorReplicas = Maps.newHashMap();
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.visibleLatch = new CountDownLatch(1);
@@ -503,6 +522,10 @@ public class TransactionState implements Writable {
         return this.errorReplicas;
     }
 
+    public Map<Long, Set<Long>> getPublishErrorReplicas() {
+        return publishErrorReplicas;
+    }
+
     public long getDbId() {
         return dbId;
     }
@@ -603,6 +626,51 @@ public class TransactionState implements Writable {
         return publishVersionTasks;
     }
 
+    public boolean isPublishReplicaSucc(Replica replica) {
+        // if BE no contains the txn, then publish version will answer ok.
+        // so need check commmit info too
+        if (!isCommitReplicaSucc(replica)) {
+            // TODO open
+            //return false;
+        }
+
+        // for compatibility
+        if (publishErrorReplicas.isEmpty()) {
+            return !errorReplicas.contains(replica.getId());
+        } else {
+            long backendId = replica.getBackendId();
+            if (!publishErrorReplicas.containsKey(backendId)) {
+                return false;
+            }
+
+            Set<Long> replicas = publishErrorReplicas.get(backendId);
+            if (replicas == null || !replicas.contains(replica.getId())) {
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    public boolean isCommitReplicaSucc(Replica replica) {
+        // for compatibility
+        if (commitErrorReplicas.isEmpty()) {
+            return !errorReplicas.contains(replica.getId());
+        } else {
+            long backendId = replica.getBackendId();
+            if (!commitErrorReplicas.containsKey(backendId)) {
+                return false;
+            }
+
+            Set<Long> replicas = commitErrorReplicas.get(backendId);
+            if (replicas == null || !replicas.contains(replica.getId())) {
+                return false;
+            }
+
+            return true;
+        }
+    }
+
     public boolean isPublishTimeout() {
         // the max timeout is Config.publish_version_timeout_second * 2;
         long timeoutMillis = Config.publish_version_timeout_second * 1000;
@@ -639,6 +707,8 @@ public class TransactionState implements Writable {
         for (long errorReplciaId : errorReplicas) {
             out.writeLong(errorReplciaId);
         }
+        IOUtils.writeMapLongCollectionLong(out, commitErrorReplicas);
+        IOUtils.writeMapLongCollectionLong(out, publishErrorReplicas);
 
         if (txnCommitAttachment == null) {
             out.writeBoolean(false);
@@ -678,7 +748,10 @@ public class TransactionState implements Writable {
         for (int i = 0; i < errorReplicaNum; ++i) {
             errorReplicas.add(in.readLong());
         }
-
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
+            IOUtils.readMapLongCollectionLong(in, commitErrorReplicas, Sets::newHashSet);
+            IOUtils.readMapLongCollectionLong(in, publishErrorReplicas, Sets::newHashSet);
+        }
         if (in.readBoolean()) {
             txnCommitAttachment = TxnCommitAttachment.read(in);
         }

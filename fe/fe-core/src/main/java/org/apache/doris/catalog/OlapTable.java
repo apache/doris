@@ -1747,6 +1747,12 @@ public class OlapTable extends Table {
         tableProperty.buildEnableLightSchemaChange();
     }
 
+    public int getLoadRequiredReplicaNum(long partitionId) {
+        int quorum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
+
+        return quorum;
+    }
+
     public void setStoragePolicy(String storagePolicy) throws UserException {
         if (!Config.enable_storage_policy && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new UserException("storage policy feature is disabled by default. "
