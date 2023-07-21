@@ -27,7 +27,7 @@ suite("test_outfile_parquet") {
 
     def outFile = "/tmp"
     def urlHost = ""
-    def csvFiles = ""
+    def parquetFiles = ""
 
     def dbName = "test_outfile_parquet"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -116,8 +116,8 @@ suite("test_outfile_parquet") {
         url = result[0][3]
         urlHost = url.substring(8, url.indexOf("${outFile}"))
         def filePrifix = url.split("${outFile}")[1]
-        csvFiles = "${outFile}${filePrifix}*.csv"
-        scpFiles ("root", urlHost, csvFiles, outFilePath)
+        parquetFiles = "${outFile}${filePrifix}*.parquet"
+        scpFiles ("root", urlHost, parquetFiles, outFilePath)
 
         File[] files = path.listFiles()
         assert files.length == 1
@@ -169,7 +169,7 @@ suite("test_outfile_parquet") {
             path.delete();
         }
 
-        cmd = "rm -rf ${csvFiles}"
+        cmd = "rm -rf ${parquetFiles}"
         sshExec ("root", urlHost, cmd)
     }
 }
