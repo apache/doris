@@ -84,6 +84,7 @@ import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.PushdownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushdownTopNThroughWindow;
 import org.apache.doris.nereids.rules.rewrite.ReorderJoin;
+import org.apache.doris.nereids.rules.rewrite.ReplaceLimitNode;
 import org.apache.doris.nereids.rules.rewrite.RewriteCteChildren;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -248,12 +249,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
             //         costBased(custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushdownDistinctThroughJoin::new))
             // ),
 
-            topic("Window optimization",
+            topic("Limit optimization",
                     topDown(
                             // TODO: the logical plan should not contains any phase information,
                             //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
                             //       generate one PhysicalLimit if current distribution is gather or two
                             //       PhysicalLimits with gather exchange
+                            new ReplaceLimitNode(),
                             new SplitLimit(),
                             new PushdownLimit(),
                             new PushdownTopNThroughWindow(),

@@ -19,23 +19,16 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.UnaryNode;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
-import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Limit;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -44,16 +37,7 @@ import java.util.Optional;
  * Rules to push {@link org.apache.doris.nereids.trees.plans.logical.LogicalLimit} down.
  * <p>
  * Limit can't be push down if it has a valid offset info.
-
- * the plan tree will be transformed to:
- * Limit
- *      - A
- *          - B
-
- * Limit
- *      - A
- *          - Limit(Local)
- *              - B
+ * splitLimit run before this rule, so the limit match the patterns is local limit
  */
 public class PushdownLimit implements RewriteRuleFactory {
 
@@ -63,7 +47,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                 // limit -> join
                 logicalLimit(logicalJoin(any(), any())).whenNot(Limit::hasValidOffset)
                         .then(limit -> {
-                            Plan newJoin = pushLimitThroughJoin(limit.withLimitPhase(LimitPhase.LOCAL), limit.child());
+                            Plan newJoin = pushLimitThroughJoin(limit, limit.child());
                             if (newJoin == null || limit.child().children().equals(newJoin.children())) {
                                 return null;
                             }
@@ -76,7 +60,7 @@ public class PushdownLimit implements RewriteRuleFactory {
                         .then(limit -> {
                             LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
                             LogicalJoin<Plan, Plan> join = project.child();
-                            Plan newJoin = pushLimitThroughJoin(limit.withLimitPhase(LimitPhase.LOCAL), join);
+                            Plan newJoin = pushLimitThroughJoin(limit, join);
                             if (newJoin == null || join.children().equals(newJoin.children())) {
                                 return null;
                             }
@@ -112,11 +96,10 @@ public class PushdownLimit implements RewriteRuleFactory {
                 logicalLimit(logicalUnion(multi()).when(union -> union.getQualifier() == Qualifier.ALL))
                         .whenNot(Limit::hasValidOffset)
                         .then(limit -> {
-                            LogicalLimit<Plan> localLimit = limit.withLimitPhase(LimitPhase.LOCAL);
                             LogicalUnion union = limit.child();
                             ImmutableList<Plan> newUnionChildren = union.children()
                                     .stream()
-                                    .map(localLimit::withChildren)
+                                    .map(limit::withChildren)
                                     .collect(ImmutableList.toImmutableList());
                             if (union.children().equals(newUnionChildren)) {
                                 return null;
@@ -124,34 +107,6 @@ public class PushdownLimit implements RewriteRuleFactory {
                             return limit.withChildren(union.withChildren(newUnionChildren));
                         })
                         .toRule(RuleType.PUSH_LIMIT_THROUGH_UNION),
-                // limit -> sort ==> topN
-                logicalLimit(logicalSort())
-                        .then(limit -> {
-                            LogicalSort<Plan> sort = limit.child();
-                            return new LogicalTopN<>(sort.getOrderKeys(),
-                                    limit.getLimit(),
-                                    limit.getOffset(),
-                                    sort.child(0));
-                        }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
-                //limit->proj->sort ==> proj->topN
-                logicalLimit(logicalProject(logicalSort()))
-                        .then(limit -> {
-                            LogicalProject project = limit.child();
-                            LogicalSort sort = limit.child().child();
-                            LogicalTopN topN = new LogicalTopN(sort.getOrderKeys(),
-                                    limit.getLimit(),
-                                    limit.getOffset(),
-                                    sort.child(0));
-                            return project.withChildren(Lists.newArrayList(topN));
-                        }).toRule(RuleType.PUSH_LIMIT_INTO_SORT),
-                logicalLimit(logicalOneRowRelation())
-                        .then(limit -> limit.getLimit() > 0 && limit.getOffset() == 0
-                                ? limit.child() : new LogicalEmptyRelation(StatementScopeIdGenerator.newRelationId(),
-                                limit.child().getOutput()))
-                        .toRule(RuleType.ELIMINATE_LIMIT_ON_ONE_ROW_RELATION),
-                logicalLimit(logicalEmptyRelation())
-                        .then(UnaryNode::child)
-                        .toRule(RuleType.ELIMINATE_LIMIT_ON_EMPTY_RELATION),
                 new MergeLimits().build()
         );
     }
