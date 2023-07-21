@@ -469,8 +469,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 continue;
             }
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
-                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids,
-                                                         old_value_block.get_names()[cid],
+                TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
+                auto st = _tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
                                                          mutable_old_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
