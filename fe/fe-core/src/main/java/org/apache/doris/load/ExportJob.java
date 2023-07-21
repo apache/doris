@@ -294,6 +294,12 @@ public class ExportJob implements Writable {
             selectStmt.setOrigStmt(new OriginStatement(selectStmt.toSql(), 0));
             selectStmtList.add(selectStmt);
         }
+
+        if (LOG.isDebugEnabled()) {
+            for (int i = 0; i < selectStmtList.size(); i++) {
+                LOG.debug("Outfile clause {} is: {}", i, selectStmtList.get(i).toSql());
+            }
+        }
     }
 
     private ArrayList<ArrayList<TableRef>> splitTablets(ExportStmt stmt) throws UserException {
