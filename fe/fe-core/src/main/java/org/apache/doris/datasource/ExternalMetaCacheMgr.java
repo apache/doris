@@ -149,7 +149,7 @@ public class ExternalMetaCacheMgr {
 
     public void addPartitionsCache(long catalogId, ExternalTable table, List<String> partitionNames) {
         if (!(table instanceof HMSExternalTable)) {
-            LOG.warn("only support HMSTable");
+            LOG.warn("add PartitionsCache only support HMSTable");
             return;
         }
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
@@ -163,7 +163,7 @@ public class ExternalMetaCacheMgr {
 
     public void dropPartitionsCache(long catalogId, ExternalTable table, List<String> partitionNames) {
         if (!(table instanceof HMSExternalTable)) {
-            LOG.warn("only support HMSTable");
+            LOG.warn("drop PartitionsCache only support HMSTable");
             return;
         }
         String dbName = ClusterNamespace.getNameFromFullName(table.getDbName());
@@ -174,16 +174,19 @@ public class ExternalMetaCacheMgr {
         LOG.debug("drop partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
     }
 
-    public void invalidatePartitionsCache(long catalogId, String dbName, String tableName,
+    public void invalidatePartitionsCache(long catalogId, String dbName, ExternalTable table,
             List<String> partitionNames) {
+        if (!(table instanceof HMSExternalTable)) {
+            LOG.warn("invalidate PartitionsCache only support HMSTable");
+            return;
+        }
         HiveMetaStoreCache metaCache = cacheMap.get(catalogId);
         if (metaCache != null) {
             dbName = ClusterNamespace.getNameFromFullName(dbName);
             for (String partitionName : partitionNames) {
-                metaCache.invalidatePartitionCache(dbName, tableName, partitionName);
+                metaCache.invalidatePartitionCache(dbName, table.getName(), partitionName);
             }
-
         }
-        LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, tableName, catalogId);
+        LOG.debug("invalidate partition cache for {}.{} in catalog {}", dbName, table.getName(), catalogId);
     }
 }

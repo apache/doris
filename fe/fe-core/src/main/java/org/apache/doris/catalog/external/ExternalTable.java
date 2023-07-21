@@ -74,10 +74,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
 
-    protected boolean objectCreated;
-    protected ExternalCatalog catalog;
-    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
-
     /**
      * versionInfo: Pair(version, versionTime)
      *
@@ -91,6 +87,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      *  >0: current version time
      * */
     protected volatile Pair<Long, Long> versionInfo = Pair.of(-1L, -1L);
+
+    protected boolean objectCreated;
+    protected ExternalCatalog catalog;
+    protected ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock(true);
 
     /**
      * No args constructor for persist.
@@ -137,7 +137,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         if (!objectCreated) {
             doInitialize();
             // set version to 0L if table has been initialized
-            // set versionTime to current ts so cache will miss
+            // set versionTime to current ts so the next query will miss the cache
             refreshVersion(0L, System.currentTimeMillis());
             objectCreated = true;
         }
@@ -321,19 +321,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 0;
     }
 
-    public Pair<Long, Long> getVersionInfo() {
-        return versionInfo;
+    @Override
+    public long getLastCheckTime() {
+        return 0;
     }
 
     public void refreshVersion(long version, long versionTime) {
         if (version != -1L && versionTime != -1L) {
             this.versionInfo = Pair.of(version, versionTime);
         }
-    }
-
-    @Override
-    public long getLastCheckTime() {
-        return 0;
     }
 
     @Override
@@ -375,13 +371,6 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return Optional.empty();
     }
 
-    /**
-     * Should only be called in ExternalCatalog's getSchema(),
-     * which is called from schema cache.
-     * If you want to get schema of this table, use getFullSchema()
-     *
-     * @return
-     */
     public List<Column> initSchemaAndUpdateTime() {
         lastUpdateTime = System.currentTimeMillis();
         return initSchema();

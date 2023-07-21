@@ -142,23 +142,23 @@ public class CacheAnalyzer {
         public TableIf table;
         public long latestId;
         public long latestVersion;
-        public long latestTime;
+        public long latestVersionTime;
 
         public CacheTable() {
             table = null;
             latestId = 0;
             latestVersion = 0;
-            latestTime = 0;
+            latestVersionTime = 0;
         }
 
         @Override
         public int compareTo(CacheTable table) {
-            return Long.compare(table.latestTime, this.latestTime);
+            return Long.compare(table.latestVersionTime, this.latestVersionTime);
         }
 
         public void debug() {
-            LOG.debug("table {}, id {}, ver {}, time {}", table.getName(),
-                    latestId, latestVersion, latestTime);
+            LOG.debug("table {}, id {}, ver {}, ver time {}", table.getName(),
+                    latestId, latestVersion, latestVersionTime);
         }
     }
 
@@ -240,8 +240,8 @@ public class CacheAnalyzer {
             now = nowtime();
         }
         if (enableSqlCache()
-                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
-            LOG.debug("sql cache time: {},{},{}", now, latestTable.latestTime,
+                && (now - latestTable.latestVersionTime) >= Config.cache_last_version_interval_second * 1000L) {
+            LOG.debug("sql cache time: {},{},{}", now, latestTable.latestVersionTime,
                     Config.cache_last_version_interval_second * 1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
@@ -257,7 +257,7 @@ public class CacheAnalyzer {
         //Check if selectStmt matches partition key
         //Only one table can be updated in Config.cache_last_version_interval_second range
         for (int i = 1; i < tblTimeList.size(); i++) {
-            if ((now - tblTimeList.get(i).latestTime) < Config.cache_last_version_interval_second * 1000L) {
+            if ((now - tblTimeList.get(i).latestVersionTime) < Config.cache_last_version_interval_second * 1000L) {
                 LOG.debug("the time of other tables is newer than {} s, queryid {}",
                         Config.cache_last_version_interval_second, DebugUtil.printId(queryId));
                 return CacheMode.None;
@@ -480,7 +480,7 @@ public class CacheAnalyzer {
         cacheTable.table = hmsTable;
         // if the table has been recreated, the id will be changed so the cache will miss
         cacheTable.latestId = hmsTable.getId();
-        cacheTable.latestTime = tableVersionTime;
+        cacheTable.latestVersionTime = tableVersionTime;
         cacheTable.latestVersion = tableVersion;
         MetricRepo.COUNTER_QUERY_HMS_TABLE.increase(1L);
         return cacheTable;
@@ -492,9 +492,9 @@ public class CacheAnalyzer {
         cacheTable.table = olapTable;
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
-            if (partition.getVisibleVersionTime() >= cacheTable.latestTime) {
+            if (partition.getVisibleVersionTime() >= cacheTable.latestVersionTime) {
                 cacheTable.latestId = partition.getId();
-                cacheTable.latestTime = partition.getVisibleVersionTime();
+                cacheTable.latestVersionTime = partition.getVisibleVersionTime();
                 cacheTable.latestVersion = partition.getVisibleVersion();
             }
         }

@@ -31,6 +31,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
+
+
 @NoArgsConstructor
 @Getter
 @Data
@@ -58,6 +60,12 @@ public class ExternalObjectLog implements Writable {
 
     @SerializedName(value = "lastUpdateTime")
     private long lastUpdateTime;
+
+    @SerializedName(value = "tableVersion")
+    private long tableVersion = -1L;
+
+    @SerializedName(value = "tableVersionTime")
+    private long tableVersionTime = -1L;
 
     @Override
     public void write(DataOutput out) throws IOException {

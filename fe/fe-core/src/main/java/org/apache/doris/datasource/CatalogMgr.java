@@ -647,8 +647,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (dbTablePair != null) {
             ExternalDatabase db = dbTablePair.first;
             ExternalTable table = dbTablePair.second;
-            // no need to refresh table version
-            // because `objectCreated` of this table will set to false
             table.unsetObjectCreated();
             Env.getCurrentEnv().getExtMetaCacheMgr()
                     .invalidateTableCache(log.getCatalogId(), db.getFullName(), table.getName());
@@ -659,6 +657,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             throws DdlException {
         ExternalObjectLog log = buildExternalObjectLogForTable(catalogName, dbName, tableName, ignoreIfExists);
         if (log != null) {
+            log.setLastUpdateTime(System.currentTimeMillis());
             replayDropExternalTable(log);
             Env.getCurrentEnv().getEditLog().logDropExternalTable(log);
         }
@@ -837,11 +836,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void addExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames,
-                                      long version, long versionTime, boolean ignoreIfNotExists) throws DdlException {
+                                      long version, boolean ignoreIfNotExists) throws DdlException {
         ExternalObjectLog log = buildExternalObjectLogForTable(catalogName, dbName, tableName, ignoreIfNotExists);
         if (log != null) {
             log.setPartitionNames(partitionNames);
-            log.setVersionTime(versionTime);
+            log.setTableVersion(version);
+            log.setTableVersionTime(System.currentTimeMillis());
             replayAddExternalPartitions(log);
             Env.getCurrentEnv().getEditLog().logAddExternalPartitions(log);
         }
@@ -854,7 +854,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (dbTablePair != null) {
             ExternalDatabase db = dbTablePair.first;
             ExternalTable table = dbTablePair.second;
-            table.refreshVersion(log.getVersion(), log.getVersionTime());
+            table.refreshVersion(log.getTableVersion(), log.getTableVersionTime());
             try {
                 Env.getCurrentEnv().getExtMetaCacheMgr()
                         .addPartitionsCache(log.getCatalogId(), table, log.getPartitionNames());
@@ -867,13 +867,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     public void dropExternalPartitions(String catalogName, String dbName, String tableName, List<String> partitionNames,
-                                       long version, long versionTime, boolean ignoreIfNotExists)
+                                       long version, boolean ignoreIfNotExists)
             throws DdlException {
         ExternalObjectLog log = buildExternalObjectLogForTable(catalogName, dbName, tableName, ignoreIfNotExists);
         if (log != null) {
+            log.setTableVersion(version);
+            log.setTableVersionTime(System.currentTimeMillis());
             log.setPartitionNames(partitionNames);
-            log.setVersion(version);
-            log.setVersionTime(versionTime);
             replayDropExternalPartitions(log);
             Env.getCurrentEnv().getEditLog().logDropExternalPartitions(log);
         }
@@ -885,21 +885,20 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Pair<ExternalDatabase, ExternalTable> dbTablePair = getExternalDbTblPair(log);
         if (dbTablePair != null) {
             ExternalTable table = dbTablePair.second;
-            table.refreshVersion(log.getVersion(), log.getVersionTime());
+            table.refreshVersion(log.getTableVersion(), log.getTableVersionTime());
             Env.getCurrentEnv().getExtMetaCacheMgr()
                     .dropPartitionsCache(log.getCatalogId(), table, log.getPartitionNames());
         }
     }
 
     public void refreshExternalPartitions(String catalogName, String dbName, String tableName,
-                                          List<String> partitionNames, long version, long versionTime,
-                                          boolean ignoreIfNotExists)
+                                          List<String> partitionNames, long version, boolean ignoreIfNotExists)
             throws DdlException {
         ExternalObjectLog log = buildExternalObjectLogForTable(catalogName, dbName, tableName, ignoreIfNotExists);
         if (log != null) {
+            log.setTableVersion(version);
+            log.setTableVersionTime(System.currentTimeMillis());
             log.setPartitionNames(partitionNames);
-            log.setVersion(version);
-            log.setVersionTime(versionTime);
             replayRefreshExternalPartitions(log);
             Env.getCurrentEnv().getEditLog().logInvalidateExternalPartitions(log);
         }
@@ -912,10 +911,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (dbTablePair != null) {
             ExternalDatabase db = dbTablePair.first;
             ExternalTable table = dbTablePair.second;
-            table.refreshVersion(log.getVersion(), log.getVersionTime());
-            Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .invalidatePartitionsCache(log.getCatalogId(), db.getFullName(),
-                                table.getName(), log.getPartitionNames());
+            table.refreshVersion(log.getTableVersion(), log.getTableVersionTime());
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidatePartitionsCache(log.getCatalogId(), db.getFullName(),
+                        table, log.getPartitionNames());
         }
     }
 
