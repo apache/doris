@@ -45,7 +45,8 @@ AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& 
     WhichDataType which(*type);
 
     if (which.is_string()) {
-        return std::make_shared<AggregateFunctionCountByEnum<AggregateFunctionCountByEnumData>>(argument_types);
+        return std::make_shared<AggregateFunctionCountByEnum<AggregateFunctionCountByEnumData>>(
+                argument_types);
     }
 
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
@@ -55,6 +56,7 @@ AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& 
 
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("count_by_enum", create_aggregate_function_count_by_enum, true);
+    factory.register_function("count_by_enum", create_aggregate_function_count_by_enum, false);
 }
 
 } // namespace doris::vectorized

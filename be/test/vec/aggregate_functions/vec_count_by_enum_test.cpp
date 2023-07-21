@@ -69,15 +69,13 @@ TEST_F(VCountByEnumTest, testEmpty) {
     agg_function->create(place2);
 
     agg_function->merge(place, place2, nullptr);
-    auto column_result =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place, *column_result);
     auto& result = assert_cast<ColumnString&>(*column_result);
     LOG(INFO) << "result : " << result.get_data_at(0);
     EXPECT_EQ(result.get_data_at(0).to_string(), "[]");
 
-    auto column_result2 =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);
     auto& result2 = assert_cast<ColumnString&>(*column_result2);
     LOG(INFO) << "result2 : " << result2.get_data_at(0);
@@ -110,8 +108,7 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
 
     agg_function->merge(place2, place, nullptr);
 
-    auto column_result2 =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);
     auto& result2 = assert_cast<ColumnString&>(*column_result2);
 
@@ -159,8 +156,7 @@ TEST_F(VCountByEnumTest, testNullableSample) {
 
     agg_function->merge(place2, place, nullptr);
 
-    auto column_result2 =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);
     auto& result2 = assert_cast<ColumnString&>(*column_result2);
 
@@ -202,8 +198,7 @@ TEST_F(VCountByEnumTest, testNoMerge) {
         agg_function->add(place, column, i, nullptr);
     }
 
-    auto column_result =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place, *column_result);
     auto& result = assert_cast<ColumnString&>(*column_result);
 
@@ -256,8 +251,7 @@ TEST_F(VCountByEnumTest, testSerialize) {
     VectorBufferReader buf_reader(buf.get_data_at(0));
     agg_function->deserialize(place2, buf_reader, nullptr);
 
-    auto column_result1 =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result1 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result1);
     auto& result1 = assert_cast<ColumnString&>(*column_result1);
 
@@ -294,8 +288,7 @@ TEST_F(VCountByEnumTest, testSerialize) {
 
     agg_function->merge(place2, place3, nullptr);
 
-    auto column_result2 =
-            ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
+    auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);
     auto& result2 = assert_cast<ColumnString&>(*column_result2);
 

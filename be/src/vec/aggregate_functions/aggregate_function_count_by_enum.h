@@ -66,7 +66,8 @@ struct AggregateFunctionCountByEnumData {
 
     void merge(const AggregateFunctionCountByEnumData& rhs) {
         for (int idx = 0; idx < rhs.data_vec.size(); idx++) {
-            CountByEnumData& data = data_vec.size() <= idx ? data_vec.emplace_back() : data_vec[idx];
+            CountByEnumData& data =
+                    data_vec.size() <= idx ? data_vec.emplace_back() : data_vec[idx];
             const CountByEnumData& rhs_data = rhs.data_vec[idx];
             const MapType& rhs_unordered_map = rhs_data.cbe;
             MapType& lhs_unordered_map = data.cbe;
@@ -140,7 +141,7 @@ struct AggregateFunctionCountByEnumData {
     }
 
 private:
-    std::vector<CountByEnumData>  data_vec;
+    std::vector<CountByEnumData> data_vec;
 };
 
 template <typename Data>
@@ -149,9 +150,9 @@ class AggregateFunctionCountByEnum final
 public:
     AggregateFunctionCountByEnum() = default;
     AggregateFunctionCountByEnum(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                    Data,
-                    AggregateFunctionCountByEnum<Data>>(argument_types_, {}), _argument_type(argument_types_[0]) {
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionCountByEnum<Data>>(
+                      argument_types_, {}),
+              _argument_type(argument_types_[0]) {
         arg_count = argument_types_.size();
     }
 
@@ -165,12 +166,15 @@ public:
         for (int i = 0; i < arg_count; i++) {
             const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
             if (nullable_column == nullptr) {
-                this->data(place).add(i, static_cast<const ColumnString&>(*columns[i]).get_data_at(row_num));
+                this->data(place).add(
+                        i, static_cast<const ColumnString&>(*columns[i]).get_data_at(row_num));
             } else if (nullable_column->is_null_at(row_num)) {
                 // TODO create a null vector
                 this->data(place).add(i);
             } else {
-                this->data(place).add(i, static_cast<const ColumnString&>(nullable_column->get_nested_column()).get_data_at(row_num));
+                this->data(place).add(
+                        i, static_cast<const ColumnString&>(nullable_column->get_nested_column())
+                                   .get_data_at(row_num));
             }
         }
     }

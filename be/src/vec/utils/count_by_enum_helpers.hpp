@@ -35,7 +35,8 @@ struct CountByEnumData {
     uint64_t all;
 };
 
-void build_json_from_vec(rapidjson::StringBuffer& buffer, const std::vector<CountByEnumData>& data_vec) {
+void build_json_from_vec(rapidjson::StringBuffer& buffer,
+                         const std::vector<CountByEnumData>& data_vec) {
     rapidjson::Document doc;
     doc.SetArray();
     rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
