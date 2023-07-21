@@ -167,7 +167,7 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 | MYSQL Type                                | Doris Type     | Comment                                         |
 |-------------------------------------------|----------------|-------------------------------------------------|
-| BOOLEAN                                   | BOOLEAN        |                                                 |
+| BOOLEAN                                   | TINYINT        |                                                 |
 | TINYINT                                   | TINYINT        |                                                 |
 | SMALLINT                                  | SMALLINT       |                                                 |
 | MEDIUMINT                                 | INT            |                                                 |
