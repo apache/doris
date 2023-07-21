@@ -206,6 +206,8 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _max_tablet_write_memory_usage_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _max_tablet_flush_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _slave_replica_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _write_block_timer = nullptr;
 };
 
 template <typename Request>
