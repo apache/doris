@@ -37,7 +37,7 @@ SHOW PARTITION ID
 语法：
 
 ```sql
-    SHOW PARTITION [partition_id]
+    SHOW PARTITION <partition_id>
 ```
 
 ### Example
