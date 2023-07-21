@@ -37,7 +37,7 @@ This statement is used to find the corresponding database name, table name, part
   grammar:
 
 ```sql
-SHOW PARTITION [partition_id]
+SHOW PARTITION <partition_id>
 ```
 ### Example
 
