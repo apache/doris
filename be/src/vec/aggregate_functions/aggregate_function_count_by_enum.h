@@ -151,8 +151,7 @@ public:
     AggregateFunctionCountByEnum() = default;
     AggregateFunctionCountByEnum(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionCountByEnum<Data>>(
-                      argument_types_, {}),
-              _argument_type(argument_types_[0]) {
+                      argument_types_) {
         arg_count = argument_types_.size();
     }
 
@@ -201,7 +200,6 @@ public:
     }
 
 private:
-    DataTypePtr _argument_type;
     size_t arg_count;
 };
 

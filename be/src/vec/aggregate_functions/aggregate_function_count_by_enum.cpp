@@ -29,7 +29,6 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const Array& parameters,
                                                              const bool result_is_nullable) {
     if (argument_types.size() < 1) {
         LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
