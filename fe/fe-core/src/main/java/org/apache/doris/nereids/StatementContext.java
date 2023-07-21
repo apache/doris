@@ -44,6 +44,7 @@ public class StatementContext {
 
     private OriginStatement originStatement;
 
+    private int joinCount = 0;
     private int maxNAryInnerJoin = 0;
 
     private boolean isDpHyp = false;
@@ -99,6 +100,16 @@ public class StatementContext {
 
     public int getMaxNAryInnerJoin() {
         return maxNAryInnerJoin;
+    }
+
+    public void setMaxContinuousJoin(int joinCount) {
+        if (joinCount > this.joinCount) {
+            this.joinCount = joinCount;
+        }
+    }
+
+    public int getMaxContinuousJoin() {
+        return joinCount;
     }
 
     public boolean isDpHyp() {

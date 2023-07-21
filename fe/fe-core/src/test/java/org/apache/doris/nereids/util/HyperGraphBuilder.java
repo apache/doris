@@ -296,7 +296,7 @@ public class HyperGraphBuilder {
     }
 
     private void injectRowcount(Group group) {
-        if (!group.isInnerJoinGroup()) {
+        if (!group.isValidJoinGroup()) {
             LogicalOlapScan scanPlan = (LogicalOlapScan) group.getLogicalExpression().getPlan();
             Statistics stats = injectRowcount(scanPlan);
             group.setStatistics(stats);
