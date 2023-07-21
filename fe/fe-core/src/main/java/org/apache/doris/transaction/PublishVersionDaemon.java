@@ -78,8 +78,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                     errorReplicas.add(replica.getId());
                 } else {
                     LOG.warn("tablet {} on backend {} has been removed when publish"
-                           + " transaction {}", tabletId, backendId,
-                           transactionState.getTransactionId());
+                            + " transaction {}", tabletId, backendId,
+                            transactionState.getTransactionId());
                 }
             }
             publishErrorReplicas.put(backendId, errorReplicas);
