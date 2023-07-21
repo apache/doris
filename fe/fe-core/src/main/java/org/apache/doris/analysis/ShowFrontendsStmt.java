@@ -51,6 +51,12 @@ public class ShowFrontendsStmt extends ShowStmt {
                                                                           PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
+
+        if (detail != null) {
+            if (!detail.equals("disks")) {
+                throw new AnalysisException("Show frontends with extra info only support show frontends disks");
+            }
+        }
     }
 
     @Override
