@@ -70,6 +70,7 @@ BetaRowsetWriter::BetaRowsetWriter()
           _total_data_size(0),
           _total_index_size(0),
           _raw_num_rows_written(0),
+          _num_rows_filtered(0),
           _segcompaction_worker(this),
           _is_doing_segcompaction(false) {
     _segcompaction_status.store(OK);
@@ -863,6 +864,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     segstat.index_size = index_size + writer->get_inverted_index_file_size();
     segstat.key_bounds = key_bounds;
 
+    _num_rows_filtered += writer->num_rows_filtered();
     writer.reset();
     if (flush_size) {
         *flush_size = segment_size + index_size;

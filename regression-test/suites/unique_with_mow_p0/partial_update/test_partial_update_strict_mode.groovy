@@ -16,9 +16,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_partial_update_upsert", "p0") {
+suite("test_partial_update_strict_mode", "p0") {
 
-    def tableName = "test_partial_update_upsert1"
+    def tableName = "test_partial_update_strict_mode"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE ${tableName} ( 
@@ -48,17 +48,27 @@ suite("test_partial_update_upsert", "p0") {
         set 'format', 'csv'
         set 'partial_columns', 'true'
         set 'columns', 'id,balance,last_access_time'
-        set 'strict_mode', 'false'
+        set 'strict_mode', 'true'
+        set 'max_filter_ratio', '1'
 
         file 'upsert.csv'
         time 10000 // limit inflight 10s
+
+        check {result, exception, startTime, endTime ->
+            assertTrue(exception == null)
+            def json = parseJson(result)
+            assertEquals("Success", json.Status)
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(1, json.NumberLoadedRows)
+            assertEquals(2, json.NumberFilteredRows)
+        }
     }
     sql "sync"
     qt_sql """select * from ${tableName} order by id;"""
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 
-    def tableName2 = "test_partial_update_upsert2"
+    def tableName2 = "test_partial_update_strict_mode2"
     sql """ DROP TABLE IF EXISTS ${tableName2} """
     sql """
             CREATE TABLE ${tableName2} ( 
@@ -89,6 +99,7 @@ suite("test_partial_update_upsert", "p0") {
         set 'partial_columns', 'true'
         set 'columns', 'id,balance,last_access_time'
         set 'strict_mode', 'true'
+        set 'max_filter_ratio', '0.5'
 
         file 'upsert.csv'
         time 10000 // limit inflight 10s
@@ -96,8 +107,13 @@ suite("test_partial_update_upsert", "p0") {
         check {result, exception, startTime, endTime ->
             assertTrue(exception == null)
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("Fail", json.Status)
+            assertEquals("[INTERNAL_ERROR]too many filtered rows", json.Message)
+            assertEquals(3, json.NumberTotalRows)
+            assertEquals(1, json.NumberLoadedRows)
+            assertEquals(2, json.NumberFilteredRows)
         }
     }
+    qt_sql """select * from ${tableName2} order by id;"""
     sql """ DROP TABLE IF EXISTS ${tableName2} """
 }
