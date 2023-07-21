@@ -2676,6 +2676,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
         }
+        if (encounterAutoIncColumn && type == KeysType.AGG_KEYS) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_AUTO_INCREMENT_COLUMN_IN_AGGREGATE_TABLE);
+        }
     }
 
     /*
