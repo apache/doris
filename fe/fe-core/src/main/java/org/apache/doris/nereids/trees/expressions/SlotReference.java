@@ -33,13 +33,11 @@ import javax.annotation.Nullable;
  * Reference to slot in expression.
  */
 public class SlotReference extends Slot {
-    private final ExprId exprId;
-    // TODO: we should distinguish the name is alias or column name, and the column name should contains
-    //       `cluster:db`.`table`.`column`
-    private final String name;
-    private final DataType dataType;
-    private final boolean nullable;
-    private final List<String> qualifier;
+    protected final ExprId exprId;
+    protected final String name;
+    protected final DataType dataType;
+    protected final boolean nullable;
+    protected final List<String> qualifier;
     private final Column column;
 
     public SlotReference(String name, DataType dataType) {
@@ -182,6 +180,7 @@ public class SlotReference extends Slot {
         return this;
     }
 
+    @Override
     public SlotReference withNullable(boolean newNullable) {
         if (this.nullable == newNullable) {
             return this;
@@ -190,16 +189,21 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public SlotReference withQualifier(List<String> qualifiers) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
+    public SlotReference withQualifier(List<String> qualifier) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
+    }
+
+    @Override
+    public SlotReference withName(String name) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
+    }
+
+    @Override
+    public SlotReference withExprId(ExprId exprId) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
 
     public boolean isVisible() {
         return column == null || column.isVisible();
-    }
-
-    @Override
-    public Slot withName(String name) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, column);
     }
 }

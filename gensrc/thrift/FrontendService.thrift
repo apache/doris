@@ -1065,6 +1065,20 @@ struct TUpdateFollowerStatsCacheRequest {
     2: optional string colStats;
 }
 
+struct TAutoIncrementRangeRequest {
+    1: optional i64 db_id;
+    2: optional i64 table_id;
+    3: optional i64 column_id;
+    4: optional i64 length
+    5: optional i64 lower_bound // if set, values in result range must larger than `lower_bound`
+}
+
+struct TAutoIncrementRangeResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1131,4 +1145,6 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+
+    TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 }

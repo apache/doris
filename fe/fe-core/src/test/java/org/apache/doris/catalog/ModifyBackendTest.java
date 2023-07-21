@@ -82,7 +82,7 @@ public class ModifyBackendTest {
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find enough backend, please check the replication num,replication tag and storage medium.\n"
                         + "Create failed replications:\n"
-                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: HDD",
+                        + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"

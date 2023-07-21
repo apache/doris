@@ -478,7 +478,8 @@ public class Coordinator {
         Map<String, Integer> result = Maps.newTreeMap();
         if (enablePipelineEngine) {
             for (PipelineExecContexts ctxs : beToPipelineExecCtxs.values()) {
-                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port), ctxs.ctxs.size());
+                result.put(ctxs.brpcAddr.hostname.concat(":").concat("" + ctxs.brpcAddr.port),
+                        ctxs.getInstanceNumber());
             }
         } else {
             for (BackendExecStates states : beToExecStates.values()) {
@@ -842,7 +843,8 @@ public class Coordinator {
                     PipelineExecContexts ctxs = beToPipelineExecCtxs.get(pipelineExecContext.backend.getId());
                     if (ctxs == null) {
                         ctxs = new PipelineExecContexts(pipelineExecContext.backend.getId(),
-                                pipelineExecContext.brpcAddress, twoPhaseExecution);
+                                pipelineExecContext.brpcAddress, twoPhaseExecution,
+                                entry.getValue().getFragmentNumOnHost());
                         beToPipelineExecCtxs.putIfAbsent(pipelineExecContext.backend.getId(), ctxs);
                     }
                     ctxs.addContext(pipelineExecContext);
@@ -1418,12 +1420,37 @@ public class Coordinator {
                             params.instanceExecParams.size() + destParams.perExchNumSenders.get(exchId.asInt()));
                 }
 
-                for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
-                    TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                    dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
-                    dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
-                    dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
-                    multiSink.getDestinations().get(i).add(dest);
+                List<TPlanFragmentDestination> destinations = multiSink.getDestinations().get(i);
+                if (enablePipelineEngine && enableShareHashTableForBroadcastJoin
+                        && params.fragment.isRightChildOfBroadcastHashJoin()) {
+                    // here choose the first instance to build hash table.
+                    Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
+
+                    destParams.instanceExecParams.forEach(param -> {
+                        if (destHosts.containsKey(param.host)) {
+                            destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
+                        } else {
+                            destHosts.put(param.host, param);
+                            param.buildHashTableForBroadcastJoin = true;
+                            TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                            dest.fragment_instance_id = param.instanceId;
+                            try {
+                                dest.server = toRpcHost(param.host);
+                                dest.setBrpcServer(toBrpcHost(param.host));
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                            destinations.add(dest);
+                        }
+                    });
+                } else {
+                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                        dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
+                        dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
+                        dest.brpc_server = toBrpcHost(destParams.instanceExecParams.get(j).host);
+                        destinations.add(dest);
+                    }
                 }
             }
         }
@@ -2971,15 +2998,22 @@ public class Coordinator {
         List<PipelineExecContext> ctxs = Lists.newArrayList();
         boolean twoPhaseExecution = false;
         ScopedSpan scopedSpan = new ScopedSpan();
+        int instanceNumber;
 
-        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution) {
+        public PipelineExecContexts(long beId, TNetworkAddress brpcAddr, boolean twoPhaseExecution,
+                int instanceNumber) {
             this.beId = beId;
             this.brpcAddr = brpcAddr;
             this.twoPhaseExecution = twoPhaseExecution;
+            this.instanceNumber = instanceNumber;
         }
 
         public void addContext(PipelineExecContext ctx) {
             this.ctxs.add(ctx);
+        }
+
+        public int getInstanceNumber() {
+            return instanceNumber;
         }
 
         /**

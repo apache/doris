@@ -36,6 +36,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -100,7 +101,11 @@ public class ExportStmt extends StatementBase {
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.columns = DEFAULT_COLUMNS;
-        this.sessionVariables = ConnectContext.get().getSessionVariable();
+        if (ConnectContext.get() != null) {
+            this.sessionVariables = ConnectContext.get().getSessionVariable();
+        } else {
+            this.sessionVariables = VariableMgr.getDefaultSessionVariable();
+        }
     }
 
     public String getColumns() {

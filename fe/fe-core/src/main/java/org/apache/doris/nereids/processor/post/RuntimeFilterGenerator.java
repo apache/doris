@@ -203,7 +203,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L);
                 ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-                ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first.getId(),
+                ctx.setTargetsOnScanNode(aliasTransferMap.get(targetSlot).first.getRelationId(),
                         olapScanSlot);
                 join.addBitmapRuntimeFilterCondition(bitmapRuntimeFilterCondition);
             }
@@ -322,7 +322,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     equalTo.right(), ImmutableList.of(olapScanSlot), type, exprOrder, join, buildSideNdv);
             ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
             ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first.getId(), olapScanSlot);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first.getRelationId(), olapScanSlot);
         }
     }
 
@@ -369,7 +369,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 }
                 targetList.add(olapScanSlot);
                 ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
-                ctx.setTargetsOnScanNode(aliasTransferMap.get(origSlot).first.getId(), olapScanSlot);
+                ctx.setTargetsOnScanNode(aliasTransferMap.get(origSlot).first.getRelationId(), olapScanSlot);
             }
         }
         if (!targetList.isEmpty()) {
@@ -612,7 +612,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         PhysicalOlapScan scan = entry.getValue();
                         targetList.add(targetSlot);
                         ctx.addJoinToTargetMap(join, targetSlot.getExprId());
-                        ctx.setTargetsOnScanNode(scan.getId(), targetSlot);
+                        ctx.setTargetsOnScanNode(scan.getRelationId(), targetSlot);
                     }
                     // build multi-target runtime filter
                     // since always on different join, set the expr_order as 0

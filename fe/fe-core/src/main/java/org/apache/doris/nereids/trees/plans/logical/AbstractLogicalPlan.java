@@ -35,7 +35,7 @@ import java.util.function.Supplier;
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
 
-    private Supplier<Boolean> hasUnboundExpressions = () -> super.hasUnboundExpression();
+    private final Supplier<Boolean> hasUnboundExpressions = super::hasUnboundExpression;
 
     public AbstractLogicalPlan(PlanType type, Plan... children) {
         super(type, children);

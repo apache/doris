@@ -474,7 +474,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        int dest_index = ctx_idx++;
+        int dest_index = ctx_idx;
         vectorized::ColumnPtr column_ptr;
 
         auto& ctx = _dest_vexpr_ctx[dest_index];
@@ -542,6 +542,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
         block->insert(dest_index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
                                                                     slot_desc->get_data_type_ptr(),
                                                                     slot_desc->col_name()));
+        ctx_idx++;
     }
 
     // after do the dest block insert operation, clear _src_block to remove the reference of origin column

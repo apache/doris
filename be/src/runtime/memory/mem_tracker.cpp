@@ -24,22 +24,16 @@
 
 #include <mutex>
 
-#include "common/daemon.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
 
-struct TrackerGroup {
-    std::list<MemTracker*> trackers;
-    std::mutex group_lock;
-};
-
 // Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
 // When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
 // Multiple groups are used to reduce the impact of locks.
-static std::vector<TrackerGroup> mem_tracker_pool(1000);
+std::vector<MemTracker::TrackerGroup> MemTracker::mem_tracker_pool(1000);
 
 MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
                        const std::string& profile_counter_name)
@@ -82,7 +76,7 @@ void MemTracker::bind_parent(MemTrackerLimiter* parent) {
 }
 
 MemTracker::~MemTracker() {
-    if (_parent_group_num != -1 && !k_doris_exit) {
+    if (_parent_group_num != -1) {
         std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
         if (_tracker_group_it != mem_tracker_pool[_parent_group_num].trackers.end()) {
             mem_tracker_pool[_parent_group_num].trackers.erase(_tracker_group_it);
