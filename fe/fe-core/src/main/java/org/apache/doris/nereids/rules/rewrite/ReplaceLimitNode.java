@@ -32,6 +32,9 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
+/**
+ * rule to eliminate limit node by replace to other nodes.
+ */
 public class ReplaceLimitNode implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
