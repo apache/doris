@@ -34,7 +34,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
@@ -144,9 +143,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String authentication = catalogProperty.getOrDefault(
                 HdfsResource.HADOOP_SECURITY_AUTHENTICATION, "");
         if (AuthType.KERBEROS.getDesc().equals(authentication)) {
-            Configuration conf = new Configuration();
-            conf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
-            UserGroupInformation.setConfiguration(conf);
+            hiveConf.set(HdfsResource.HADOOP_SECURITY_AUTHENTICATION, authentication);
+            UserGroupInformation.setConfiguration(hiveConf);
             try {
                 /**
                  * Because metastore client is created by using
