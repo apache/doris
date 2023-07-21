@@ -1142,6 +1142,11 @@ void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
     base_compaction.reset(new BaseCompaction(best_tablet));
 }
 
+void StorageEngine::create_full_compaction(TabletSharedPtr best_tablet,
+                                           std::shared_ptr<FullCompaction>& full_compaction) {
+    full_compaction.reset(new FullCompaction(best_tablet));
+}
+
 void StorageEngine::create_single_replica_compaction(
         TabletSharedPtr best_tablet,
         std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,

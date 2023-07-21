@@ -43,6 +43,7 @@
 #include "olap/base_tablet.h"
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
+#include "olap/full_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -663,6 +664,7 @@ private:
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;
     std::shared_ptr<BaseCompaction> _base_compaction;
+    std::shared_ptr<FullCompaction> _full_compaction;
     std::shared_ptr<SingleReplicaCompaction> _single_replica_compaction;
 
     // whether clone task occurred during the tablet is in thread pool queue to wait for compaction

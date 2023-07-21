@@ -1757,17 +1757,6 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
         MonotonicStopWatch watch;
         watch.start();
-        SCOPED_CLEANUP({
-            if (!config::disable_compaction_trace_log &&
-                watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
-                std::stringstream ss;
-                _base_compaction->runtime_profile()->pretty_print(&ss);
-                LOG(WARNING) << "prepare full compaction cost " << watch.elapsed_time() / 1e9
-                             << std::endl
-                             << ss.str();
-            }
-        });
-
         StorageEngine::instance()->create_full_compaction(tablet, _full_compaction);
         Status res = _full_compaction->prepare_compact();
         if (!res.ok()) {
@@ -1896,16 +1885,6 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         DCHECK_EQ(compaction_type, CompactionType::FULL_COMPACTION);
         MonotonicStopWatch watch;
         watch.start();
-        SCOPED_CLEANUP({
-            if (!config::disable_compaction_trace_log &&
-                watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
-                std::stringstream ss;
-                LOG(WARNING) << "execute full compaction cost " << watch.elapsed_time() / 1e9
-                             << std::endl
-                             << ss.str();
-            }
-        });
-
         Status res = _full_compaction->execute_compact();
         if (!res.ok()) {
             set_last_full_compaction_failure_time(UnixMillis());
