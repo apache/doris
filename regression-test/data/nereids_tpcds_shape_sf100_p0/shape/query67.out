@@ -7,25 +7,26 @@ PhysicalTopN
 --------PhysicalWindow
 ----------PhysicalQuickSort
 ------------PhysicalDistribute
---------------PhysicalProject
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalRepeat
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
-----------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
-------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store_sales]
+--------------PhysicalPartitionTopN
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute
+----------------------hashAgg[LOCAL]
+------------------------PhysicalRepeat
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN](store_sales.ss_store_sk = store.s_store_sk)
+------------------------------hashJoin[INNER_JOIN](store_sales.ss_item_sk = item.i_item_sk)
+--------------------------------hashJoin[INNER_JOIN](store_sales.ss_sold_date_sk = date_dim.d_date_sk)
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------filter((date_dim.d_month_seq >= 1206)(date_dim.d_month_seq <= 1217))
+----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_month_seq >= 1206)(date_dim.d_month_seq <= 1217))
---------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalOlapScan[item]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[store]
+----------------------------------PhysicalOlapScan[store]
 
