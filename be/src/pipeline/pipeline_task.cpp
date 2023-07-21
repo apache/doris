@@ -288,8 +288,9 @@ Status PipelineTask::try_close() {
         return Status::OK();
     }
     _try_close_flag = true;
-    RETURN_IF_ERROR(_sink->try_close(_state));
-    return _source->try_close(_state);
+    Status status1 = _sink->try_close(_state);
+    Status status2 = _source->try_close(_state);
+    return status1.ok() ? status2 : status1;
 }
 
 Status PipelineTask::close() {

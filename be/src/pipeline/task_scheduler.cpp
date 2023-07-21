@@ -330,6 +330,8 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
     // state only should be CANCELED or FINISHED
     auto status = task->try_close();
     if (!status.ok() && state != PipelineTaskState::CANCELED) {
+        // Call `close` if `try_close` failed to make sure allocated resources are released
+        task->close();
         task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
                                          status.to_string());
         state = PipelineTaskState::CANCELED;
