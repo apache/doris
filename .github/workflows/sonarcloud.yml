@@ -57,7 +57,15 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Set up environment
+        run: |
+          # Install Bash if necessary
+          sudo apt-get update
+          sudo apt-get install -y bash
+      - name: Run shell script with pipefail
+        shell: bash    
       - name: Generated Source Code
+        shell: bash
         run: |
            sh generated-source.sh
       - name: Analyze FE
