@@ -51,6 +51,7 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
+#include "olap/full_compaction.h"
 #include "olap/binlog.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"

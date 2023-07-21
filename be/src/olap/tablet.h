@@ -43,7 +43,6 @@
 #include "olap/base_tablet.h"
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
-#include "olap/full_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -63,6 +62,7 @@ class Tablet;
 class CumulativeCompactionPolicy;
 class CumulativeCompaction;
 class BaseCompaction;
+class FullCompaction;
 class SingleReplicaCompaction;
 class RowsetWriter;
 struct TabletTxnInfo;

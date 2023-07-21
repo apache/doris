@@ -39,11 +39,8 @@
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/full_compaction.h"
-#include "olap/iterators.h"
-#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
@@ -137,24 +134,25 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
         });
         std::future<Status> future_obj = task.get_future();
         std::thread(std::move(task)).detach();
-    }
 
-    // 4. wait for result for 2 seconds by async
-    std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
-    if (status == std::future_status::ready) {
-        // fetch execute result
-        Status olap_status = future_obj.get();
-        if (!olap_status.ok()) {
-            return olap_status;
+        // 4. wait for result for 2 seconds by async
+        std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
+        if (status == std::future_status::ready) {
+            // fetch execute result
+            Status olap_status = future_obj.get();
+            if (!olap_status.ok()) {
+                return olap_status;
+            }
+        } else {
+            LOG(INFO) << "Manual compaction task is timeout for waiting "
+                      << (status == std::future_status::timeout);
         }
-    } else {
-        LOG(INFO) << "Manual compaction task is timeout for waiting "
-                  << (status == std::future_status::timeout);
-    }
 
-    LOG(INFO) << "Manual compaction task is successfully triggered";
-    *json_result =
-            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered.\"}";
+        LOG(INFO) << "Manual compaction task is successfully triggered";
+        *json_result =
+                "{\"status\": \"Success\", \"msg\": \"compaction task is successfully "
+                "triggered.\"}";
+    }
 
     return Status::OK();
 }
