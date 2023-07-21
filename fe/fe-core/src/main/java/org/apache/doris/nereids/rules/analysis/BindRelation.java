@@ -200,7 +200,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
                                        CascadesContext cascadesContext) {
-        String dbName = tableQualifier.get(1); //[catalogName, dbName, tableName]
         switch (table.getType()) {
             case OLAP:
                 return makeOlapScan(table, unboundRelation, tableQualifier);
@@ -223,14 +222,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 return new LogicalFileScan(StatementScopeIdGenerator.newRelationId(),
                         (ExternalTable) table, tableQualifier);
             case SCHEMA:
-                return new LogicalSchemaScan(unboundRelation.getRelationId(),
-                        table, ImmutableList.of(dbName));
+                return new LogicalSchemaScan(unboundRelation.getRelationId(), table, tableQualifier);
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
-                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, ImmutableList.of(dbName));
+                return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
-                return new LogicalEsScan(unboundRelation.getRelationId(),
-                    (EsExternalTable) table, ImmutableList.of(dbName));
+                return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }
