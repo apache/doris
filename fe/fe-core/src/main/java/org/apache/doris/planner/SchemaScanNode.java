@@ -24,6 +24,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
@@ -34,6 +35,7 @@ import org.apache.doris.thrift.TSchemaScanNode;
 import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,13 +129,16 @@ public class SchemaScanNode extends ScanNode {
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
     }
 
-    /**
-     * We query MySQL Meta to get request's data location
-     * extra result info will pass to backend ScanNode
-     */
     @Override
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
-        return null;
+        return scanRangeLocations;
+    }
+
+    @Override
+    protected void createScanRangeLocations() throws UserException {
+        FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
+        backendPolicy.init();
+        scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
     }
 
     @Override

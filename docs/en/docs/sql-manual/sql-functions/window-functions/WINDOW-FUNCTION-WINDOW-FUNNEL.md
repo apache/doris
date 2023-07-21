@@ -17,7 +17,11 @@ Unless required by applicable law or agreed to in writing, software distributed 
 Searches the longest event chain happened in order (event1, event2, ... , eventN) along the timestamp_column with length of window.
 
 - window is the length of time window in seconds.
-- mode is reserved for future, not used for now.
+- mode can be one of the followings:
+    - "default": Defualt mode.
+    - "deduplication": If the same event holds for the sequence of events, then such repeating event interrupts further processing. E.g. the array parameter is [event1='A', event2='B', event3='C', event4='D'], and the original event chain is "A-B-C-B-D". Since event B repeats, the filtered event chain can only be "A-B-C" and the max event level is 3.
+    - "fixed": Don't allow interventions of other events. E.g. the array parameter is [event1='A', event2='B', event3='C', event4='D'], and the original event chain is A->B->D->C, it stops finding A->B->C at the D and the max event level is 2.
+    - "increase": Apply conditions only to events with strictly increasing timestamps.
 - timestamp_column specifies column of DATETIME type, sliding time window works on it.
 - evnetN is boolean expression like eventID = 1004.
 

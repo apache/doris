@@ -25,14 +25,23 @@ under the License.
 -->
 
 ## DATETIME
-### Description
+
+<version since="1.2.0">
+
 DATETIME
-Date and time type, value range is ['0000-01-01 00:00:00','9999-12-31 23:59:59'].
-The form of printing is 'yyyy-MM-dd HH:mm:ss'
+
+</version>
+
+### Description
+DATETIME([P])
+Date and time type.
+The optional parameter P indicates the time precision and the value range is [0, 6], that is, it supports up to 6 decimal places (microseconds). 0 when not set.
+Value range is ['0000-01-01 00:00:00[.000000]','9999-12-31 23:59:59[.999999]'].
+The form of printing is 'yyyy-MM-dd HH:mm:ss.SSSSSS'
 
 ### note
 
-If you use version 1.2 and above, it is strongly recommended that you use DATETIMEV2 type instead of DATETIME type. Compared with DATETIME type, DATETIMEV2 is more efficient and supports time accuracy up to microseconds.
+DATETIME supports precision up to microseconds.
 
 ### keywords
 DATETIME

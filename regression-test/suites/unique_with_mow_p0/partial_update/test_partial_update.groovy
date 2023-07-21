@@ -52,8 +52,48 @@ suite("test_primary_key_partial_update", "p0") {
         file 'basic.csv'
         time 10000 // limit inflight 10s
     }
+
+    sql "sync"
+
     qt_select_default """
-        select * from ${tableName}
+        select * from ${tableName} order by id;
+    """
+
+    // partial update a row multiple times in one stream load
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,score'
+
+        file 'basic_with_duplicate.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+
+    qt_partial_update_in_one_stream_load """
+        select * from ${tableName} order by id;
+    """
+
+    streamLoad {
+        table "${tableName}"
+
+        set 'column_separator', ','
+        set 'format', 'csv'
+        set 'partial_columns', 'true'
+        set 'columns', 'id,score'
+
+        file 'basic_with_duplicate2.csv'
+        time 10000 // limit inflight 10s
+    }
+
+    sql "sync"
+
+    qt_partial_update_in_one_stream_load """
+        select * from ${tableName} order by id;
     """
 
     // drop drop

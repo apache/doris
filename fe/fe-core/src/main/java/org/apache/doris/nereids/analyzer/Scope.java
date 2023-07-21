@@ -21,7 +21,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -48,17 +47,17 @@ import java.util.Set;
  * outerScope:
  *      slots: k1, v1;
  *      outerScope: Optional.empty();
- *      ownerSubquery: Optionsl.empty();
+ *      ownerSubquery: Optional.empty();
  *      subqueryToOuterCorrelatedSlots: empty();
  * ownerSubquery: subquery((select sum(k2) from t2 where t1.v1 = t2.v2));
  * subqueryToOuterCorrelatedSlots: (subquery, v1);
  */
 public class Scope {
+
     private final Optional<Scope> outerScope;
     private final List<Slot> slots;
-
     private final Optional<SubqueryExpr> ownerSubquery;
-    private Set<Slot> correlatedSlots;
+    private final Set<Slot> correlatedSlots;
 
     public Scope(Optional<Scope> outerScope, List<Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
         this.outerScope = outerScope;
@@ -85,19 +84,5 @@ public class Scope {
 
     public Set<Slot> getCorrelatedSlots() {
         return correlatedSlots;
-    }
-
-    /**
-     * generate scope link from inner to outer.
-     * Used for multi-level subquery parsing.
-     */
-    public List<Scope> toScopeLink() {
-        Scope scope = this;
-        Builder<Scope> builder = ImmutableList.<Scope>builder().add(scope);
-        while (scope.getOuterScope().isPresent()) {
-            scope = scope.getOuterScope().get();
-            builder.add(scope);
-        }
-        return builder.build();
     }
 }

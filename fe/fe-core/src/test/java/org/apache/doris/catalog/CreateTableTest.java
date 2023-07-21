@@ -233,10 +233,10 @@ public class CreateTableTest {
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
-        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
+        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
-        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
+        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.REPLACE);
         Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
         Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
     }
@@ -724,5 +724,19 @@ public class CreateTableTest {
                     createTable("create table test.test_inmemory(k1 INT, k2 INT) duplicate key (k1) "
                             + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');");
                 });
+    }
+
+    @Test
+    public void testCreateTableWithStringLen() throws DdlException  {
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
+                    + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
+        Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
+        Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
+        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
+        Assert.assertEquals(10, tb.getColumn("k4").getStrLen());
     }
 }

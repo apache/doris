@@ -26,6 +26,8 @@
 #include "common/status.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/types.h"
 
@@ -74,13 +76,11 @@ public:
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
 
     // MySQL serializer and deserializer
-    virtual Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                         std::vector<MysqlRowBuffer<false>>& result, int row_idx,
-                                         int start, int end, bool col_const) const = 0;
+    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
+                                         int row_idx, bool col_const) const = 0;
 
-    virtual Status write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,
-                                         std::vector<MysqlRowBuffer<true>>& result, int start,
-                                         int row_idx, int end, bool col_const) const = 0;
+    virtual Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
+                                         int row_idx, bool col_const) const = 0;
     // Thrift serializer and deserializer
 
     // ORC serializer and deserializer
@@ -90,12 +90,31 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual void write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+    virtual void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                        arrow::ArrayBuilder* array_builder, int start,
                                        int end) const = 0;
     virtual void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,
                                         int end, const cctz::time_zone& ctz) const = 0;
+
+    virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
+
+protected:
+    bool _return_object_as_string = false;
 };
+
+/// Invert values since Arrow interprets 1 as a non-null value, while doris as a null
+inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start, size_t end) {
+    NullMap res;
+    if (!null_bytemap) {
+        return res;
+    }
+
+    res.reserve(end - start);
+    for (size_t i = start; i < end; ++i) {
+        res.emplace_back(!(*null_bytemap)[i]);
+    }
+    return res;
+}
 
 inline void checkArrowStatus(const arrow::Status& status, const std::string& column,
                              const std::string& format_name) {

@@ -20,9 +20,8 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.JdbcExternalCatalog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 
-public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> implements GsonPostProcessable {
+public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> {
 
     /**
      * Create Jdbc external database.

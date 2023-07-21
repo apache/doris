@@ -65,30 +65,35 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 >;
 
 template <typename T>
-void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                    arrow::ArrayBuilder* array_builder, int start,
                                                    int end) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
+    auto arrow_null_map = revert_null_map(null_map, start, end);
+    auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         checkArrowStatus(
                 builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start, reinterpret_cast<const uint8_t*>(null_map)),
+                                     end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
                 column.get_name(), array_builder->type()->name());
     } else if constexpr (std::is_same_v<T, Int128> || std::is_same_v<T, UInt128>) {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         size_t fixed_length = sizeof(typename ColumnType::value_type);
         const uint8_t* data_start =
                 reinterpret_cast<const uint8_t*>(col_data.data()) + start * fixed_length;
-        checkArrowStatus(builder.AppendValues(data_start, end - start,
-                                              reinterpret_cast<const uint8_t*>(null_map)),
-                         column.get_name(), array_builder->type()->name());
+        checkArrowStatus(
+                builder.AppendValues(data_start, end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                column.get_name(), array_builder->type()->name());
     } else {
         ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(builder.AppendValues(col_data.data() + start, end - start,
-                                              reinterpret_cast<const uint8_t*>(null_map)),
-                         column.get_name(), array_builder->type()->name());
+        checkArrowStatus(
+                builder.AppendValues(col_data.data() + start, end - start,
+                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                column.get_name(), array_builder->type()->name());
     }
 }
 
@@ -111,6 +116,50 @@ void DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
     const auto* raw_data = reinterpret_cast<const T*>(buffer->data()) + start;
     col_data.insert(raw_data, raw_data + row_count);
+}
+
+template <typename T>
+template <bool is_binary_format>
+Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
+                                                      MysqlRowBuffer<is_binary_format>& result,
+                                                      int row_idx, bool col_const) const {
+    int buf_ret = 0;
+    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    const auto col_index = index_check_const(row_idx, col_const);
+    if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, UInt8>) {
+        buf_ret = result.push_tinyint(data[col_index]);
+    } else if constexpr (std::is_same_v<T, Int16> || std::is_same_v<T, UInt16>) {
+        buf_ret = result.push_smallint(data[col_index]);
+    } else if constexpr (std::is_same_v<T, Int32> || std::is_same_v<T, UInt32>) {
+        buf_ret = result.push_int(data[col_index]);
+    } else if constexpr (std::is_same_v<T, Int64> || std::is_same_v<T, UInt64>) {
+        buf_ret = result.push_bigint(data[col_index]);
+    } else if constexpr (std::is_same_v<T, Int128>) {
+        buf_ret = result.push_largeint(data[col_index]);
+    } else if constexpr (std::is_same_v<T, float>) {
+        buf_ret = result.push_float(data[col_index]);
+    } else if constexpr (std::is_same_v<T, double>) {
+        buf_ret = result.push_double(data[col_index]);
+    }
+    if (UNLIKELY(buf_ret != 0)) {
+        return Status::InternalError("pack mysql buffer failed.");
+    } else {
+        return Status::OK();
+    }
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
+                                                     MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                     bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+template <typename T>
+Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
+                                                     MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                     bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

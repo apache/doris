@@ -123,6 +123,7 @@ public:
     static constexpr size_t BOX_SIZE = 1 * 1024 * 1024;             // 1MB
     static constexpr size_t SMALL_IO = 2 * 1024 * 1024;             // 2MB
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
+    static constexpr size_t MIN_READ_SIZE = 4096;                   // 4KB
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges)
@@ -249,10 +250,9 @@ public:
 
     static Status create_file_reader(
             RuntimeProfile* profile, const FileSystemProperties& system_properties,
-            const FileDescription& file_description, std::shared_ptr<io::FileSystem>* file_system,
-            io::FileReaderSPtr* file_reader, AccessMode access_mode = SEQUENTIAL,
-            io::FileReaderOptions reader_options = FileFactory::NO_CACHE_READER_OPTIONS,
-            const IOContext* io_ctx = nullptr,
+            const FileDescription& file_description, const io::FileReaderOptions& reader_options,
+            std::shared_ptr<io::FileSystem>* file_system, io::FileReaderSPtr* file_reader,
+            AccessMode access_mode = SEQUENTIAL, const IOContext* io_ctx = nullptr,
             const PrefetchRange file_range = PrefetchRange(0, 0));
 };
 

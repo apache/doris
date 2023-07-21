@@ -66,4 +66,15 @@ public class FileSplit implements Split {
     public Object getInfo() {
         return null;
     }
+
+    public static class FileSplitCreator implements SplitCreator {
+
+        public static final FileSplitCreator DEFAULT = new FileSplitCreator();
+
+        @Override
+        public Split create(Path path, long start, long length, long fileLength, long modificationTime, String[] hosts,
+                List<String> partitionValues) {
+            return new FileSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues);
+        }
+    }
 }

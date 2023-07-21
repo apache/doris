@@ -56,14 +56,10 @@
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
 
-using std::filesystem::path;
-using std::map;
 using std::nothrow;
-using std::set;
 using std::string;
 using std::stringstream;
 using std::vector;
-using std::list;
 
 namespace doris {
 using namespace ErrorCode;
@@ -86,15 +82,13 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
     TabletSharedPtr ref_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (ref_tablet == nullptr) {
-        LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", request.tablet_id);
     }
 
     res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
@@ -109,8 +103,8 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 }
 
 Status SnapshotManager::release_snapshot(const string& snapshot_path) {
-    // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
-    // 否则认为是非法请求，返回错误结果
+    // If the requested snapshot_path is located in the root/snapshot folder, it is considered legal and can be deleted.
+    // Otherwise, it is considered an illegal request and returns an error result.
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
@@ -125,8 +119,8 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
         }
     }
 
-    LOG(WARNING) << "released snapshot path illegal. [path='" << snapshot_path << "']";
-    return Status::Error<CE_CMD_PARAMS_ERROR>();
+    return Status::Error<CE_CMD_PARAMS_ERROR>("released snapshot path illegal. [path='{}']",
+                                              snapshot_path);
 }
 
 Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
@@ -137,8 +131,8 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     bool exists = true;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
     if (!exists) {
-        res = Status::Error<DIR_NOT_EXIST>();
-        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir;
+        res = Status::Error<DIR_NOT_EXIST>(
+                "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir);
         return res;
     }
 
@@ -286,8 +280,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
     }
     RowsetSharedPtr new_rowset = rs_writer->build();
     if (new_rowset == nullptr) {
-        LOG(WARNING) << "failed to build rowset when rename rowset id";
-        return Status::Error<MEM_ALLOC_FAILED>();
+        return Status::Error<MEM_ALLOC_FAILED>("failed to build rowset when rename rowset id");
     }
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
@@ -301,8 +294,7 @@ Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, in
                                                std::string* out_path) {
     Status res = Status::OK();
     if (out_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
     // get current timestamp string
@@ -347,6 +339,23 @@ Status SnapshotManager::_link_index_and_data_files(
     return res;
 }
 
+// `rs_metas` MUST already be sorted by `RowsetMeta::comparator`
+Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
+    if (rowsets.size() < 2) {
+        return Status::OK();
+    }
+    auto prev = rowsets.begin();
+    for (auto it = rowsets.begin() + 1; it != rowsets.end(); ++it) {
+        if ((*prev)->end_version() + 1 != (*it)->start_version()) {
+            return Status::InternalError("versions are not continuity: prev={} cur={}",
+                                         (*prev)->version().to_string(),
+                                         (*it)->version().to_string());
+        }
+        prev = it;
+    }
+    return Status::OK();
+}
+
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
                                                const TSnapshotRequest& request,
                                                string* snapshot_path,
@@ -357,8 +366,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
               << ", snapshot_version is " << snapshot_version;
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be null";
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
     // snapshot_id_path:
@@ -397,8 +405,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
-            LOG(WARNING) << "fail to malloc TabletMeta.";
-            res = Status::Error<MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>("fail to malloc TabletMeta.");
             break;
         }
         std::vector<RowsetSharedPtr> consistent_rowsets;
@@ -441,10 +448,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     if (rowset != nullptr) {
                         if (!rowset->is_local()) {
                             // MUST make full snapshot to ensure `cooldown_meta_id` is consistent with the cooldowned rowsets after clone.
-                            LOG(INFO) << "missed version is a cooldowned rowset, must make full "
-                                         "snapshot. missed_version="
-                                      << missed_version << " tablet_id=" << ref_tablet->tablet_id();
-                            res = Status::Error<ErrorCode::INTERNAL_ERROR>();
+                            res = Status::Error<ErrorCode::INTERNAL_ERROR>(
+                                    "missed version is a cooldowned rowset, must make full "
+                                    "snapshot. missed_version={}, tablet_id={}",
+                                    missed_version, ref_tablet->tablet_id());
                             break;
                         }
                         consistent_rowsets.push_back(rowset);
@@ -485,26 +492,45 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 version = last_version->end_version();
                 if (request.__isset.version) {
                     if (last_version->end_version() < request.version) {
-                        LOG(WARNING) << "invalid make snapshot request. "
-                                     << " version=" << last_version->end_version()
-                                     << " req_version=" << request.version;
-                        res = Status::Error<INVALID_ARGUMENT>();
+                        res = Status::Error<INVALID_ARGUMENT>(
+                                "invalid make snapshot request. version={}, req_version={}",
+                                last_version->version().to_string(), request.version);
                         break;
                     }
                     version = request.version;
                 }
-                // get shortest version path
-                // it very important!!!!
-                // it means 0-version has to be a readable version graph
-                res = ref_tablet->capture_consistent_rowsets(Version(0, version),
-                                                             &consistent_rowsets);
+                if (ref_tablet->tablet_meta()->cooldown_meta_id().initialized()) {
+                    // Tablet has cooldowned data, MUST pick consistent rowsets with continuous cooldowned version
+                    // Get max cooldowned version
+                    int64_t max_cooldowned_version = -1;
+                    for (auto& [v, rs] : ref_tablet->rowset_map()) {
+                        if (rs->is_local()) {
+                            continue;
+                        }
+                        consistent_rowsets.push_back(rs);
+                        max_cooldowned_version = std::max(max_cooldowned_version, v.second);
+                    }
+                    DCHECK_GE(max_cooldowned_version, 1) << "tablet_id=" << ref_tablet->tablet_id();
+                    std::sort(consistent_rowsets.begin(), consistent_rowsets.end(),
+                              Rowset::comparator);
+                    res = check_version_continuity(consistent_rowsets);
+                    if (res.ok() && max_cooldowned_version < version) {
+                        // Pick consistent rowsets of remaining required version
+                        res = ref_tablet->capture_consistent_rowsets(
+                                {max_cooldowned_version + 1, version}, &consistent_rowsets);
+                    }
+                } else {
+                    // get shortest version path
+                    res = ref_tablet->capture_consistent_rowsets(Version(0, version),
+                                                                 &consistent_rowsets);
+                }
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
                     break;
                 }
                 *allow_incremental_clone = false;
             } else {
-                version = ref_tablet->max_version().second;
+                version = ref_tablet->max_version_unlocked().second;
                 *allow_incremental_clone = true;
             }
 
@@ -556,7 +582,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 res = new_tablet_meta->save_as_json(json_header_path, ref_tablet->data_dir());
             }
         } else {
-            res = Status::Error<INVALID_SNAPSHOT_VERSION>();
+            res = Status::Error<INVALID_SNAPSHOT_VERSION>(
+                    "snapshot_version not equal to g_Types_constants.TSNAPSHOT_REQ_VERSION2");
         }
 
         if (!res.ok()) {
@@ -568,7 +595,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
             break;
         }
 
-    } while (0);
+    } while (false);
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to make snapshot, try to delete the snapshot path. path="

@@ -923,6 +923,8 @@ public class SchemaChangeHandler extends AlterHandler {
                     throw new DdlException("Please add non-key column on base table directly");
                 }
                 newColumn.setAggregationType(AggregateType.NONE, true);
+            } else if (olapTable.isDuplicateWithoutKey()) {
+                throw new DdlException("Duplicate table without keys do not support add key column!");
             }
         }
 
@@ -1169,15 +1171,9 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void createJob(long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
+    private void createJob(String rawSql, long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
                            Map<String, String> propertyMap, List<Index> indexes) throws UserException {
-        if (olapTable.getState() == OlapTableState.ROLLUP) {
-            throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
-        }
-
         checkReplicaCount(olapTable);
-        // for now table's state can only be NORMAL
-        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
         // process properties first
         // for now. properties has 3 options
@@ -1373,7 +1369,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     hasKey = true;
                 }
             }
-            if (!hasKey) {
+            if (!hasKey && !olapTable.isDuplicateWithoutKey()) {
                 throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
             }
 
@@ -1449,7 +1445,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // 5. calc short key
             short newShortKeyColumnCount = Env.calcShortKeyColumnCount(alterSchema,
-                    indexIdToProperties.get(alterIndexId), true/*isKeysRequired*/);
+                    indexIdToProperties.get(alterIndexId), !olapTable.isDuplicateWithoutKey());
             LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
             indexIdToShortKeyColumnCount.put(alterIndexId, newShortKeyColumnCount);
 
@@ -1467,8 +1463,9 @@ public class SchemaChangeHandler extends AlterHandler {
         long bufferSize = IdGeneratorUtil.getBufferSizeForAlterTable(olapTable, changedIndexIdToSchema.keySet());
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
         long jobId = idGeneratorBuffer.getNextId();
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, dbId, olapTable.getId(), olapTable.getName(),
-                timeoutSecond * 1000);
+        SchemaChangeJobV2 schemaChangeJob =
+                new SchemaChangeJobV2(rawSql, jobId, dbId, olapTable.getId(), olapTable.getName(),
+                        timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
 
@@ -1745,10 +1742,12 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
+    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+                        OlapTable olapTable)
             throws UserException {
         olapTable.writeLockOrDdlException();
         try {
+            olapTable.checkNormalStateForAlter();
             //alterClauses can or cannot light schema change
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;
@@ -1988,18 +1987,18 @@ public class SchemaChangeHandler extends AlterHandler {
             if (lightSchemaChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop value column optimize, direct modify table meta.
-                modifyTableLightSchemaChange(db, olapTable, indexSchemaMap, newIndexes,
+                modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              null, isDropIndex, jobId, false);
             } else if (lightIndexChange) {
                 long jobId = Env.getCurrentEnv().getNextId();
                 //for schema change add/drop inverted index optimize, direct modify table meta firstly.
-                modifyTableLightSchemaChange(db, olapTable, indexSchemaMap, newIndexes,
+                modifyTableLightSchemaChange(rawSql, db, olapTable, indexSchemaMap, newIndexes,
                                              alterIndexes, isDropIndex, jobId, false);
             } else if (buildIndexChange) {
                 buildOrDeleteTableInvertedIndices(db, olapTable, indexSchemaMap,
                                                   alterIndexes, invertedIndexOnPartitions, false);
             } else {
-                createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
+                createJob(rawSql, db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
             }
         } finally {
             olapTable.writeUnlock();
@@ -2462,20 +2461,13 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     // the invoker should keep table's write lock
-    public void modifyTableLightSchemaChange(Database db, OlapTable olapTable,
+    public void modifyTableLightSchemaChange(String rawSql, Database db, OlapTable olapTable,
                                              Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
                                              List<Index> alterIndexes, boolean isDropIndex,
                                              long jobId, boolean isReplay)
             throws DdlException {
 
         LOG.debug("indexSchemaMap:{}, indexes:{}", indexSchemaMap, indexes);
-        if (olapTable.getState() == OlapTableState.ROLLUP) {
-            throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
-        }
-
-        // for now table's state can only be NORMAL
-        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
-
         // for bitmapIndex
         boolean hasIndexChange = false;
         Set<Index> newSet = new HashSet<>(indexes);
@@ -2498,7 +2490,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         //for compatibility, we need create a finished state schema change job v2
 
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, db.getId(), olapTable.getId(),
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(rawSql, jobId, db.getId(), olapTable.getId(),
                 olapTable.getName(), 1000);
 
         for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
@@ -2527,9 +2519,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         if (alterIndexes != null) {
             if (!isReplay) {
-                TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(
-                        db.getId(), olapTable.getId(), indexSchemaMap, indexes,
-                        alterIndexes, isDropIndex, jobId);
+                TableAddOrDropInvertedIndicesInfo info = new TableAddOrDropInvertedIndicesInfo(rawSql, db.getId(),
+                        olapTable.getId(), indexSchemaMap, indexes, alterIndexes, isDropIndex, jobId);
                 LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
 
@@ -2552,7 +2543,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     olapTable.getName(), jobId, isReplay);
         } else {
             if (!isReplay) {
-                TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(db.getId(), olapTable.getId(),
+                TableAddOrDropColumnsInfo info = new TableAddOrDropColumnsInfo(rawSql, db.getId(), olapTable.getId(),
                         indexSchemaMap, indexes, jobId);
                 LOG.debug("logModifyTableAddOrDropColumns info:{}", info);
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
@@ -2574,7 +2565,7 @@ public class SchemaChangeHandler extends AlterHandler {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
-            modifyTableLightSchemaChange(db, olapTable, indexSchemaMap, indexes, null, false, jobId, true);
+            modifyTableLightSchemaChange("", db, olapTable, indexSchemaMap, indexes, null, false, jobId, true);
         } catch (DdlException e) {
             // should not happen
             LOG.warn("failed to replay modify table add or drop or modify columns", e);
@@ -2607,7 +2598,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     hasKey = true;
                 }
             }
-            if (!hasKey) {
+            if (!hasKey && !olapTable.isDuplicateWithoutKey()) {
                 throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
             }
 
@@ -2705,7 +2696,7 @@ public class SchemaChangeHandler extends AlterHandler {
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
-            modifyTableLightSchemaChange(db, olapTable, indexSchemaMap, newIndexes,
+            modifyTableLightSchemaChange("", db, olapTable, indexSchemaMap, newIndexes,
                                              alterIndexes, isDropIndex, jobId, true);
         } catch (UserException e) {
             // should not happen

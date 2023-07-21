@@ -176,9 +176,6 @@ VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlan
 
 template <bool is_intersect>
 void VSetOperationNode<is_intersect>::release_resource(RuntimeState* state) {
-    for (auto& exprs : _child_expr_lists) {
-        VExpr::close(exprs, state);
-    }
     release_mem();
     ExecNode::release_resource(state);
 }

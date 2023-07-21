@@ -21,13 +21,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -180,6 +180,10 @@ public class Group {
         return move;
     }
 
+    public void clearLowestCostPlans() {
+        lowestCostPlans.clear();
+    }
+
     public double getCostLowerBound() {
         return -1D;
     }
@@ -291,6 +295,10 @@ public class Group {
         return parentExpressions.size();
     }
 
+    public void removeParentPhysicalExpressions() {
+        parentExpressions.entrySet().removeIf(entry -> entry.getKey().getPlan() instanceof PhysicalPlan);
+    }
+
     /**
      * move the ownerGroup to target group.
      *
@@ -368,12 +376,12 @@ public class Group {
      */
     public boolean isInnerJoinGroup() {
         Plan plan = getLogicalExpression().getPlan();
-        if (plan instanceof LogicalJoin) {
-            // Right now, we only support inner join with some join conditions
-            return ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN
-                    && (((LogicalJoin) plan).getOtherJoinConjuncts().isEmpty()
-                            || !(((LogicalJoin) plan).getOtherJoinConjuncts()
-                                    .get(0) instanceof Literal));
+        if (plan instanceof LogicalJoin
+                && ((LogicalJoin) plan).getJoinType() == JoinType.INNER_JOIN) {
+            // Right now, we only support inner join
+            Preconditions.checkArgument(!((LogicalJoin) plan).getExpressions().isEmpty(),
+                    "inner join must have join conjuncts");
+            return true;
         }
         return false;
     }

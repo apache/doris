@@ -68,27 +68,20 @@ void DataTypeStringSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     col.insert_data(blob->getBlob(), blob->getBlobLen());
 }
 
-void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
-        if (null_map && null_map[string_i]) {
+        if (null_map && (*null_map)[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
-        if (column.get_data_type() == TypeIndex::JSONB) {
-            std::string json_string =
-                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-            checkArrowStatus(builder.Append(json_string.data(), json_string.size()),
-                             column.get_name(), array_builder->type()->name());
-        } else {
-            checkArrowStatus(builder.Append(string_ref.data(), string_ref.size()),
-                             column.get_name(), array_builder->type()->name());
-        }
+        checkArrowStatus(builder.Append(string_ref.data(), string_ref.size()), column.get_name(),
+                         array_builder->type()->name());
     }
 }
 
@@ -123,33 +116,45 @@ void DataTypeStringSerDe::read_column_from_arrow(IColumn& column, const arrow::A
         }
     }
 }
+
 template <bool is_binary_format>
-Status DataTypeStringSerDe::_write_column_to_mysql(
-        const IColumn& column, bool return_object_data_as_binary,
-        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
-        bool col_const) const {
-    int buf_ret = 0;
+Status DataTypeStringSerDe::_write_column_to_mysql(const IColumn& column,
+                                                   MysqlRowBuffer<is_binary_format>& result,
+                                                   int row_idx, bool col_const) const {
     auto& col = assert_cast<const ColumnString&>(column);
-    for (ssize_t i = start; i < end; ++i) {
-        if (0 != buf_ret) {
-            return Status::InternalError("pack mysql buffer failed.");
-        }
-        const auto col_index = index_check_const(i, col_const);
-        const auto string_val = col.get_data_at(col_index);
-        if (string_val.data == nullptr) {
-            if (string_val.size == 0) {
-                // 0x01 is a magic num, not useful actually, just for present ""
-                char* tmp_val = reinterpret_cast<char*>(0x01);
-                buf_ret = result[row_idx].push_string(tmp_val, string_val.size);
-            } else {
-                buf_ret = result[row_idx].push_null();
+    const auto col_index = index_check_const(row_idx, col_const);
+    const auto string_val = col.get_data_at(col_index);
+    if (string_val.data == nullptr) {
+        if (string_val.size == 0) {
+            // 0x01 is a magic num, not useful actually, just for present ""
+            char* tmp_val = reinterpret_cast<char*>(0x01);
+            if (UNLIKELY(0 != result.push_string(tmp_val, string_val.size))) {
+                return Status::InternalError("pack mysql buffer failed.");
             }
         } else {
-            buf_ret = result[row_idx].push_string(string_val.data, string_val.size);
+            if (UNLIKELY(0 != result.push_null())) {
+                return Status::InternalError("pack mysql buffer failed.");
+            }
         }
-        ++row_idx;
+    } else {
+        if (UNLIKELY(0 != result.push_string(string_val.data, string_val.size))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
     }
     return Status::OK();
 }
+
+Status DataTypeStringSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeStringSerDe::write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                  bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
 } // namespace vectorized
 } // namespace doris

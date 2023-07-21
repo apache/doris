@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,12 +72,12 @@ public final class RuntimeFilter {
     // The position of expr in the join condition
     private final int exprOrder;
     // Expr (lhs of join predicate) from which the targetExprs_ are generated.
-    private final Expr origTargetExpr;
+    private final List<Expr> origTargetExprs;
     // Runtime filter targets
     private final List<RuntimeFilterTarget> targets = new ArrayList<>();
     // Slots from base table tuples that have value transfer from the slots
     // of 'origTargetExpr'. The slots are grouped by tuple id.
-    private final Map<TupleId, List<SlotId>> targetSlotsByTid;
+    private final List<Map<TupleId, List<SlotId>>> targetSlotsByTid;
     // If true, the join node building this filter is executed using a broadcast join;
     // set in the DistributedPlanner.createHashJoinFragment()
     private boolean isBroadcastJoin;
@@ -139,14 +140,14 @@ public final class RuntimeFilter {
     }
 
     private RuntimeFilter(RuntimeFilterId filterId, PlanNode filterSrcNode, Expr srcExpr, int exprOrder,
-            Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots, TRuntimeFilterType type,
+            List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots, TRuntimeFilterType type,
             RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
         this.id = filterId;
         this.builderNode = filterSrcNode;
         this.srcExpr = srcExpr;
         this.exprOrder = exprOrder;
-        this.origTargetExpr = origTargetExpr;
-        this.targetSlotsByTid = targetSlots;
+        this.origTargetExprs = ImmutableList.copyOf(origTargetExprs);
+        this.targetSlotsByTid = ImmutableList.copyOf(targetSlots);
         this.runtimeFilterType = type;
         this.ndvEstimate = buildSizeNdv;
         computeNdvEstimate();
@@ -155,9 +156,9 @@ public final class RuntimeFilter {
 
     // only for nereids planner
     public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
-            int exprOrder, Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
+            int exprOrder, List<Expr> origTargetExprs, List<Map<TupleId, List<SlotId>>> targetSlots,
             TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits, long buildSizeNdv) {
-        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr,
+        return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExprs,
                 targetSlots, type, filterSizeLimits, buildSizeNdv);
     }
 
@@ -237,11 +238,11 @@ public final class RuntimeFilter {
         return srcExpr;
     }
 
-    public Expr getOrigTargetExpr() {
-        return origTargetExpr;
+    public List<Expr> getOrigTargetExprs() {
+        return origTargetExprs;
     }
 
-    public Map<TupleId, List<SlotId>> getTargetSlots() {
+    public List<Map<TupleId, List<SlotId>>> getTargetSlots() {
         return targetSlotsByTid;
     }
 
@@ -329,7 +330,7 @@ public final class RuntimeFilter {
         }
 
         return new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
-                targetExpr, targetSlots, type, filterSizeLimits, -1L);
+                ImmutableList.of(targetExpr), ImmutableList.of(targetSlots), type, filterSizeLimits, -1L);
     }
 
     public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer, Expr joinPredicate,
@@ -365,7 +366,8 @@ public final class RuntimeFilter {
             }
 
             RuntimeFilter runtimeFilter =
-                    new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder, targetExpr, targetSlots,
+                    new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
+                            ImmutableList.of(targetExpr), ImmutableList.of(targetSlots),
                             type, filterSizeLimits, -1L);
             runtimeFilter.setBitmapFilterNotIn(((BitmapFilterPredicate) joinPredicate).isNotIn());
             return runtimeFilter;

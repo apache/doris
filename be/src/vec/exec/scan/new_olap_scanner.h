@@ -57,13 +57,15 @@ public:
                    const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<RowsetReaderSharedPtr>& rs_readers,
                    const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                   bool need_agg_finalize, RuntimeProfile* profile);
+                   RuntimeProfile* profile);
 
     Status init() override;
 
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
+
+    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 
@@ -86,7 +88,6 @@ private:
     Status _init_return_columns();
 
     bool _aggregation;
-    bool _need_agg_finalize;
 
     TabletSchemaSPtr _tablet_schema;
     TabletSharedPtr _tablet;

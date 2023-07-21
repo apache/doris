@@ -69,7 +69,7 @@ namespace doris::vectorized {
 
 ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                              const TFileRangeDesc& range, size_t batch_size, cctz::time_zone* ctz,
-                             io::IOContext* io_ctx, RuntimeState* state, ShardedKVCache* kv_cache,
+                             io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache,
                              bool enable_lazy_mat)
         : _profile(profile),
           _scan_params(params),
@@ -80,7 +80,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx),
           _state(state),
-          _kv_cache(kv_cache),
+          _meta_cache(meta_cache),
           _enable_lazy_mat(enable_lazy_mat) {
     _init_profile();
     _init_system_properties();
@@ -141,6 +141,8 @@ void ParquetReader::_init_profile() {
 
         _parquet_profile.file_read_time = ADD_TIMER(_profile, "FileReadTime");
         _parquet_profile.file_read_calls = ADD_COUNTER(_profile, "FileReadCalls", TUnit::UNIT);
+        _parquet_profile.file_meta_read_calls =
+                ADD_COUNTER(_profile, "FileMetaReadCalls", TUnit::UNIT);
         _parquet_profile.file_read_bytes = ADD_COUNTER(_profile, "FileReadBytes", TUnit::BYTES);
         _parquet_profile.decompress_time =
                 ADD_CHILD_TIMER(_profile, "DecompressTime", parquet_profile);
@@ -183,6 +185,8 @@ void ParquetReader::close() {
 
             COUNTER_UPDATE(_parquet_profile.file_read_time, _column_statistics.read_time);
             COUNTER_UPDATE(_parquet_profile.file_read_calls, _column_statistics.read_calls);
+            COUNTER_UPDATE(_parquet_profile.file_meta_read_calls,
+                           _column_statistics.meta_read_calls);
             COUNTER_UPDATE(_parquet_profile.file_read_bytes, _column_statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.decompress_time, _column_statistics.decompress_time);
             COUNTER_UPDATE(_parquet_profile.decompress_cnt, _column_statistics.decompress_cnt);
@@ -209,11 +213,11 @@ Status ParquetReader::_open_file() {
         SCOPED_RAW_TIMER(&_statistics.open_file_time);
         ++_statistics.open_file_num;
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
-        reader_options.modification_time =
+        _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
-                io::DelegateReader::AccessMode::RANDOM, reader_options, _io_ctx));
+                _profile, _system_properties, _file_description, reader_options, &_file_system,
+                &_file_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
     }
     if (_file_metadata == nullptr) {
         SCOPED_RAW_TIMER(&_statistics.parse_footer_time);
@@ -221,23 +225,24 @@ Status ParquetReader::_open_file() {
             return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
         size_t meta_size = 0;
-        if (_kv_cache == nullptr) {
+        if (_meta_cache == nullptr) {
             _is_file_metadata_owned = true;
             RETURN_IF_ERROR(
                     parse_thrift_footer(_file_reader, &_file_metadata, &meta_size, _io_ctx));
+            _column_statistics.read_bytes += meta_size;
+            // parse magic number & parse meta data
+            _column_statistics.meta_read_calls += 1;
         } else {
             _is_file_metadata_owned = false;
-            _file_metadata = _kv_cache->get<FileMetaData>(
-                    _meta_cache_key(_file_reader->path()), [&]() -> FileMetaData* {
-                        FileMetaData* meta;
-                        Status st = parse_thrift_footer(_file_reader, &meta, &meta_size, _io_ctx);
-                        if (!st) {
-                            LOG(INFO) << "failed to parse parquet footer for "
-                                      << _file_description.path << ", err: " << st;
-                            return nullptr;
-                        }
-                        return meta;
-                    });
+            RETURN_IF_ERROR(_meta_cache->get_parquet_footer(_file_reader, _io_ctx, 0, &meta_size,
+                                                            &_cache_handle));
+
+            _column_statistics.read_bytes += meta_size;
+            if (meta_size > 0) {
+                _column_statistics.meta_read_calls += 1;
+            }
+
+            _file_metadata = (FileMetaData*)_cache_handle.data();
         }
 
         if (_file_metadata == nullptr) {
@@ -264,7 +269,12 @@ Status ParquetReader::open() {
 }
 
 void ParquetReader::_init_system_properties() {
-    _system_properties.system_type = _scan_params.file_type;
+    if (_scan_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _scan_range.file_type;
+    } else {
+        _system_properties.system_type = _scan_params.file_type;
+    }
     _system_properties.properties = _scan_params.properties;
     _system_properties.hdfs_params = _scan_params.hdfs_params;
     if (_scan_params.__isset.broker_addresses) {
@@ -569,15 +579,21 @@ Status ParquetReader::_next_row_group_reader() {
 
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
-    size_t avg_io_size = 0;
-    const std::vector<io::PrefetchRange> io_ranges =
-            _generate_random_access_ranges(row_group_index, &avg_io_size);
-    // The underlying page reader will prefetch data in column.
-    // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
-    io::FileReaderSPtr group_file_reader =
-            avg_io_size < io::MergeRangeFileReader::SMALL_IO
-                    ? std::make_shared<io::MergeRangeFileReader>(_profile, _file_reader, io_ranges)
-                    : _file_reader;
+    io::FileReaderSPtr group_file_reader;
+    if (typeid_cast<io::InMemoryFileReader*>(_file_reader.get())) {
+        // InMemoryFileReader has the ability to merge small IO
+        group_file_reader = _file_reader;
+    } else {
+        size_t avg_io_size = 0;
+        const std::vector<io::PrefetchRange> io_ranges =
+                _generate_random_access_ranges(row_group_index, &avg_io_size);
+        // The underlying page reader will prefetch data in column.
+        // Using both MergeRangeFileReader and BufferedStreamReader simultaneously would waste a lot of memory.
+        group_file_reader = avg_io_size < io::MergeRangeFileReader::SMALL_IO
+                                    ? std::make_shared<io::MergeRangeFileReader>(
+                                              _profile, _file_reader, io_ranges)
+                                    : _file_reader;
+    }
     _current_group_reader.reset(new RowGroupReader(
             group_file_reader, _read_columns, row_group_index.row_group_id, row_group, _ctz,
             _io_ctx, position_delete_ctx, _lazy_read_ctx, _state));
@@ -726,17 +742,17 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));
     _column_statistics.read_bytes += bytes_read;
     // read twice: parse column index & parse offset index
-    _column_statistics.read_calls += 2;
+    _column_statistics.meta_read_calls += 2;
     for (auto& read_col : _read_columns) {
         auto conjunct_iter = _colname_to_value_range->find(read_col._file_slot_name);
         if (_colname_to_value_range->end() == conjunct_iter) {
             continue;
         }
         auto& chunk = row_group.columns[read_col._parquet_col_id];
-        tparquet::ColumnIndex column_index;
         if (chunk.column_index_offset == 0 && chunk.column_index_length == 0) {
             continue;
         }
+        tparquet::ColumnIndex column_index;
         RETURN_IF_ERROR(page_index.parse_column_index(chunk, col_index_buff, &column_index));
         const int num_of_pages = column_index.null_pages.size();
         if (num_of_pages <= 0) {
@@ -825,15 +841,22 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         auto& statistic = meta_data.statistics;
         bool is_all_null =
                 (statistic.__isset.null_count && statistic.null_count == meta_data.num_values);
-        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min);
+        bool is_set_min_max = (statistic.__isset.max && statistic.__isset.min) ||
+                              (statistic.__isset.max_value && statistic.__isset.min_value);
         if ((!is_set_min_max) && (!is_all_null)) {
             continue;
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
-        *filter_group =
-                ParquetPredicate::filter_by_stats(slot_iter->second, col_schema, is_set_min_max,
-                                                  statistic.min, statistic.max, is_all_null, *_ctz);
+        if (statistic.__isset.min_value) {
+            *filter_group = ParquetPredicate::filter_by_stats(
+                    slot_iter->second, col_schema, is_set_min_max, statistic.min_value,
+                    statistic.max_value, is_all_null, *_ctz, true);
+        } else {
+            *filter_group = ParquetPredicate::filter_by_stats(
+                    slot_iter->second, col_schema, is_set_min_max, statistic.min, statistic.max,
+                    is_all_null, *_ctz, false);
+        }
         if (*filter_group) {
             break;
         }

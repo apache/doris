@@ -79,20 +79,17 @@ The user triggers a manual collection job through a statement `ANALYZE` to colle
 Column statistics collection syntax:
 
 ```SQL
-ANALYZE [ SYNC ] TABLE table_name
-    [ (column_name [, ...]) ]    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]    [ PROPERTIES ("key" = "value", ...) ];
-```
-
-Column histogram collection syntax:
-
-```SQL
-ANALYZE [ SYNC ] TABLE table_name
-    [ (column_name [, ...]) ]    UPDATE HISTOGRAM    [ [ WITH SYNC] [ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] [ WITH PERIOD ] ]    [ PROPERTIES ("key" = "value", ...) ];
+ANALYZE TABLE | DATABASE table_name | db_name
+    [ PARTITIONS (partition_name [, ...]) ]
+    [ (column_name [, ...]) ]
+    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
+    [ PROPERTIES ("key" = "value", ...) ];
 ```
 
 Explanation:
 
 - Table_name: The target table for the specified. It can be a `db_name.table_name` form.
+- partition_name: The specified target partitions（for hive external table only）。Must be partitions exist in `table_name`. Multiple partition names are separated by commas. e.g. (nation=US/city=Washington)
 - Column_name: The specified target column. Must be `table_name` a column that exists in. Multiple column names are separated by commas.
 - Sync: Synchronizes the collection of statistics. Return after collection. If not specified, it will be executed asynchronously and the job ID will be returned.
 - Incremental: Incrementally gather statistics. Incremental collection of histogram statistics is not supported.
@@ -194,7 +191,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 
 ##### Collect histogram information
 
-Column histogram information is used to describe the distribution of columns. It divides the data into several intervals (buckets) according to the size, and uses simple statistics to represent the characteristics of the data in each interval. Collected by `ANALYZE TABLE` statement fit `UPDATE HISTOGRAM`.
+Column histogram information is used to describe the distribution of columns. It divides the data into several intervals (buckets) according to the size, and uses simple statistics to represent the characteristics of the data in each interval. Collected by `ANALYZE TABLE` statement fit `WITH HISTOGRAM`.
 
 Columns can be specified to collect their histogram information in the same way that normal statistics are collected. Collecting histogram information takes longer than normal statistics, so to reduce overhead, we can just collect histogram information for specific columns for the optimizer to use.
 
@@ -203,7 +200,7 @@ Example:
 - Collects `example_tbl` histograms for all columns of a table, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -214,7 +211,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
 - Collect `example_tbl` histograms for table `city` `age` `sex` columns, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -226,7 +223,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
 
 ```SQL
 -- use with buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH BUCKETS 2;
 +--------+
 | job_id |
 +--------+
@@ -234,7 +231,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
 +--------+
 
 -- configure num.buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM PROPERTIES("num.buckets" = "2");
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM PROPERTIES("num.buckets" = "2");
 +--------+
 | job_id |
 +--------+
@@ -337,7 +334,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
 - Samples collect `example_tbl` histogram information for a table, similar to normal statistics, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SAMPLE ROWS 5;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SAMPLE ROWS 5;
 +--------+
 | job_id |
 +--------+
@@ -364,7 +361,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
 - Samples collect `example_tbl` histogram information for a table, similar to normal statistics, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SYNC;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SYNC;
 ```
 
 ### Automatic collection
@@ -400,7 +397,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400
 - Collects `example_tbl` histogram information for a table periodically (every other day), similar to normal statistics, using the following syntax:
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH PERIOD 86400;
 +--------+
 | job_id |
 +--------+
@@ -410,7 +407,52 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
 
 #### Automatic collection
 
-To be added.
+Statistics can be "invalidated" when tables are changed, which can cause the optimizer to select the wrong execution plan.
+
+Table statistics may become invalid due to the following causes:
+
+- New field: The new field has no statistics
+- Field change: Original statistics are unavailable
+- Added zone: The new zone has no statistics
+- Zone change: The original statistics are invalid
+- data changes (insert data delete data | | change data) : the statistical information is error
+
+The main operations involved include:
+
+- update: updates the data
+- delete: deletes data
+- drop: deletes a partition
+- load: import data and add partitions
+- insert: inserts data and adds partitions
+- alter: Field change, partition change, or new partition
+
+Database, table, partition, field deletion, internal will automatically clear these invalid statistics. Adjusting the column order and changing the column type do not affect.
+
+The system determines whether to collect statistics again based on the health of the table (as defined above). By setting the health threshold, the system collects statistics about the table again when the health is lower than a certain value. To put it simply, if statistics are collected on a table and the data of a partition becomes more or less, or a partition is added or deleted, the statistics may be automatically collected. After the statistics are collected again, the statistics and health of the table are updated. 
+
+Currently, only tables that are configured by the user to automatically collect statistics will be collected, and statistics will not be automatically collected for other tables.
+
+Example:
+
+- Automatically analysis statistics for the 'example_tbl' table using the following syntax:
+
+```SQL
+-- use with auto
+mysql> ANALYZE TABLE stats_test.example_tbl WITH AUTO;
++--------+
+| job_id |
++--------+
+| 52539  |
++--------+
+
+-- configure automatic
+mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("automatic" = "true");
++--------+
+| job_id |
++--------+
+| 52565  |
++--------+
+```
 
 ### Manage job
 
@@ -422,7 +464,7 @@ The syntax is as follows:
 
 ```SQL
 SHOW ANALYZE [ table_name | job_id ]
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ]    [ ORDER BY ... ]    [ LIMIT OFFSET ];
+    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
 Explanation:
@@ -450,54 +492,29 @@ Currently `SHOW ANALYZE`, 11 columns are output, as follows:
 
 Example:
 
-- View statistics job information with ID `68603`, using the following syntax:
+- View statistics job information with ID `20038`, using the following syntax:
 
 ```SQL
-mysql> SHOW ANALYZE 68603;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl |                 | MANUAL   | INDEX         |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | date            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | user_id         | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | max_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | cost            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | min_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:24  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | city            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
+mysql> SHOW ANALYZE 20038 
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+| job_id | catalog_name | db_name              | tbl_name | col_name              | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+| 20038  | internal     | default_cluster:test | t3       | [col4,col2,col3,col1] | MANUAL   | FUNDAMENTALS  |         | 2023-06-01 17:22:15  | FINISHED | ONCE          |
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+
 ```
 
-- To view `example_tbl` statistics job information for a table, use the following syntax:
+```
+mysql> show analyze task status  20038 ;
++---------+----------+---------+----------------------+----------+
+| task_id | col_name | message | last_exec_time_in_ms | state    |
++---------+----------+---------+----------------------+----------+
+| 20039   | col4     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20040   | col2     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20041   | col3     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20042   | col1     |         | 2023-06-01 17:22:15  | FINISHED |
++---------+----------+---------+----------------------+----------+
 
-```SQL
-mysql> SHOW ANALYZE stats_test.example_tbl;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl |                 | MANUAL   | INDEX         |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | city            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | cost            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | min_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:24  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | date            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | user_id         | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | max_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | user_id         | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:11  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:09  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:10  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | date            | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:10  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | cost            | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:10  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:10  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | min_dwell_time  | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:10  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | max_dwell_time  | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:09  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl |                 | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:11  | FINISHED | ONCE          |
-| 68678  | internal     | default_cluster:stats_test | example_tbl | city            | MANUAL   | HISTOGRAM     |         | 2023-05-05 18:00:11  | FINISHED | ONCE          |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
 ```
 
 - View all statistics job information, and return the first 3 pieces of information in descending order of the last completion time, using the following syntax:
@@ -596,11 +613,12 @@ mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
 The syntax is as follows:
 
 ```SQL
-SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
 ```
 
 Explanation:
 
+- cached: Cached means to show statistics in current FE memory cache.
 - Table_name: The target table for collecting statistics. It can be a `db_name.table_name` form.
 - Column_name: Specified destination column. `table_name` Must be a column that exists in. Multiple column names are separated by commas.
 - Partition_name: The specified target partition `table_name` must exist in. Only one partition can be specified.
@@ -775,7 +793,7 @@ Buckets description:
 Users can modify the statistics information through statements `ALTER`, and modify the corresponding statistics information of the column according to the provided parameters.
 
 ```SQL
-ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...);
+ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
 Explanation:
@@ -783,6 +801,7 @@ Explanation:
 - Table_name: The table to which the statistics are dropped. It can be a `db_name.table_name` form.
 - Column_name: Specified target column. `table_name` Must be a column that exists in. Statistics can only be modified one column at a time.
 - Stat _ name and stat _ value: The corresponding stat name and the value of the stat info. Multiple stats are comma separated. Statistics that can be modified include `row_count`, `ndv`, `num_nulls` `min_value` `max_value`, and `data_size`.
+- Partition_name: specifies the target partition. Must be a partition existing in `table_name`. Multiple partitions are separated by commas.
 
 Example:
 
@@ -844,6 +863,14 @@ mysql> DROP STATS stats_test.example_tbl;
 
 ```SQL
 mysql> DROP STATS stats_test.example_tbl(city, age, sex);
+```
+
+## Delete Analyze Job
+
+User can delete automatic/periodic Analyze jobs based on job ID.
+
+```sql
+DROP ANALYZE JOB [JOB_ID]
 ```
 
 ## ANALYZE configuration item

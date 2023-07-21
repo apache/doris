@@ -21,29 +21,33 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
  * Abstract class for all concrete logical plan.
  */
-public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan {
+public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
 
-    private Supplier<Boolean> hasUnboundExpressions = () -> super.hasUnboundExpression();
+    private final Supplier<Boolean> hasUnboundExpressions = super::hasUnboundExpression;
 
     public AbstractLogicalPlan(PlanType type, Plan... children) {
         super(type, children);
     }
 
-    public AbstractLogicalPlan(PlanType type, Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, logicalProperties, children);
+    public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, groupExpression, logicalProperties, null, children);
     }
 
     public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                               Optional<LogicalProperties> logicalProperties, Plan... children) {
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         super(type, groupExpression, logicalProperties, null, children);
     }
 
@@ -62,5 +66,10 @@ public abstract class AbstractLogicalPlan extends AbstractPlan implements Logica
         } else {
             return new LogicalProperties(this::computeOutput);
         }
+    }
+
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return this;
     }
 }

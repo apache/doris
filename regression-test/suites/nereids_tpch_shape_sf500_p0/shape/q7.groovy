@@ -27,11 +27,7 @@ suite("q7") {
     sql 'set exec_mem_limit=21G' 
     sql 'SET enable_pipeline_engine = true'
   
-    def result = sql "show backends;"
-    if (result.size() != 1) {
-        print("backends num: ${result.size()}");
-        return;
-    }
+sql 'set be_number_for_test=3'
 
     qt_select """
     explain shape plan

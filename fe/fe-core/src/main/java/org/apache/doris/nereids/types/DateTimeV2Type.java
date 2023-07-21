@@ -78,6 +78,17 @@ public class DateTimeV2Type extends DateLikeType {
         return MAX;
     }
 
+    /**
+     * return proper type of datetimev2 for String
+     * may be we need to check for validity?
+     */
+    public static DateTimeV2Type forTypeFromString(String s) {
+        if (!s.contains(String.valueOf("."))) {
+            return DateTimeV2Type.SYSTEM_DEFAULT;
+        }
+        return DateTimeV2Type.of(s.length() - s.lastIndexOf(".") - 1);
+    }
+
     @Override
     public String toSql() {
         return super.toSql() + "(" + scale + ")";

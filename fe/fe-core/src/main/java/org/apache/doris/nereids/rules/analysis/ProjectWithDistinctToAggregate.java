@@ -22,38 +22,32 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-
-import com.google.common.collect.Lists;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 /**
  * ProjectWithDistinctToAggregate.
- *
+ * <p>
  * example sql:
  * <pre>
- * select distinct value
- * from tbl
- * </pre>
+ * select distinct value from tbl
  *
- * origin plan:                                                 transformed plan:
- *
- * LogicalProject(projects=[distinct value])                        LogicalAggregate(groupBy=[value], output=[value])
- *            |                                      =>                              |
- *  LogicalOlapScan(table=tbl)                                                  LogicalOlapScan(table=tbl)
+ * LogicalProject(projects=[distinct value])
+ *            |
+ * LogicalOlapScan(table=tbl)
+ *          =>
+ * LogicalAggregate(groupBy=[value], output=[value])
+ *           |
+ * LogicalOlapScan(table=tbl)
+ *  </pre>
  */
 public class ProjectWithDistinctToAggregate extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return RuleType.PROJECT_WITH_DISTINCT_TO_AGGREGATE.build(
-                logicalProject().then(project -> {
-                    if (project.isDistinct() && project.getProjects()
-                            .stream()
-                            .noneMatch(this::hasAggregateFunction)) {
-                        return new LogicalAggregate<>(Lists.newArrayList(project.getProjects()), project.getProjects(),
-                                project.child());
-                    } else {
-                        return project;
-                    }
-                })
+            logicalProject()
+                .when(LogicalProject::isDistinct)
+                .whenNot(project -> project.getProjects().stream().anyMatch(this::hasAggregateFunction))
+                .then(project -> new LogicalAggregate<>(project.getProjects(), false, project.child()))
         );
     }
 

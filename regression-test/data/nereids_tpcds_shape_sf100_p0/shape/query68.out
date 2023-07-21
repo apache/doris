@@ -10,8 +10,9 @@ PhysicalTopN
 ----------PhysicalDistribute
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](dn.ss_customer_sk = customer.c_customer_sk)
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer]
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashAgg[LOCAL]
@@ -32,7 +33,7 @@ PhysicalTopN
 ------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
---------------------------------------filter(((store.s_city = 'Pleasant Hill') OR (store.s_city = 'Five Points')))
+--------------------------------------filter(s_city IN ('Pleasant Hill', 'Five Points'))
 ----------------------------------------PhysicalOlapScan[store]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject

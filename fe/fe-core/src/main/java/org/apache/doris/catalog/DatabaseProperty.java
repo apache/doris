@@ -102,6 +102,16 @@ public class DatabaseProperty implements Writable {
         return this;
     }
 
+    public BinlogConfig getBinlogConfig() {
+        BinlogConfig binlogConfig = new BinlogConfig();
+        binlogConfig.mergeFromProperties(properties);
+        return binlogConfig;
+    }
+
+    public void updateProperties(Map<String, String> newProperties) {
+        properties.putAll(newProperties);
+    }
+
     private void checkAndBuildIcebergProperty(Map<String, String> properties) throws DdlException {
         IcebergCatalogMgr.validateProperties(properties, false);
         icebergProperty = new IcebergProperty(properties);

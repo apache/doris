@@ -63,6 +63,17 @@ private:
             DCHECK(null_map);
         }
 
+        uint24_t tmp_uint24_value;
+        auto get_cell_value = [&tmp_uint24_value](auto& data) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t> &&
+                          T == PrimitiveType::TYPE_DATE) {
+                memcpy((char*)(&tmp_uint24_value), (char*)(&data), sizeof(uint24_t));
+                return (const char*)&tmp_uint24_value;
+            } else {
+                return (const char*)&data;
+            }
+        };
+
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
             auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
@@ -90,6 +101,28 @@ private:
                     }
                 }
             }
+        } else if (is_string_type(T) && _be_exec_version >= 2) {
+            auto& pred_col =
+                    reinterpret_cast<
+                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                            &column)
+                            ->get_data();
+
+            auto pred_col_data = pred_col.data();
+            const bool is_dense_column = pred_col.size() == size;
+            for (uint16_t i = 0; i < size; i++) {
+                uint16_t idx = is_dense_column ? i : sel[i];
+                if constexpr (is_nullable) {
+                    if (!null_map[idx] &&
+                        _specific_filter->find_crc32_hash(get_cell_value(pred_col_data[idx]))) {
+                        sel[new_size++] = idx;
+                    }
+                } else {
+                    if (_specific_filter->find_crc32_hash(get_cell_value(pred_col_data[idx]))) {
+                        sel[new_size++] = idx;
+                    }
+                }
+            }
         } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, T)) {
             const auto& data =
                     reinterpret_cast<
@@ -99,17 +132,6 @@ private:
             new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
                                                                     sel, size, data.size() != size);
         } else {
-            uint24_t tmp_uint24_value;
-            auto get_cell_value = [&tmp_uint24_value](auto& data) {
-                if constexpr (std::is_same_v<std::decay_t<decltype(data)>, uint32_t> &&
-                              T == PrimitiveType::TYPE_DATE) {
-                    memcpy((char*)(&tmp_uint24_value), (char*)(&data), sizeof(uint24_t));
-                    return (const char*)&tmp_uint24_value;
-                } else {
-                    return (const char*)&data;
-                }
-            };
-
             auto& pred_col =
                     reinterpret_cast<
                             const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(

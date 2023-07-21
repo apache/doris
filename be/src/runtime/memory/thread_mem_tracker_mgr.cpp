@@ -28,6 +28,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
         const TUniqueId& fragment_instance_id) {
     DCHECK(mem_tracker);
+    CHECK(init());
     flush_untracked_mem();
     _fragment_instance_id = fragment_instance_id;
     _limiter_tracker = mem_tracker;
@@ -37,6 +38,7 @@ void ThreadMemTrackerMgr::attach_limiter_tracker(
 
 void ThreadMemTrackerMgr::detach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& old_mem_tracker) {
+    CHECK(init());
     flush_untracked_mem();
     _fragment_instance_id = TUniqueId();
     _limiter_tracker = old_mem_tracker;

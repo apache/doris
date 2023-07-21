@@ -34,7 +34,7 @@ under the License.
 
 生成 src 的子 BITMAP， 从不小于 range_start 的位置开始，大小限制为 cardinality_limit 。
 range_start：范围起始点（含）
-cardinality_limit：子BIGMAP基数上限
+cardinality_limit：子 BITMAP 基数上限
 
 ### example
 

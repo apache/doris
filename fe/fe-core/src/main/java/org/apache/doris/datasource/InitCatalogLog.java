@@ -37,6 +37,7 @@ public class InitCatalogLog implements Writable {
         ES,
         JDBC,
         ICEBERG,
+        PAIMON,
         MAX_COMPUTE,
         HUDI,
         TEST,
@@ -63,6 +64,9 @@ public class InitCatalogLog implements Writable {
 
     @SerializedName(value = "type")
     private Type type;
+
+    @SerializedName(value = "lastUpdateTime")
+    private long lastUpdateTime;
 
     public InitCatalogLog() {
         refreshCount = 0;

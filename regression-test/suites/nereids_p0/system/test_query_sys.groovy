@@ -18,7 +18,7 @@
 suite("test_query_sys", "query,p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql "use test_query_db;"
+    sql "use nereids_test_query_db;"
 
     def tableName = "test"
     sql "SELECT DATABASE();"
@@ -38,8 +38,8 @@ suite("test_query_sys", "query,p0") {
     sql "select sleep(2);"
 
     // INFORMATION_SCHEMA
-    sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"test_query_db\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"
-    sql "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = \"${tableName}\" AND table_schema =\"test_query_db\" AND column_name LIKE \"k%\""
+    sql "SELECT table_name FROM INFORMATION_SCHEMA.TABLES where table_schema=\"nereids_test_query_db\" and TABLE_TYPE = \"BASE TABLE\" order by table_name"
+    sql "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = \"${tableName}\" AND table_schema =\"nereids_test_query_db\" AND column_name LIKE \"k%\""
     
     // test version()
     sql "set enable_nereids_planner=false"

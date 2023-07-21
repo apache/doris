@@ -416,7 +416,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
                                 new OrderKey(orderKey.getExpr(), !orderKey.isAsc(), !orderKey.isNullFirst()));
                     })
                     .collect(Collectors.toList());
-            windowExpression = windowExpression.withOrderKeyList(newOKList);
+            windowExpression = windowExpression.withOrderKeys(newOKList);
 
             // reverse WindowFrame
             // e.g. (3 preceding, unbounded following) -> (unbounded preceding, 3 following)

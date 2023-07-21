@@ -38,6 +38,8 @@ struct TColumn {
     14: optional i32 gram_size
     15: optional i32 gram_bf_size
     16: optional string aggregation
+    17: optional bool result_is_nullable
+    18: optional bool is_auto_increment = false;
 }
 
 struct TSlotDescriptor {
@@ -56,6 +58,7 @@ struct TSlotDescriptor {
   // If set to false, then such slots will be ignored during
   // materialize them.Used to optmize to read less data and less memory usage
   13: optional bool need_materialize = true
+  14: optional bool is_auto_increment = false;
 }
 
 struct TTupleDescriptor {
@@ -113,7 +116,8 @@ enum TSchemaTableType {
     SCH_INVALID,
     SCH_ROWSETS,
     SCH_BACKENDS,
-    SCH_COLUMN_STATISTICS
+    SCH_COLUMN_STATISTICS,
+    SCH_PARAMETERS;
 }
 
 enum THdfsCompression {
@@ -217,6 +221,7 @@ struct TOlapTableSchemaParam {
     7: optional bool is_dynamic_schema
     8: optional bool is_partial_update
     9: optional list<string> partial_update_input_columns
+    10: optional bool is_strict_mode = false;
 }
 
 struct TTabletLocation {
@@ -306,12 +311,16 @@ struct TJdbcTable {
   6: optional string jdbc_resource_name
   7: optional string jdbc_driver_class
   8: optional string jdbc_driver_checksum
+  
 }
 
 struct TMCTable {
-  1: optional string tunnel_url
+  1: optional string region
   2: optional string project
   3: optional string table
+  4: optional string access_key
+  5: optional string secret_key
+  6: optional string public_access
 }
 
 // "Union" of all table types.

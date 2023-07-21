@@ -117,7 +117,8 @@ Status EngineCloneTask::_do_clone() {
     if (tablet != nullptr) {
         std::shared_lock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
         if (!migration_rlock.owns_lock()) {
-            return Status::Error<TRY_LOCK_FAILED>();
+            return Status::Error<TRY_LOCK_FAILED>(
+                    "EngineCloneTask::_do_clone meet try lock failed");
         }
         if (tablet->replica_id() < _clone_req.replica_id) {
             // `tablet` may be a dropped replica in FE, e.g:
@@ -130,7 +131,19 @@ Status EngineCloneTask::_do_clone() {
         auto local_data_path = fmt::format("{}/{}", tablet->tablet_path(), CLONE_PREFIX);
         bool allow_incremental_clone = false;
 
-        tablet->calc_missed_versions(_clone_req.committed_version, &missed_versions);
+        int64_t specified_version = _clone_req.committed_version;
+        if (tablet->enable_unique_key_merge_on_write()) {
+            int64_t min_pending_ver =
+                    StorageEngine::instance()->get_pending_publish_min_version(tablet->tablet_id());
+            if (min_pending_ver - 1 < specified_version) {
+                LOG(INFO) << "use min pending publish version for clone, min_pending_ver: "
+                          << min_pending_ver
+                          << " committed_version: " << _clone_req.committed_version;
+                specified_version = min_pending_ver - 1;
+            }
+        }
+
+        tablet->calc_missed_versions(specified_version, &missed_versions);
 
         // if missed version size is 0, then it is useless to clone from remote be, it means local data is
         // completed. Or remote be will just return header not the rowset files. clone will failed.
@@ -153,7 +166,7 @@ Status EngineCloneTask::_do_clone() {
         RETURN_IF_ERROR(_make_and_download_snapshots(*(tablet->data_dir()), local_data_path,
                                                      &src_host, &src_file_path, missed_versions,
                                                      &allow_incremental_clone));
-        RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, _clone_req.committed_version,
+        RETURN_IF_ERROR(_finish_clone(tablet.get(), local_data_path, specified_version,
                                       allow_incremental_clone));
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
@@ -360,7 +373,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
                 client->make_snapshot(result, request);
             }));
     if (result.status.status_code != TStatusCode::OK) {
-        return Status(result.status);
+        return Status::create(result.status);
     }
 
     if (!result.__isset.snapshot_path) {
@@ -387,7 +400,7 @@ Status EngineCloneTask::_release_snapshot(const std::string& ip, int port,
             ip, port, [&snapshot_path, &result](BackendServiceConnection& client) {
                 client->release_snapshot(result, snapshot_path);
             }));
-    return Status(result.status);
+    return Status::create(result.status);
 }
 
 Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& remote_url_prefix,

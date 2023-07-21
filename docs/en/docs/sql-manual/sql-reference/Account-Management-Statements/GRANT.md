@@ -49,6 +49,8 @@ GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
 GRANT role_list TO user_identity
 ````
 
+<version since="dev">GRANT privilege_list ON WORKLOAD GROUP workload_group_name TO user_identity [ROLE role_name]</version>
+
 privilege_list is a list of privileges to be granted, separated by commas. Currently Doris supports the following permissions:
 
     NODE_PRIV: Cluster node operation permissions, including node online and offline operations. Only the root user has this permission and cannot be granted to other users.
@@ -68,7 +70,7 @@ Permission classification:
 
     1. Node Privilege: NODE_PRIV
     2. database table permissions: SELECT_PRIV, LOAD_PRIV, ALTER_PRIV, CREATE_PRIV, DROP_PRIV
-    3. Resource permission: USAGE_PRIV
+    3. Resource  <version since="dev" type="inline" >and workload groups</version> Privilege: USAGE_PRIV
 
 Priv_level supports the following four forms:
 
@@ -85,6 +87,8 @@ resource_name supports the following two forms:
     2. The resource permission applies to the specified resource
     
     The resource specified here can be a non-existing resource. In addition, please distinguish the resources here from external tables, and use catalog as an alternative if you use external tables.
+
+workload_group_name specifies the workload group name and supports `%` and `_` match characters, `%` can match any string and `_` matches any single character.
 
 user_identity:
 
@@ -138,7 +142,27 @@ role_list is the list of roles to be assigned, separated by commas,the specified
 
     ```sql
     GRANT 'role1','role2' TO 'jack'@'%';
-    ```
+    ````
+
+<version since="dev"></version>
+
+8. Grant the specified workload group 'g1' to user jack
+
+    ```sql
+    GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO 'jack'@'%'.
+    ````
+
+9. match all workload groups granted to user jack
+
+    ```sql
+    GRANT USAGE_PRIV ON WORKLOAD GROUP '%' TO 'jack'@'%'.
+    ````
+
+10. grant the workload group 'g1' to the role my_role
+
+    ```sql
+    GRANT USAGE_PRIV ON WORKLOAD GROUP 'g1' TO ROLE 'my_role'.
+    ````
 
 ### Keywords
 

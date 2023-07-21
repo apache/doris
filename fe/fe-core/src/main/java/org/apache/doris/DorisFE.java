@@ -114,6 +114,7 @@ public class DorisFE {
             }
 
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
+            Runtime.getRuntime().addShutdownHook(new Thread(LogManager::shutdown));
 
             // set dns cache ttl
             java.security.Security.setProperty("networkaddress.cache.ttl", "60");

@@ -59,6 +59,8 @@ public:
     Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
 
 private:
+    bool _has_data();
+
     std::shared_ptr<DataQueue> _data_queue;
     bool _need_read_for_const_expr;
 };

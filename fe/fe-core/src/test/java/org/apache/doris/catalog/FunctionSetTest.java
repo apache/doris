@@ -44,7 +44,7 @@ public class FunctionSetTest {
         Function newFunction = functionSet.getFunction(lagDesc1, Function.CompareMode.IS_SUPERTYPE_OF);
         Type[] newArgTypes = newFunction.getArgs();
         Assert.assertTrue(newArgTypes[0].matchesType(newArgTypes[2]));
-        Assert.assertTrue(newArgTypes[0].matchesType(ScalarType.DECIMALV2));
+        Assert.assertTrue(newArgTypes[0].matchesType(ScalarType.DOUBLE));
 
         Type[] argTypes2 = {ScalarType.VARCHAR, ScalarType.TINYINT, ScalarType.TINYINT};
         Function lagDesc2 = new Function(new FunctionName("lag"), Arrays.asList(argTypes2), ScalarType.INVALID, false);
@@ -59,7 +59,7 @@ public class FunctionSetTest {
         TemplateType type1 = new TemplateType("T");
         TemplateType type2 = new TemplateType("T");
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
-                "test_a", Type.ANY_TYPE, Lists.newArrayList(type1, type2), false,
+                "test_a", Type.ANY_ELEMENT_TYPE, Lists.newArrayList(type1, type2), false,
                 "", "", "", true));
         Type[] argTypes = {ArrayType.create(), ScalarType.INT};
         Function desc = new Function(new FunctionName("test_a"), Arrays.asList(argTypes), ScalarType.INVALID, false);

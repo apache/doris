@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
@@ -178,6 +179,22 @@ public class MatchPredicate extends Predicate {
         op = other.op;
         invertedIndexParser = other.invertedIndexParser;
         invertedIndexParserMode = other.invertedIndexParserMode;
+    }
+
+    /**
+     * use for Nereids ONLY
+     */
+    public MatchPredicate(Operator op, Expr e1, Expr e2, Type retType,
+            NullableMode nullableMode, String invertedIndexParser, String invertedIndexParserMode) {
+        this(op, e1, e2);
+        if (invertedIndexParser != null) {
+            this.invertedIndexParser = invertedIndexParser;
+        }
+        if (invertedIndexParserMode != null) {
+            this.invertedIndexParserMode = invertedIndexParserMode;
+        }
+        fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
+                false, true, nullableMode);
     }
 
     @Override

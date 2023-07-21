@@ -48,10 +48,6 @@ class RuntimeFilterMergeControllerEntity;
 class TDataSink;
 class TPipelineFragmentParams;
 
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
-
 namespace pipeline {
 
 class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
@@ -87,6 +83,7 @@ public:
     Status submit();
 
     void close_if_prepare_failed();
+    void close_sink();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -120,7 +117,9 @@ public:
         return _exec_status;
     }
 
-    taskgroup::TaskGroup* get_task_group() const { return _query_ctx->get_task_group(); }
+    taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const {
+        return _task_group_entity;
+    }
 
 private:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
@@ -174,6 +173,8 @@ private:
     std::vector<std::unique_ptr<DataSink>> _multi_cast_stream_sink_senders;
 
     std::shared_ptr<QueryContext> _query_ctx;
+
+    taskgroup::TaskGroupPipelineTaskEntity* _task_group_entity = nullptr;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 

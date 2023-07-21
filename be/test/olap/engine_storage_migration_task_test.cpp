@@ -46,6 +46,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
+#include "olap/task/engine_publish_version_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/descriptor_helper.h"
@@ -181,8 +182,9 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
-                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
+    WriteRequest write_req = {
+            10005, 270068377, 20003, 30003, load_id, tuple_desc, &(tuple_desc->slots()),
+            false, &param};
     DeltaWriter* delta_writer = nullptr;
 
     std::unique_ptr<RuntimeProfile> profile;
@@ -206,9 +208,10 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         RowsetSharedPtr rowset = tablet_rs.second;
+        TabletPublishStatistics stats;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    tablet->tablet_id(), tablet->schema_hash(),
-                                                   tablet->tablet_uid(), version);
+                                                   tablet->tablet_uid(), version, &stats);
         EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
         EXPECT_EQ(Status::OK(), res);

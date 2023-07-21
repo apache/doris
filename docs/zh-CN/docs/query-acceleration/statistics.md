@@ -79,25 +79,17 @@ Doris 查询优化器使用统计信息来确定查询最有效的执行计划�
 列统计信息收集语法：
 
 ```SQL
-ANALYZE [ SYNC ] TABLE table_name
+ANALYZE TABLE | DATABASE table_name | db_name
+    [ PARTITIONS (partition_name [, ...]) ]
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] ]
-    [ PROPERTIES ("key" = "value", ...) ];
-```
-
-列直方图收集语法：
-
-```SQL
-ANALYZE [ SYNC ] TABLE table_name
-    [ (column_name [, ...]) ]
-    UPDATE HISTOGRAM
-    [ [ WITH SYNC] [ WITH SAMPLE PERCENT | ROWS ][ WITH BUCKETS ] [ WITH PERIOD ] ]
+    [ [ WITH SYNC ] [ WITH INCREMENTAL ] [ WITH SAMPLE PERCENT | ROWS ] [ WITH PERIOD ] [WITH HISTOGRAM]]
     [ PROPERTIES ("key" = "value", ...) ];
 ```
 
 其中：
 
 - table_name: 指定的的目标表。可以是  `db_name.table_name`  形式。
+- partition_name: 指定的目标分区（目前只针对Hive外表）。必须是  `table_name`  中存在的分区，多个列名称用逗号分隔。分区名样例:event_date=20230706, nation=CN/city=Beijing
 - column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回任务 ID。
 - incremental：增量收集统计信息。不支持增量收集直方图统计信息。
@@ -228,7 +220,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 
 ##### 收集直方图信息
 
-列直方图信息用于描述列分布的情况，它将数据根据大小分成若干个区间（桶），并使用简单的统计量来表示每个区间中数据的特征。通过 `ANALYZE TABLE` 语句配合 `UPDATE HISTOGRAM` 进行收集。
+列直方图信息用于描述列分布的情况，它将数据根据大小分成若干个区间（桶），并使用简单的统计量来表示每个区间中数据的特征。通过 `ANALYZE TABLE` 语句配合 `WITH HISTOGRAM` 进行收集。
 
 和收集普通统计信息一样，可以指定列来收集其直方图信息。相比普通统计信息，收集直方图信息耗时更长，所以为了降低开销，我们可以只收集特定列的直方图信息供优化器使用。
 
@@ -237,7 +229,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex);
 - 收集 `example_tbl` 表所有列的直方图，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -248,7 +240,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM;
 - 收集 `example_tbl` 表 `city`, `age`, `sex` 列的直方图，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
+mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) WITH HISTOGRAM;
 +--------+
 | job_id |
 +--------+
@@ -260,7 +252,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl(city, age, sex) UPDATE HISTOGRAM;
 
 ```SQL
 -- 使用with buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH BUCKETS 2;
 +--------+
 | job_id |
 +--------+
@@ -268,7 +260,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH BUCKETS 2;
 +--------+
 
 -- 配置num.buckets
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM PROPERTIES("num.buckets" = "2");
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM PROPERTIES("num.buckets" = "2");
 +--------+
 | job_id |
 +--------+
@@ -371,7 +363,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sample.percent" = "50");
 - 抽样收集 `example_tbl` 表的直方图信息，与普通统计信息类似，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SAMPLE ROWS 5;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SAMPLE ROWS 5;
 +--------+
 | job_id |
 +--------+
@@ -398,7 +390,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("sync" = "true");
 - 抽样收集 `example_tbl` 表的直方图信息，与普通统计信息类似，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH SYNC;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH SYNC;
 ```
 
 ### 自动收集
@@ -434,7 +426,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("period.seconds" = "86400
 - 周期性（每隔一天）收集 `example_tbl` 表的直方图信息，与普通统计信息类似，使用以下语法：
 
 ```SQL
-mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
+mysql> ANALYZE TABLE stats_test.example_tbl WITH HISTOGRAM WITH PERIOD 86400;
 +--------+
 | job_id |
 +--------+
@@ -444,7 +436,50 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
 
 #### 自动收集
 
-待补充。
+表发生变更时可能会导致统计信息“失效”，可能会导致优化器选择错误的执行计划。
+
+导致表统计信息失效的原因包括：
+
+- 新增字段：新增字段无统计信息
+- 字段变更：原有统计信息不可用
+- 新增分区：新增分区无统计信息
+- 分区变更：原有统计信息失效
+- 数据变更(插入数据 | 删除数据 | 更改数据)：统计信息有误差
+
+主要涉及的操作包括：
+
+- update：更新数据
+- delete：删除数据
+- drop：删除分区
+- load：导入数据、新增分区
+- insert：插入数据、新增分区
+- alter：字段变更、分区变更、新增分区
+
+其中库、表、分区、字段删除，内部会自动清除这些无效的统计信息。调整列顺序以及修改列类型不影响。
+
+系统根据表的健康度（参考上文定义）来决定是否需要重新收集统计信息。我们通过设置健康度阈值，当健康度低于某个值时系统将重新收集表对应的统计信息。简单来讲就是对于收集过统计信息的表，如果某一个分区数据变多/变少、或者新增/删除分区，都有可能触发统计信息的自动收集，重新收集后更新表的统计信息和健康度。目前只会收集用户配置了自动收集统计信息的表，其他表不会自动收集统计信息。
+
+示例：
+
+- 自动收集 `example_tbl` 表的统计信息，使用以下语法：
+
+```SQL
+-- 使用with auto
+mysql> ANALYZE TABLE stats_test.example_tbl WITH AUTO;
++--------+
+| job_id |
++--------+
+| 52539  |
++--------+
+
+-- 配置automatic
+mysql> ANALYZE TABLE stats_test.example_tbl PROPERTIES("automatic" = "true");
++--------+
+| job_id |
++--------+
+| 52565  |
++--------+
+```
 
 ### 管理任务
 
@@ -456,9 +491,7 @@ mysql> ANALYZE TABLE stats_test.example_tbl UPDATE HISTOGRAM WITH PERIOD 86400;
 
 ```SQL
 SHOW ANALYZE [ table_name | job_id ]
-    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ]
-    [ ORDER BY ... ]
-    [ LIMIT OFFSET ];
+    [ WHERE [ STATE = [ "PENDING" | "RUNNING" | "FINISHED" | "FAILED" ] ] ];
 ```
 
 其中：
@@ -486,24 +519,32 @@ SHOW ANALYZE [ table_name | job_id ]
 
 示例：
 
-- 查看 ID 为 `68603` 的统计任务信息，使用以下语法：
+- 查看 ID 为 `20038` 的统计任务信息，使用以下语法：
 
 ```SQL
-mysql> SHOW ANALYZE 68603;
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| job_id | catalog_name | db_name                    | tbl_name    | col_name        | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
-| 68603  | internal     | default_cluster:stats_test | example_tbl |                 | MANUAL   | INDEX         |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | last_visit_date | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | age             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | sex             | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | date            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | user_id         | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | max_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:26  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | cost            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:27  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | min_dwell_time  | MANUAL   | COLUMN        |         | 2023-05-05 17:53:24  | FINISHED | ONCE          |
-| 68603  | internal     | default_cluster:stats_test | example_tbl | city            | MANUAL   | COLUMN        |         | 2023-05-05 17:53:25  | FINISHED | ONCE          |
-+--------+--------------+----------------------------+-------------+-----------------+----------+---------------+---------+----------------------+----------+---------------+
+mysql> SHOW ANALYZE 20038 
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+| job_id | catalog_name | db_name              | tbl_name | col_name              | job_type | analysis_type | message | last_exec_time_in_ms | state    | schedule_type |
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+| 20038  | internal     | default_cluster:test | t3       | [col4,col2,col3,col1] | MANUAL   | FUNDAMENTALS  |         | 2023-06-01 17:22:15  | FINISHED | ONCE          |
++--------+--------------+----------------------+----------+-----------------------+----------+---------------+---------+----------------------+----------+---------------+
+
+```
+
+可通过`SHOW ANALYZE TASK STATUS [job_id]`，查看具体每个列统计信息的收集完成情况。
+
+```
+mysql> show analyze task status  20038 ;
++---------+----------+---------+----------------------+----------+
+| task_id | col_name | message | last_exec_time_in_ms | state    |
++---------+----------+---------+----------------------+----------+
+| 20039   | col4     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20040   | col2     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20041   | col3     |         | 2023-06-01 17:22:15  | FINISHED |
+| 20042   | col1     |         | 2023-06-01 17:22:15  | FINISHED |
++---------+----------+---------+----------------------+----------+
+
+
 ```
 
 - 查看 `example_tbl` 表的的统计任务信息，使用以下语法：
@@ -632,11 +673,12 @@ mysql> SHOW TABLE STATS stats_test.example_tbl PARTITION (p_201701);
 语法如下：
 
 ```SQL
-SHOW COLUMN STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
+SHOW COLUMN [cached] STATS table_name [ (column_name [, ...]) ] [ PARTITION (partition_name) ];
 ```
 
 其中：
 
+- cached: 展示当前FE内存缓存中的统计信息。
 - table_name: 收集统计信息的目标表。可以是  `db_name.table_name`  形式。
 - column_name: 指定的目标列，必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
 - partition_name: 指定的目标分区，必须是  `table_name`  中存在的分区，只能指定一个分区。
@@ -812,7 +854,7 @@ Buckets 说明：
 ⽤户通过 `ALTER` 语句修改统计信息，根据提供的参数，修改列相应的统计信息。
 
 ```SQL
-ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...);
+ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_value', ...) [ PARTITION (partition_name) ];
 ```
 
 其中：
@@ -820,6 +862,7 @@ ALTER TABLE table_name MODIFY COLUMN column_name SET STATS ('stat_name' = 'stat_
 - table_name: 删除统计信息的目标表。可以是 `db_name.table_name` 形式。
 - column_name: 指定的目标列，必须是 `table_name` 中存在的列，每次只能修改一列的统计信息。
 - stat_name 和 stat_value: 相应的统计信息名称和统计信息信息的值，多个统计信息逗号分隔。可以修改的统计信息包括 `row_count`, `ndv`, `num_nulls`, `min_value`, `max_value`, `data_size`。
+- partition_name: 指定的目标分区。必须是 `table_name` 中存在的分区，多个分区使用逗号分割。
 
 示例：
 
@@ -881,6 +924,14 @@ mysql> DROP STATS stats_test.example_tbl;
 
 ```SQL
 mysql> DROP STATS stats_test.example_tbl(city, age, sex);
+```
+
+## 删除Analyze Job
+
+用于根据job id删除自动/周期Analyze作业
+
+```sql
+DROP ANALYZE JOB [JOB_ID]
 ```
 
 ## ANALYZE 配置项

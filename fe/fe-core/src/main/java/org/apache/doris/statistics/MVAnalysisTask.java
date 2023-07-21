@@ -62,7 +62,7 @@ public class MVAnalysisTask extends BaseAnalysisTask {
 
     private OlapTable olapTable;
 
-    public MVAnalysisTask(AnalysisTaskInfo info) {
+    public MVAnalysisTask(AnalysisInfo info) {
         super(info);
         init();
     }

@@ -194,6 +194,12 @@ public:
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
         _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
 
+        if (_offsets_pos > _data.get_size() - sizeof(uint32_t)) {
+            return Status::Corruption(
+                    "file corruption: offsets pos beyonds data_size: {}, num_element: {}"
+                    ", offset_pos: {}",
+                    _data.size, _num_elems, _offsets_pos);
+        }
         _parsed = true;
 
         return Status::OK();

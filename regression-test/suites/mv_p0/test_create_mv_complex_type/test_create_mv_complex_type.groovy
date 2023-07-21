@@ -121,7 +121,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_jsonb, count(c_bigint) from base_table group by c_bigint, c_int, c_jsonb;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -130,7 +130,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_array, count(c_bigint) from base_table group by c_bigint, c_int, c_array;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -139,7 +139,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_map, count(c_bigint) from base_table group by c_bigint, c_int, c_map;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -148,7 +148,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_struct, count(c_bigint) from base_table group by c_bigint, c_int, c_struct;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -159,7 +159,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_jsonb from base_table order by c_bigint, c_int, c_jsonb;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -168,7 +168,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_array from base_table order by c_bigint, c_int, c_array;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -177,7 +177,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_map from base_table order by c_bigint, c_int, c_map;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 
@@ -186,7 +186,7 @@ suite ("create_mv_complex_type") {
         sql """create materialized view mv as select c_bigint, c_int, c_struct from base_table order by c_bigint, c_int, c_struct;"""
         success = true
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter or group by"), e.getMessage())
+        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 }

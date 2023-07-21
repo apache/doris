@@ -20,6 +20,9 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 
+#include <functional>
+#include <optional>
+
 #include "common/factory_creator.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
@@ -32,13 +35,6 @@ namespace doris {
 
 class MemTable;
 
-// Context for single memtable flush
-struct FlushContext {
-    ENABLE_FACTORY_CREATOR(FlushContext);
-    TabletSchemaSPtr flush_schema = nullptr;
-    const vectorized::Block* block = nullptr;
-};
-
 class RowsetWriter {
 public:
     RowsetWriter() = default;
@@ -47,11 +43,13 @@ public:
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
 
     virtual Status add_block(const vectorized::Block* block) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support add_block");
     }
     virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                                bool is_key, uint32_t max_rows_per_segment) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support add_columns");
     }
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
@@ -64,23 +62,28 @@ public:
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
     virtual Status flush_columns(bool is_key) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_columns");
     }
-    virtual Status final_flush() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
+    virtual Status final_flush() {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support final_flush");
+    }
 
-    virtual Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size,
-                                         const FlushContext* ctx = nullptr) {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                  int64_t* flush_size) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_memtable");
+    }
+
+    virtual Status flush_single_block(const vectorized::Block* block) {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                "RowsetWriter not support flush_single_block");
     }
 
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
-
-    // we have to load segment data to build delete_bitmap for current segment,
-    // so we  build a tmp rowset ptr to load segment data.
-    // real build will be called in DeltaWriter close_wait.
-    virtual RowsetSharedPtr build_tmp() = 0;
 
     // For ordered rowset compaction, manual build rowset
     virtual RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) = 0;
@@ -97,7 +100,7 @@ public:
         return Status::NotSupported("to be implemented");
     }
 
-    virtual int32_t get_atomic_num_segment() const = 0;
+    virtual int32_t allocate_segment_id() = 0;
 
     virtual bool is_doing_segcompaction() const = 0;
 
@@ -105,8 +108,9 @@ public:
 
     virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
 
-    virtual vectorized::schema_util::LocalSchemaChangeRecorder*
-    mutable_schema_change_recorder() = 0;
+    virtual int64_t delete_bitmap_ns() { return 0; }
+
+    virtual int64_t segment_writer_ns() { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

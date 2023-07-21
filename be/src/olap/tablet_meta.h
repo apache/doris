@@ -357,6 +357,13 @@ public:
     bool contains(const BitmapKey& bmk, uint32_t row_id) const;
 
     /**
+     * Checks if this delete bitmap is empty
+     *
+     * @return true if empty
+     */
+    bool empty() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -415,6 +422,7 @@ public:
      */
     bool contains_agg(const BitmapKey& bitmap, uint32_t row_id) const;
 
+    bool contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const;
     /**
      * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
      * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`

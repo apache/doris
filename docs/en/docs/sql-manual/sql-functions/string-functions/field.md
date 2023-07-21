@@ -55,7 +55,6 @@ mysql> select k1,k7 from baseall where k1 in (1,2,3) order by field(k1,2,1,3);
 |    1 | wangjing04 |
 |    3 | yuanyuan06 |
 +------+------------+
-3 rows in set (0.02 sec)
 
 mysql> select class_name from class_test order by field(class_name,'Suzi','Ben','Henry');
 +------------+
@@ -69,6 +68,30 @@ mysql> select class_name from class_test order by field(class_name,'Suzi','Ben',
 | Henry      |
 +------------+
 
+mysql> select class_name from class_test order by field(class_name,'Suzi','Ben','Henry') desc;
++------------+
+| class_name |
++------------+
+| Henry      |
+| Henry      |
+| Ben        |
+| Ben        |
+| Suzi       |
+| Suzi       |
++------------+
+
+mysql> select class_name from class_test order by field(class_name,'Suzi','Ben','Henry') nulls first;
++------------+
+| class_name |
++------------+
+| null       |
+| Suzi       |
+| Suzi       |
+| Ben        |
+| Ben        |
+| Henry      |
+| Henry      |
++------------+
 ```
 ### keywords
     field

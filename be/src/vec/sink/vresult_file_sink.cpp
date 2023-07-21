@@ -37,7 +37,6 @@
 #include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/runtime/vfile_result_writer.h"
-#include "vec/sink/vresult_writer.h"
 
 namespace doris {
 class QueryStatistics;
@@ -185,8 +184,6 @@ Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
         RETURN_IF_ERROR(_stream_sender->close(state, final_status));
         _output_block->clear();
     }
-
-    VExpr::close(_output_vexpr_ctxs, state);
 
     _closed = true;
     return Status::OK();

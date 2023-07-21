@@ -327,6 +327,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
 
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
+        if (!boundFunction.foldable()) {
+            return boundFunction;
+        }
         boundFunction = rewriteChildren(boundFunction, context);
         Optional<Expression> checkedExpr = preProcess(boundFunction);
         if (checkedExpr.isPresent()) {

@@ -37,26 +37,22 @@ namespace doris {
 
 class FileHeaderTest : public testing::Test {
 public:
-    // create a mock cgroup folder
     virtual void SetUp() {
         std::filesystem::remove_all(_s_test_data_path);
         EXPECT_FALSE(std::filesystem::exists(_s_test_data_path));
-        // create a mock cgroup path
         EXPECT_TRUE(std::filesystem::create_directory(_s_test_data_path));
     }
 
-    // delete the mock cgroup folder
     virtual void TearDown() { EXPECT_TRUE(std::filesystem::remove_all(_s_test_data_path)); }
 
     static std::string _s_test_data_path;
 };
 
-std::string FileHeaderTest::_s_test_data_path = "./log/file_handler_testxxxx123";
+std::string FileHeaderTest::_s_test_data_path = "./file_handler_testxxxx123";
 
 TEST_F(FileHeaderTest, TestWrite) {
     std::shared_ptr<io::LocalFileSystem> fs = io::global_local_filesystem();
     std::string file_name = _s_test_data_path + "/abcd123.txt";
-    // create a file using open
     bool exists = true;
     EXPECT_TRUE(fs->exists(file_name, &exists).ok());
     EXPECT_FALSE(exists);

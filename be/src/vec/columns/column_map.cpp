@@ -238,12 +238,114 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
 }
 
 void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
-    size_t array_size = size_at(n);
+    size_t kv_size = size_at(n);
     size_t offset = offset_at(n);
 
-    for (size_t i = 0; i < array_size; ++i) {
+    hash.update(reinterpret_cast<const char*>(&kv_size), sizeof(kv_size));
+    for (size_t i = 0; i < kv_size; ++i) {
         get_keys().update_hash_with_value(offset + i, hash);
         get_values().update_hash_with_value(offset + i, hash);
+    }
+}
+
+void ColumnMap::update_hashes_with_value(std::vector<SipHash>& hashes,
+                                         const uint8_t* __restrict null_data) const {
+    SIP_HASHES_FUNCTION_COLUMN_IMPL();
+}
+
+void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size),
+                                                      sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_xxHash_with_value(offsets[i - 1], offsets[i], hash,
+                                                          nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size),
+                                                  sizeof(kv_size), hash);
+            } else {
+                get_keys().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
+    }
+}
+
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                      const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size),
+                                                   sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size),
+                                               sizeof(kv_size), hash);
+            } else {
+                get_keys().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
+    }
+}
+
+void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_data) const {
+    size_t s = size();
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            // every row
+            if (null_data[i] == 0) {
+                update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
+        }
+    }
+}
+
+void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                       const uint8_t* __restrict null_data) const {
+    auto s = hash.size();
+    DCHECK(s == size());
+
+    if (null_data) {
+        for (size_t i = 0; i < s; ++i) {
+            // every row
+            if (null_data[i] == 0) {
+                update_crc_with_value(i, i + 1, hash[i], nullptr);
+            }
+        }
+    } else {
+        for (size_t i = 0; i < s; ++i) {
+            update_crc_with_value(i, i + 1, hash[i], nullptr);
+        }
     }
 }
 

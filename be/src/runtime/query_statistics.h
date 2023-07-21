@@ -36,7 +36,9 @@ class NodeStatistics {
 public:
     NodeStatistics() : peak_memory_bytes(0) {}
 
-    void add_peak_memory(int64_t peak_memory) { this->peak_memory_bytes += peak_memory; }
+    void set_peak_memory(int64_t peak_memory) {
+        this->peak_memory_bytes = std::max(this->peak_memory_bytes, peak_memory);
+    }
 
     void merge(const NodeStatistics& other);
 

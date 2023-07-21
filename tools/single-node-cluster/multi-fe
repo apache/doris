@@ -135,7 +135,6 @@ http_port = $((http_port + id))
 sys_log_level = INFO
 sys_log_verbose_modules = org.apache.doris
 
-mysql_service_nio_enabled = true
 enable_ssl = false
 priority_networks = 127.0.0.1/32
 EOF

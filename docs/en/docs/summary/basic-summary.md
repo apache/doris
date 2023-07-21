@@ -59,7 +59,7 @@ Both types of processes are horizontally scalable, and a single cluster can supp
 
 ![Image description](https://dev-to-uploads.s3.amazonaws.com/uploads/articles/mnz20ae3s23vv3e9ltmi.png)
 
-In terms of **interfaces**, Apache Doris adopts MySQL protocol, supports standard SQL, and is highly compatible with MySQL dialect. Users can access Doris through various client tools and it supports seamless connection with BI tools.
+In terms of **interfaces**, Apache Doris adopts MySQL protocol, supports standard SQL, and is highly compatible with MySQL dialect. Users can access Doris through various client tools and it supports seamless connection with BI tools. Doris currently supports a variety of mainstream BI products, including but not limited to SmartBI, DataEase, FineBI, Tableau, Power BI, SuperSet, etc. As long as the BI tools that support the MySQL protocol, Doris can provide query support as a data source.
 
 Doris uses a **columnar storage engine**, which encodes, compresses, and reads data by column. This enables a very high compression ratio and largely reduces irrelavant data scans, thus making more efficient use of IO and CPU resources.
 

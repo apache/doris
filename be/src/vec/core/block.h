@@ -91,6 +91,8 @@ public:
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
+    void reserve(size_t count);
+
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
     void insert(size_t position, ColumnWithTypeAndName&& elem);
@@ -465,6 +467,14 @@ public:
         return _data_types[position];
     }
 
+    int compare_one_column(size_t n, size_t m, size_t column_id, int nan_direction_hint) const {
+        DCHECK_LE(column_id, columns());
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rows());
+        auto& column = get_column_by_position(column_id);
+        return column->compare_at(n, m, *column, nan_direction_hint);
+    }
+
     int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
                    int nan_direction_hint) const {
         DCHECK_GE(columns(), num_columns);
@@ -575,6 +585,9 @@ public:
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
+
+    /// remove the column with the specified name
+    void erase(const String& name);
 
     std::string dump_data(size_t row_limit = 100) const;
 

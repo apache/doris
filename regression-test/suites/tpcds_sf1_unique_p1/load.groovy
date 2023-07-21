@@ -137,6 +137,8 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+        sql """SET query_timeout=1800"""
+        sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
 
     // CREATE-TABLE-AS-SELECT

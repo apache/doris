@@ -40,7 +40,7 @@
 
 namespace doris {
 
-StorageEngine* k_engine = nullptr;
+inline StorageEngine* k_engine = nullptr;
 MemTableFlushExecutor* k_flush_executor = nullptr;
 
 void set_up() {
@@ -75,44 +75,14 @@ void tear_down() {
 
 Schema create_schema() {
     std::vector<TabletColumn> col_schemas;
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_SMALLINT,
-                             true);
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_INT, true);
-    col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_SUM, FieldType::OLAP_FIELD_TYPE_BIGINT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, true);
+    col_schemas.emplace_back(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
+                             FieldType::OLAP_FIELD_TYPE_BIGINT, true);
     Schema schema(col_schemas, 2);
     return schema;
-}
-
-class TestMemTableFlushExecutor : public ::testing::Test {
-public:
-    TestMemTableFlushExecutor() {}
-    ~TestMemTableFlushExecutor() {}
-};
-
-TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
-    std::vector<DataDir*> data_dir = k_engine->get_stores();
-    size_t path_hash = data_dir[0]->path_hash();
-
-    std::shared_ptr<FlushHandler> flush_handler;
-    k_flush_executor->create_flush_handler(path_hash, &flush_handler);
-    EXPECT_NE(nullptr, flush_handler.get());
-
-    FlushResult res;
-    res.flush_status = Status::OK();
-    res.flush_time_ns = 100;
-    flush_handler->on_flush_finished(res);
-    EXPECT_FALSE(flush_handler->is_cancelled());
-    EXPECT_EQ(100, flush_handler->get_stats().flush_time_ns);
-    EXPECT_EQ(1, flush_handler->get_stats().flush_count);
-
-    FlushResult res2;
-    res2.flush_status = Status::Error<OTHER_ERROR>();
-    flush_handler->on_flush_finished(res2);
-    EXPECT_TRUE(flush_handler->is_cancelled());
-    EXPECT_EQ(100, flush_handler->get_stats().flush_time_ns);
-    EXPECT_EQ(1, flush_handler->get_stats().flush_count);
-
-    EXPECT_EQ(Status::Error<OTHER_ERROR>(), flush_handler->wait());
 }
 
 } // namespace doris

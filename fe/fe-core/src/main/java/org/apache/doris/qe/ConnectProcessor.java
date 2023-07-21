@@ -219,10 +219,16 @@ public class ConnectProcessor {
                     "msg: Not supported such prepared statement");
             return;
         }
+        ctx.setStartTime();
+        if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
+            ctx.getState().setIsQuery(true);
+        }
+        prepareCtx.stmt.setIsPrepared();
         int paramCount = prepareCtx.stmt.getParmCount();
         // null bitmap
         byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
         packetBuf.get(nullbitmapData);
+        String stmtStr = "";
         try {
             // new_params_bind_flag
             if ((int) packetBuf.get() != 0) {
@@ -252,6 +258,7 @@ public class ConnectProcessor {
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
+            stmtStr = executeStmt.toSql();
         } catch (Throwable e)  {
             // Catch all throwable.
             // If reach here, maybe palo bug.
@@ -259,9 +266,11 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
+        auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt,
+                    Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
         origStmt = origStmt.replace("\n", " ");
         // slow query
         long endTime = System.currentTimeMillis();
@@ -283,7 +292,7 @@ public class ConnectProcessor {
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
-                .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables());
+                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -376,7 +385,7 @@ public class ConnectProcessor {
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 nereidsParseException = e;
-                LOG.info("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), originStmt);
             }
         }
@@ -436,7 +445,7 @@ public class ConnectProcessor {
                         finalizeCommand();
                     }
                 }
-                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+                auditAfterExec(auditStmt, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
                 // execute failed, skip remaining stmts
                 if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                     break;
@@ -480,7 +489,7 @@ public class ConnectProcessor {
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
-        auditAfterExec(origStmt, parsedStmt, statistics);
+        auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
     // analyze the origin stmt and return multi-statements
@@ -561,6 +570,7 @@ public class ConnectProcessor {
             LOG.warn("Unknown command(" + code + ")");
             return;
         }
+        LOG.debug("handle command {}", command);
         ctx.setCommand(command);
         ctx.setStartTime();
 
@@ -652,7 +662,7 @@ public class ConnectProcessor {
         // note(wb) we should write profile after return result to mysql client
         // because write profile maybe take too much time
         // explain query stmt do not have profile
-        if (executor != null && !executor.getParsedStmt().isExplain()
+        if (executor != null && executor.getParsedStmt() != null && !executor.getParsedStmt().isExplain()
                 && (executor.getParsedStmt() instanceof QueryStmt // currently only QueryStmt and insert need profile
                 || executor.getParsedStmt() instanceof LogicalPlanAdapter
                 || executor.getParsedStmt() instanceof InsertStmt)) {

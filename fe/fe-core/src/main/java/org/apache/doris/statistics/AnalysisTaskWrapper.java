@@ -65,7 +65,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
                     LOG.warn("Failed to execute task", except);
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
-                                    AnalysisState.FAILED, except.getMessage(), -1);
+                                    AnalysisState.FAILED, except.getMessage(), System.currentTimeMillis());
                 } else {
                     Env.getCurrentEnv().getAnalysisManager()
                             .updateTaskStatus(task.info,
@@ -76,13 +76,14 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         }
     }
 
-    public boolean cancel() {
+    public boolean cancel(String msg) {
         try {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
             task.cancel();
         } catch (Exception e) {
-            LOG.warn(String.format("Cancel job failed job info : %s", task.toString()));
+            LOG.warn(String.format("Cancel job failed job info : %s", msg));
         }
+        // Interrupt thread when it's writing metadata would cause FE crush.
         return super.cancel(false);
     }
 

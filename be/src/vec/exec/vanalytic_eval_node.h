@@ -184,6 +184,7 @@ private:
     std::vector<int64_t> _origin_cols;
 
     RuntimeProfile::Counter* _evaluation_timer;
+    RuntimeProfile::Counter* _memory_usage_counter;
     RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
 
     std::vector<bool> _change_to_nullable_flags;

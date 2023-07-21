@@ -250,6 +250,10 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (_char_type_idx.empty() && _char_type_idx_no_0.empty()) {
         _vec_init_char_column_id();
     }
+
+    if (opts.output_columns != nullptr) {
+        _output_columns = *(opts.output_columns);
+    }
     return Status::OK();
 }
 
@@ -370,6 +374,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
                                                           &_column_iterators[unique_id]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
@@ -486,6 +491,26 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                    condition_row_ranges);
     _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+
+    /// Low cardinality optimization is currently not very stable, so to prevent data corruption,
+    /// we are temporarily disabling its use in data compaction.
+    if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
+        RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
+        for (auto cid : cids) {
+            RowRanges tmp_row_ranges = RowRanges::create_single(num_rows());
+            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            uint32_t unique_cid = _schema->unique_id(cid);
+            RETURN_IF_ERROR(_column_iterators[unique_cid]->get_row_ranges_by_dict(
+                    _opts.col_id_to_predicates.at(cid).get(), &tmp_row_ranges));
+            RowRanges::ranges_intersection(dict_row_ranges, tmp_row_ranges, &dict_row_ranges);
+        }
+
+        pre_size = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
+                                       condition_row_ranges);
+        _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
+    }
+
     return Status::OK();
 }
 
@@ -717,17 +742,18 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             continue;
         }
 
+        int32_t unique_id = _schema->unique_id(pred->column_id());
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
+                                             PredicateTypeTraits::is_equal_or_list(pred_type);
         if (!res.ok()) {
-            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
-                 pred->type() != PredicateType::MATCH) ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(pred->column_id());
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
-                         << ", error msg: " << res;
+                         << ", error msg: " << res.to_string();
             return res;
         }
 
@@ -747,6 +773,30 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {
+    if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
+        res.code() == ErrorCode::INVERTED_INDEX_BYPASS ||
+        res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
+        (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS && need_remaining)) {
+        // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
+        //    usually occurs when creating a new index, queries can be downgraded
+        //    without index.
+        // 2. INVERTED_INDEX_BYPASS means the hit of condition by index
+        //    has reached the optimal limit, downgrade without index query can
+        //    improve query performance.
+        // 3. INVERTED_INDEX_EVALUATE_SKIPPED means the inverted index is not
+        //    suitable for executing this predicate, skipped it and filter data
+        //    by function later.
+        // 4. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
+        //    but the column condition value no terms in specified parser,
+        //    such as: where A = '' and B = ','
+        //    the predicate of A and B need downgrade without index query.
+        // above case can downgrade without index query
+        return true;
+    }
+    return false;
 }
 
 std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicate* predicate) {
@@ -770,6 +820,7 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
 
 bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
     bool has_fulltext_index =
+            _inverted_index_iterators.count(unique_id) > 0 &&
             _inverted_index_iterators[unique_id] != nullptr &&
             _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
                     InvertedIndexReaderType::FULLTEXT;
@@ -803,22 +854,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         Status res = pred->evaluate(*_schema, _inverted_index_iterators[unique_id].get(),
                                     num_rows(), &bitmap);
         if (!res.ok()) {
-            if (res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
-                res.code() == ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED ||
-                (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
-                 need_remaining_after_evaluate)) {
-                // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
-                //    usually occurs when creating a new index, queries can be downgraded
-                //    without index.
-                // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
-                //    has reached the optimal limit, downgrade without index query can
-                //    improve query performance.
-                // 3. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
-                //    but the column condition value no terms in specified parser,
-                //    such as: where A = '' and B = ','
-                //    the predicate of A and B need downgrade without index query.
-                // above case can downgrade without index query
+            if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
             }
@@ -907,7 +943,20 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
 }
 
 bool SegmentIterator::_need_read_data(ColumnId cid) {
-    // TODO(xk) impl right logic
+    if (_output_columns.count(-1)) {
+        // if _output_columns contains -1, it means that the light
+        // weight schema change may not be enabled or other reasons
+        // caused the column unique_id not be set, to prevent errors
+        // occurring, return true here that column data needs to be read
+        return true;
+    }
+    int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
+        _output_columns.count(unique_id) < 1) {
+        VLOG_DEBUG << "SegmentIterator no need read data for column: "
+                   << _opts.tablet_schema->column_by_uid(unique_id).name();
+        return false;
+    }
     return true;
 }
 
@@ -956,6 +1005,19 @@ Status SegmentIterator::_init_return_column_iterators() {
                     new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id()));
             continue;
         }
+        std::set<ColumnId> del_cond_id_set;
+        _opts.delete_condition_predicates->get_all_column_ids(del_cond_id_set);
+        std::vector<bool> tmp_is_pred_column;
+        tmp_is_pred_column.resize(_schema->columns().size(), false);
+        for (auto predicate : _col_predicates) {
+            auto cid = predicate->column_id();
+            tmp_is_pred_column[cid] = true;
+        }
+        // handle delete_condition
+        for (auto cid : del_cond_id_set) {
+            tmp_is_pred_column[cid] = true;
+        }
+
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
@@ -965,6 +1027,9 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file_reader = _file_reader.get();
             iter_opts.io_ctx = _opts.io_ctx;
+            // If the col is predicate column, then should read the last page to check
+            // if the column is full dict encoding
+            iter_opts.is_predicate_column = tmp_is_pred_column[cid];
             RETURN_IF_ERROR(_column_iterators[unique_id]->init(iter_opts));
         }
     }
@@ -1084,8 +1149,10 @@ Status SegmentIterator::_lookup_ordinal_from_pk_index(const RowCursor& key, bool
     DCHECK(pk_index_reader != nullptr);
 
     std::string index_key;
+    // when is_include is false, we shoudle append KEY_NORMAL_MARKER to the
+    // encode key. Otherwise, we will get an incorrect upper bound.
     encode_key_with_padding<RowCursor, true, true>(
-            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include);
+            &index_key, key, _segment->_tablet_schema->num_key_columns(), is_include, true);
     if (index_key < _segment->min_key()) {
         *rowid = 0;
         return Status::OK();
@@ -1252,9 +1319,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             } else {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
-                if (predicate->get_filter_id() != -1) {
-                    _filter_info_id.push_back(predicate);
-                }
+                _filter_info_id.push_back(predicate);
             }
         }
 
@@ -1632,8 +1697,6 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto p : _filter_info_id) {
         _opts.stats->filter_info[p->get_filter_id()] = p->get_filtered_info();
     }
-    _opts.stats->short_circuit_cond_input_rows += original_size;
-    _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
     _opts.stats->short_circuit_cond_input_rows += original_size;
     _opts.stats->rows_short_circuit_cond_filtered += original_size - selected_size;
 

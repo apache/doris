@@ -22,14 +22,6 @@ suite ("sub_query_diff_old_optimize") {
     """
 
     sql """
-        SET enable_bucket_shuffle_join=false
-    """
-
-    sql """
-        SET disable_colocate_plan=true
-    """
-
-    sql """
         DROP TABLE IF EXISTS `sub_query_diff_old_optimize_subquery1`
     """
 

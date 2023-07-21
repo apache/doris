@@ -22,17 +22,16 @@ import groovy.util.logging.Slf4j
 
 import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
-import org.apache.commons.cli.Option
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Connection
 import java.sql.DriverManager
-import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
-import static java.lang.Math.random
 import static org.apache.doris.regression.ConfigOptions.*
+
+import org.apache.doris.thrift.TNetworkAddress;
 
 @Slf4j
 @CompileStatic
@@ -41,6 +40,11 @@ class Config {
     public String jdbcUser
     public String jdbcPassword
     public String defaultDb
+
+    public String feSourceThriftAddress
+    public String feTargetThriftAddress
+    public String feSyncerUser
+    public String feSyncerPassword
 
     public String feHttpAddress
     public String feHttpUser
@@ -52,6 +56,7 @@ class Config {
     public String dataPath
     public String realDataPath
     public String cacheDataPath
+    public boolean enableCacheData
     public String pluginPath
     public String sslCertificatePath
 
@@ -77,6 +82,8 @@ class Config {
     public Set<String> excludeGroupSet = new HashSet<>()
     public Set<String> excludeDirectorySet = new HashSet<>()
 
+    public TNetworkAddress feSourceThriftNetworkAddress
+    public TNetworkAddress feTargetThriftNetworkAddress
     public InetSocketAddress feHttpInetSocketAddress
     public InetSocketAddress metaServiceHttpInetSocketAddress
     public Integer parallel
@@ -88,14 +95,19 @@ class Config {
     Config() {}
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
+           String feSourceThriftAddress, String feTargetThriftAddress, String feSyncerUser, String feSyncerPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword, String metaServiceHttpAddress,
-           String suitePath, String dataPath, String realDataPath, String cacheDataPath,
+           String suitePath, String dataPath, String realDataPath, String cacheDataPath, Boolean enableCacheData,
            String testGroups, String excludeGroups, String testSuites, String excludeSuites,
            String testDirectories, String excludeDirectories, String pluginPath, String sslCertificatePath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
         this.jdbcPassword = jdbcPassword
+        this.feSourceThriftAddress = feSourceThriftAddress
+        this.feTargetThriftAddress = feTargetThriftAddress
+        this.feSyncerUser = feSyncerUser
+        this.feSyncerPassword = feSyncerPassword
         this.feHttpAddress = feHttpAddress
         this.feHttpUser = feHttpUser
         this.feHttpPassword = feHttpPassword
@@ -104,6 +116,7 @@ class Config {
         this.dataPath = dataPath
         this.realDataPath = realDataPath
         this.cacheDataPath = cacheDataPath
+        this.enableCacheData = enableCacheData
         this.testGroups = testGroups
         this.excludeGroups = excludeGroups
         this.testSuites = testSuites
@@ -177,6 +190,24 @@ class Config {
             config.groups = ["p0"].toSet()
         }
 
+        config.feSourceThriftAddress = cmd.getOptionValue(feSourceThriftAddressOpt, config.feSourceThriftAddress)
+        try {
+            String host = config.feSourceThriftAddress.split(":")[0]
+            int port = Integer.valueOf(config.feSourceThriftAddress.split(":")[1])
+            config.feSourceThriftNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe thrift address: ${config.feSourceThriftAddress}", t)
+        }
+
+        config.feTargetThriftAddress = cmd.getOptionValue(feTargetThriftAddressOpt, config.feTargetThriftAddress)
+        try {
+            String host = config.feTargetThriftAddress.split(":")[0]
+            int port = Integer.valueOf(config.feTargetThriftAddress.split(":")[1])
+            config.feTargetThriftNetworkAddress = new TNetworkAddress(host, port)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Can not parse fe thrift address: ${config.feTargetThriftAddress}", t)
+        }
+
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
             Inet4Address host = Inet4Address.getByName(config.feHttpAddress.split(":")[0]) as Inet4Address
@@ -200,6 +231,8 @@ class Config {
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
         config.jdbcPassword = cmd.getOptionValue(passwordOpt, config.jdbcPassword)
+        config.feSyncerUser = cmd.getOptionValue(feSyncerUserOpt, config.feSyncerUser)
+        config.feSyncerPassword = cmd.getOptionValue(feSyncerPasswordOpt, config.feSyncerPassword)
         config.feHttpUser = cmd.getOptionValue(feHttpUserOpt, config.feHttpUser)
         config.feHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feHttpPassword)
         config.generateOutputFile = cmd.hasOption(genOutOpt)
@@ -233,6 +266,10 @@ class Config {
             configToString(obj.jdbcUrl),
             configToString(obj.jdbcUser),
             configToString(obj.jdbcPassword),
+            configToString(obj.feSourceThriftAddress),
+            configToString(obj.feTargetThriftAddress),
+            configToString(obj.feSyncerUser),
+            configToString(obj.feSyncerPassword),
             configToString(obj.feHttpAddress),
             configToString(obj.feHttpUser),
             configToString(obj.feHttpPassword),
@@ -241,6 +278,7 @@ class Config {
             configToString(obj.dataPath),
             configToString(obj.realDataPath),
             configToString(obj.cacheDataPath),
+            configToBoolean(obj.enableCacheData),
             configToString(obj.testGroups),
             configToString(obj.excludeGroups),
             configToString(obj.testSuites),
@@ -286,6 +324,16 @@ class Config {
             log.info("Set jdbcPassword to empty because not specify.".toString())
         }
 
+        if (config.feSourceThriftAddress == null) {
+            config.feSourceThriftAddress = "127.0.0.1:9020"
+            log.info("Set feThriftAddress to '${config.feSourceThriftAddress}' because not specify.".toString())
+        }
+
+        if (config.feTargetThriftAddress == null) {
+            config.feTargetThriftAddress = "127.0.0.1:9020"
+            log.info("Set feThriftAddress to '${config.feTargetThriftAddress}' because not specify.".toString())
+        }
+
         if (config.feHttpAddress == null) {
             config.feHttpAddress = "127.0.0.1:8030"
             log.info("Set feHttpAddress to '${config.feHttpAddress}' because not specify.".toString())
@@ -294,6 +342,16 @@ class Config {
         if (config.metaServiceHttpAddress == null) {
             config.metaServiceHttpAddress = "127.0.0.1:5000"
             log.info("Set metaServiceHttpAddress to '${config.metaServiceHttpAddress}' because not specify.".toString())
+        }
+
+        if (config.feSyncerUser == null) {
+            config.feSyncerUser = "root"
+            log.info("Set feSyncerUser to '${config.feSyncerUser}' because not specify.".toString())
+        }
+
+        if (config.feSyncerPassword == null) {
+            config.feSyncerPassword = ""
+            log.info("Set feSyncerPassword to empty because not specify.".toString())
         }
 
         if (config.feHttpUser == null) {
@@ -324,6 +382,11 @@ class Config {
         if (config.cacheDataPath == null) {
             config.cacheDataPath = "regression-test/cacheData"
             log.info("Set cacheDataPath to '${config.cacheDataPath}' because not specify.".toString())
+        }
+
+        if (config.enableCacheData == null) {
+            config.enableCacheData = true
+            log.info("Set enableCacheData to '${config.enableCacheData}' because not specify.".toString())
         }
 
         if (config.pluginPath == null) {
@@ -386,11 +449,21 @@ class Config {
         return (obj instanceof String || obj instanceof GString) ? obj.toString() : null
     }
 
-    void tryCreateDbIfNotExist() {
-        tryCreateDbIfNotExist(defaultDb)
+    static Boolean configToBoolean(Object obj) {
+        if (obj instanceof Boolean) {
+            return (Boolean) obj
+        } else if (obj instanceof String || obj instanceof GString) {
+            String stringValue = obj.toString().trim()
+            if (stringValue.equalsIgnoreCase("true")) {
+                return true
+            } else if (stringValue.equalsIgnoreCase("false")) {
+                return false
+            }
+        }
+        return null
     }
 
-    void tryCreateDbIfNotExist(String dbName) {
+    void tryCreateDbIfNotExist(String dbName = defaultDb) {
         // connect without specify default db
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"

@@ -101,22 +101,13 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
    1/ convert the null_map from doris to arrow null byte map
    2/ pass the arrow null byteamp to nested column , and call AppendValues
 **/
-void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                   arrow::ArrayBuilder* array_builder, int start,
                                                   int end) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
-    const PaddedPODArray<UInt8>& bytemap = column_nullable.get_null_map_data();
-    PaddedPODArray<UInt8> res;
-    if (column_nullable.has_null()) {
-        res.reserve(end - start);
-        for (size_t i = start; i < end; ++i) {
-            res.emplace_back(
-                    !(bytemap)[i]); //Invert values since Arrow interprets 1 as a non-null value
-        }
-    }
-    const UInt8* arrow_null_bytemap_raw_ptr = res.empty() ? nullptr : res.data();
     nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
-                                        arrow_null_bytemap_raw_ptr, array_builder, start, end);
+                                        &column_nullable.get_null_map_data(), array_builder, start,
+                                        end);
 }
 
 void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
@@ -133,28 +124,33 @@ void DataTypeNullableSerDe::read_column_from_arrow(IColumn& column, const arrow:
 }
 
 template <bool is_binary_format>
-Status DataTypeNullableSerDe::_write_column_to_mysql(
-        const IColumn& column, bool return_object_data_as_binary,
-        std::vector<MysqlRowBuffer<is_binary_format>>& result, int row_idx, int start, int end,
-        bool col_const) const {
-    int buf_ret = 0;
+Status DataTypeNullableSerDe::_write_column_to_mysql(const IColumn& column,
+                                                     MysqlRowBuffer<is_binary_format>& result,
+                                                     int row_idx, bool col_const) const {
     auto& col = static_cast<const ColumnNullable&>(column);
     auto& nested_col = col.get_nested_column();
-    for (ssize_t i = start; i < end; ++i) {
-        if (0 != buf_ret) {
+    const auto col_index = index_check_const(row_idx, col_const);
+    if (col.has_null() && col.is_null_at(col_index)) {
+        if (UNLIKELY(0 != result.push_null())) {
             return Status::InternalError("pack mysql buffer failed.");
         }
-        const auto col_index = index_check_const(i, col_const);
-        if (col.is_null_at(col_index)) {
-            buf_ret = result[row_idx].push_null();
-        } else {
-            RETURN_IF_ERROR(nested_serde->write_column_to_mysql(
-                    nested_col, return_object_data_as_binary, result, row_idx, col_index,
-                    col_index + 1, col_const));
-        }
-        ++row_idx;
+    } else {
+        RETURN_IF_ERROR(
+                nested_serde->write_column_to_mysql(nested_col, result, col_index, col_const));
     }
     return Status::OK();
+}
+
+Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                    bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeNullableSerDe::write_column_to_mysql(const IColumn& column,
+                                                    MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                    bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
 }
 
 } // namespace vectorized

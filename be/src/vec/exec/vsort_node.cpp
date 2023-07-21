@@ -115,11 +115,14 @@ Status VSortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
 
-    auto* memory_usage = _runtime_profile->create_child("PeakMemoryUsage", true, true);
-    _runtime_profile->add_child(memory_usage, false, nullptr);
-    _sort_blocks_memory_usage = ADD_COUNTER(memory_usage, "SortBlocks", TUnit::BYTES);
+    _memory_usage_counter = ADD_LABEL_COUNTER(runtime_profile(), "MemoryUsage");
+    _sort_blocks_memory_usage =
+            ADD_CHILD_COUNTER(runtime_profile(), "SortBlocks", TUnit::BYTES, "MemoryUsage");
 
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor));
+    _child_get_next_timer = ADD_TIMER(runtime_profile(), "ChildGetResultTime");
+    _get_next_timer = ADD_TIMER(runtime_profile(), "GetResultTime");
+    _sink_timer = ADD_TIMER(runtime_profile(), "PartialSortTotalTime");
     return Status::OK();
 }
 
@@ -173,13 +176,20 @@ Status VSortNode::open(RuntimeState* state) {
     bool eos = false;
     std::unique_ptr<Block> upstream_block = Block::create_unique();
     do {
-        RETURN_IF_ERROR(child(0)->get_next_after_projects(
-                state, upstream_block.get(), &eos,
-                std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
-                                  ExecNode::get_next,
-                          _children[0], std::placeholders::_1, std::placeholders::_2,
-                          std::placeholders::_3)));
-        RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(sink(state, upstream_block.get(), eos)));
+        {
+            SCOPED_TIMER(_child_get_next_timer);
+            RETURN_IF_ERROR(child(0)->get_next_after_projects(
+                    state, upstream_block.get(), &eos,
+                    std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
+                                      ExecNode::get_next,
+                              _children[0], std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
+        }
+        {
+            SCOPED_TIMER(_sink_timer);
+            RETURN_IF_ERROR_OR_CATCH_EXCEPTION(sink(state, upstream_block.get(), eos));
+        }
+
     } while (!eos);
 
     child(0)->close(state);
@@ -191,7 +201,8 @@ Status VSortNode::open(RuntimeState* state) {
 }
 
 Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
-    RETURN_IF_CATCH_EXCEPTION(RETURN_IF_ERROR(_sorter->get_next(state, output_block, eos)));
+    SCOPED_TIMER(_get_next_timer);
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sorter->get_next(state, output_block, eos));
     reached_limit(output_block, eos);
     if (*eos) {
         _runtime_profile->add_info_string("Spilled", _sorter->is_spilled() ? "true" : "false");

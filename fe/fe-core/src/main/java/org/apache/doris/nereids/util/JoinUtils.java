@@ -195,12 +195,26 @@ public class JoinUtils {
     }
 
     /**
+     * return true if we should do bucket shuffle join when translate plan.
+     */
+    public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
+        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
+        if (!(rightDistributionSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        DistributionSpecHash rightHash = (DistributionSpecHash) rightDistributionSpec;
+        return rightHash.getShuffleType() == ShuffleType.STORAGE_BUCKETED;
+    }
+
+    /**
      * return true if we should do broadcast join when translate plan.
      */
     public static boolean shouldBroadcastJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
         PhysicalPlan right = join.right();
-        DistributionSpec rightDistributionSpec = right.getPhysicalProperties().getDistributionSpec();
-        return rightDistributionSpec instanceof DistributionSpecReplicated;
+        if (right instanceof PhysicalDistribute) {
+            return ((PhysicalDistribute<?>) right).getDistributionSpec() instanceof DistributionSpecReplicated;
+        }
+        return false;
     }
 
     /**
@@ -211,6 +225,7 @@ public class JoinUtils {
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
         }
+        // TODO: not rely on physical properties?
         DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
         DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
         DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
@@ -225,38 +240,6 @@ public class JoinUtils {
         return leftHash.getShuffleType() == ShuffleType.NATURAL
                 && rightHash.getShuffleType() == ShuffleType.NATURAL
                 && joinHash.getShuffleType() == ShuffleType.NATURAL;
-    }
-
-    /**
-     * return true if we should do bucket shuffle join when translate plan.
-     */
-    public static boolean shouldBucketShuffleJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join) {
-        if (ConnectContext.get() == null
-                || !ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
-            return false;
-        }
-        DistributionSpec joinDistributionSpec = join.getPhysicalProperties().getDistributionSpec();
-        DistributionSpec leftDistributionSpec = join.left().getPhysicalProperties().getDistributionSpec();
-        DistributionSpec rightDistributionSpec = join.right().getPhysicalProperties().getDistributionSpec();
-        if (join.left() instanceof PhysicalDistribute) {
-            return false;
-        }
-        if (!(joinDistributionSpec instanceof DistributionSpecHash)
-                || !(leftDistributionSpec instanceof DistributionSpecHash)
-                || !(rightDistributionSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        DistributionSpecHash leftHash = (DistributionSpecHash) leftDistributionSpec;
-        // when we plan a bucket shuffle join, the left should not add a distribution enforce.
-        // so its shuffle type should be NATURAL(olap scan node or result of colocate join / bucket shuffle join with
-        // left child's shuffle type is also NATURAL), or be BUCKETED(result of join / agg).
-        if (leftHash.getShuffleType() != ShuffleType.BUCKETED && leftHash.getShuffleType() != ShuffleType.NATURAL) {
-            return false;
-        }
-        // there must use left as required and join as source.
-        // Because after property derive upper node's properties is contains lower node
-        // if their properties are satisfy.
-        return joinDistributionSpec.satisfy(leftDistributionSpec);
     }
 
     /**

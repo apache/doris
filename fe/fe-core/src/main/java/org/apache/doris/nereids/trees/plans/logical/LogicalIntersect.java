@@ -72,19 +72,14 @@ public class LogicalIntersect extends LogicalSetOperation {
     }
 
     @Override
-    public LogicalIntersect withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalIntersect(qualifier, outputs,
-                Optional.empty(), logicalProperties, children);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new LogicalIntersect(qualifier, outputs, groupExpression, logicalProperties, children);
     }
 
     @Override
     public LogicalIntersect withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalIntersect(qualifier, newOutputs,
                 Optional.empty(), Optional.empty(), children);
-    }
-
-    @Override
-    public LogicalIntersect withNewChildren(List<Plan> children) {
-        return withChildren(children);
     }
 }

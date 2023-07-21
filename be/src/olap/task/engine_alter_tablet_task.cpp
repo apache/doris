@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "olap/schema_change.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
@@ -45,8 +46,12 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
 Status EngineAlterTabletTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
-
-    Status res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
+    Status res = Status::OK();
+    try {
+        res = SchemaChangeHandler::process_alter_tablet_v2(_alter_tablet_req);
+    } catch (const Exception& e) {
+        res = e.to_status();
+    }
     if (!res.ok()) {
         DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
         return res;

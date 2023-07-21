@@ -84,6 +84,8 @@ public class TableProperty implements Writable {
 
     private boolean storeRowColumn = false;
 
+    private boolean skipWriteIndexOnLoad = false;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -188,11 +190,28 @@ public class TableProperty implements Writable {
     public TableProperty buildStoreRowColumn() {
         storeRowColumn = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        // Remove deprecated prefix and try again
+        String deprecatedPrefix = "deprecated_";
+        if (!storeRowColumn && PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.startsWith(deprecatedPrefix)) {
+            storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.substring(deprecatedPrefix.length()), "false"));
+        }
         return this;
     }
 
     public boolean storeRowColumn() {
         return storeRowColumn;
+    }
+
+    public TableProperty buildSkipWriteIndexOnLoad() {
+        skipWriteIndexOnLoad = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD, "false"));
+        return this;
+    }
+
+    public boolean skipWriteIndexOnLoad() {
+        return skipWriteIndexOnLoad;
     }
 
     public TableProperty buildStoragePolicy() {
@@ -414,6 +433,7 @@ public class TableProperty implements Writable {
                 .buildBinlogConfig()
                 .buildEnableLightSchemaChange()
                 .buildStoreRowColumn()
+                .buildSkipWriteIndexOnLoad()
                 .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {

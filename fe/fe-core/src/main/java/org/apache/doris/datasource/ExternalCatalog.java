@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
@@ -27,6 +28,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.MaxComputeExternalDatabase;
+import org.apache.doris.catalog.external.PaimonExternalDatabase;
 import org.apache.doris.catalog.external.TestExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -54,6 +56,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -83,6 +87,8 @@ public abstract class ExternalCatalog
     private boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -105,15 +111,6 @@ public abstract class ExternalCatalog
 
     public void setDefaultProps() {
         // set some default properties when creating catalog
-    }
-
-    /**
-     * @return names of database in this catalog.
-     */
-    // public abstract List<String> listDatabaseNames(SessionContext ctx);
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
     }
 
     /**
@@ -187,7 +184,11 @@ public abstract class ExternalCatalog
         Map<String, String> properties = getCatalogProperty().getProperties();
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
-                Integer.valueOf(properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                Integer metadataRefreshIntervalSec = Integer.valueOf(
+                        properties.get(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC));
+                if (metadataRefreshIntervalSec < 0) {
+                    throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
+                }
             } catch (NumberFormatException e) {
                 throw new DdlException("Invalid properties: " + CatalogMgr.METADATA_REFRESH_INTERVAL_SEC);
             }
@@ -261,6 +262,9 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
@@ -283,7 +287,7 @@ public abstract class ExternalCatalog
         if (db.isPresent()) {
             Optional<? extends ExternalTable> table = db.get().getTable(tblName);
             if (table.isPresent()) {
-                return table.get().initSchema();
+                return table.get().initSchemaAndUpdateTime();
             }
         }
         // return one column with unsupported type.
@@ -315,9 +319,13 @@ public abstract class ExternalCatalog
         this.comment = comment;
     }
 
+    /**
+     * @return names of database in this catalog.
+     */
     @Override
     public List<String> getDbNames() {
-        return listDatabaseNames(null);
+        makeSureInitialized();
+        return new ArrayList<>(dbNameToId.keySet());
     }
 
     @Override
@@ -390,9 +398,25 @@ public abstract class ExternalCatalog
         notifyPropertiesUpdated(props);
     }
 
+    public void tryModifyCatalogProps(Map<String, String> props) {
+        catalogProperty.modifyCatalogProps(props);
+    }
+
+    public void rollBackCatalogProps(Map<String, String> props) {
+        catalogProperty.rollBackCatalogProps(props);
+    }
+
     private void modifyComment(Map<String, String> props) {
         setComment(props.getOrDefault("comment", comment));
         props.remove("comment");
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
     }
 
     @Override
@@ -429,6 +453,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
@@ -453,6 +478,8 @@ public abstract class ExternalCatalog
                 //return new HudiExternalDatabase(this, dbId, dbName);
             case TEST:
                 return new TestExternalDatabase(this, dbId, dbName);
+            case PAIMON:
+                return new PaimonExternalDatabase(this, dbId, dbName);
             default:
                 break;
         }
@@ -548,5 +575,10 @@ public abstract class ExternalCatalog
             ret = false;
         }
         return ret;
+    }
+
+    @Override
+    public Collection<DatabaseIf> getAllDbs() {
+        return new HashSet<>(idToDb.values());
     }
 }

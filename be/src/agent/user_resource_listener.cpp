@@ -86,10 +86,11 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
             if (!master_status.ok()) {
                 LOG(WARNING) << "Reopen to get frontend client failed, with address:"
                              << _master_info.network_address.hostname << ":"
-                             << _master_info.network_address.port;
+                             << _master_info.network_address.port << ", reason=" << e.what();
                 return;
             }
-            LOG(WARNING) << "fetchResource from frontend failed, retry!";
+            LOG(WARNING) << "fetchResource from frontend failed"
+                         << ", reason=" << e.what();
             client->fetchResource(new_fetched_resource);
         }
     } catch (TException& e) {

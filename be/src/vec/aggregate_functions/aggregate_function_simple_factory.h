@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/data_types/data_type.h"
 
@@ -46,6 +47,11 @@ private:
     AggregateFunctions aggregate_functions;
     AggregateFunctions nullable_aggregate_functions;
     std::unordered_map<std::string, std::string> function_alias;
+    /// @TEMPORARY: for be_exec_version=2
+    /// in order to solve agg of sum/count is not compatibility during the upgrade process
+    constexpr static int AGG_FUNCTION_NEW = 2;
+    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW. replace function to old version.
+    std::unordered_map<std::string, std::string> function_to_replace;
 
 public:
     void register_nullable_function_combinator(const Creator& creator) {
@@ -73,7 +79,8 @@ public:
     }
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
-                             const bool result_is_nullable = false) {
+                             const bool result_is_nullable = false,
+                             int be_version = BeExecVersionManager::get_newest_version()) {
         bool nullable = false;
         for (const auto& type : argument_types) {
             if (type->is_nullable()) {
@@ -82,6 +89,8 @@ public:
         }
 
         std::string name_str = name;
+        temporary_function_update(be_version, name_str);
+
         if (function_alias.count(name)) {
             name_str = function_alias[name];
         }
@@ -114,6 +123,23 @@ public:
 
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
+    }
+
+    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW
+    void register_alternative_function(const std::string& name, const Creator& creator,
+                                       bool nullable = false) {
+        static std::string suffix {"_old_for_version_before_2_0"};
+        register_function(name + suffix, creator, nullable);
+        function_to_replace[name] = name + suffix;
+    }
+
+    /// @TEMPORARY: for be_exec_version < AGG_FUNCTION_NEW
+    void temporary_function_update(int fe_version_now, std::string& name) {
+        // replace if fe is old version.
+        if (fe_version_now < AGG_FUNCTION_NEW &&
+            function_to_replace.find(name) != function_to_replace.end()) {
+            name = function_to_replace[name];
+        }
     }
 
 public:

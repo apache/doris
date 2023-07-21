@@ -131,6 +131,13 @@ enum ColumnFamilyIndex {
     META_COLUMN_FAMILY_INDEX,
 };
 
+enum class DataWriteType {
+    TYPE_DEFAULT = 0,
+    TYPE_DIRECT,
+    TYPE_SCHEMA_CHANGE,
+    TYPE_COMPACTION,
+};
+
 static const char* const HINIS_KEY_SEPARATOR = ";";
 static const char* const HINIS_KEY_PAIR_SEPARATOR = "|";
 static const char* const HINIS_KEY_GROUP_SEPARATOR = "&";

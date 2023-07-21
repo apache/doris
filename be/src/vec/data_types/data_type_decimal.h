@@ -158,13 +158,8 @@ public:
     static constexpr size_t max_precision() { return max_decimal_precision<T>(); }
 
     DataTypeDecimal(UInt32 precision = 27, UInt32 scale = 9) : precision(precision), scale(scale) {
-        if (UNLIKELY(precision < 1 || precision > max_precision())) {
-            LOG(FATAL) << fmt::format("Precision {} is out of bounds", precision);
-        }
-
-        if (UNLIKELY(static_cast<UInt32>(scale) > max_precision())) {
-            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
-        }
+        check_type_precision(precision);
+        check_type_scale(scale);
     }
 
     DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}
@@ -259,18 +254,24 @@ public:
 
     /// Decimal specific
 
-    UInt32 get_precision() const { return precision; }
-    UInt32 get_scale() const { return scale; }
+    [[nodiscard]] UInt32 get_precision() const override { return precision; }
+    [[nodiscard]] UInt32 get_scale() const override { return scale; }
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
     T whole_part(T x) const {
-        if (scale == 0) return x;
+        if (scale == 0) {
+            return x;
+        }
         return x / get_scale_multiplier();
     }
 
     T fractional_part(T x) const {
-        if (scale == 0) return 0;
-        if (x < T(0)) x *= T(-1);
+        if (scale == 0) {
+            return 0;
+        }
+        if (x < T(0)) {
+            x *= T(-1);
+        }
         return x % get_scale_multiplier();
     }
 
@@ -278,7 +279,9 @@ public:
 
     bool can_store_whole(T x) const {
         T max = max_whole_value();
-        if (x > max || x < -max) return false;
+        if (x > max || x < -max) {
+            return false;
+        }
         return true;
     }
 
@@ -295,13 +298,32 @@ public:
 
     template <typename U>
     T scale_factor_for(const DataTypeNumber<U>&, bool is_multiply_or_divisor) const {
-        if (is_multiply_or_divisor) return 1;
+        if (is_multiply_or_divisor) {
+            return 1;
+        }
         return get_scale_multiplier();
     }
 
     static T get_scale_multiplier(UInt32 scale);
 
     bool parse_from_string(const std::string& str, T* res) const;
+
+    static void check_type_precision(const vectorized::UInt32 precision) {
+        if (precision > max_decimal_precision<T>() || precision < 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "meet invalid precision: real_precision={}, max_decimal_precision={}, "
+                            "min_decimal_precision=1",
+                            precision, max_decimal_precision<T>());
+        }
+    }
+
+    static void check_type_scale(const vectorized::UInt32 scale) {
+        if (scale > max_decimal_precision<T>()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,
+                            max_decimal_precision<T>());
+        }
+    }
 
 private:
     const UInt32 precision;
@@ -342,11 +364,18 @@ const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
 }
 
 inline UInt32 get_decimal_scale(const IDataType& data_type, UInt32 default_value = 0) {
-    if (auto* decimal_type = check_decimal<Decimal32>(data_type)) return decimal_type->get_scale();
-    if (auto* decimal_type = check_decimal<Decimal64>(data_type)) return decimal_type->get_scale();
-    if (auto* decimal_type = check_decimal<Decimal128>(data_type)) return decimal_type->get_scale();
-    if (auto* decimal_type = check_decimal<Decimal128I>(data_type))
+    if (auto* decimal_type = check_decimal<Decimal32>(data_type)) {
         return decimal_type->get_scale();
+    }
+    if (auto* decimal_type = check_decimal<Decimal64>(data_type)) {
+        return decimal_type->get_scale();
+    }
+    if (auto* decimal_type = check_decimal<Decimal128>(data_type)) {
+        return decimal_type->get_scale();
+    }
+    if (auto* decimal_type = check_decimal<Decimal128I>(data_type)) {
+        return decimal_type->get_scale();
+    }
     return default_value;
 }
 

@@ -69,7 +69,6 @@ Status VTableSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
-    VExpr::close(_output_vexpr_ctxs, state);
     return Status::OK();
 }
 } // namespace vectorized

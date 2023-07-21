@@ -49,7 +49,6 @@ OperatorPtr UnionSinkOperatorBuilder::build_operator() {
 
 Status UnionSinkOperator::sink(RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     if (_output_block == nullptr) {
         _output_block = _data_queue->get_free_block(_cur_child_id);
     }

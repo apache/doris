@@ -49,8 +49,7 @@ public:
                                   VExprContext* context) override;
     virtual doris::Status open(doris::RuntimeState* state, VExprContext* context,
                                FunctionContext::FunctionStateScope scope) override;
-    virtual void close(doris::RuntimeState* state, VExprContext* context,
-                       FunctionContext::FunctionStateScope scope) override;
+    virtual void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     virtual VExprSPtr clone() const override { return VCastExpr::create_shared(*this); }
     virtual const std::string& expr_name() const override;
     virtual std::string debug_string() const override;

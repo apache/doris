@@ -136,7 +136,6 @@ public class AliasFunction extends Function {
         aliasFunction.setUserVisible(userVisible);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
-        aliasFunction.vectorized = isVectorized;
         return aliasFunction;
     }
 

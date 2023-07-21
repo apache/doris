@@ -21,7 +21,7 @@ suite("test_export_with_s3", "p2") {
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3ExportBucketName");
+    String bucket = context.config.otherConfigs.get("s3BucketName");
 
     def table_export_name = "test_export_with_s3"
     // create table and insert

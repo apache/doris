@@ -118,7 +118,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
 		"user"="doris",
 		"password"="123456",
 		"jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-		"driver_url" = "file:///path/to/ojdbc6.jar",
+		"driver_url" = "file:///path/to/ojdbc8.jar",
 		"driver_class" = "oracle.jdbc.driver.OracleDriver"
 	);	
 	```
@@ -167,8 +167,7 @@ CREATE CATALOG [IF NOT EXISTS] catalog_name
        "password"="",
        "jdbc_url" = "jdbc:oceanbase://localhost:2881/demo",
        "driver_url" = "file:///path/to/oceanbase-client-2.4.2.jar",
-       "driver_class" = "com.oceanbase.jdbc.Driver",
-   	   "oceanbase_mode" = "mysql" or "oracle"
+       "driver_class" = "com.oceanbase.jdbc.Driver"
 	);
     ```
 

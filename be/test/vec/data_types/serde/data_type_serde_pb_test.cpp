@@ -51,17 +51,17 @@
 
 namespace doris::vectorized {
 
-void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
+inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
     serde->write_column_to_pb(col, *result, 0, col.size());
 }
 
-void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
+inline void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
     serde->read_column_from_pb(col, result);
 }
 
-void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
+inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
     int s1 = pv.bytes_value_size();
@@ -75,7 +75,7 @@ void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     EXPECT_EQ(s1, s2);
 }
 
-void serialize_and_deserialize_pb_test() {
+inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== int32 === " << std::endl;
     // int
     {

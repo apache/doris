@@ -33,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
@@ -246,9 +247,6 @@ public class SystemInfoService {
             throw new DdlException("Backend[" + backendId + "] does not exist");
         }
         dropBackend(backend.getHost(), backend.getHeartbeatPort());
-        // update BeInfoCollector
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        beinfoCollector.dropBeInfo(backendId);
     }
 
     // final entry of dropping backend
@@ -354,6 +352,14 @@ public class SystemInfoService {
 
     public List<Long> getAllBackendIds() {
         return getAllBackendIds(false);
+    }
+
+    public int getBackendsNumber(boolean needAlive) {
+        int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
+        if (beNumber < 0) {
+            beNumber = getAllBackendIds(needAlive).size();
+        }
+        return beNumber;
     }
 
     public List<Long> getAllBackendIds(boolean needAlive) {
@@ -522,11 +528,14 @@ public class SystemInfoService {
      *
      * @param replicaAlloc
      * @param storageMedium
+     * @param isStorageMediumSpecified
+     * @param isOnlyForCheck set true if only used for check available backend
      * @return return the selected backend ids group by tag.
      * @throws DdlException
      */
     public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
-            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium)
+            ReplicaAllocation replicaAlloc, TStorageMedium storageMedium, boolean isStorageMediumSpecified,
+            boolean isOnlyForCheck)
             throws DdlException {
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
@@ -551,6 +560,14 @@ public class SystemInfoService {
 
                 BeSelectionPolicy policy = builder.build();
                 List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                // first time empty, retry with different storage medium
+                // if only for check, no need to retry different storage medium to get backend
+                if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
+                    storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
+                    policy = builder.setStorageMedium(storageMedium).build();
+                    beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+                }
+                // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
                     LOG.error("failed backend(s) for policy:" + policy);
                     String errorReplication = "replication tag: " + entry.getKey()
@@ -761,9 +778,6 @@ public class SystemInfoService {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVersions);
         idToReportVersionRef = newIdToReportVersion;
 
-        // update BeInfoCollector
-        Backend.BeInfoCollector beinfoCollector = Backend.getBeInfoCollector();
-        beinfoCollector.dropBeInfo(backend.getId());
     }
 
     public void updateBackendState(Backend be) {
@@ -782,6 +796,8 @@ public class SystemInfoService {
             memoryBe.setLastUpdateMs(be.getLastUpdateMs());
             memoryBe.setLastStartTime(be.getLastStartTime());
             memoryBe.setDisks(be.getDisks());
+            memoryBe.setCpuCores(be.getCputCores());
+            memoryBe.setPipelineExecutorSize(be.getPipelineExecutorSize());
         }
     }
 
@@ -803,7 +819,7 @@ public class SystemInfoService {
 
     public void checkAvailableCapacity() throws DdlException {
         if (getAvailableCapacityB() <= 0L) {
-            throw new DdlException("System has no available disk capacity");
+            throw new DdlException("System has no available disk capacity or no available BE nodes");
         }
     }
 
@@ -953,5 +969,19 @@ public class SystemInfoService {
     public List<Backend> getBackendsByTag(Tag tag) {
         List<Backend> bes = getMixBackends();
         return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
+    }
+
+    public int getMinPipelineExecutorSize() {
+        if (idToBackendRef.size() == 0) {
+            return 1;
+        }
+        int minPipelineExecutorSize = Integer.MAX_VALUE;
+        for (Backend be : idToBackendRef.values()) {
+            int size = be.getPipelineExecutorSize();
+            if (size > 0) {
+                minPipelineExecutorSize = Math.min(minPipelineExecutorSize, size);
+            }
+        }
+        return minPipelineExecutorSize;
     }
 }

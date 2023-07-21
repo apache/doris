@@ -64,6 +64,8 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
                           << ", cluster id:" << master_info.cluster_id
                           << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
 
+    MonotonicStopWatch watch;
+    watch.start();
     // do heartbeat
     Status st = _heartbeat(master_info);
     st.to_thrift(&heartbeat_result.status);
@@ -76,6 +78,10 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_version(get_short_version());
         heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
+    }
+    watch.stop();
+    if (watch.elapsed_time() > 1000L * 1000L * 1000L) {
+        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time();
     }
 }
 

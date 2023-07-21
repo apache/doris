@@ -207,6 +207,8 @@ public:
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
 
+    void copy_from_other(IRuntimeFilter* other);
+
     // insert data to build filter
     // only used for producer
     void insert(const void* data);
@@ -216,8 +218,6 @@ public:
     // publish filter
     // push filter to remote node or push down it to scan_node
     Status publish();
-
-    void publish_finally();
 
     RuntimeFilterType type() const { return _runtime_filter_type; }
 
@@ -290,20 +290,18 @@ public:
     // for ut
     bool is_bloomfilter();
 
-    // consumer should call before released
-    Status consumer_close();
+    bool is_finish_rpc();
+
+    Status join_rpc();
 
     // async push runtimefilter to remote node
     Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
-    Status join_rpc();
 
     void init_profile(RuntimeProfile* parent_profile);
 
     std::string& get_name() { return _name; }
 
     void update_runtime_filter_type_to_profile();
-
-    void ready_for_publish();
 
     static bool enable_use_batch(bool use_batch, PrimitiveType type) {
         return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
@@ -389,9 +387,9 @@ protected:
 
     std::vector<doris::vectorized::VExprSPtr> _push_down_vexprs;
 
-    struct rpc_context;
+    struct RPCContext;
 
-    std::shared_ptr<rpc_context> _rpc_context;
+    std::shared_ptr<RPCContext> _rpc_context;
 
     // parent profile
     // only effect on consumer
@@ -403,7 +401,7 @@ protected:
     const bool _enable_pipeline_exec;
 
     bool _profile_init = false;
-    doris::Mutex _profile_mutex;
+    std::mutex _profile_mutex;
     std::string _name;
     bool _opt_remote_rf;
 };

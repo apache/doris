@@ -86,10 +86,6 @@ public:
                             PTabletWriterOpenResult* response,
                             google::protobuf::Closure* done) override;
 
-    void open_partition(google::protobuf::RpcController* controller,
-                        const OpenPartitionRequest* request, OpenPartitionResult* response,
-                        google::protobuf::Closure* done) override;
-
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,
@@ -186,8 +182,13 @@ public:
                                     google::protobuf::Closure* done) override;
 
 private:
-    Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version,
-                               bool compact);
+    void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
+                                        const PExecPlanFragmentRequest* request,
+                                        PExecPlanFragmentResult* result,
+                                        google::protobuf::Closure* done);
+
+    Status _exec_plan_fragment_impl(const std::string& s_request, PFragmentRequestVersion version,
+                                    bool compact);
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 

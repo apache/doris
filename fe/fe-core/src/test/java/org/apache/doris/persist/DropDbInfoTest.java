@@ -26,8 +26,7 @@ import org.junit.Test;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.nio.file.Files;
 
 public class DropDbInfoTest {
     @Test
@@ -39,7 +38,7 @@ public class DropDbInfoTest {
         // 1. Write objects to file
         File file = new File("./dropDbInfo");
         file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+        DataOutputStream dos = new DataOutputStream(Files.newOutputStream(file.toPath()));
 
         DropDbInfo info1 = new DropDbInfo();
         info1.write(dos);
@@ -51,7 +50,7 @@ public class DropDbInfoTest {
         dos.close();
 
         // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+        DataInputStream dis = new DataInputStream(Files.newInputStream(file.toPath()));
 
         DropDbInfo rInfo1 = DropDbInfo.read(dis);
         Assert.assertEquals(rInfo1, info1);

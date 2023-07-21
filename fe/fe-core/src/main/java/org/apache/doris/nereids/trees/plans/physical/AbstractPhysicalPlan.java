@@ -21,8 +21,10 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import java.util.Optional;
@@ -31,7 +33,7 @@ import javax.annotation.Nullable;
 /**
  * Abstract class for all concrete physical plan.
  */
-public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan {
+public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
 
     protected final PhysicalProperties physicalProperties;
 
@@ -53,5 +55,10 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
 
     public PhysicalProperties getPhysicalProperties() {
         return physicalProperties;
+    }
+
+    @Override
+    public Plan getExplainPlan(ConnectContext ctx) {
+        return this;
     }
 }

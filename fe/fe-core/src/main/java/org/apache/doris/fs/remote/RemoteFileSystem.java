@@ -31,7 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public abstract class RemoteFileSystem extends PersistentFileSystem {
-    protected org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
+    // this field will be visited by multi-threads, better use volatile qualifier
+    protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
 
     public RemoteFileSystem(String name, StorageBackend.StorageType type) {
         super(name, type);

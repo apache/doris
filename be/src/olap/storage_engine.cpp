@@ -42,6 +42,7 @@
 #include <random>
 #include <set>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 #include "agent/task_worker_pool.h"
@@ -64,8 +65,10 @@
 #include "olap/single_replica_compaction.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
@@ -78,32 +81,15 @@
 #include "util/trace.h"
 #include "util/uid_util.h"
 
-using apache::thrift::ThriftDebugString;
-using std::filesystem::canonical;
 using std::filesystem::directory_iterator;
 using std::filesystem::path;
-using std::filesystem::recursive_directory_iterator;
-using std::back_inserter;
-using std::copy;
-using std::inserter;
-using std::list;
 using std::map;
-using std::nothrow;
-using std::pair;
 using std::set;
 using std::string;
 using std::stringstream;
 using std::vector;
-using strings::Substitute;
 
 namespace doris {
-namespace {
-inline int64_t now_ms() {
-    auto duration = std::chrono::steady_clock::now().time_since_epoch();
-    return static_cast<int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
-}
-} // namespace
 using namespace ErrorCode;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
@@ -168,6 +154,12 @@ StorageEngine::~StorageEngine() {
     }
     if (_tablet_meta_checkpoint_thread_pool) {
         _tablet_meta_checkpoint_thread_pool->shutdown();
+    }
+    if (_calc_delete_bitmap_thread_pool) {
+        _calc_delete_bitmap_thread_pool->shutdown();
+    }
+    if (_cold_data_compaction_thread_pool) {
+        _cold_data_compaction_thread_pool->shutdown();
     }
     _clear();
     _s_instance = nullptr;
@@ -563,6 +555,9 @@ void StorageEngine::stop() {
     THREAD_JOIN(_disk_stat_monitor_thread);
     THREAD_JOIN(_fd_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
+    THREAD_JOIN(_async_publish_thread);
+    THREAD_JOIN(_cold_data_compaction_producer_thread);
+    THREAD_JOIN(_cooldown_tasks_producer_thread);
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)            \
@@ -622,8 +617,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 }
 
 void StorageEngine::_start_clean_cache() {
-    SegmentLoader::instance()->prune();
-    SchemaCache::instance()->prune();
+    CacheManager::instance()->for_each_cache_prune_stale();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
@@ -653,8 +647,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     tm local_tm_now;
     local_tm_now.tm_isdst = 0;
     if (localtime_r(&now, &local_tm_now) == nullptr) {
-        LOG(WARNING) << "fail to localtime_r time. time=" << now;
-        return Status::Error<OS_ERROR>();
+        return Status::Error<OS_ERROR>("fail to localtime_r time. time={}", now);
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
@@ -686,8 +679,6 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         }
     }
 
-    // _gc_binlogs();
-
     if (usage != nullptr) {
         *usage = tmp_usage; // update usage
     }
@@ -700,6 +691,12 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
+
+    // cleand unused delete bitmap for deleted tablet
+    _clean_unused_delete_bitmap();
+
+    // cleand unused pending publish info for deleted tablet
+    _clean_unused_pending_publish_info();
 
     // clean unused rowsets in remote storage backends
     for (auto data_dir : get_stores()) {
@@ -776,136 +773,66 @@ void StorageEngine::_clean_unused_rowset_metas() {
     }
 }
 
-void StorageEngine::_gc_binlogs() {
-    LOG(INFO) << "start to gc binlogs";
-
-    auto data_dirs = get_stores();
-    struct tablet_info {
-        std::string tablet_path;
-        int64_t binlog_ttl_ms;
-    };
-    std::unordered_map<int64_t, tablet_info> tablets_info;
-
-    auto get_tablet_info = [&tablets_info, this](int64_t tablet_id) -> const tablet_info& {
-        if (auto iter = tablets_info.find(tablet_id); iter != tablets_info.end()) {
-            return iter->second;
-        }
-
-        auto tablet = tablet_manager()->get_tablet(tablet_id);
+void StorageEngine::_clean_unused_delete_bitmap() {
+    std::unordered_set<int64_t> removed_tablets;
+    auto clean_delete_bitmap_func = [this, &removed_tablets](int64_t tablet_id, int64_t version,
+                                                             const std::string& val) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet == nullptr) {
-            LOG(WARNING) << "failed to find tablet " << tablet_id;
-            static tablet_info empty_tablet_info;
-            return empty_tablet_info;
+            if (removed_tablets.insert(tablet_id).second) {
+                LOG(INFO) << "clean ununsed delete bitmap for deleted tablet, tablet_id: "
+                          << tablet_id;
+            }
         }
-
-        auto tablet_path = tablet->tablet_path();
-        auto binlog_ttl_ms = tablet->binlog_ttl_ms();
-        tablets_info.emplace(tablet_id, tablet_info {tablet_path, binlog_ttl_ms});
-        return tablets_info[tablet_id];
+        return true;
     };
-
+    auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
-        std::string prefix_key {kBinlogMetaPrefix};
-        OlapMeta* meta = data_dir->get_meta();
-        DCHECK(meta != nullptr);
-
-        auto now = now_ms();
-        int64_t last_tablet_id = 0;
-        std::vector<std::string> wait_for_deleted_binlog_keys;
-        std::vector<std::string> wait_for_deleted_binlog_files;
-        auto add_to_wait_for_deleted_binlog_keys =
-                [&wait_for_deleted_binlog_keys](std::string_view key) {
-                    wait_for_deleted_binlog_keys.emplace_back(key);
-                    wait_for_deleted_binlog_keys.push_back(get_binlog_data_key_from_meta_key(key));
-                };
-
-        auto add_to_wait_for_deleted = [&add_to_wait_for_deleted_binlog_keys,
-                                        &wait_for_deleted_binlog_files](
-                                               std::string_view key, std::string_view tablet_path,
-                                               int64_t rowset_id, int64_t num_segments) {
-            add_to_wait_for_deleted_binlog_keys(key);
-            for (int64_t i = 0; i < num_segments; ++i) {
-                auto segment_file = fmt::format("{}_{}.dat", rowset_id, i);
-                wait_for_deleted_binlog_files.emplace_back(
-                        fmt::format("{}/_binlog/{}", tablet_path, segment_file));
-            }
-        };
-
-        auto check_binlog_ttl = [now, &get_tablet_info, &last_tablet_id,
-                                 &add_to_wait_for_deleted_binlog_keys, &add_to_wait_for_deleted](
-                                        const std::string& key,
-                                        const std::string& value) mutable -> bool {
-            LOG(INFO) << fmt::format("check binlog ttl, key:{}, value:{}", key, value);
-            if (!starts_with_binlog_meta(key)) {
-                last_tablet_id = -1;
-                return false;
-            }
-
-            BinlogMetaEntryPB binlog_meta_entry_pb;
-            if (!binlog_meta_entry_pb.ParseFromString(value)) {
-                LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
-                return true;
-            }
-
-            auto tablet_id = binlog_meta_entry_pb.tablet_id();
-            last_tablet_id = tablet_id;
-            const auto& tablet_info = get_tablet_info(tablet_id);
-            std::string_view tablet_path = tablet_info.tablet_path;
-            // tablet has been removed, removed all these binlog meta
-            if (tablet_path.empty()) {
-                add_to_wait_for_deleted_binlog_keys(key);
-                return true;
-            }
-
-            // check by ttl
-            auto rowset_id = binlog_meta_entry_pb.rowset_id();
-            auto binlog_ttl_ms = tablet_info.binlog_ttl_ms;
-            auto num_segments = binlog_meta_entry_pb.num_segments();
-            // binlog has been disabled, remove all
-            if (binlog_ttl_ms <= 0) {
-                add_to_wait_for_deleted(key, tablet_path, rowset_id, num_segments);
-                return true;
-            }
-            auto binlog_creation_time_ms = binlog_meta_entry_pb.creation_time();
-            if (now - binlog_creation_time_ms > binlog_ttl_ms) {
-                add_to_wait_for_deleted(key, tablet_path, rowset_id, num_segments);
-                return true;
-            }
-
-            // binlog not stale, skip
-            return false;
-        };
-
-        while (last_tablet_id >= 0) {
-            // every loop iterate one tablet
-            // get binlog meta by prefix
-            auto status = meta->iterate(META_COLUMN_FAMILY_INDEX, prefix_key, check_binlog_ttl);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to iterate binlog meta, status:" << status;
-                break;
-            }
-
-            prefix_key = make_binlog_meta_key_prefix(last_tablet_id);
+        TabletMetaManager::traverse_delete_bitmap(data_dir->get_meta(), clean_delete_bitmap_func);
+        for (auto id : removed_tablets) {
+            TabletMetaManager::remove_old_version_delete_bitmap(data_dir, id, INT64_MAX);
         }
+        LOG(INFO) << "removed invalid delete bitmap from dir: " << data_dir->path()
+                  << ", deleted tablets size: " << removed_tablets.size();
+        removed_tablets.clear();
+    }
+}
 
-        // first remove binlog files, if failed, just break, then retry next time
-        // this keep binlog meta in meta store, so that binlog can be removed next time
-        bool remove_binlog_files_failed = false;
-        for (auto& file : wait_for_deleted_binlog_files) {
-            if (unlink(file.c_str()) != 0) {
-                // file not exist, continue
-                if (errno == ENOENT) {
-                    continue;
-                }
+void StorageEngine::_clean_unused_pending_publish_info() {
+    std::vector<std::pair<int64_t, int64_t>> removed_infos;
+    auto clean_pending_publish_info_func = [this, &removed_infos](int64_t tablet_id,
+                                                                  int64_t publish_version,
+                                                                  const string& info) -> bool {
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            removed_infos.emplace_back(tablet_id, publish_version);
+        }
+        return true;
+    };
+    auto data_dirs = get_stores();
+    for (auto data_dir : data_dirs) {
+        TabletMetaManager::traverse_pending_publish(data_dir->get_meta(),
+                                                    clean_pending_publish_info_func);
+        for (auto& [tablet_id, publish_version] : removed_infos) {
+            TabletMetaManager::remove_pending_publish_info(data_dir, tablet_id, publish_version);
+        }
+        LOG(INFO) << "removed invalid pending publish info from dir: " << data_dir->path()
+                  << ", deleted pending publish info size: " << removed_infos.size();
+        removed_infos.clear();
+    }
+}
 
-                remove_binlog_files_failed = true;
-                LOG(WARNING) << "failed to remove binlog file:" << file << ", errno:" << errno;
-                break;
-            }
+void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
+    for (auto [tablet_id, version] : gc_tablet_infos) {
+        LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
+                                 version);
+
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(WARNING) << fmt::format("tablet_id: {} not found", tablet_id);
+            continue;
         }
-        if (remove_binlog_files_failed) {
-            meta->remove(META_COLUMN_FAMILY_INDEX, wait_for_deleted_binlog_keys);
-        }
+        tablet->gc_binlogs(version);
     }
 }
 
@@ -950,8 +877,7 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             tm local_tm_create;
             local_tm_create.tm_isdst = 0;
             if (strptime(str_time.c_str(), "%Y%m%d%H%M%S", &local_tm_create) == nullptr) {
-                LOG(WARNING) << "fail to strptime time. [time=" << str_time << "]";
-                res = Status::Error<OS_ERROR>();
+                res = Status::Error<OS_ERROR>("fail to strptime time. time={}", str_time);
                 continue;
             }
 
@@ -976,8 +902,8 @@ Status StorageEngine::_do_sweep(const std::string& scan_root, const time_t& loca
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root;
-        res = Status::Error<IO_ERROR>();
+        res = Status::Error<IO_ERROR>("Exception occur when scan directory. path_desc={}",
+                                      scan_root);
     }
 
     return res;
@@ -1004,11 +930,15 @@ void StorageEngine::start_delete_unused_rowset() {
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-            if (it->second.use_count() == 1 && it->second->need_delete_file()) {
+            uint64_t now = UnixSeconds();
+            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+                // We delay the GC time of this rowset since it's maybe still needed, see #20732
+                now > it->second->delayed_expired_timestamp()) {
                 if (it->second->is_local()) {
                     unused_rowsets_copy[it->first] = it->second;
                 }
                 // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                evict_querying_rowset(it->second->rowset_id());
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
@@ -1052,10 +982,9 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
     std::vector<DataDir*> stores;
     stores = get_stores_for_create_tablet(request.storage_medium);
     if (stores.empty()) {
-        LOG(WARNING) << "there is no available disk that can be used to create tablet.";
-        return Status::Error<CE_CMD_PARAMS_ERROR>();
+        return Status::Error<CE_CMD_PARAMS_ERROR>(
+                "there is no available disk that can be used to create tablet.");
     }
-    TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 
@@ -1064,14 +993,14 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
-        LOG(WARNING) << "invalid output parameter which is null pointer.";
-        return Status::Error<CE_CMD_PARAMS_ERROR>();
+        return Status::Error<CE_CMD_PARAMS_ERROR>(
+                "invalid output parameter which is null pointer.");
     }
 
     auto stores = get_stores_for_create_tablet(storage_medium);
     if (stores.empty()) {
-        LOG(WARNING) << "no available disk can be used to create tablet.";
-        return Status::Error<NO_AVAILABLE_ROOT_PATH>();
+        return Status::Error<NO_AVAILABLE_ROOT_PATH>(
+                "no available disk can be used to create tablet.");
     }
 
     Status res = Status::OK();
@@ -1105,12 +1034,10 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
                     std::filesystem::path(shard_path).parent_path().parent_path().string();
             store = get_store(store_path);
             if (store == nullptr) {
-                LOG(WARNING) << "invalid shard path, path=" << shard_path;
-                return Status::Error<INVALID_ROOT_PATH>();
+                return Status::Error<INVALID_ROOT_PATH>("invalid shard path, path={}", shard_path);
             }
         } catch (...) {
-            LOG(WARNING) << "invalid shard path, path=" << shard_path;
-            return Status::Error<INVALID_ROOT_PATH>();
+            return Status::Error<INVALID_ROOT_PATH>("invalid shard path, path={}", shard_path);
         }
     }
 
@@ -1271,6 +1198,25 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
     root.Accept(writer);
     *result = std::string(strbuf.GetString());
     return Status::OK();
+}
+
+void StorageEngine::add_quering_rowset(RowsetSharedPtr rs) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    _querying_rowsets.emplace(rs->rowset_id(), rs);
+}
+
+RowsetSharedPtr StorageEngine::get_quering_rowset(RowsetId rs_id) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    auto it = _querying_rowsets.find(rs_id);
+    if (it != _querying_rowsets.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void StorageEngine::evict_querying_rowset(RowsetId rs_id) {
+    std::lock_guard<std::mutex> lock(_quering_rowsets_mutex);
+    _querying_rowsets.erase(rs_id);
 }
 
 } // namespace doris

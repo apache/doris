@@ -170,7 +170,6 @@ protected:
         // io::S3FileSystem::create will call connect, which will fail because s3_conf is empty.
         // but it does affect the following unit test
         ASSERT_FALSE(st.ok()) << st;
-        rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
         rowset.rowset_meta()->set_tablet_id(tablet_id);

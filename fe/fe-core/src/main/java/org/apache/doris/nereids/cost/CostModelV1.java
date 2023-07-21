@@ -59,6 +59,14 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
      */
     static final double HEAVY_OPERATOR_PUNISH_FACTOR = 0.0;
 
+    // for a join, skew = leftRowCount/rightRowCount
+    // the higher skew is, the more we prefer broadcast join than shuffle join
+    // if skew < BROADCAST_JOIN_SKEW_RATIO, broadcast join will be punished,
+    // the penalty factor is no more than BROADCAST_JOIN_SKEW_PENALTY_LIMIT
+    static final double BROADCAST_JOIN_SKEW_RATIO = 30.0;
+    static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
+    private int beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+
     public static Cost addChildCost(Plan plan, Cost planCost, Cost childCost, int index) {
         Preconditions.checkArgument(childCost instanceof CostV1 && planCost instanceof CostV1);
         CostV1 childCostV1 = (CostV1) childCost;
@@ -162,29 +170,25 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
         Statistics childStatistics = context.getChildStatistics(0);
+        double intputRowCount = childStatistics.getRowCount();
         DistributionSpec spec = distribute.getDistributionSpec();
+
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    intputRowCount * childStatistics.dataSizeFactor() / beNumber);
         }
 
         // replicate
         if (spec instanceof DistributionSpecReplicated) {
-            int beNumber = ConnectContext.get().getEnv().getClusterInfo().getAllBackendIds(true).size();
-            if (ConnectContext.get().getSessionVariable().getBeNumberForTest() != -1) {
-                beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
-            }
-            int instanceNumber = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-            beNumber = Math.max(1, beNumber);
+            double dataSize = childStatistics.computeSize();
             double memLimit = ConnectContext.get().getSessionVariable().getMaxExecMemByte();
             //if build side is big, avoid use broadcast join
             double rowsLimit = ConnectContext.get().getSessionVariable().getBroadcastRowCountLimit();
             double brMemlimit = ConnectContext.get().getSessionVariable().getBroadcastHashtableMemLimitPercentage();
-            double buildSize = childStatistics.computeSize();
-            if (buildSize * instanceNumber > memLimit * brMemlimit
+            if (dataSize > memLimit * brMemlimit
                     || childStatistics.getRowCount() > rowsLimit) {
                 return CostV1.of(Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE);
             }
@@ -194,7 +198,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount() * Math.pow(beNumber, 0.5));
+                    intputRowCount * childStatistics.dataSizeFactor());
 
         }
 
@@ -203,12 +207,12 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             return CostV1.of(
                     0,
                     0,
-                    childStatistics.getRowCount());
+                    intputRowCount * childStatistics.dataSizeFactor() / beNumber);
         }
 
         // any
         return CostV1.of(
-                childStatistics.getRowCount(),
+                intputRowCount,
                 0,
                 0);
     }
@@ -216,11 +220,26 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalHashAggregate(
             PhysicalHashAggregate<? extends Plan> aggregate, PlanContext context) {
-        // TODO: stage.....
-
-        Statistics statistics = context.getStatisticsWithCheck();
         Statistics inputStatistics = context.getChildStatistics(0);
-        return CostV1.of(inputStatistics.getRowCount(), statistics.getRowCount(), 0);
+        if (aggregate.getAggPhase().isLocal()) {
+            return CostV1.of(inputStatistics.getRowCount() / beNumber,
+                    inputStatistics.getRowCount() / beNumber, 0);
+        } else {
+            // global
+            return CostV1.of(inputStatistics.getRowCount(),
+                    inputStatistics.getRowCount(), 0);
+        }
+    }
+
+    private double broadCastJoinBalancePenalty(Statistics probeStats, Statistics buildStats) {
+        // if build side is small enough (<1M), broadcast is also good, no penalty
+        if (buildStats.computeSize() < 1024 * 1024) {
+            return 1;
+        }
+        double broadcastJoinPenalty = (BROADCAST_JOIN_SKEW_RATIO * buildStats.getRowCount()) / probeStats.getRowCount();
+        broadcastJoinPenalty = Math.max(1, broadcastJoinPenalty);
+        broadcastJoinPenalty = Math.min(BROADCAST_JOIN_SKEW_PENALTY_LIMIT, broadcastJoinPenalty);
+        return broadcastJoinPenalty;
     }
 
     @Override
@@ -255,10 +274,19 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                     leftRowCount + rightRowCount,
                     penalty);
         }
+
+        if (context.isBroadcastJoin()) {
+            double broadcastJoinPenalty = broadCastJoinBalancePenalty(probeStats, buildStats);
+            return CostV1.of(leftRowCount * broadcastJoinPenalty + rightRowCount + outputRowCount,
+                    rightRowCount,
+                    0,
+                    0
+            );
+        }
         return CostV1.of(leftRowCount + rightRowCount + outputRowCount,
                 rightRowCount,
                 0,
-                penalty
+                0
         );
     }
 

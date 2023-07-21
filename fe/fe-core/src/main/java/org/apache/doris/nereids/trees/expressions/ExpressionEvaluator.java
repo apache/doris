@@ -59,7 +59,7 @@ public enum ExpressionEvaluator {
      */
     public Expression eval(Expression expression) {
 
-        if (!expression.isConstant() || expression instanceof AggregateFunction) {
+        if (!(expression.isConstant() || expression.foldable()) || expression instanceof AggregateFunction) {
             return expression;
         }
 

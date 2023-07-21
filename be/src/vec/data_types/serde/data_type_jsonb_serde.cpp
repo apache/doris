@@ -16,6 +16,62 @@
 // under the License.
 
 #include "data_type_jsonb_serde.h"
+
+#include <arrow/array/builder_binary.h>
 namespace doris {
-namespace vectorized {} // namespace vectorized
+namespace vectorized {
+
+template <bool is_binary_format>
+Status DataTypeJsonbSerDe::_write_column_to_mysql(const IColumn& column,
+                                                  MysqlRowBuffer<is_binary_format>& result,
+                                                  int row_idx, bool col_const) const {
+    auto& data = assert_cast<const ColumnString&>(column);
+    const auto col_index = index_check_const(row_idx, col_const);
+    const auto jsonb_val = data.get_data_at(col_index);
+    // jsonb size == 0 is NULL
+    if (jsonb_val.data == nullptr || jsonb_val.size == 0) {
+        if (UNLIKELY(0 != result.push_null())) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    } else {
+        std::string json_str = JsonbToJson::jsonb_to_json_string(jsonb_val.data, jsonb_val.size);
+        if (UNLIKELY(0 != result.push_string(json_str.c_str(), json_str.size()))) {
+            return Status::InternalError("pack mysql buffer failed.");
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
+                                                 MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                 bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeJsonbSerDe::write_column_to_mysql(const IColumn& column,
+                                                 MysqlRowBuffer<false>& row_buffer, int row_idx,
+                                                 bool col_const) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                               arrow::ArrayBuilder* array_builder, int start,
+                                               int end) const {
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    for (size_t string_i = start; string_i < end; ++string_i) {
+        if (null_map && (*null_map)[string_i]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+            continue;
+        }
+        std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
+        std::string json_string =
+                JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
+        checkArrowStatus(builder.Append(json_string.data(), json_string.size()), column.get_name(),
+                         array_builder->type()->name());
+    }
+}
+
+} // namespace vectorized
 } // namespace doris

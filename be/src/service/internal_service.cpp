@@ -39,6 +39,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
 #include <memory>
 #include <set>
@@ -48,7 +49,9 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -111,6 +114,7 @@
 #include "vec/exec/format/json/new_json_reader.h"
 #include "vec/exec/format/orc/vorc_reader.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
+#include "vec/exec/scan/avro_jni_reader.h"
 #include "vec/jsonb/serialize.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 
@@ -146,10 +150,8 @@ class NewHttpClosure : public ::google::protobuf::Closure {
 public:
     NewHttpClosure(google::protobuf::Closure* done) : _done(done) {}
     NewHttpClosure(T* request, google::protobuf::Closure* done) : _request(request), _done(done) {}
-    ~NewHttpClosure() {}
 
-    void Run() {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
+    void Run() override {
         if (_request != nullptr) {
             delete _request;
             _request = nullptr;
@@ -248,20 +250,12 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     }
 }
 
-void PInternalServiceImpl::open_partition(google::protobuf::RpcController* controller,
-                                          const OpenPartitionRequest* request,
-                                          OpenPartitionResult* response,
-                                          google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
-        VLOG_RPC << "partition open"
-                 << ", index_id=" << request->index_id();
-        brpc::ClosureGuard closure_guard(done);
-        auto st = _exec_env->load_channel_mgr()->open_partition(*request);
-        if (!st.ok()) {
-            LOG(WARNING) << "load channel open failed, message=" << st
-                         << ", index_ids=" << request->index_id();
-        }
-        st.to_protobuf(response->mutable_status());
+void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
+                                              const PExecPlanFragmentRequest* request,
+                                              PExecPlanFragmentResult* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -271,10 +265,9 @@ void PInternalServiceImpl::open_partition(google::protobuf::RpcController* contr
     }
 }
 
-void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
-                                              const PExecPlanFragmentRequest* request,
-                                              PExecPlanFragmentResult* response,
-                                              google::protobuf::Closure* done) {
+void PInternalServiceImpl::_exec_plan_fragment_in_pthread(
+        google::protobuf::RpcController* controller, const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* response, google::protobuf::Closure* done) {
     auto span = telemetry::start_rpc_server_span("exec_plan_fragment", controller);
     auto scope = OpentelemetryScope {span};
     brpc::ClosureGuard closure_guard(done);
@@ -282,7 +275,14 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     bool compact = request->has_compact() ? request->compact() : false;
     PFragmentRequestVersion version =
             request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
-    st = _exec_plan_fragment(request->request(), version, compact);
+    try {
+        st = _exec_plan_fragment_impl(request->request(), version, compact);
+    } catch (const Exception& e) {
+        st = e.to_status();
+    } catch (...) {
+        st = Status::Error(ErrorCode::INTERNAL_ERROR,
+                           "_exec_plan_fragment_impl meet unknown error");
+    }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st;
     }
@@ -294,7 +294,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, controller, request, response, done]() {
-        exec_plan_fragment(controller, request, response, done);
+        _exec_plan_fragment_in_pthread(controller, request, response, done);
     });
     if (!ret) {
         LOG(WARNING) << "fail to offer request to the work pool";
@@ -419,8 +419,9 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
-                                                 PFragmentRequestVersion version, bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment_impl(const std::string& ser_request,
+                                                      PFragmentRequestVersion version,
+                                                      bool compact) {
     // Sometimes the BE do not receive the first heartbeat message and it receives request from FE
     // If BE execute this fragment, it will core when it wants to get some property from master info.
     if (ExecEnv::GetInstance()->master_info() == nullptr) {
@@ -572,14 +573,21 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            std::vector<std::string> column_names;
-            reader = vectorized::OrcReader::create_unique(params, range, column_names, "", &io_ctx);
+            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
             std::vector<SlotDescriptor*> file_slots;
             reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
+            break;
+        }
+        case TFileFormatType::FORMAT_AVRO: {
+            // file_slots is no use
+            std::vector<SlotDescriptor*> file_slots;
+            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
+                                                              file_slots);
+            ((vectorized::AvroJNIReader*)(reader.get()))->init_fetch_table_schema_reader();
             break;
         }
         default:
@@ -1014,6 +1022,8 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
+    int64_t receive_time = GetCurrentTimeNanos();
+    response->set_receive_time(receive_time);
     bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
@@ -1507,8 +1517,9 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         if (!tablet) {
             continue;
         }
-        BetaRowsetSharedPtr rowset =
-                std::static_pointer_cast<BetaRowset>(tablet->get_rowset(rowset_id));
+        // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
+        BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
+                StorageEngine::instance()->get_quering_rowset(rowset_id));
         if (!rowset) {
             LOG(INFO) << "no such rowset " << rowset_id;
             continue;
@@ -1618,7 +1629,6 @@ void PInternalServiceImpl::get_tablet_rowset_versions(google::protobuf::RpcContr
                                                       const PGetTabletVersionsRequest* request,
                                                       PGetTabletVersionsResponse* response,
                                                       google::protobuf::Closure* done) {
-    //SCOPED_SWITCH_BTHREAD_TLS();
     brpc::ClosureGuard closure_guard(done);
     VLOG_DEBUG << "receive get tablet versions request: " << request->DebugString();
     ExecEnv::GetInstance()->storage_engine()->get_tablet_rowset_versions(request, response);

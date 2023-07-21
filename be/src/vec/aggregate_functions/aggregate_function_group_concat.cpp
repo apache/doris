@@ -24,7 +24,7 @@
 
 namespace doris::vectorized {
 
-const std::string AggregateFunctionGroupConcatImplStr::separator = ", ";
+const std::string AggregateFunctionGroupConcatImplStr::separator = ",";
 
 AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& name,
                                                             const DataTypes& argument_types,

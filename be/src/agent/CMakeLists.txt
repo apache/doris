@@ -21,14 +21,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/agent")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/agent")
 
-set(AGENT_SOURCES
-    agent_server.cpp
-    heartbeat_server.cpp
-    task_worker_pool.cpp
-    utils.cpp
-    topic_subscriber.cpp
-    user_resource_listener.cpp
-)
+file(GLOB_RECURSE AGENT_SOURCES CONFIGURE_DEPENDS *.cpp)
 
 if (OS_MACOSX)
     list(REMOVE_ITEM AGENT_SOURCES user_resource_listener.cpp)

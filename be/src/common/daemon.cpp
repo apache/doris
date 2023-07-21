@@ -22,6 +22,7 @@
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <butil/iobuf.h>
 #include <math.h>
 #include <signal.h>
 #include <stdint.h>
@@ -186,7 +187,8 @@ void Daemon::memory_maintenance_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
+                   std::chrono::milliseconds(interval_milliseconds)) &&
+           !k_doris_exit) {
         if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
@@ -210,6 +212,9 @@ void Daemon::memory_maintenance_thread() {
                 DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
             }
 #endif
+
+            ExecEnv::GetInstance()->brpc_iobuf_block_memory_tracker()->set_consumption(
+                    butil::IOBuf::block_memory());
             LOG(INFO) << MemTrackerLimiter::
                             process_mem_log_str(); // print mem log when memory state by 256M
         }
@@ -220,9 +225,12 @@ void Daemon::memory_gc_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
     int32_t memory_minor_gc_sleep_time_ms = 0;
     int32_t memory_full_gc_sleep_time_ms = 0;
+    int32_t memory_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(interval_milliseconds))) {
-        if (!MemInfo::initialized() || !ExecEnv::GetInstance()->initialized()) {
+                   std::chrono::milliseconds(interval_milliseconds)) &&
+           !k_doris_exit) {
+        if (config::disable_memory_gc || !MemInfo::initialized() ||
+            !ExecEnv::GetInstance()->initialized()) {
             continue;
         }
         auto sys_mem_available = doris::MemInfo::sys_mem_available();
@@ -237,9 +245,11 @@ void Daemon::memory_gc_thread() {
             (sys_mem_available < doris::MemInfo::sys_mem_available_low_water_mark() ||
              proc_mem_no_allocator_cache >= doris::MemInfo::mem_limit())) {
             // No longer full gc and minor gc during sleep.
-            memory_full_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-            memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-            doris::MemTrackerLimiter::print_log_process_usage("process full gc", false);
+            memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
+            memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
+            LOG(INFO) << fmt::format("Start Full GC, {}.",
+                                     MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+            doris::MemTrackerLimiter::print_log_process_usage();
             if (doris::MemInfo::process_full_gc()) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
@@ -248,8 +258,10 @@ void Daemon::memory_gc_thread() {
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
                     proc_mem_no_allocator_cache >= doris::MemInfo::soft_mem_limit())) {
             // No minor gc during sleep, but full gc is possible.
-            memory_minor_gc_sleep_time_ms = config::memory_gc_sleep_time_ms;
-            doris::MemTrackerLimiter::print_log_process_usage("process minor gc", false);
+            memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
+            LOG(INFO) << fmt::format("Start Minor GC, {}.",
+                                     MemTrackerLimiter::process_soft_limit_exceeded_errmsg_str());
+            doris::MemTrackerLimiter::print_log_process_usage();
             if (doris::MemInfo::process_minor_gc()) {
                 doris::MemTrackerLimiter::enable_print_log_process_usage();
             }
@@ -268,7 +280,8 @@ void Daemon::load_channel_tracker_refresh_thread() {
     // Refresh the memory statistics of the load channel tracker more frequently,
     // which helps to accurately control the memory of LoadChannelMgr.
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms))) {
+                   std::chrono::milliseconds(config::load_channel_memory_refresh_sleep_time_ms)) &&
+           !k_doris_exit) {
         if (ExecEnv::GetInstance()->initialized()) {
             doris::ExecEnv::GetInstance()->load_channel_mgr()->refresh_mem_tracker();
         }
@@ -276,7 +289,8 @@ void Daemon::load_channel_tracker_refresh_thread() {
 }
 
 void Daemon::memory_tracker_profile_refresh_thread() {
-    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(50))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(100)) &&
+           !k_doris_exit) {
         MemTracker::refresh_all_tracker_profile();
         MemTrackerLimiter::refresh_all_tracker_profile();
     }

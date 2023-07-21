@@ -39,9 +39,9 @@ namespace doris {
 // User can use this class to access or deal with column data in memory.
 class Field {
 public:
-    explicit Field() : _type_info(TypeInfoPtr(nullptr, nullptr)) {}
-    explicit Field(const TabletColumn& column)
+    Field(const TabletColumn& column)
             : _type_info(get_type_info(&column)),
+              _desc(column),
               _length(column.length()),
               _key_coder(get_key_coder(column.type())),
               _name(column.name()),
@@ -83,7 +83,7 @@ public:
     virtual void modify_zone_map_index(char*) const {}
 
     virtual Field* clone() const {
-        auto* local = new Field();
+        auto* local = new Field(_desc);
         this->clone(local);
         return local;
     }
@@ -204,9 +204,11 @@ public:
     void set_scale(int32_t scale) { _scale = scale; }
     int32_t get_precision() const { return _precision; }
     int32_t get_scale() const { return _scale; }
+    const TabletColumn& get_desc() const { return _desc; }
 
 protected:
     TypeInfoPtr _type_info;
+    TabletColumn _desc;
     // unit : byte
     // except for strings, other types have fixed lengths
     // Note that, the struct type itself has fixed length, but due to
@@ -259,7 +261,7 @@ private:
 
 class MapField : public Field {
 public:
-    explicit MapField(const TabletColumn& column) : Field(column) {}
+    MapField(const TabletColumn& column) : Field(column) {}
 
     // make variable_ptr memory allocate to cell_ptr as MapValue
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
@@ -271,7 +273,7 @@ public:
 
 class StructField : public Field {
 public:
-    explicit StructField(const TabletColumn& column) : Field(column) {}
+    StructField(const TabletColumn& column) : Field(column) {}
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto struct_v = (StructValue*)cell_ptr;
         struct_v->set_values(reinterpret_cast<void**>(variable_ptr));
@@ -293,7 +295,7 @@ public:
 
 class ArrayField : public Field {
 public:
-    explicit ArrayField(const TabletColumn& column) : Field(column) {}
+    ArrayField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto array_v = (CollectionValue*)cell_ptr;
@@ -306,8 +308,7 @@ public:
 
 class CharField : public Field {
 public:
-    explicit CharField() = default;
-    explicit CharField(const TabletColumn& column) : Field(column) {}
+    CharField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length; }
 
@@ -320,7 +321,7 @@ public:
     }
 
     CharField* clone() const override {
-        auto* local = new CharField();
+        auto* local = new CharField(_desc);
         Field::clone(local);
         return local;
     }
@@ -367,8 +368,7 @@ public:
 
 class VarcharField : public Field {
 public:
-    explicit VarcharField() = default;
-    explicit VarcharField(const TabletColumn& column) : Field(column) {}
+    VarcharField(const TabletColumn& column) : Field(column) {}
 
     size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
 
@@ -382,7 +382,7 @@ public:
     }
 
     VarcharField* clone() const override {
-        auto* local = new VarcharField();
+        auto* local = new VarcharField(_desc);
         Field::clone(local);
         return local;
     }
@@ -428,8 +428,7 @@ public:
 };
 class StringField : public Field {
 public:
-    explicit StringField() = default;
-    explicit StringField(const TabletColumn& column) : Field(column) {}
+    StringField(const TabletColumn& column) : Field(column) {}
 
     // minus OLAP_VARCHAR_MAX_BYTES here just for being compatible with old storage format
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
@@ -437,7 +436,7 @@ public:
     }
 
     StringField* clone() const override {
-        auto* local = new StringField();
+        auto* local = new StringField(_desc);
         Field::clone(local);
         return local;
     }
@@ -480,8 +479,7 @@ public:
 
 class BitmapAggField : public Field {
 public:
-    explicit BitmapAggField() = default;
-    explicit BitmapAggField(const TabletColumn& column) : Field(column) {}
+    BitmapAggField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
@@ -490,7 +488,7 @@ public:
     }
 
     BitmapAggField* clone() const override {
-        auto* local = new BitmapAggField();
+        auto* local = new BitmapAggField(_desc);
         Field::clone(local);
         return local;
     }
@@ -498,8 +496,7 @@ public:
 
 class QuantileStateAggField : public Field {
 public:
-    explicit QuantileStateAggField() = default;
-    explicit QuantileStateAggField(const TabletColumn& column) : Field(column) {}
+    QuantileStateAggField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
@@ -508,7 +505,7 @@ public:
     }
 
     QuantileStateAggField* clone() const override {
-        auto* local = new QuantileStateAggField();
+        auto* local = new QuantileStateAggField(_desc);
         Field::clone(local);
         return local;
     }
@@ -516,8 +513,7 @@ public:
 
 class AggStateField : public Field {
 public:
-    explicit AggStateField() = default;
-    explicit AggStateField(const TabletColumn& column) : Field(column) {}
+    AggStateField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
@@ -526,7 +522,7 @@ public:
     }
 
     AggStateField* clone() const override {
-        auto* local = new AggStateField();
+        auto* local = new AggStateField(_desc);
         Field::clone(local);
         return local;
     }
@@ -534,8 +530,7 @@ public:
 
 class HllAggField : public Field {
 public:
-    explicit HllAggField() = default;
-    explicit HllAggField(const TabletColumn& column) : Field(column) {}
+    HllAggField(const TabletColumn& column) : Field(column) {}
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
@@ -544,7 +539,7 @@ public:
     }
 
     HllAggField* clone() const override {
-        auto* local = new HllAggField();
+        auto* local = new HllAggField(_desc);
         Field::clone(local);
         return local;
     }

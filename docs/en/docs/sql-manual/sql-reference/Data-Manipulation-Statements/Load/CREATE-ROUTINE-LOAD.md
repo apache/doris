@@ -34,12 +34,12 @@ CREATE ROUTINE LOAD
 
 The Routine Load function allows users to submit a resident import task, and import data into Doris by continuously reading data from a specified data source.
 
-Currently, only data in CSV or Json format can be imported from Kakfa through unauthenticated or SSL authentication.
+Currently, only data in CSV or Json format can be imported from Kakfa through unauthenticated or SSL authentication. [Example of importing data in Json format](../../../../data-operate/import/import-way/routine-load-manual.md#Example_of_importing_data_in_Json_format)
 
 grammar:
 
 ```sql
-CREATE ROUTINE LOAD [db.]job_name ON tbl_name
+CREATE ROUTINE LOAD [db.]job_name [ON tbl_name]
 [merge_type]
 [load_properties]
 [job_properties]
@@ -53,11 +53,22 @@ FROM data_source [data_source_properties]
 
 - `tbl_name`
 
-  Specifies the name of the table to be imported.
+  Specifies the name of the table to be imported.Optional parameter, If not specified, the dynamic table method will 
+  be used, which requires the data in Kafka to contain table name information. Currently, only the table name can be 
+  obtained from the Kafka value, and it needs to conform to the format of "table_name|{"col1": "val1", "col2": "val2"}" 
+  for JSON data. The "tbl_name" represents the table name, and "|" is used as the delimiter between the table name and 
+  the table data. The same format applies to CSV data, such as "table_name|val1,val2,val3". It is important to note that 
+  the "table_name" must be consistent with the table name in Doris, otherwise it may cause import failures.
+
+  Tips: The `columns_mapping` parameter is not supported for dynamic tables. If your table structure is consistent with 
+  the table structure in Doris and there is a large amount of table information to be imported, this method will be the 
+  best choice.
 
 - `merge_type`
 
   Data merge type. The default is APPEND, which means that the imported data are ordinary append write operations. The MERGE and DELETE types are only available for Unique Key model tables. The MERGE type needs to be used with the [DELETE ON] statement to mark the Delete Flag column. The DELETE type means that all imported data are deleted data.
+
+  Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
 
 - load_properties
 
@@ -85,21 +96,29 @@ FROM data_source [data_source_properties]
 
     `(k1, k2, tmpk1, k3 = tmpk1 + 1)`
 
+    Tips: Dynamic multiple tables are not supported.
+
   - `preceding_filter`
 
     Filter raw data. For a detailed introduction to this part, you can refer to the [Column Mapping, Transformation and Filtering] document.
+
+    Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
 
   - `where_predicates`
 
     Filter imported data based on conditions. For a detailed introduction to this part, you can refer to the [Column Mapping, Transformation and Filtering] document.
 
     `WHERE k1 > 100 and k2 = 1000`
+  
+    Tips: When using dynamic multiple tables, please note that this parameter should be consistent with the type of each dynamic table, otherwise it will result in import failure.
 
   - `partitions`
 
     Specify in which partitions of the import destination table. If not specified, it will be automatically imported into the corresponding partition.
 
     `PARTITION(p1, p2, p3)`
+    
+    Tips: When using dynamic multiple tables, please note that this parameter should conform to each dynamic table, otherwise it may cause import failure.
 
   - `DELETE ON`
 
@@ -107,9 +126,13 @@ FROM data_source [data_source_properties]
 
     `DELETE ON v3 >100`
 
+    Tips: When using dynamic multiple tables, please note that this parameter should conform to each dynamic table, otherwise it may cause import failure.
+
   - `ORDER BY`
 
     Tables only for the Unique Key model. Used to specify the column in the imported data that represents the Sequence Col. Mainly used to ensure data order when importing.
+  
+    Tips: When using dynamic multiple tables, please note that this parameter should conform to each dynamic table, otherwise it may cause import failure.
 
 - `job_properties`
 
@@ -356,7 +379,31 @@ FROM data_source [data_source_properties]
    );
    ````
 
-2. Create a Kafka routine import task named test1 for example_tbl of example_db. Import tasks are in strict mode.
+2. Create a Kafka routine dynamic multiple tables import task named "test1" for the "example_db". Specify the column delimiter, group.id, and client.id, and automatically consume all partitions, subscribing from the position with data (OFFSET_BEGINNING).
+
+Assuming that we need to import data from Kafka into tables "test1" and "test2" in the "example_db", we create a routine import task named "test1". At the same time, we write the data in "test1" and "test2" to a Kafka topic named "my_topic" so that data from Kafka can be imported into both tables through a routine import task.
+
+   ```sql
+   CREATE ROUTINE LOAD example_db.test1
+   PROPERTIES
+   (
+       "desired_concurrent_number"="3",
+       "max_batch_interval" = "20",
+       "max_batch_rows" = "300000",
+       "max_batch_size" = "209715200",
+       "strict_mode" = "false"
+   )
+   FROM KAFKA
+   (
+       "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+       "kafka_topic" = "my_topic",
+       "property.group.id" = "xxx",
+       "property.client.id" = "xxx",
+       "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+   );
+   ```
+
+3. Create a Kafka routine import task named test1 for example_tbl of example_db. Import tasks are in strict mode.
 
    
 
@@ -382,7 +429,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-3. Import data from the Kafka cluster through SSL authentication. Also set the client.id parameter. The import task is in non-strict mode and the time zone is Africa/Abidjan
+4. Import data from the Kafka cluster through SSL authentication. Also set the client.id parameter. The import task is in non-strict mode and the time zone is Africa/Abidjan
 
    
 
@@ -412,7 +459,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-4. Import data in Json format. By default, the field name in Json is used as the column name mapping. Specify to import three partitions 0, 1, and 2, and the starting offsets are all 0
+5. Import data in Json format. By default, the field name in Json is used as the column name mapping. Specify to import three partitions 0, 1, and 2, and the starting offsets are all 0
 
    
 
@@ -437,7 +484,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-5. Import Json data, extract fields through Jsonpaths, and specify the root node of the Json document
+6. Import Json data, extract fields through Jsonpaths, and specify the root node of the Json document
 
    
 
@@ -465,7 +512,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-6. Create a Kafka routine import task named test1 for example_tbl of example_db. And use conditional filtering.
+7. Create a Kafka routine import task named test1 for example_tbl of example_db. And use conditional filtering.
 
    
 
@@ -492,7 +539,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-7. Import data to Unique with sequence column Key model table
+8. Import data to Unique with sequence column Key model table
 
    
 
@@ -516,7 +563,7 @@ FROM data_source [data_source_properties]
    );
    ````
 
-8. Consume from a specified point in time
+9. Consume from a specified point in time
 
    
 

@@ -40,6 +40,11 @@ STRUCT
 
 由多个 Field 组成的结构体，也可被理解为多个列的集合。不能作为 Key 使用，目前 STRUCT 仅支持在 Duplicate 模型的表中使用。
 
+需要手动开启支持，默认关闭.
+```
+admin set frontend config("enable_struct_type" = "true");
+```
+
 一个 Struct 中的 Field 的名字和数量固定，总是为 Nullable，一个 Field 通常由下面部分组成。
 
 - field_name: Field 的标识符，不可重复
@@ -56,9 +61,7 @@ DATEV2, DATETIME, DATETIMEV2, CHAR, VARCHAR, STRING
 在将来的版本我们还将完善：
 
 ```
-TODO:
-	1、支持 COMMENT
-	2、支持嵌套 STRUCT 或其他的复杂类型
+TODO:支持嵌套 STRUCT 或其他的复杂类型
 ```
 
 ### example

@@ -20,9 +20,8 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 
-public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> implements GsonPostProcessable {
+public class TestExternalDatabase extends ExternalDatabase<TestExternalTable> {
 
     public TestExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
         super(extCatalog, id, name, InitDatabaseLog.Type.TEST);

@@ -233,8 +233,8 @@ public class FEFunctions {
     @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0) {
-            throw new AnalysisException("unixtime should larger than zero");
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+            throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
                 Type.DATETIME);
@@ -244,8 +244,8 @@ public class FEFunctions {
     @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0) {
-            throw new AnalysisException("unixtime should larger than zero");
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+            throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
                 Type.DATETIME);
@@ -322,6 +322,41 @@ public class FEFunctions {
             return (DateLiteral) arg;
         }
         return null;
+    }
+
+    @FEFunction(name = "to_monday", argTypes = {"DATETIME"}, returnType = "DATE")
+    public static DateLiteral toMonday(LiteralExpr arg) {
+        if (arg instanceof DateLiteral && (arg.getType().isDate() || arg.getType().isDatetime())) {
+            DateLiteral dateLiteral = ((DateLiteral) arg);
+            LocalDateTime dateTime = LocalDateTime.of(
+                    ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
+                    0, 0, 0);
+            dateTime = toMonday(dateTime);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATE);
+        }
+        return null;
+    }
+
+    @FEFunction(name = "to_monday", argTypes = {"DATETIMEV2"}, returnType = "DATEV2")
+    public static DateLiteral toMondayV2(LiteralExpr arg) {
+        if (arg instanceof DateLiteral && (arg.getType().isDateV2() || arg.getType().isDatetimeV2())) {
+            DateLiteral dateLiteral = ((DateLiteral) arg);
+            LocalDateTime dateTime = LocalDateTime.of(
+                    ((int) dateLiteral.getYear()), ((int) dateLiteral.getMonth()), ((int) dateLiteral.getDay()),
+                    0, 0, 0);
+            dateTime = toMonday(dateTime);
+            return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATEV2);
+        }
+        return null;
+    }
+
+    private static LocalDateTime toMonday(LocalDateTime dateTime) {
+        LocalDateTime specialUpperBound = LocalDateTime.of(1970, 1, 4, 0, 0, 0);
+        LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
+        if (dateTime.isAfter(specialUpperBound) || dateTime.isBefore(specialLowerBound)) {
+            return dateTime.plusDays(-dateTime.getDayOfWeek().getValue() + 1);
+        }
+        return specialLowerBound;
     }
 
     /**

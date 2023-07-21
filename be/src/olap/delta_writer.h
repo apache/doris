@@ -44,7 +44,6 @@ namespace doris {
 class FlushToken;
 class MemTable;
 class MemTracker;
-class Schema;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;
@@ -55,13 +54,11 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
 enum MemType { WRITE = 1, FLUSH = 2, ALL = 3 };
 
 struct WriteRequest {
     int64_t tablet_id;
     int32_t schema_hash;
-    WriteType write_type;
     int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
@@ -116,19 +113,12 @@ public:
     int64_t partition_id() const;
 
     int64_t mem_consumption(MemType mem);
+    int64_t active_memtable_mem_consumption();
 
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
-
-    int32_t schema_hash() { return _tablet->schema_hash(); }
-
-    void save_mem_consumption_snapshot();
-
-    int64_t get_memtable_consumption_inflush() const;
-
-    int64_t get_memtable_consumption_snapshot() const;
 
     void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
@@ -163,7 +153,6 @@ private:
     std::unique_ptr<RowsetWriter> _rowset_writer;
     // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
     std::unique_ptr<MemTable> _mem_table;
-    std::unique_ptr<Schema> _schema;
     //const TabletSchema* _tablet_schema;
     // tablet schema owned by delta writer, all write will use this tablet schema
     // it's build from tablet_schema（stored when create tablet） and OlapTableSchema
@@ -180,13 +169,6 @@ private:
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
-
-    // memory consumption snapshot for current delta_writer, only
-    // used for std::sort
-    int64_t _mem_consumption_snapshot = 0;
-    // memory consumption snapshot for current memtable, only
-    // used for std::sort
-    int64_t _memtable_consumption_snapshot = 0;
 
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
@@ -218,8 +200,6 @@ private:
     RuntimeProfile::Counter* _merged_rows_num = nullptr;
 
     MonotonicStopWatch _lock_watch;
-
-    MemTableStat _memtable_stat;
 };
 
 } // namespace doris

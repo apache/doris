@@ -90,9 +90,6 @@ public:
 
     Status open(const PTabletWriterOpenRequest& request);
 
-    // Open specific partition all writers
-    Status open_all_writers_for_partition(const OpenPartitionRequest& request);
-
     // no-op when this channel has been closed or cancelled
     Status add_batch(const PTabletWriterAddBlockRequest& request,
                      PTabletWriterAddBlockResult* response);
@@ -115,11 +112,10 @@ public:
 
     int64_t mem_consumption();
 
-    void get_writers_mem_consumption_snapshot(
-            std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions) {
-        std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        *mem_consumptions = _mem_consumptions;
-    }
+    void refresh_profile();
+
+    void get_active_memtable_mem_consumption(
+            std::multimap<int64_t, int64_t, std::greater<int64_t>>* mem_consumptions);
 
     void flush_memtable_async(int64_t tablet_id);
     void wait_flush(int64_t tablet_id);
@@ -128,9 +124,6 @@ private:
     template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
 
-    template <typename TabletWriterAddRequest>
-    Status _open_all_writers_for_partition(const int64_t& tablet_id,
-                                           const TabletWriterAddRequest& request);
     // open all writer
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
@@ -198,10 +191,6 @@ private:
 
     bool _write_single_replica = false;
 
-    // mem -> tablet_id
-    // sort by memory size
-    std::multimap<int64_t, int64_t, std::greater<int64_t>> _mem_consumptions;
-
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _add_batch_number_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _memory_usage_counter = nullptr;
@@ -211,6 +200,8 @@ private:
     RuntimeProfile::HighWaterMarkCounter* _max_tablet_write_memory_usage_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _max_tablet_flush_memory_usage_counter = nullptr;
     RuntimeProfile::Counter* _slave_replica_timer = nullptr;
+    RuntimeProfile::Counter* _add_batch_timer = nullptr;
+    RuntimeProfile::Counter* _write_block_timer = nullptr;
 };
 
 template <typename Request>

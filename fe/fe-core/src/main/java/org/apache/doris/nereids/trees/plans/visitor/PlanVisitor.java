@@ -24,9 +24,6 @@ import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
@@ -39,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -73,6 +71,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -103,7 +102,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
  * @param <R> Return type of each visit method.
  * @param <C> Context type.
  */
-public abstract class PlanVisitor<R, C> {
+public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C> {
 
     public abstract R visit(Plan plan, C context);
 
@@ -113,19 +112,6 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitCommand(Command command, C context) {
         return visit(command, context);
-    }
-
-    public R visitExplainCommand(ExplainCommand explain, C context) {
-        return visitCommand(explain, context);
-    }
-
-    public R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
-        return visitCommand(createPolicy, context);
-    }
-
-    public R visitInsertIntoCommand(InsertIntoTableCommand insertIntoSelectCommand,
-            C context) {
-        return visit(insertIntoSelectCommand, context);
     }
 
     // *******************************
@@ -436,5 +422,13 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor, C context) {
         return visit(cteAnchor, context);
+    }
+
+    public R visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, C context) {
+        return visit(fileSink, context);
+    }
+
+    public R visitPhysicalFileSink(PhysicalFileSink<? extends Plan> fileSink, C context) {
+        return visit(fileSink, context);
     }
 }

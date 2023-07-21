@@ -263,6 +263,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.store_row_column) {
         schema->set_store_row_column(tablet_schema.store_row_column);
     }
+    if (tablet_schema.__isset.skip_write_index_on_load) {
+        schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
+    }
 
     if (binlog_config.has_value()) {
         BinlogConfig tmp_binlog_config;
@@ -312,6 +315,11 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     column->set_index_length(length);
     column->set_precision(tcolumn.column_type.precision);
     column->set_frac(tcolumn.column_type.scale);
+
+    if (tcolumn.__isset.result_is_nullable) {
+        column->set_result_is_nullable(tcolumn.result_is_nullable);
+    }
+
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||
         tcolumn.column_type.type == TPrimitiveType::STRING) {
         if (!tcolumn.column_type.__isset.index_len) {
@@ -354,8 +362,8 @@ Status TabletMeta::create_from_file(const string& file_path) {
     try {
         tablet_meta_pb.CopyFrom(file_header.message());
     } catch (...) {
-        LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return Status::Error<PARSE_PROTOBUF_ERROR>();
+        return Status::Error<PARSE_PROTOBUF_ERROR>("fail to copy protocol buffer object. file={}",
+                                                   file_path);
     }
 
     init_from_pb(tablet_meta_pb);
@@ -396,7 +404,8 @@ Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return Status::Error<ErrorCode::INTERNAL_ERROR>();
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "fail to copy protocol buffer object. file={}", file_path);
     }
     RETURN_IF_ERROR(file_header.prepare());
     RETURN_IF_ERROR(file_header.serialize());
@@ -438,8 +447,7 @@ Status TabletMeta::deserialize(const string& meta_binary) {
     TabletMetaPB tablet_meta_pb;
     bool parsed = tablet_meta_pb.ParseFromString(meta_binary);
     if (!parsed) {
-        LOG(WARNING) << "parse tablet meta failed";
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>("parse tablet meta failed");
     }
     init_from_pb(tablet_meta_pb);
     return Status::OK();
@@ -665,9 +673,9 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     for (auto& rs : _rs_metas) {
         if (rs->version() == rs_meta->version()) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
-                LOG(WARNING) << "version already exist. rowset_id=" << rs->rowset_id()
-                             << " version=" << rs->version() << ", tablet=" << full_name();
-                return Status::Error<PUSH_VERSION_ALREADY_EXIST>();
+                return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
+                        "version already exist. rowset_id={}, version={}, tablet={}",
+                        rs->rowset_id().to_string(), rs->version().to_string(), full_name());
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
                 return Status::OK();
@@ -933,6 +941,27 @@ bool DeleteBitmap::contains_agg(const BitmapKey& bmk, uint32_t row_id) const {
     return get_agg(bmk)->contains(row_id);
 }
 
+bool DeleteBitmap::empty() const {
+    std::shared_lock l(lock);
+    return delete_bitmap.empty();
+}
+
+bool DeleteBitmap::contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const {
+    std::shared_lock l(lock);
+    DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+        auto& [k, bm] = *it;
+        if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
+            std::get<2>(k) > std::get<2>(bmk)) {
+            break;
+        }
+        if (bm.contains(row_id)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int DeleteBitmap::set(const BitmapKey& bmk, const roaring::Roaring& segment_delete_bitmap) {
     std::lock_guard l(lock);
     auto [_, inserted] = delete_bitmap.insert_or_assign(bmk, segment_delete_bitmap);
@@ -959,7 +988,7 @@ void DeleteBitmap::subset(const BitmapKey& start, const BitmapKey& end,
     roaring::Roaring roaring;
     DCHECK(start < end);
     std::shared_lock l(lock);
-    for (auto it = delete_bitmap.upper_bound(start); it != delete_bitmap.end(); ++it) {
+    for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
         auto& [k, bm] = *it;
         if (k >= end) {
             break;

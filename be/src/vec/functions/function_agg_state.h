@@ -21,10 +21,13 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/arena.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_agg_state.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -60,17 +63,30 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        auto col = _return_type->create_column();
+        auto col = _agg_function->create_serialize_column();
         std::vector<const IColumn*> agg_columns;
+        std::vector<ColumnPtr> save_columns;
 
-        for (size_t index : arguments) {
-            agg_columns.push_back(block.get_by_position(index).column);
+        for (size_t i = 0; i < arguments.size(); i++) {
+            DataTypePtr signature =
+                    assert_cast<const DataTypeAggState*>(_return_type.get())->get_sub_types()[i];
+            ColumnPtr column =
+                    block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            save_columns.push_back(column);
+
+            if (!signature->is_nullable() && column->is_nullable()) {
+                return Status::InternalError(
+                        "State function meet input nullable column, but signature is not nullable");
+            }
+            if (!column->is_nullable() && signature->is_nullable()) {
+                column = make_nullable(column);
+                save_columns.push_back(column);
+            }
+
+            agg_columns.push_back(column);
         }
-
-        VectorBufferWriter writter(assert_cast<ColumnString&>(*col));
-        _agg_function->streaming_agg_serialize(agg_columns.data(), writter, input_rows_count,
-                                               &arena);
-
+        _agg_function->streaming_agg_serialize_to_column(agg_columns.data(), col, input_rows_count,
+                                                         &arena);
         block.replace_by_position(result, std::move(col));
         return Status::OK();
     }

@@ -222,6 +222,9 @@ public:
         LOG(FATAL) << "HybridSetBase not support find_batch_nullable_negative";
     }
 
+    void set_filter_id(int filter_id) { _filter_id = filter_id; }
+    int get_filter_id() const { return _filter_id; }
+    int _filter_id = -1;
     class IteratorBase {
     public:
         IteratorBase() = default;

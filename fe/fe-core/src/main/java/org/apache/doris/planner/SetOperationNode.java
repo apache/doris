@@ -26,7 +26,6 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -305,7 +304,7 @@ public abstract class SetOperationNode extends PlanNode {
 
         for (int i = 0; i < setOpResultExprs.size(); ++i) {
             if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized()) {
-                if (VectorizedUtil.isVectorized() && childTupleDescriptor.getSlots().get(i).isMaterialized()) {
+                if (childTupleDescriptor.getSlots().get(i).isMaterialized()) {
                     return false;
                 }
                 continue;
@@ -316,21 +315,14 @@ public abstract class SetOperationNode extends PlanNode {
             if (childSlotRef == null) {
                 return false;
             }
-            if (VectorizedUtil.isVectorized()) {
-                // On vectorized engine, we have more chance to do passthrough.
-                if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
-                    return false;
-                }
-                if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
-                    return false;
-                }
-                if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
-                    return false;
-                }
-            } else {
-                if (!childSlotRef.getDesc().layoutEquals(setOpSlotRef.getDesc())) {
-                    return false;
-                }
+            if (childSlotRef.getDesc().getSlotOffset() != setOpSlotRef.getDesc().getSlotOffset()) {
+                return false;
+            }
+            if (childSlotRef.isNullable() != setOpSlotRef.isNullable()) {
+                return false;
+            }
+            if (childSlotRef.getDesc().getType() != setOpSlotRef.getDesc().getType()) {
+                return false;
             }
         }
         return true;

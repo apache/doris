@@ -37,7 +37,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
@@ -336,11 +335,8 @@ public class FunctionCallExpr extends Expr {
         this(fnName, params, false);
         this.orderByElements = orderByElements;
         if (!orderByElements.isEmpty()) {
-            if (!VectorizedUtil.isVectorized()) {
-                throw new AnalysisException(
-                        "ORDER BY for arguments only support in vec exec engine");
-            } else if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
-                    fnName.getFunction().toLowerCase())) {
+            if (!AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET
+                    .contains(fnName.getFunction().toLowerCase())) {
                 throw new AnalysisException(
                         "ORDER BY not support for the function:" + fnName.getFunction().toLowerCase());
             }
@@ -1274,9 +1270,6 @@ public class FunctionCallExpr extends Expr {
             }
             // Prevent the cast type in vector exec engine
             Type type = getChild(0).type;
-            if (!VectorizedUtil.isVectorized()) {
-                type = getChild(0).type.getMaxResolutionType();
-            }
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] { type },
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
@@ -1482,34 +1475,9 @@ public class FunctionCallExpr extends Expr {
 
                 // find user defined functions
                 if (fn == null) {
-                    if (!analyzer.isUDFAllowed()) {
-                        throw new AnalysisException(
-                                "Does not support non-builtin functions, or function does not exist: "
-                                        + this.toSqlImpl());
-                    }
-
-                    String dbName = fnName.analyzeDb(analyzer);
-                    if (!Strings.isNullOrEmpty(dbName)) {
-                        // check operation privilege
-                        if (!Env.getCurrentEnv().getAccessManager()
-                                .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
-                            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
-                        }
-                        // TODO(gaoxin): ExternalDatabase not implement udf yet.
-                        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
-                        if (db != null && (db instanceof Database)) {
-                            Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
-                                    Type.INVALID, false);
-                            fn = ((Database) db).getFunction(searchDesc,
-                                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-                        }
-                    }
-                    // find from the internal database first, if not, then from the global functions
-                    if (fn == null) {
-                        Function searchDesc =
-                                new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-                        fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
-                                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    fn = findUdf(fnName, analyzer);
+                    if (analyzer.isReAnalyze() && fn instanceof AliasFunction) {
+                        throw new AnalysisException("a UDF in the original function of a alias function");
                     }
                 }
             }
@@ -1566,6 +1534,13 @@ public class FunctionCallExpr extends Expr {
         }
         if (fn.getFunctionName().getFunction().equals("timediff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
+            ScalarType left = (ScalarType) argTypes[0];
+            ScalarType right = (ScalarType) argTypes[1];
+            if (left.isDatetimeV2() || right.isDatetimeV2() || left.isDateV2() || right.isDateV2()) {
+                Type ret = ScalarType.createTimeV2Type(Math.max(left.getScalarScale(), right.getScalarScale()));
+                fn.setReturnType(ret);
+                fn.getReturnType().getPrimitiveType().setTimeType();
+            }
         }
 
         if (fnName.getFunction().equalsIgnoreCase("map")) {
@@ -1586,6 +1561,31 @@ public class FunctionCallExpr extends Expr {
                         throw new AnalysisException(
                                 "named_struct only allows constant string parameter in odd position: " + this.toSql());
                     }
+                }
+            }
+        }
+
+        if (fn.getFunctionName().getFunction().equals("struct_element")) {
+            if (children.size() < 2) {
+                throw new AnalysisException(fnName.getFunction() + " needs two parameters: " + this.toSql());
+            }
+            if (getChild(0).type instanceof StructType) {
+                StructType s = ((StructType) children.get(0).type);
+                if (getChild(1) instanceof StringLiteral) {
+                    String fieldName = children.get(1).getStringValue();
+                    if (s.getField(fieldName) == null) {
+                        throw new AnalysisException(
+                                "the specified field name " + fieldName + " was not found: " + this.toSql());
+                    }
+                } else if (getChild(1) instanceof IntLiteral) {
+                    int pos = (int) ((IntLiteral) children.get(1)).getValue();
+                    if (pos < 1 || pos > s.getFields().size()) { // the index start from 1
+                        throw new AnalysisException(
+                                "the specified field index out of bound: " + this.toSql());
+                    }
+                } else {
+                    throw new AnalysisException(
+                            "struct_element only allows constant int or string second parameter: " + this.toSql());
                 }
             }
         }
@@ -1661,6 +1661,7 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_popback")
                         || fnName.getFunction().equalsIgnoreCase("array_popfront")
                         || fnName.getFunction().equalsIgnoreCase("array_pushfront")
+                        || fnName.getFunction().equalsIgnoreCase("array_pushback")
                         || fnName.getFunction().equalsIgnoreCase("array_cum_sum")
                         || fnName.getFunction().equalsIgnoreCase("reverse")
                         || fnName.getFunction().equalsIgnoreCase("%element_slice%")
@@ -1748,6 +1749,20 @@ public class FunctionCallExpr extends Expr {
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
         }
+
+        // cast(xx as char(N)/varchar(N)) will be handled as substr(cast(xx as char, varchar), 1, N),
+        // but type is varchar(*), we change it to varchar(N);
+        if (fn.getFunctionName().getFunction().equals("substr")
+                && children.size() == 3
+                && children.get(1) instanceof IntLiteral
+                && children.get(2) instanceof IntLiteral) {
+            long len = ((IntLiteral) children.get(2)).getValue();
+            if (type.isWildcardChar()) {
+                this.type = ScalarType.createCharType(((int) (len)));
+            } else if (type.isWildcardVarchar()) {
+                this.type = ScalarType.createVarchar(((int) (len)));
+            }
+        }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
     }
@@ -1796,6 +1811,15 @@ public class FunctionCallExpr extends Expr {
             this.type = new StructType(newFields);
         } else if (fnName.getFunction().equalsIgnoreCase("topn_array")) {
             this.type = new ArrayType(children.get(0).getType());
+        } else if (fnName.getFunction().equalsIgnoreCase("struct_element")) {
+            if (children.get(1) instanceof StringLiteral) {
+                String fieldName = children.get(1).getStringValue();
+                fn.setReturnType(((StructType) children.get(0).type).getField(fieldName).getType());
+            } else if (children.get(1) instanceof IntLiteral) {
+                int pos = (int) ((IntLiteral) children.get(1)).getValue();
+                fn.setReturnType(((StructType) children.get(0).type).getFields().get(pos - 1).getType());
+            }
+            this.type = fn.getReturnType();
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_reverse_sort")
@@ -1807,6 +1831,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_popback")
                 || fnName.getFunction().equalsIgnoreCase("array_popfront")
                 || fnName.getFunction().equalsIgnoreCase("array_pushfront")
+                || fnName.getFunction().equalsIgnoreCase("array_pushback")
                 || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                 || fnName.getFunction().equalsIgnoreCase("array_shuffle")
@@ -1927,6 +1952,7 @@ public class FunctionCallExpr extends Expr {
         retExpr.originStmtFnExpr = clone();
         // clone alias function origin expr for alias
         FunctionCallExpr oriExpr = (FunctionCallExpr) ((AliasFunction) retExpr.fn).getOriginFunction().clone();
+
         // reset fn name
         retExpr.fnName = oriExpr.getFnName();
         // reset fn params
@@ -2122,5 +2148,39 @@ public class FunctionCallExpr extends Expr {
             return true;
         }
         return super.haveFunction(functionName);
+    }
+
+    public Function findUdf(FunctionName fnName, Analyzer analyzer) throws AnalysisException {
+        if (!analyzer.isUDFAllowed()) {
+            throw new AnalysisException(
+                    "Does not support non-builtin functions, or function does not exist: "
+                            + this.toSqlImpl());
+        }
+
+        Function fn = null;
+        String dbName = fnName.analyzeDb(analyzer);
+        if (!Strings.isNullOrEmpty(dbName)) {
+            // check operation privilege
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
+            }
+            // TODO(gaoxin): ExternalDatabase not implement udf yet.
+            DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
+            if (db != null && (db instanceof Database)) {
+                Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()),
+                        Type.INVALID, false);
+                fn = ((Database) db).getFunction(searchDesc,
+                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            }
+        }
+        // find from the internal database first, if not, then from the global functions
+        if (fn == null) {
+            Function searchDesc =
+                    new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+            fn = Env.getCurrentEnv().getGlobalFunctionMgr().getFunction(searchDesc,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        }
+        return fn;
     }
 }

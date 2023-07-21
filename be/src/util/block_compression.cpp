@@ -444,7 +444,7 @@ public:
         // we should assure that *len is not 0
         *len = _slices[_cur_slice].size - _slice_off;
         DCHECK(*len != 0);
-        return _slices[_cur_slice].data;
+        return _slices[_cur_slice].data + _slice_off;
     }
 
     // Skip the next n bytes.  Invalidates any buffer returned by

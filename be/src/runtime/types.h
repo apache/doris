@@ -61,6 +61,10 @@ struct TypeDescriptor {
 
     std::vector<TypeDescriptor> children;
 
+    bool result_is_nullable = false;
+
+    std::string function_name;
+
     // Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
 
@@ -153,6 +157,10 @@ struct TypeDescriptor {
                 result.children.push_back(from_thrift(sub));
                 result.contains_nulls.push_back(sub.is_nullable);
             }
+            DCHECK(t.__isset.result_is_nullable);
+            result.result_is_nullable = t.result_is_nullable;
+            DCHECK(t.__isset.function_name);
+            result.function_name = t.function_name;
         }
         return result;
     }
@@ -227,9 +235,13 @@ struct TypeDescriptor {
 
     bool is_array_type() const { return type == TYPE_ARRAY; }
 
+    bool is_hll_type() const { return type == TYPE_HLL; }
+
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
     bool is_variant_type() const { return type == TYPE_VARIANT; }
+
+    bool is_json_type() const { return type == TYPE_JSONB; }
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);

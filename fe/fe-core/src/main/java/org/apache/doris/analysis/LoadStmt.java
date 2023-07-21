@@ -81,6 +81,7 @@ public class LoadStmt extends DdlStmt {
     public static final String TIMEZONE = "timezone";
     public static final String LOAD_PARALLELISM = "load_parallelism";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+    public static final String PRIORITY = "priority";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
     // temp property, just make regression test happy.
     // should remove when Config.enable_new_load_scan_node is set to true by default.
@@ -209,6 +210,7 @@ public class LoadStmt extends DdlStmt {
                     return Boolean.valueOf(s);
                 }
             })
+            .put(PRIORITY, (Function<String, LoadTask.Priority>) s -> LoadTask.Priority.valueOf(s))
             .build();
 
     public LoadStmt(DataDescription dataDescription, Map<String, String> properties, String comment) {
@@ -361,6 +363,16 @@ public class LoadStmt extends DdlStmt {
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(SEND_BATCH_PARALLELISM + " is not a number.");
+            }
+        }
+
+        // priority
+        final String priority = properties.get(PRIORITY);
+        if (priority != null) {
+            try {
+                LoadTask.Priority.valueOf(priority);
+            } catch (IllegalArgumentException | NullPointerException e) {
+                throw new DdlException(PRIORITY + " must be in [LOW/NORMAL/HIGH].");
             }
         }
     }
