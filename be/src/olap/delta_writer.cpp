@@ -429,14 +429,14 @@ Status DeltaWriter::submit_calc_delete_bitmap_task() {
     }
 
     std::lock_guard<std::mutex> l(_lock);
-        // tablet is under alter process. The delete bitmap will be calculated after conversion.
-        if (_tablet->tablet_state() == TABLET_NOTREADY &&
-            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                         "tablet_id: "
-                      << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
-            return Status::OK;
-        }
+    // tablet is under alter process. The delete bitmap will be calculated after conversion.
+    if (_tablet->tablet_state() == TABLET_NOTREADY &&
+        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                     "tablet_id: "
+                  << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        return Status::OK();
+    }
     auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
