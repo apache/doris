@@ -336,6 +336,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
     } else if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
         _blocked_task_scheduler->add_blocked_task(task);
+        return;
     } else {
         status = task->close();
         if (!status.ok() && state != PipelineTaskState::CANCELED) {
