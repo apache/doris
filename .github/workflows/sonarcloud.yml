@@ -57,6 +57,10 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Install protoc
+        run: |
+           sudo apt-get update
+           sudo apt-get install -y protobuf-compiler libprotobuf-dev   
       - name: Set up environment
         run: |
           # Install Bash if necessary
