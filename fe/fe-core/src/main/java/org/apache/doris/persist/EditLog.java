@@ -865,7 +865,7 @@ public class EditLog {
                 }
                 case OperationType.OP_ALTER_CATALOG_PROPS: {
                     CatalogLog log = (CatalogLog) journal.getData();
-                    env.getCatalogMgr().replayAlterCatalogProps(log);
+                    env.getCatalogMgr().replayAlterCatalogProps(log, null, true);
                     break;
                 }
                 case OperationType.OP_REFRESH_CATALOG: {
@@ -1050,6 +1050,10 @@ public class EditLog {
                 case OperationType.OP_BARRIER: {
                     // the log only for barrier commit seq, not need to replay
                     LOG.info("replay barrier");
+                    break;
+                }
+                case OperationType.OP_UPDATE_AUTO_INCREMENT_ID: {
+                    env.replayAutoIncrementIdUpdateLog((AutoIncrementIdUpdateLog) journal.getData());
                     break;
                 }
                 default: {
@@ -1834,5 +1838,9 @@ public class EditLog {
 
     public long logBarrier() {
         return logEdit(OperationType.OP_BARRIER, new BarrierLog());
+    }
+
+    public void logUpdateAutoIncrementId(AutoIncrementIdUpdateLog log) {
+        logEdit(OperationType.OP_UPDATE_AUTO_INCREMENT_ID, log);
     }
 }

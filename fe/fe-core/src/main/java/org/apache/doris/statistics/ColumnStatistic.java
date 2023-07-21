@@ -167,9 +167,6 @@ public class ColumnStatistic {
             double count = Double.parseDouble(resultRow.getColumnValueWithDefault("count", "0"));
             columnStatisticBuilder.setCount(count);
             double ndv = Double.parseDouble(resultRow.getColumnValueWithDefault("ndv", "0"));
-            if (0.99 * count < ndv && ndv < 1.01 * count) {
-                ndv = count;
-            }
             columnStatisticBuilder.setNdv(ndv);
             String nullCount = resultRow.getColumnValueWithDefault("null_count", "0");
             columnStatisticBuilder.setNumNulls(Double.parseDouble(nullCount));
@@ -314,8 +311,8 @@ public class ColumnStatistic {
 
     @Override
     public String toString() {
-        return isUnKnown ? "unKnown" : String.format("ndv=%.4f, min=%f, max=%f, sel=%f, count=%.4f",
-                ndv, minValue, maxValue, selectivity, count);
+        return isUnKnown ? "unknown" : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f",
+                ndv, minValue, minExpr, maxValue, maxExpr, count);
     }
 
     public JSONObject toJson() {

@@ -346,4 +346,14 @@ public final class ExprSubstitutionMap {
     public ExprSubstitutionMap clone() {
         return new ExprSubstitutionMap(Expr.cloneList(lhs), Expr.cloneList(rhs));
     }
+
+    public void reCalculateNullableInfoForSlotInRhs() {
+        Preconditions.checkState(lhs.size() == rhs.size(), "lhs and rhs must be same size");
+        for (int i = 0; i < rhs.size(); i++) {
+            if (rhs.get(i) instanceof SlotRef) {
+                ((SlotRef) rhs.get(i)).getDesc().setIsNullable(lhs.get(i).isNullable()
+                        || ((SlotRef) rhs.get(i)).getDesc().getIsNullable());
+            }
+        }
+    }
 }

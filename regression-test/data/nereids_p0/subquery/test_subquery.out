@@ -15,3 +15,8 @@
 -- !sql4 --
 1
 
+-- !uncorrelated_exists_with_limit_0 --
+
+-- !uncorrelated_scalar_with_sort_and_limit --
+true	15	1992	3021	11011920	0.000	true	9999-12-12	2015-04-02T00:00		3.141592653	20.456	string12345	701411834604692317
+

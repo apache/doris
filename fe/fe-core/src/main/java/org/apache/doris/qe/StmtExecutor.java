@@ -96,6 +96,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
@@ -295,6 +296,8 @@ public class StmtExecutor {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
         builder.profileId(DebugUtil.printId(context.queryId()));
+        builder.dorisVersion(
+                Version.DORIS_BUILD_VERSION_MAJOR == 0 ? Version.DORIS_BUILD_VERSION : Version.DORIS_BUILD_SHORT_HASH);
         builder.taskType(profileType.name());
         builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
         if (isFinished) {
@@ -1097,6 +1100,7 @@ public class StmtExecutor {
                 }
                 // query re-analyze
                 parsedStmt.reset();
+                analyzer.setReAnalyze(true);
                 parsedStmt.analyze(analyzer);
 
                 // Restore the original result types and column labels.

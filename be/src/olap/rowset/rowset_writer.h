@@ -35,14 +35,6 @@ namespace doris {
 
 class MemTable;
 
-// Context for single memtable flush
-struct FlushContext {
-    ENABLE_FACTORY_CREATOR(FlushContext);
-    TabletSchemaSPtr flush_schema = nullptr;
-    const vectorized::Block* block = nullptr;
-    std::optional<int32_t> segment_id = std::nullopt;
-};
-
 class RowsetWriter {
 public:
     RowsetWriter() = default;
@@ -78,15 +70,13 @@ public:
                 "RowsetWriter not support final_flush");
     }
 
-    virtual Status unfold_variant_column_and_flush_block(
-            vectorized::Block* block, int32_t segment_id,
-            const std::shared_ptr<MemTracker>& flush_mem_tracker, int64_t* flush_size) {
+    virtual Status flush_memtable(vectorized::Block* block, int32_t segment_id,
+                                  int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "RowsetWriter not support unfold_variant_column_and_flush_block");
+                "RowsetWriter not support flush_memtable");
     }
 
-    virtual Status flush_single_block(const vectorized::Block* block, int64_t* flush_size,
-                                      const FlushContext* ctx = nullptr) {
+    virtual Status flush_single_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_single_block");
     }

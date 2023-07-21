@@ -301,6 +301,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
             _tablet->set_last_cumu_compaction_success_time(now);
         } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
+        } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+            _tablet->set_last_full_compaction_success_time(now);
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
         LOG(INFO) << "succeed to do ordered data " << compaction_name()
@@ -451,6 +453,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(now);
+    } else if (compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        _tablet->set_last_full_compaction_success_time(now);
     }
 
     int64_t current_max_version;
@@ -614,17 +618,26 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
 
             // Step2: calculate all rowsets' delete bitmaps which are published during compaction.
             for (auto& it : commit_tablet_txn_info_vec) {
-                DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
-                _tablet->calc_compaction_output_rowset_delete_bitmap(
-                        _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
-                        &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
-                it.delete_bitmap->merge(output_delete_bitmap);
-                // Step3: write back updated delete bitmap and tablet info.
-                it.rowset_ids.insert(_output_rowset->rowset_id());
-                StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
-                        it.partition_id, it.transaction_id, _tablet->tablet_id(),
-                        _tablet->schema_hash(), _tablet->tablet_uid(), true, it.delete_bitmap,
-                        it.rowset_ids);
+                if (!_check_if_includes_input_rowsets(it.rowset_ids)) {
+                    // When calculating the delete bitmap of all committed rowsets relative to the compaction,
+                    // there may be cases where the compacted rowsets are newer than the committed rowsets.
+                    // At this time, row number conversion cannot be performed, otherwise data will be missing.
+                    // Therefore, we need to check if every committed rowset has calculated delete bitmap for
+                    // all compaction input rowsets.
+                    continue;
+                } else {
+                    DeleteBitmap output_delete_bitmap(_tablet->tablet_id());
+                    _tablet->calc_compaction_output_rowset_delete_bitmap(
+                            _input_rowsets, _rowid_conversion, 0, UINT64_MAX, &missed_rows,
+                            &location_map, *it.delete_bitmap.get(), &output_delete_bitmap);
+                    it.delete_bitmap->merge(output_delete_bitmap);
+                    // Step3: write back updated delete bitmap and tablet info.
+                    it.rowset_ids.insert(_output_rowset->rowset_id());
+                    StorageEngine::instance()->txn_manager()->set_txn_related_delete_bitmap(
+                            it.partition_id, it.transaction_id, _tablet->tablet_id(),
+                            _tablet->schema_hash(), _tablet->tablet_uid(), true, it.delete_bitmap,
+                            it.rowset_ids);
+                }
             }
 
             // Convert the delete bitmap of the input rowsets to output rowset for
@@ -666,6 +679,21 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         }
     }
     return Status::OK();
+}
+
+bool Compaction::_check_if_includes_input_rowsets(
+        const RowsetIdUnorderedSet& commit_rowset_ids_set) const {
+    std::vector<RowsetId> commit_rowset_ids {};
+    commit_rowset_ids.insert(commit_rowset_ids.end(), commit_rowset_ids_set.begin(),
+                             commit_rowset_ids_set.end());
+    std::sort(commit_rowset_ids.begin(), commit_rowset_ids.end());
+    std::vector<RowsetId> input_rowset_ids {};
+    for (const auto& rowset : _input_rowsets) {
+        input_rowset_ids.emplace_back(rowset->rowset_meta()->rowset_id());
+    }
+    std::sort(input_rowset_ids.begin(), input_rowset_ids.end());
+    return std::includes(commit_rowset_ids.begin(), commit_rowset_ids.end(),
+                         input_rowset_ids.begin(), input_rowset_ids.end());
 }
 
 void Compaction::gc_output_rowset() {

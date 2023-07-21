@@ -33,22 +33,35 @@ import java.util.stream.Collectors;
  * Expression for unbound function.
  */
 public class UnboundFunction extends Function implements Unbound, PropagateNullable {
-
+    private final String dbName;
     private final String name;
     private final boolean isDistinct;
 
     public UnboundFunction(String name, List<Expression> arguments) {
-        this(name, false, arguments);
+        this(null, name, false, arguments);
+    }
+
+    public UnboundFunction(String dbName, String name, List<Expression> arguments) {
+        this(dbName, name, false, arguments);
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
+        this(null, name, isDistinct, arguments);
+    }
+
+    public UnboundFunction(String dbName, String name, boolean isDistinct, List<Expression> arguments) {
         super(arguments);
+        this.dbName = dbName;
         this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
     }
 
     public String getName() {
         return name;
+    }
+
+    public String getDbName() {
+        return dbName;
     }
 
     public boolean isDistinct() {
@@ -80,7 +93,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
 
     @Override
     public UnboundFunction withChildren(List<Expression> children) {
-        return new UnboundFunction(name, isDistinct, children);
+        return new UnboundFunction(dbName, name, isDistinct, children);
     }
 
     @Override

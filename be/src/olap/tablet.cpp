@@ -244,8 +244,10 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
           _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
           _last_base_compaction_failure_millis(0),
+          _last_full_compaction_failure_millis(0),
           _last_cumu_compaction_success_millis(0),
           _last_base_compaction_success_millis(0),
+          _last_full_compaction_success_millis(0),
           _cumulative_point(K_INVALID_CUMULATIVE_POINT),
           _newly_created_rowset_num(0),
           _last_checkpoint_time(0),
@@ -329,6 +331,7 @@ void Tablet::save_meta() {
                                 << ", root=" << _data_dir->path();
 }
 
+// Caller should hold _meta_lock.
 Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                                   const std::vector<RowsetSharedPtr>& to_delete,
                                   bool is_incremental_clone) {
@@ -358,7 +361,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             // clone tablet: [7-7] [8-8]
             // new tablet:   [0-1] [2-5] [6-6] [7-7] [8-8] [9-10]
             // [7-7] [8-8] [9-10] need to recalculate delete bitmap
-            calc_delete_bitmap_ver = Version(to_add_min_version, max_version().second);
+            calc_delete_bitmap_ver = Version(to_add_min_version, max_version_unlocked().second);
         } else {
             // the delete bitmap of to_add's rowsets has clone from remote when full clone.
             // only other rowsets in local need to recalculate the delete bitmap.
@@ -368,7 +371,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
             // new tablet:   [0-1]  [2-4]  [5-6]  [7-8] [9-10]
             // only [9-10] need to recalculate delete bitmap
             CHECK_EQ(to_add_min_version, 0) << "to_add_min_version is: " << to_add_min_version;
-            calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version().second);
+            calc_delete_bitmap_ver = Version(to_add_max_version + 1, max_version_unlocked().second);
         }
 
         if (calc_delete_bitmap_ver.first <= calc_delete_bitmap_ver.second) {
@@ -864,6 +867,7 @@ bool Tablet::exceed_version_limit(int32_t limit) const {
 
 // If any rowset contains the specific version, it means the version already exist
 bool Tablet::check_version_exist(const Version& version) const {
+    std::shared_lock rdlock(_meta_lock);
     for (auto& it : _rs_version_map) {
         if (it.first.contains(version)) {
             return true;
@@ -1313,6 +1317,10 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_base_compaction()
     return candidate_rowsets;
 }
 
+std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_full_compaction() {
+    return pick_candidate_rowsets_to_single_replica_compaction();
+}
+
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_index(
         const std::set<int32_t>& alter_index_uids, bool is_drop_op) {
     std::vector<RowsetSharedPtr> candidate_rowsets;
@@ -1393,6 +1401,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
     base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base failure time", base_value, root.GetAllocator());
+    rapidjson::Value full_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
+    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full failure time", full_value, root.GetAllocator());
     rapidjson::Value cumu_success_value;
     format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
     cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
@@ -1401,6 +1413,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
     format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
     base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base success time", base_success_value, root.GetAllocator());
+    rapidjson::Value full_success_value;
+    format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
+    full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
+    root.AddMember("last full success time", full_success_value, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
@@ -1761,6 +1777,8 @@ void Tablet::execute_single_replica_compaction(CompactionType compaction_type) {
             set_last_cumu_compaction_failure_time(UnixMillis());
         } else if (compaction_type == CompactionType::BASE_COMPACTION) {
             set_last_base_compaction_failure_time(UnixMillis());
+        } else if (compaction_type == CompactionType::FULL_COMPACTION) {
+            set_last_full_compaction_failure_time(UnixMillis());
         }
         LOG(WARNING) << "failed to do single replica compaction. res=" << res
                      << ", tablet=" << full_name();
@@ -1770,6 +1788,8 @@ void Tablet::execute_single_replica_compaction(CompactionType compaction_type) {
         set_last_cumu_compaction_failure_time(0);
     } else if (compaction_type == CompactionType::BASE_COMPACTION) {
         set_last_base_compaction_failure_time(0);
+    } else if (compaction_type == CompactionType::FULL_COMPACTION) {
+        set_last_full_compaction_failure_time(0);
     }
 }
 
@@ -2959,8 +2979,7 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(generate_new_block_for_partial_update(
                 rowset_schema, read_plan_ori, read_plan_update, rsid_to_rowset, &block));
         sort_block(block, ordered_block);
-        int64_t size;
-        RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block, &size));
+        RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
     }
     LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id() << " rowset: " << rowset_id
               << " seg_id: " << seg->id() << " dummy_version: " << end_version + 1

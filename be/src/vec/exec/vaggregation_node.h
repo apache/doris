@@ -897,6 +897,7 @@ private:
     std::vector<size_t> _probe_key_sz;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
+    bool _can_short_circuit = false;
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
@@ -908,7 +909,6 @@ private:
     bool _needs_finalize;
     bool _is_merge;
     bool _is_first_phase;
-    bool _use_fixed_length_serialization_opt;
     std::unique_ptr<Arena> _agg_profile_arena;
 
     size_t _align_aggregate_states = 1;
@@ -1060,6 +1060,10 @@ private:
 
             if (_should_limit_output) {
                 _reach_limit = _get_hash_table_size() >= _limit;
+                if (_reach_limit && _can_short_circuit) {
+                    _can_read = true;
+                    return Status::Error<ErrorCode::END_OF_FILE>("");
+                }
             }
         }
 
@@ -1117,15 +1121,10 @@ private:
                         _deserialize_buffer.resize(buffer_size);
                     }
 
-                    if (_use_fixed_length_serialization_opt) {
+                    {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
                                 _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
-                    } else {
-                        SCOPED_TIMER(_deserialize_data_timer);
-                        _aggregate_evaluators[i]->function()->deserialize_vec(
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
                     }
 
                     DEFER({
@@ -1164,15 +1163,10 @@ private:
                         _deserialize_buffer.resize(buffer_size);
                     }
 
-                    if (_use_fixed_length_serialization_opt) {
+                    {
                         SCOPED_TIMER(_deserialize_data_timer);
                         _aggregate_evaluators[i]->function()->deserialize_from_column(
                                 _deserialize_buffer.data(), *column, _agg_arena_pool.get(), rows);
-                    } else {
-                        SCOPED_TIMER(_deserialize_data_timer);
-                        _aggregate_evaluators[i]->function()->deserialize_vec(
-                                _deserialize_buffer.data(), (ColumnString*)(column.get()),
-                                _agg_arena_pool.get(), rows);
                     }
 
                     DEFER({
