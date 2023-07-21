@@ -996,6 +996,7 @@ visible_functions = {
 
         [['to_days'], 'INT', ['DATEV2'], ''],
         [['time_to_sec'], 'INT', ['TIME'], ''],
+        [['sec_to_time'], 'TIME', ['INT'], ''],
 
         [['year'], 'SMALLINT', ['DATETIMEV2'], ''],
         [['month'], 'TINYINT', ['DATETIMEV2'], ''],
@@ -1690,11 +1691,11 @@ visible_functions = {
 
         [['jsonb_exists_path'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
         [['jsonb_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],
-        [['jsonb_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['jsonb_type'], 'STRING', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
-        [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
+        [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING', '...'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_isnull'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_isnull'], 'BOOLEAN', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['jsonb_extract_bool'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1725,8 +1726,6 @@ visible_functions = {
         [['json_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_type'], 'STRING', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
 
-        [['jsonb_extract'], 'JSONB', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
-        [['jsonb_extract'], 'JSONB', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_extract_isnull'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['json_extract_isnull'], 'BOOLEAN', ['JSONB', 'STRING'], 'ALWAYS_NULLABLE'],
         [['json_extract_bool'], 'BOOLEAN', ['JSONB', 'VARCHAR'], 'ALWAYS_NULLABLE'],

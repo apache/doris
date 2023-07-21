@@ -285,7 +285,7 @@ suite("test_external_brown", "p2") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
-        String catalog_name = "external_yandex"
+        String catalog_name = "external_brown"
 
         sql """drop catalog if exists ${catalog_name};"""
 

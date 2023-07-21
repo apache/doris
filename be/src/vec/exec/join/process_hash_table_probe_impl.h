@@ -47,7 +47,8 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinNode* join_node
           _rows_returned_counter(join_node->_rows_returned_counter),
           _search_hashtable_timer(join_node->_search_hashtable_timer),
           _build_side_output_timer(join_node->_build_side_output_timer),
-          _probe_side_output_timer(join_node->_probe_side_output_timer) {}
+          _probe_side_output_timer(join_node->_probe_side_output_timer),
+          _probe_process_hashtable_timer(join_node->_probe_process_hashtable_timer) {}
 
 template <int JoinOpType>
 template <bool have_other_join_conjunct>
@@ -135,8 +136,7 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
             if (all_match_one) {
                 mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
-                DCHECK_GE(_items_counts.size(), last_probe_index + probe_size);
-                column->replicate(&_items_counts[0], size, *mcol[i], last_probe_index, probe_size);
+                column->replicate(&_probe_indexs[0], size, *mcol[i]);
             }
         } else {
             mcol[i]->insert_many_defaults(size);
@@ -215,10 +215,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                                                      bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
-    if (probe_index == 0 && _items_counts.size() < probe_rows) {
-        _items_counts.resize(probe_rows);
-    }
 
+    _probe_indexs.resize(_batch_size);
     if (_build_block_rows.size() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
         _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
@@ -263,13 +261,14 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     if (LIKELY(current_offset < _build_block_rows.size())) {
                         _build_block_offsets[current_offset] = probe_row_match_iter->block_offset;
                         _build_block_rows[current_offset] = probe_row_match_iter->row_num;
+                        _probe_indexs[current_offset] = probe_index;
                     } else {
                         _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
                         _build_block_rows.emplace_back(probe_row_match_iter->row_num);
+                        _probe_indexs.template emplace_back(probe_index);
                     }
                     ++current_offset;
                 }
-                _items_counts[probe_index] = current_offset;
                 all_match_one &= (current_offset == 1);
                 if (!probe_row_match_iter.ok()) {
                     ++probe_index;
@@ -283,19 +282,19 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
                         if constexpr (probe_all) {
-                            _items_counts[probe_index++] = (uint32_t)1;
                             // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
                                 _build_block_offsets[current_offset] = -1;
                                 _build_block_rows[current_offset] = -1;
+                                _probe_indexs[current_offset] = probe_index;
                             } else {
                                 _build_block_offsets.emplace_back(-1);
                                 _build_block_rows.emplace_back(-1);
+                                _probe_indexs.template emplace_back(probe_index);
                             }
                             ++current_offset;
-                        } else {
-                            _items_counts[probe_index++] = (uint32_t)0;
                         }
+                        probe_index++;
                         all_match_one = false;
                         if constexpr (probe_all) {
                             if (current_offset >= _batch_size) {
@@ -414,7 +413,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 }
 
                 uint32_t count = (uint32_t)(current_offset - last_offset);
-                _items_counts[current_probe_index] = count;
+                if (LIKELY(current_offset < _probe_indexs.size())) {
+                    for (int i = last_offset; i < current_offset; ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                } else {
+                    for (int i = last_offset; i < _probe_indexs.size(); ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                    _probe_indexs.resize(current_offset, current_probe_index);
+                }
                 all_match_one &= (count == 1);
                 if (current_offset >= _batch_size) {
                     break;
@@ -450,10 +458,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         Block* output_block, size_t probe_rows, bool is_mark_join) {
     auto& probe_index = _join_node->_probe_index;
     auto& probe_raw_ptrs = _join_node->_probe_columns;
-    if (probe_index == 0 && _items_counts.size() < probe_rows) {
-        _items_counts.resize(probe_rows);
-    }
     if (_build_block_rows.size() < probe_rows * PROBE_SIDE_EXPLODE_RATE) {
+        _probe_indexs.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         _build_block_rows.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
         _build_block_offsets.resize(probe_rows * PROBE_SIDE_EXPLODE_RATE);
     }
@@ -495,13 +501,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
         auto& probe_row_match_iter =
                 std::get<ForwardIterator<Mapped>>(_join_node->_probe_row_match_iter);
         if (probe_row_match_iter.ok()) {
+            SCOPED_TIMER(_search_hashtable_timer);
             auto origin_offset = current_offset;
             for (; probe_row_match_iter.ok() && current_offset < _batch_size;
                  ++probe_row_match_iter) {
                 if (LIKELY(current_offset < _build_block_rows.size())) {
+                    _probe_indexs[current_offset] = probe_index;
                     _build_block_offsets[current_offset] = probe_row_match_iter->block_offset;
                     _build_block_rows[current_offset] = probe_row_match_iter->row_num;
                 } else {
+                    _probe_indexs.template emplace_back(probe_index);
                     _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
                     _build_block_rows.emplace_back(probe_row_match_iter->row_num);
                 }
@@ -515,7 +524,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
 
             row_count_from_last_probe = current_offset;
             all_match_one &= (current_offset == 1);
-            _items_counts[probe_index] = current_offset;
             if (!probe_row_match_iter.ok()) {
                 ++probe_index;
                 is_the_last_sub_block = true;
@@ -530,21 +538,21 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 if constexpr (ignore_null && need_null_map_for_probe) {
                     if ((*null_map)[probe_index]) {
                         if constexpr (probe_all) {
-                            _items_counts[probe_index++] = (uint32_t)1;
                             same_to_prev.emplace_back(false);
                             visited_map.emplace_back(nullptr);
                             // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
+                                _probe_indexs[current_offset] = probe_index;
                                 _build_block_offsets[current_offset] = -1;
                                 _build_block_rows[current_offset] = -1;
                             } else {
+                                _probe_indexs.template emplace_back(probe_index);
                                 _build_block_offsets.emplace_back(-1);
                                 _build_block_rows.emplace_back(-1);
                             }
                             ++current_offset;
-                        } else {
-                            _items_counts[probe_index++] = (uint32_t)0;
                         }
+                        probe_index++;
                         all_match_one = false;
                         if constexpr (probe_all) {
                             if (current_offset >= _batch_size) {
@@ -674,7 +682,16 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     ++probe_index;
                 }
                 uint32_t count = (uint32_t)(current_offset - last_offset);
-                _items_counts[current_probe_index] = count;
+                if (LIKELY(current_offset < _probe_indexs.size())) {
+                    for (int i = last_offset; i < current_offset; ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                } else {
+                    for (int i = last_offset; i < _probe_indexs.size(); ++i) {
+                        _probe_indexs[i] = current_probe_index;
+                    }
+                    _probe_indexs.resize(current_offset, current_probe_index);
+                }
                 all_match_one &= (count == 1);
                 if (current_offset >= _batch_size) {
                     break;
@@ -1069,6 +1086,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                                                                     Block* output_block,
                                                                     bool* eos) {
     using Mapped = typename HashTableType::Mapped;
+    SCOPED_TIMER(_probe_process_hashtable_timer);
     if constexpr (std::is_same_v<Mapped, RowRefListWithFlag> ||
                   std::is_same_v<Mapped, RowRefListWithFlags>) {
         hash_table_ctx.init_once();
@@ -1084,31 +1102,25 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
         auto block_size = 0;
         auto& visited_iter =
                 std::get<ForwardIterator<Mapped>>(_join_node->_outer_join_pull_visited_iter);
-
-        auto insert_from_hash_table = [&](uint8_t offset, uint32_t row_num) {
-            block_size++;
-            for (size_t j = 0; j < right_col_len; ++j) {
-                auto& column = *_build_blocks[offset].get_by_position(j).column;
-                mcol[j + right_col_idx]->insert_from(column, row_num);
-            }
+        _build_blocks_locs.resize(_batch_size);
+        auto register_build_loc = [&](int8_t offset, int32_t row_nums) {
+            _build_blocks_locs[block_size++] = std::pair<int8_t, int>(offset, row_nums);
         };
 
         if (visited_iter.ok()) {
             if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                    insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
+                    register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                 }
             } else {
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         if (visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     } else {
                         if (!visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     }
                 }
@@ -1125,8 +1137,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         visited_iter = mapped.begin();
                         for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                         if (visited_iter.ok()) {
                             // block_size >= _batch_size, quit for loop
@@ -1137,8 +1148,7 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     if constexpr (JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
                         visited_iter = mapped.begin();
                         for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                         if (visited_iter.ok()) {
                             // block_size >= _batch_size, quit for loop
@@ -1151,13 +1161,11 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                 for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                     if constexpr (JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
                         if (visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     } else {
                         if (!visited_iter->visited) {
-                            insert_from_hash_table(visited_iter->block_offset,
-                                                   visited_iter->row_num);
+                            register_build_loc(visited_iter->block_offset, visited_iter->row_num);
                         }
                     }
                 }
@@ -1166,6 +1174,41 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
                     break;
                 }
             }
+        }
+        _build_blocks_locs.resize(block_size);
+
+        auto insert_build_rows = [&](int8_t offset) {
+            for (size_t j = 0; j < right_col_len; ++j) {
+                auto& column = *_build_blocks[offset].get_by_position(j).column;
+                mcol[j + right_col_idx]->insert_indices_from(
+                        column, _build_block_rows.data(),
+                        _build_block_rows.data() + _build_block_rows.size());
+            }
+        };
+        if (_build_blocks.size() > 1) {
+            std::sort(_build_blocks_locs.begin(), _build_blocks_locs.end(),
+                      [](const auto a, const auto b) { return a.first > b.first; });
+            auto start = 0, end = 0;
+            while (start < _build_blocks_locs.size()) {
+                while (end < _build_blocks_locs.size() &&
+                       _build_blocks_locs[start].first == _build_blocks_locs[end].first) {
+                    end++;
+                }
+                auto offset = _build_blocks_locs[start].first;
+                _build_block_rows.resize(end - start);
+                for (int i = 0; start + i < end; i++) {
+                    _build_block_rows[i] = _build_blocks_locs[start + i].second;
+                }
+                start = end;
+                insert_build_rows(offset);
+            }
+        } else if (_build_blocks.size() == 1) {
+            const auto size = _build_blocks_locs.size();
+            _build_block_rows.resize(_build_blocks_locs.size());
+            for (int i = 0; i < size; i++) {
+                _build_block_rows[i] = _build_blocks_locs[i].second;
+            }
+            insert_build_rows(0);
         }
 
         // just resize the left table column in case with other conjunct to make block size is not zero

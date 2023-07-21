@@ -52,19 +52,26 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _sink(sink),
           _prepared(false),
           _opened(false),
-          _can_steal(pipeline->_can_steal),
           _state(state),
           _cur_state(PipelineTaskState::NOT_READY),
           _data_state(SourceState::DEPEND_ON_SOURCE),
           _fragment_context(fragment_context),
-          _parent_profile(parent_profile) {}
+          _parent_profile(parent_profile) {
+    _pipeline_task_watcher.start();
+}
 
 void PipelineTask::_fresh_profile_counter() {
     COUNTER_SET(_wait_source_timer, (int64_t)_wait_source_watcher.elapsed_time());
+    COUNTER_SET(_wait_bf_timer, (int64_t)_wait_bf_watcher.elapsed_time());
     COUNTER_SET(_schedule_counts, (int64_t)_schedule_time);
     COUNTER_SET(_wait_sink_timer, (int64_t)_wait_sink_watcher.elapsed_time());
     COUNTER_SET(_wait_worker_timer, (int64_t)_wait_worker_watcher.elapsed_time());
     COUNTER_SET(_wait_schedule_timer, (int64_t)_wait_schedule_watcher.elapsed_time());
+    COUNTER_SET(_begin_execute_timer, _begin_execute_time);
+    COUNTER_SET(_eos_timer, _eos_time);
+    COUNTER_SET(_src_pending_finish_over_timer, _src_pending_finish_over_time);
+    COUNTER_SET(_dst_pending_finish_over_timer, _dst_pending_finish_over_time);
+    COUNTER_SET(_pip_task_total_timer, (int64_t)_pipeline_task_watcher.elapsed_time());
 }
 
 void PipelineTask::_init_profile() {
@@ -87,6 +94,7 @@ void PipelineTask::_init_profile() {
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
+    _wait_bf_timer = ADD_TIMER(_task_profile, "WaitBfTime");
     _wait_sink_timer = ADD_TIMER(_task_profile, "WaitSinkTime");
     _wait_worker_timer = ADD_TIMER(_task_profile, "WaitWorkerTime");
     _wait_schedule_timer = ADD_TIMER(_task_profile, "WaitScheduleTime");
@@ -96,6 +104,13 @@ void PipelineTask::_init_profile() {
     _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
     _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
     _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
+
+    _begin_execute_timer = ADD_TIMER(_task_profile, "Task1BeginExecuteTime");
+    _eos_timer = ADD_TIMER(_task_profile, "Task2EosTime");
+    _src_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task3SrcPendingFinishOverTime");
+    _dst_pending_finish_over_timer = ADD_TIMER(_task_profile, "Task4DstPendingFinishOverTime");
+    _pip_task_total_timer = ADD_TIMER(_task_profile, "Task5TotalTime");
+    _close_pipeline_timer = ADD_TIMER(_task_profile, "Task6ClosePipelineTime");
 }
 
 Status PipelineTask::prepare(RuntimeState* state) {
@@ -110,15 +125,18 @@ Status PipelineTask::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(o->prepare(state));
     }
 
-    _task_profile->add_info_string("Sink", fmt::format("{}({})", _sink->get_name(), _sink->id()));
+    _task_profile->add_info_string("Sink",
+                                   fmt::format("{}(dst_id={})", _sink->get_name(), _sink->id()));
     fmt::memory_buffer operator_ids_str;
     for (size_t i = 0; i < _operators.size(); i++) {
         if (i == 0) {
-            fmt::format_to(operator_ids_str,
-                           fmt::format("[{}({})", _operators[i]->get_name(), _operators[i]->id()));
+            fmt::format_to(
+                    operator_ids_str,
+                    fmt::format("[{}(node_id={})", _operators[i]->get_name(), _operators[i]->id()));
         } else {
             fmt::format_to(operator_ids_str,
-                           fmt::format(", {}({})", _operators[i]->get_name(), _operators[i]->id()));
+                           fmt::format(", {}(node_id={})", _operators[i]->get_name(),
+                                       _operators[i]->id()));
         }
     }
     fmt::format_to(operator_ids_str, "]");
@@ -211,6 +229,7 @@ Status PipelineTask::execute(bool* eos) {
         }
     }
 
+    this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
         if (_data_state != SourceState::MORE_DATA && !_source->can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
@@ -265,7 +284,8 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::try_close() {
-    return _source->try_close();
+    _sink->try_close(_state);
+    return _source->try_close(_state);
 }
 
 Status PipelineTask::close() {
@@ -313,6 +333,10 @@ void PipelineTask::set_state(PipelineTaskState state) {
         if (state == PipelineTaskState::RUNNABLE) {
             _wait_sink_watcher.stop();
         }
+    } else if (_cur_state == PipelineTaskState::BLOCKED_FOR_RF) {
+        if (state == PipelineTaskState::RUNNABLE) {
+            _wait_bf_watcher.stop();
+        }
     } else if (_cur_state == PipelineTaskState::RUNNABLE) {
         COUNTER_UPDATE(_block_counts, 1);
         if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
@@ -321,6 +345,8 @@ void PipelineTask::set_state(PipelineTaskState state) {
         } else if (state == PipelineTaskState::BLOCKED_FOR_SINK) {
             _wait_sink_watcher.start();
             COUNTER_UPDATE(_block_by_sink_counts, 1);
+        } else if (state == PipelineTaskState::BLOCKED_FOR_RF) {
+            _wait_bf_watcher.start();
         }
     }
 

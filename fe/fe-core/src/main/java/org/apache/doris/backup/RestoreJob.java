@@ -24,6 +24,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -999,6 +1000,14 @@ public class RestoreJob extends AbstractJob {
     private void createReplicas(Database db, AgentBatchTask batchTask, OlapTable localTbl, Partition restorePart) {
         Set<String> bfColumns = localTbl.getCopiedBfColumns();
         double bfFpp = localTbl.getBfFpp();
+
+        BinlogConfig binlogConfig;
+        localTbl.readLock();
+        try {
+            binlogConfig = new BinlogConfig(localTbl.getBinlogConfig());
+        } finally {
+            localTbl.readUnlock();
+        }
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
@@ -1024,7 +1033,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
                             localTbl.storeRowColumn(),
-                            localTbl.isDynamicSchema());
+                            localTbl.isDynamicSchema(),
+                            binlogConfig);
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1081,7 +1091,7 @@ public class RestoreJob extends AbstractJob {
                 // replicas
                 try {
                     Map<Tag, List<Long>> beIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, null);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, null, false, false);
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();

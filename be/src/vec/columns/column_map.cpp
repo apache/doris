@@ -253,26 +253,64 @@ void ColumnMap::update_hashes_with_value(std::vector<SipHash>& hashes,
     SIP_HASHES_FUNCTION_COLUMN_IMPL();
 }
 
-void ColumnMap::update_xxHash_with_value(size_t n, uint64_t& hash) const {
-    size_t kv_size = size_at(n);
-    size_t offset = offset_at(n);
-
-    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size), sizeof(kv_size),
-                                      hash);
-    for (auto i = 0; i < kv_size; ++i) {
-        get_keys().update_xxHash_with_value(offset + i, hash);
-        get_values().update_xxHash_with_value(offset + i, hash);
+void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                         const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size),
+                                                      sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_xxHash_with_value(offsets[i - 1], offsets[i], hash,
+                                                          nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&kv_size),
+                                                  sizeof(kv_size), hash);
+            } else {
+                get_keys().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_xxHash_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t n, uint64_t& crc) const {
-    size_t kv_size = size_at(n);
-    size_t offset = offset_at(n);
-
-    crc = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size), sizeof(kv_size), crc);
-    for (size_t i = 0; i < kv_size; ++i) {
-        get_keys().update_crc_with_value(offset + i, crc);
-        get_values().update_crc_with_value(offset + i, crc);
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                                      const uint8_t* __restrict null_data) const {
+    auto& offsets = get_offsets();
+    if (null_data) {
+        for (size_t i = start; i < end; ++i) {
+            if (null_data[i] == 0) {
+                size_t kv_size = offsets[i] - offsets[i - 1];
+                if (kv_size == 0) {
+                    hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size),
+                                                   sizeof(kv_size), hash);
+                } else {
+                    get_keys().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                    get_values().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                }
+            }
+        }
+    } else {
+        for (size_t i = start; i < end; ++i) {
+            size_t kv_size = offsets[i] - offsets[i - 1];
+            if (kv_size == 0) {
+                hash = HashUtil::zlib_crc_hash(reinterpret_cast<const char*>(&kv_size),
+                                               sizeof(kv_size), hash);
+            } else {
+                get_keys().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+                get_values().update_crc_with_value(offsets[i - 1], offsets[i], hash, nullptr);
+            }
+        }
     }
 }
 
@@ -282,12 +320,12 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
         for (size_t i = 0; i < s; ++i) {
             // every row
             if (null_data[i] == 0) {
-                update_xxHash_with_value(i, hashes[i]);
+                update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_xxHash_with_value(i, hashes[i]);
+            update_xxHash_with_value(i, i + 1, hashes[i], nullptr);
         }
     }
 }
@@ -301,12 +339,12 @@ void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveTyp
         for (size_t i = 0; i < s; ++i) {
             // every row
             if (null_data[i] == 0) {
-                update_crc_with_value(i, hash[i]);
+                update_crc_with_value(i, i + 1, hash[i], nullptr);
             }
         }
     } else {
         for (size_t i = 0; i < s; ++i) {
-            update_crc_with_value(i, hash[i]);
+            update_crc_with_value(i, i + 1, hash[i], nullptr);
         }
     }
 }

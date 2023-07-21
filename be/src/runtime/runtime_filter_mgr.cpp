@@ -39,6 +39,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -132,7 +133,6 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
             }
             IRuntimeFilter* filter;
             RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc,
-
                                                    &options, RuntimeFilterRole::CONSUMER, node_id,
                                                    &filter, build_bf_exactly));
             _consumer_map[key].emplace_back(node_id, filter);
@@ -209,7 +209,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
         const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
         const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
         const int producer_size) {
-    std::lock_guard<std::mutex> guard(_filter_map_mutex);
+    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cntVal
@@ -220,10 +220,10 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->filter =
             cntVal->pool->add(new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool));
 
-    std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
+    auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false);
-    _filter_map.emplace(filter_id, cntVal);
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
 
@@ -231,7 +231,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
         const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
         const std::vector<doris::TRuntimeFilterTargetParamsV2>* targetv2_info,
         const int producer_size) {
-    std::lock_guard<std::mutex> guard(_filter_map_mutex);
+    std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cntVal
@@ -242,10 +242,10 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cntVal->filter =
             cntVal->pool->add(new IRuntimeFilter(_state, &_state->get_query_ctx()->obj_pool));
 
-    std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
+    auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
-    _filter_map.emplace(filter_id, cntVal);
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
     return Status::OK();
 }
 
@@ -312,32 +312,38 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
+    int64_t merge_time = 0;
+    int64_t start_merge = MonotonicMillis();
+    auto filter_id = request->filter_id();
+    std::map<int, CntlValwithLock>::iterator iter;
     {
-        int64_t start_merge = MonotonicMillis();
-        std::lock_guard<std::mutex> guard(_filter_map_mutex);
-        auto iter = _filter_map.find(std::to_string(request->filter_id()));
+        std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
+        iter = _filter_map.find(filter_id);
         VLOG_ROW << "recv filter id:" << request->filter_id() << " " << request->ShortDebugString();
         if (iter == _filter_map.end()) {
             return Status::InvalidArgument("unknown filter id {}",
                                            std::to_string(request->filter_id()));
         }
-        cntVal = iter->second;
-        if (auto bf = cntVal->filter->get_bloomfilter()) {
-            RETURN_IF_ERROR(bf->init_with_fixed_length());
-        }
+    }
+    // iter->second = pair{CntlVal,SpinLock}
+    cntVal = iter->second.first;
+    {
+        std::lock_guard<SpinLock> l(*iter->second.second);
         MergeRuntimeFilterParams params(request, attach_data);
-        ObjectPool* pool = iter->second->pool.get();
+        ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, &params, pool, holder.getHandle()));
         RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
-        cntVal->arrive_id.insert(UniqueId(request->fragment_id()).to_string());
+        cntVal->arrive_id.insert(UniqueId(request->fragment_id()));
         merged_size = cntVal->arrive_id.size();
         // TODO: avoid log when we had acquired a lock
         VLOG_ROW << "merge size:" << merged_size << ":" << cntVal->producer_size;
         DCHECK_LE(merged_size, cntVal->producer_size);
-        _merge_timer += (MonotonicMillis() - start_merge);
+        cntVal->merge_time += (MonotonicMillis() - start_merge);
         if (merged_size < cntVal->producer_size) {
             return Status::OK();
+        } else {
+            merge_time = cntVal->merge_time;
         }
     }
 
@@ -375,7 +381,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 rpc_contexts[cur]->request.set_filter_id(request->filter_id());
                 rpc_contexts[cur]->request.set_is_pipeline(request->has_is_pipeline() &&
                                                            request->is_pipeline());
-                rpc_contexts[cur]->request.set_merge_time(_merge_timer);
+                rpc_contexts[cur]->request.set_merge_time(merge_time);
                 *rpc_contexts[cur]->request.mutable_query_id() = request->query_id();
                 if (has_attachment) {
                     rpc_contexts[cur]->cntl.request_attachment().append(request_attachment);

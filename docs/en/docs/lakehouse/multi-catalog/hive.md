@@ -32,7 +32,7 @@ In addition to Hive, many other systems also use the Hive Metastore to store met
 
 ## Terms and Conditions
 
-1. Need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE.
+1. Need to put core-site.xml, hdfs-site.xml and hive-site.xml in the conf directory of FE and BE. First read the hadoop configuration file in the conf directory, and then read the related to the environment variable `HADOOP_CONF_DIR` configuration file.
 2. hive supports version 1/2/3.
 3. Support Managed Table and External Table and part of Hive View.
 4. Can identify hive, iceberg, hudi metadata stored in Hive Metastore.
@@ -119,6 +119,7 @@ CREATE CATALOG hive PROPERTIES (
     "type"="hms",
     "hive.metastore.uris" = "thrift://172.0.0.1:9083",
     "s3.endpoint" = "s3.us-east-1.amazonaws.com",
+    "s3.region" = "us-east-1",
     "s3.access_key" = "ak",
     "s3.secret_key" = "sk"
     "use_path_style" = "true"

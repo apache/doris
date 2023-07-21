@@ -1432,6 +1432,32 @@ build_jemalloc() {
     mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
 }
 
+# libunwind
+build_libunwind() {
+    # https://github.com/libunwind/libunwind
+    # https://github.com/libunwind/libunwind/issues/189
+    # https://stackoverflow.com/questions/27842377/building-libunwind-for-mac
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        check_if_source_exist "${LIBUNWIND_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
+
+        # We should enable optimizations (otherwise it will be too slow in debug)
+        # and disable sanitizers (otherwise infinite loop may happen)
+        # close exceptions and rtti can improve the operating efficiency of the program
+        # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
+        # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
+        # -nostdinc++ only required for gcc compilation
+        cflags='-std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti'
+        CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}"
+
+        make -j "${PARALLEL}"
+        make install
+    fi
+}
+
 # benchmark
 build_benchmark() {
     check_if_source_exist "${BENCHMARK_SOURCE}"
@@ -1583,10 +1609,14 @@ build_hadoop_libs() {
     mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
     cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.4/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
+    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
+    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
+    find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        libunwind
         libunixodbc
         openssl
         libevent

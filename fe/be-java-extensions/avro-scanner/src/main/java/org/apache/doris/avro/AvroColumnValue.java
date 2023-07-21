@@ -106,6 +106,11 @@ public class AvroColumnValue implements ColumnValue {
     }
 
     @Override
+    public byte[] getStringAsBytes() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public LocalDate getDate() {
         // avro has no date type
         return null;

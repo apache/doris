@@ -68,27 +68,20 @@ void DataTypeStringSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     col.insert_data(blob->getBlob(), blob->getBlobLen());
 }
 
-void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const UInt8* null_map,
+void DataTypeStringSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int start,
                                                 int end) const {
     const auto& string_column = assert_cast<const ColumnString&>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
-        if (null_map && null_map[string_i]) {
+        if (null_map && (*null_map)[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
-        if (column.get_data_type() == TypeIndex::JSONB) {
-            std::string json_string =
-                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-            checkArrowStatus(builder.Append(json_string.data(), json_string.size()),
-                             column.get_name(), array_builder->type()->name());
-        } else {
-            checkArrowStatus(builder.Append(string_ref.data(), string_ref.size()),
-                             column.get_name(), array_builder->type()->name());
-        }
+        checkArrowStatus(builder.Append(string_ref.data(), string_ref.size()), column.get_name(),
+                         array_builder->type()->name());
     }
 }
 

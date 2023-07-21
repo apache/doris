@@ -54,7 +54,8 @@ protected:
     /// connect to remote file system
     virtual Status connect_impl() = 0;
 
-    virtual Status open_file_impl(const Path& file, const FileReaderOptions& reader_options,
+    virtual Status open_file_impl(const FileDescription& fd, const Path& abs_path,
+                                  const FileReaderOptions& reader_options,
                                   FileReaderSPtr* reader) override;
     /// upload load_file to remote remote_file
     /// local_file should be an absolute path on local filesystem.
@@ -83,7 +84,7 @@ protected:
 
     // The derived class should implement this method.
     // if file_size < 0, the file size should be fetched from file system
-    virtual Status open_file_internal(const Path& file, int64_t file_size,
+    virtual Status open_file_internal(const FileDescription& fd, const Path& abs_path,
                                       FileReaderSPtr* reader) = 0;
 };
 

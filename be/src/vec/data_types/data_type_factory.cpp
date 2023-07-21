@@ -34,6 +34,8 @@
 #include <ostream>
 
 #include "common/consts.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "data_type_time.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
@@ -144,8 +146,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
     case TYPE_TIME:
-    case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTime>();
+        break;
+    case TYPE_TIMEV2:
+        nested = std::make_shared<vectorized::DataTypeTimeV2>(col_desc.scale);
         break;
     case TYPE_DOUBLE:
         nested = std::make_shared<vectorized::DataTypeFloat64>();
@@ -223,7 +227,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         return std::make_shared<vectorized::DataTypeObject>("json", true);
     case INVALID_TYPE:
     default:
-        DCHECK(false) << "invalid PrimitiveType:" << (int)col_desc.type;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "invalid PrimitiveType: {}", (int)col_desc.type);
         break;
     }
 
@@ -314,7 +318,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
         break;
     case TypeIndex::TimeV2:
-        nested = std::make_shared<vectorized::DataTypeTime>();
+        nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
     default:
         DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);
@@ -516,6 +520,10 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     }
     case PGenericType::TIME: {
         nested = std::make_shared<DataTypeTime>();
+        break;
+    }
+    case PGenericType::TIMEV2: {
+        nested = std::make_shared<DataTypeTimeV2>(pcolumn.decimal_param().scale());
         break;
     }
     case PGenericType::AGG_STATE: {

@@ -39,12 +39,12 @@ cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,devi
 ### example
 
 ```
-mysql> select bitmap_count(bitmap_hash64('hello'));
-+------------------------------------+
-| bitmap_count(bitmap_hash64('hello')) |
-+------------------------------------+
-|                                  1 |
-+------------------------------------+
+mysql> select bitmap_to_string(bitmap_hash64('hello'));
++------------------------------------------+
+| bitmap_to_string(bitmap_hash64('hello')) |
++------------------------------------------+
+| 15231136565543391023                     |
++------------------------------------------+
 ```
 
 ### keywords

@@ -85,8 +85,10 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     }
 
     @Override
-    public PhysicalQuickSort<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalQuickSort<>(orderKeys, phase, Optional.empty(), logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override

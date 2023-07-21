@@ -174,9 +174,10 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalUnar
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalOlapTableSink<>(database, targetTable, partitionIds, cols, singleReplicaLoad,
-                groupExpression, logicalProperties.get(), child());
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override

@@ -341,6 +341,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 
 /** ScalarFunctionVisitor. */
 public interface ScalarFunctionVisitor<R, C> {
@@ -1637,5 +1639,13 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitStateCombinator(StateCombinator combinator, C context) {
         return visitScalarFunction(combinator, context);
+    }
+
+    default R visitJavaUdf(JavaUdf javaUdf, C context) {
+        return visitScalarFunction(javaUdf, context);
+    }
+
+    default R visitAliasUdf(AliasUdf aliasUdf, C context) {
+        return visitScalarFunction(aliasUdf, context);
     }
 }

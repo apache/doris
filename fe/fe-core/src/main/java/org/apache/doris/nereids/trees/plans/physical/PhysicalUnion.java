@@ -100,9 +100,9 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     }
 
     @Override
-    public PhysicalUnion withLogicalProperties(
-            Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalUnion(qualifier, constantExprsList, Optional.empty(), logicalProperties.get(), children);
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalUnion(qualifier, constantExprsList, groupExpression, logicalProperties.get(), children);
     }
 
     @Override

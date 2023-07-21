@@ -53,7 +53,7 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### Create Catalog based on Iceberg API
 
-Use the Iceberg API to access metadata, and support services such as Hive, REST, and Glue as Iceberg's Catalog.
+Use the Iceberg API to access metadata, and support services such as Hive, REST, DLF and Glue as Iceberg's Catalog.
 
 #### Hive Metastore
 
@@ -84,6 +84,10 @@ CREATE CATALOG glue PROPERTIES (
 ```
 
 For Iceberg properties, see [Iceberg Glue Catalog](https://iceberg.apache.org/docs/latest/aws/#glue-catalog)
+
+#### Alibaba Cloud DLF
+
+see [Alibaba Cloud DLF Catalog](dlf.md)
 
 #### REST Catalog
 
@@ -122,6 +126,7 @@ If the data is stored on S3, the following parameters can be used in properties:
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
 "s3.endpoint" = "http://endpoint-uri"
+"s3.region" = "your-region"
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 

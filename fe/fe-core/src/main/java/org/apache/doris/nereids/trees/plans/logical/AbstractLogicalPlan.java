@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -34,18 +35,19 @@ import java.util.function.Supplier;
  */
 public abstract class AbstractLogicalPlan extends AbstractPlan implements LogicalPlan, Explainable {
 
-    private Supplier<Boolean> hasUnboundExpressions = () -> super.hasUnboundExpression();
+    private final Supplier<Boolean> hasUnboundExpressions = super::hasUnboundExpression;
 
     public AbstractLogicalPlan(PlanType type, Plan... children) {
         super(type, children);
     }
 
-    public AbstractLogicalPlan(PlanType type, Optional<LogicalProperties> logicalProperties, Plan... children) {
-        super(type, logicalProperties, children);
+    public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, Plan... children) {
+        super(type, groupExpression, logicalProperties, null, children);
     }
 
     public AbstractLogicalPlan(PlanType type, Optional<GroupExpression> groupExpression,
-                               Optional<LogicalProperties> logicalProperties, Plan... children) {
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         super(type, groupExpression, logicalProperties, null, children);
     }
 

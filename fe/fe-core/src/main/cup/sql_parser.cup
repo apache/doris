@@ -1360,7 +1360,7 @@ alter_stmt ::=
     | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
       KW_SET KW_STATS LPAREN key_value_map:map RPAREN opt_partition_names:partitionNames
     {:
-        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map, partitionNames);
     :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
     {:
@@ -1867,7 +1867,7 @@ create_stmt ::=
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, null, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index, true);
+        distribution, tblProperties, extProperties, tableComment, index, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns COMMA index_definition_list:indexes RPAREN opt_engine:engineName
@@ -1893,7 +1893,7 @@ create_stmt ::=
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index, true);
+        distribution, tblProperties, extProperties, tableComment, index, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
           properties:properties opt_comment:tableComment
@@ -1948,12 +1948,11 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName build_mv:buildMethod
          opt_mv_refersh_info:refreshInfo
          opt_mv_keys:keyDesc
-         opt_mv_partition:partitionDesc
          opt_distribution:distributionDesc
          opt_properties:properties
          KW_AS query_stmt:query
     {:
-        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, partitionDesc, distributionDesc, properties, query);
+        RESULT = new CreateMultiTableMaterializedViewStmt(mvName, buildMethod, refreshInfo, keyDesc, null, distributionDesc, properties, query);
     :}
     | KW_CREATE KW_INDEX opt_if_not_exists:ifNotExists ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_properties:properties opt_comment:comment
     {:
@@ -3604,6 +3603,10 @@ opt_default_value ::=
     | KW_DEFAULT KW_CURRENT_TIMESTAMP
     {:
         RESULT = ColumnDef.DefaultValue.CURRENT_TIMESTAMP_DEFAULT_VALUE;
+    :}
+    | KW_DEFAULT KW_CURRENT_TIMESTAMP LPAREN INTEGER_LITERAL:precision RPAREN
+    {:
+        RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
     :}
     ;
 

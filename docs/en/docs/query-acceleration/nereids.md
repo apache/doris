@@ -66,6 +66,8 @@ Turn on auto fall back to legacy planner
 SET enable_fallback_to_original_planner=true;
 ```
 
+Recommand execute analyze on table before query on it to get the benefits of cbo
+
 ## Known issues and temporarily unsupported features
 
 ### temporarily unsupported features
@@ -73,15 +75,12 @@ SET enable_fallback_to_original_planner=true;
 > If automatic fallback is enabled, it will automatically fall back to the old optimizer execution
 
 - Json、Array、Map and Struct types: The table in the query contains the above types, or the expressions in the query outputs the above types
-- DML: All DML statements such as Insert Into Select, Create Table As Select, Update, Delete, etc.
+- DML: Only support below DML statements: Insert Into Select, Update and Delete
+- Matrialized view with predicates
 - Function alias
 - Java UDF and HDFS UDF
 - High concurrent point query optimize
-- Inverted index
 
 ### known issues
 
 - Cannot use query cache and partition cache to accelarate query
-- Not support MTMV
-- Not support MV created after version 2.0.0
-- Some unsupported subquery usage will produce an error result instead of an error

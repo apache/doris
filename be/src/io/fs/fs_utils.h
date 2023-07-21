@@ -17,110 +17,36 @@
 
 #pragma once
 
+#include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
 
-#include <ostream>
 #include <string>
 
 #include "common/status.h"
-#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
 namespace doris {
 namespace io {
 
-struct FilePathDesc {
-    FilePathDesc(const std::string& path) { filepath = path; }
-    FilePathDesc() = default;
-    TStorageMedium::type storage_medium = TStorageMedium::HDD;
-    std::string filepath;
-    std::string remote_path;
-    std::string storage_name;
-    io::FileSystem* file_system;
-
-    std::string debug_string() const {
-        std::stringstream ss;
-        ss << "storage_medium: " << to_string(storage_medium) << ", local_path: " << filepath;
-        if (!remote_path.empty()) {
-            ss << ", storage_name: " << storage_name << ", remote_path: " << remote_path;
-        }
-        return ss.str();
-    }
-    // REMOTE_CACHE is the local cache path for remote path, if a data_dir is REMOTE_CACHE,
-    // it means the tablet in it will be set as a remote path.
-    static bool is_remote(TStorageMedium::type checked_storage_medium) {
-        return checked_storage_medium == TStorageMedium::S3 ||
-               checked_storage_medium == TStorageMedium::REMOTE_CACHE;
-    }
-    bool is_remote() const { return is_remote(storage_medium); }
+struct FileSystemProperties {
+    TFileType::type system_type;
+    std::map<std::string, std::string> properties;
+    THdfsParams hdfs_params;
+    std::vector<TNetworkAddress> broker_addresses;
 };
 
-class FilePathDescStream {
-public:
-    FilePathDescStream& operator<<(const FilePathDesc& val) {
-        _filepath_stream << val.filepath;
-        _storage_medium = val.storage_medium;
-        _storage_name = val.storage_name;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            _remote_path_stream << val.remote_path;
-        }
-        return *this;
-    }
-    FilePathDescStream& operator<<(const std::string& val) {
-        _filepath_stream << val;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            _remote_path_stream << val;
-        }
-        return *this;
-    }
-    FilePathDescStream& operator<<(uint64_t val) {
-        _filepath_stream << val;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            _remote_path_stream << val;
-        }
-        return *this;
-    }
-    FilePathDescStream& operator<<(int64_t val) {
-        _filepath_stream << val;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            _remote_path_stream << val;
-        }
-        return *this;
-    }
-    FilePathDescStream& operator<<(uint32_t val) {
-        _filepath_stream << val;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            _remote_path_stream << val;
-        }
-        return *this;
-    }
-    FilePathDescStream& operator<<(int32_t val) {
-        _filepath_stream << val;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            _remote_path_stream << val;
-        }
-        return *this;
-    }
-    FilePathDesc path_desc() {
-        FilePathDesc path_desc(_filepath_stream.str());
-        path_desc.storage_medium = _storage_medium;
-        if (FilePathDesc::is_remote(_storage_medium)) {
-            path_desc.remote_path = _remote_path_stream.str();
-        }
-        path_desc.storage_name = _storage_name;
-        return path_desc;
-    }
-
-private:
-    TStorageMedium::type _storage_medium = TStorageMedium::HDD;
-    std::stringstream _filepath_stream;
-    std::stringstream _remote_path_stream;
-    std::string _storage_name;
+struct FileDescription {
+    std::string path;
+    int64_t start_offset;
+    // length of the file in bytes.
+    // -1 means unset.
+    // If the file length is not set, the file length will be fetched from the file system.
+    int64_t file_size = -1;
+    // modification time of this file.
+    // 0 means unset.
+    int64_t mtime = 0;
 };
-
-// read all data from file to string
-Status read_file_to_string(FileSystemSPtr fs, const Path& file, std::string* content);
 
 } // namespace io
 } // namespace doris

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -42,33 +41,25 @@ import java.util.Optional;
 public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> {
 
     private final CTEId cteId;
-    private final List<Slot> projects;
 
-    public PhysicalCTEProducer(CTEId cteId, List<Slot> projects,
-                               LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(cteId, projects, Optional.empty(), logicalProperties, child);
+    public PhysicalCTEProducer(CTEId cteId, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(cteId, Optional.empty(), logicalProperties, child);
     }
 
-    public PhysicalCTEProducer(CTEId cteId, List<Slot> projects,
-                               Optional<GroupExpression> groupExpression,
+    public PhysicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
                                LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(cteId, projects, groupExpression, logicalProperties, null, null, child);
+        this(cteId, groupExpression, logicalProperties, null, null, child);
     }
 
-    public PhysicalCTEProducer(CTEId cteId, List<Slot> projects, Optional<GroupExpression> groupExpression,
-                               LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-                               Statistics statistics, CHILD_TYPE child) {
+    public PhysicalCTEProducer(CTEId cteId, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_CTE_PRODUCE, groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.cteId = cteId;
-        this.projects = ImmutableList.copyOf(projects);
     }
 
     public CTEId getCteId() {
         return cteId;
-    }
-
-    public List<Slot> getProjects() {
-        return projects;
     }
 
     @Override
@@ -97,7 +88,8 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalCTEProducer", "cteId", cteId);
+        return Utils.toSqlString("PhysicalCTEProducer[" + id.asInt() + "]",
+                "cteId", cteId);
     }
 
     @Override
@@ -108,28 +100,31 @@ public class PhysicalCTEProducer<CHILD_TYPE extends Plan> extends PhysicalUnary<
     @Override
     public PhysicalCTEProducer<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalCTEProducer<>(cteId, projects, getLogicalProperties(), children.get(0));
+        return new PhysicalCTEProducer<>(cteId, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalCTEProducer<>(cteId, projects, groupExpression, getLogicalProperties(), child());
+        return new PhysicalCTEProducer<>(cteId, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
-    public PhysicalCTEProducer<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalCTEProducer<>(cteId, projects, Optional.empty(), logicalProperties.get(), child());
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        return new PhysicalCTEProducer<>(cteId, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalCTEProducer<CHILD_TYPE> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalCTEProducer<>(cteId, projects, groupExpression, getLogicalProperties(), physicalProperties,
+        return new PhysicalCTEProducer<>(cteId, groupExpression, getLogicalProperties(), physicalProperties,
             statistics, child());
     }
 
     @Override
     public String shapeInfo() {
-        return Utils.toSqlString("CteProducer[cteId=", cteId, "]");
+        return Utils.toSqlString("PhysicalCteProducer",
+                "cteId", cteId);
     }
 }

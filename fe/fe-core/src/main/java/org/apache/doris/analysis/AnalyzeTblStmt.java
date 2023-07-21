@@ -253,8 +253,13 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
+        ConnectContext ctx = ConnectContext.get();
+        // means it a system analyze
+        if (ctx == null) {
+            return;
+        }
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
+                .checkTblPriv(ctx, dbName, tblName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                     "ANALYZE",

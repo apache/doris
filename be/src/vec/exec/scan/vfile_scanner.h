@@ -89,7 +89,7 @@ protected:
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;
-    const TFileScanRangeParams& _params;
+    const TFileScanRangeParams* _params;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
@@ -185,9 +185,7 @@ private:
     Status _convert_to_output_block(Block* block);
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
-    Status _split_conjuncts();
-    Status _split_conjuncts_expr(const VExprContextSPtr& context,
-                                 const VExprSPtr& conjunct_expr_root);
+    Status _process_conjuncts_for_dict_filter();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {

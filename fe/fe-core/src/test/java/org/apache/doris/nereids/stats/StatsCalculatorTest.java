@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.FakePlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -37,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -144,14 +144,14 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
-        StatsCalculator.estimate(groupExpression);
+        StatsCalculator.estimate(groupExpression, null);
         Assertions.assertEquals((10000 * 0.1 * 0.05), ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = newGroup();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
-        StatsCalculator.estimate(groupExpressionOr);
+        StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals((long) (10000 * (0.1 + 0.05 - 0.1 * 0.05)),
                 ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
@@ -197,14 +197,14 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalFilter, ImmutableList.of(childGroup));
         Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
-        StatsCalculator.estimate(groupExpression);
+        StatsCalculator.estimate(groupExpression, null);
         Assertions.assertEquals(0, ownerGroup.getStatistics().getRowCount(), 0.001);
 
         LogicalFilter<GroupPlan> logicalFilterOr = new LogicalFilter<>(or, groupPlan);
         GroupExpression groupExpressionOr = new GroupExpression(logicalFilterOr, ImmutableList.of(childGroup));
         Group ownerGroupOr = newGroup();
         groupExpressionOr.setOwnerGroup(ownerGroupOr);
-        StatsCalculator.estimate(groupExpressionOr);
+        StatsCalculator.estimate(groupExpressionOr, null);
         Assertions.assertEquals(0, ownerGroupOr.getStatistics().getRowCount(), 0.001);
     }
     // TODO: temporary disable this test, until we could get column stats
@@ -252,13 +252,14 @@ public class StatsCalculatorTest {
         SlotReference slot1 = new SlotReference("c1", IntegerType.INSTANCE, true, qualifier);
 
         OlapTable table1 = PlanConstructor.newOlapTable(tableId1, "t1", 0);
-        LogicalOlapScan logicalOlapScan1 = new LogicalOlapScan(RelationUtil.newRelationId(), table1, Collections.emptyList())
-                .withLogicalProperties(Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))));
+        LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table1,
+                Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))), ImmutableList.of());
         Group childGroup = newGroup();
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of(childGroup));
         Group ownerGroup = newGroup();
         groupExpression.setOwnerGroup(ownerGroup);
-        StatsCalculator.estimate(groupExpression);
+        StatsCalculator.estimate(groupExpression, null);
         Statistics stats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, stats.columnStatistics().size());
         Assertions.assertNotNull(stats.columnStatistics().get(slot1));
@@ -288,7 +289,7 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalLimit, ImmutableList.of(childGroup));
         Group ownerGroup = newGroup();
         ownerGroup.addGroupExpression(groupExpression);
-        StatsCalculator.estimate(groupExpression);
+        StatsCalculator.estimate(groupExpression, null);
         Statistics limitStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
@@ -318,7 +319,7 @@ public class StatsCalculatorTest {
         GroupExpression groupExpression = new GroupExpression(logicalTopN, ImmutableList.of(childGroup));
         Group ownerGroup = newGroup();
         ownerGroup.addGroupExpression(groupExpression);
-        StatsCalculator.estimate(groupExpression);
+        StatsCalculator.estimate(groupExpression, null);
         Statistics topNStats = ownerGroup.getStatistics();
         Assertions.assertEquals(1, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);

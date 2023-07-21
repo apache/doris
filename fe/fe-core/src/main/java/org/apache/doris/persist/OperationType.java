@@ -310,6 +310,10 @@ public class OperationType {
 
     public static final short OP_BARRIER = 436;
 
+    // change an auto increment id for a column
+    public static final short OP_UPDATE_AUTO_INCREMENT_ID = 437;
+    
+    // scheduler job
     public static final short OP_CREATE_SCHEDULER_JOB = 450;
 
     public static final short OP_UPDATE_SCHEDULER_JOB = 451;

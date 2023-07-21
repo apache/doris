@@ -71,12 +71,15 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
@@ -98,6 +101,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String SKIP_LINES = "skip_lines";
     protected static final String CSV_SCHEMA = "csv_schema";
     protected static final String COMPRESS_TYPE = "compress_type";
+    public static final String PATH_PARTITION_KEYS = "path_partition_keys";
     // decimal(p,s)
     private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
     // datetime(p)
@@ -118,10 +122,13 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(CSV_SCHEMA)
             .build();
 
-    // Columns got from file
+    // Columns got from file and path(if has)
     protected List<Column> columns = null;
     // User specified csv columns, it will override columns got from file
-    private List<Column> csvSchema = Lists.newArrayList();
+    private final List<Column> csvSchema = Lists.newArrayList();
+
+    // Partition columns from path, e.g. /path/to/columnName=columnValue.
+    private List<String> pathPartitionKeys;
 
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
@@ -171,6 +178,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             return locationProperties.get(S3Properties.ENDPOINT);
         }
         return "";
+    }
+
+    public List<String> getPathPartitionKeys() {
+        return pathPartitionKeys;
     }
 
     protected void parseFile() throws AnalysisException {
@@ -232,6 +243,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 || formatString.equals("csv_with_names_and_types")) {
             parseCsvSchema(csvSchema, validParams);
         }
+        pathPartitionKeys = Optional.ofNullable(validParams.get(PATH_PARTITION_KEYS))
+                .map(str ->
+                        Arrays.stream(str.split(","))
+                                .map(String::trim)
+                                .collect(Collectors.toList()))
+                .orElse(Lists.newArrayList());
     }
 
     // public for unit test
@@ -371,8 +388,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 if (!result.getStatus().getErrorMsgsList().isEmpty()) {
                     errMsg = result.getStatus().getErrorMsgsList().get(0);
                 } else {
-                    errMsg =  "fetchTableStructureAsync failed. backend address: "
-                                + address.getHostname() + ":" + address.getPort();
+                    errMsg = "fetchTableStructureAsync failed. backend address: "
+                            + address.getHostname() + ":" + address.getPort();
                 }
                 throw new AnalysisException(errMsg);
             }
@@ -392,6 +409,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     /**
      * Convert PTypeDesc into doris column type
+     *
      * @param typeNodes list PTypeNodes in PTypeDesc
      * @param start the start index of typeNode to parse
      * @return column type and the number of parsed PTypeNodes
@@ -403,7 +421,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         int parsedNodes;
         if (tPrimitiveType == TPrimitiveType.ARRAY) {
             Pair<Type, Integer> itemType = getColumnType(typeNodes, start + 1);
-            type =  ArrayType.create(itemType.key(), true);
+            type = ArrayType.create(itemType.key(), true);
             parsedNodes = 1 + itemType.value();
         } else if (tPrimitiveType == TPrimitiveType.MAP) {
             Pair<Type, Integer> keyType = getColumnType(typeNodes, start + 1);
@@ -428,21 +446,27 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     }
 
     private void fillColumns(InternalService.PFetchTableSchemaResult result)
-                            throws AnalysisException {
+            throws AnalysisException {
         if (result.getColumnNums() == 0) {
             throw new AnalysisException("The amount of column is 0");
         }
+        // add fetched file columns
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String colName = result.getColumnNames(idx);
             columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+        }
+        // add path columns
+        // HACK(tsy): path columns are all treated as STRING type now, after BE supports reading all columns
+        //  types by all format readers from file meta, maybe reading path columns types from BE then.
+        for (String colName : pathPartitionKeys) {
+            columns.add(new Column(colName, Type.STRING, false));
         }
     }
 
     private PFetchTableSchemaRequest getFetchTableStructureRequest() throws AnalysisException, TException {
         // set TFileScanRangeParams
         TFileScanRangeParams fileScanRangeParams = new TFileScanRangeParams();
-        fileScanRangeParams.setFileType(getTFileType());
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
@@ -466,9 +490,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("Can not get first file, please check uri.");
         }
 
-        fileScanRangeParams.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         // set TFileRangeDesc
         TFileRangeDesc fileRangeDesc = new TFileRangeDesc();
+        fileRangeDesc.setFileType(getTFileType());
+        fileRangeDesc.setCompressType(Util.getOrInferCompressType(compressionType, firstFile.getPath()));
         fileRangeDesc.setPath(firstFile.getPath());
         fileRangeDesc.setStartOffset(0);
         fileRangeDesc.setSize(firstFile.getSize());
@@ -482,4 +507,5 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 .setFileScanRange(ByteString.copyFrom(new TSerializer().serialize(fileScanRange))).build();
     }
 }
+
 

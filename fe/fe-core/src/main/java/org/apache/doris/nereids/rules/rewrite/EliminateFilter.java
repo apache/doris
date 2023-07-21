@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
@@ -36,11 +37,13 @@ public class EliminateFilter extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter()
                 .when(filter -> filter.getConjuncts().stream().anyMatch(BooleanLiteral.class::isInstance))
-                .then(filter -> {
+                .thenApply(ctx -> {
+                    LogicalFilter<Plan> filter = ctx.root;
                     Set<Expression> newConjuncts = Sets.newHashSetWithExpectedSize(filter.getConjuncts().size());
                     for (Expression expression : filter.getConjuncts()) {
                         if (expression == BooleanLiteral.FALSE) {
-                            return new LogicalEmptyRelation(filter.getOutput());
+                            return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
+                                    filter.getOutput());
                         } else if (expression != BooleanLiteral.TRUE) {
                             newConjuncts.add(expression);
                         }

@@ -128,6 +128,11 @@ Block::Block(const PBlock& pblock) {
     initialize_index_by_name();
 }
 
+void Block::reserve(size_t count) {
+    index_by_name.reserve(count);
+    data.reserve(count);
+}
+
 void Block::initialize_index_by_name() {
     for (size_t i = 0, size = data.size(); i < size; ++i) {
         index_by_name[data[i].name] = i;
@@ -701,6 +706,12 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
             if (column->size() != count) {
                 if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
+                    if (result_size != count) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                        "result_size not euqal with filter_size, result_size={}, "
+                                        "filter_size={}",
+                                        result_size, count);
+                    }
                     CHECK_EQ(result_size, count);
                 } else {
                     column = column->filter(filter, count);
