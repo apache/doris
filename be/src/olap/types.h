@@ -1543,7 +1543,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_GEOMETRY>
     static Status from_string(void* buf, const std::string& scan_key, const int precision,
                               const int scale) {
         // TODO support schema change
-        return Status::Error<ErrorCode::INVALID_SCHEMA>();
+        return Status::Error<ErrorCode::INVALID_SCHEMA>(
+                "FieldTypeTraits<OLAP_FIELD_TYPE_GEOMETRY> not support from_string");
     }
 
     static void set_to_min(void* buf) {

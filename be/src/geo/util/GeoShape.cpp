@@ -536,29 +536,40 @@ namespace doris {
             return nullptr;
         }
 
-        if(type() == GEO_SHAPE_POINT || type() == GEO_SHAPE_LINE_STRING || type() == GEO_SHAPE_POLYGON){
-            MutableS2ShapeIndex shape_index;
-            if(!this->add_to_s2shape_index(shape_index) ){
-                //这里应该返回报错
-                return nullptr;
-            }
-            return one_geo_buffer(options,shape_index);
-        } else if (type() == GEO_SHAPE_MULTI_POINT || type() == GEO_SHAPE_MULTI_LINE_STRING || type() == GEO_SHAPE_MULTI_POLYGON || type() == GEO_SHAPE_GEOMETRY_COLLECTION ){
-            std::unique_ptr<GeoMultiPolygon> res_multi_polygon = GeoMultiPolygon::create_unique();
-            for (int i = 0; i < this->get_num_geometries(); ++i) {
+        switch (type()) {
+            case GEO_SHAPE_POINT:
+            case GEO_SHAPE_LINE_STRING:
+            case GEO_SHAPE_POLYGON:{
                 MutableS2ShapeIndex shape_index;
-                if(this->get_geometries_n(i)->is_empty()) continue;
-                if(!this->get_geometries_n(i)->add_to_s2shape_index(shape_index) ){
+                if(!this->add_to_s2shape_index(shape_index) ){
                     //这里应该返回报错
                     return nullptr;
                 }
-                res_multi_polygon->add_one_geometry(one_geo_buffer(options,shape_index).release());
+                return one_geo_buffer(options,shape_index);
             }
-            return res_multi_polygon;
-        } else {
-            //这里应该返回报错
-            return nullptr;
+            case GEO_SHAPE_MULTI_POINT:
+            case GEO_SHAPE_MULTI_LINE_STRING:
+            case GEO_SHAPE_MULTI_POLYGON:
+            case GEO_SHAPE_GEOMETRY_COLLECTION: {
+                std::unique_ptr<GeoMultiPolygon> res_multi_polygon = GeoMultiPolygon::create_unique();
+                for (int i = 0; i < this->get_num_geometries(); ++i) {
+                    MutableS2ShapeIndex shape_index;
+                    if(this->get_geometries_n(i)->is_empty()) continue;
+                    if(!this->get_geometries_n(i)->add_to_s2shape_index(shape_index) ){
+                        //这里应该返回报错
+                        return nullptr;
+                    }
+                    res_multi_polygon->add_one_geometry(one_geo_buffer(options,shape_index).release());
+                }
+                return res_multi_polygon;
+            }
+            default: {
+                //这里应该返回报错
+                return nullptr;
+            }
+
         }
+
     }
 
 } // namespace doris
