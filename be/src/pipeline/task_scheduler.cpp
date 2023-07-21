@@ -115,8 +115,7 @@ void BlockedTaskScheduler::_schedule() {
                     VLOG_DEBUG << "Task pending" << task->debug_string();
                     iter++;
                 } else {
-                    _make_task_run(local_blocked_tasks, iter, ready_tasks,
-                                   PipelineTaskState::PENDING_FINISH);
+                    _make_task_run(local_blocked_tasks, iter, ready_tasks);
                 }
             } else if (task->fragment_context()->is_canceled()) {
                 if (task->is_pending_finish()) {
