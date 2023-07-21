@@ -79,7 +79,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
+ * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL/http table-valued-function
  */
 public abstract class ExternalFileTableValuedFunction extends TableValuedFunctionIf {
     public static final Logger LOG = LogManager.getLogger(ExternalFileTableValuedFunction.class);
@@ -176,10 +176,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected void parseFile() throws AnalysisException {
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
-        try {
-            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
-        } catch (UserException e) {
-            throw new AnalysisException("parse file failed, path = " + path, e);
+        // create dummy file status for http load
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+            fileStatus.setPath("");
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(-1); // must set to -1, means stream.
+            fileStatuses.add(fileStatus);
+        } else {
+            try {
+                BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            } catch (UserException e) {
+                throw new AnalysisException("parse file failed, path = " + path, e);
+            }
         }
     }
 

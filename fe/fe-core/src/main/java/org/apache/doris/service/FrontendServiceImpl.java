@@ -21,10 +21,17 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
@@ -57,6 +64,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.annotation.LogException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -119,6 +127,8 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
+import org.apache.doris.thrift.THttpLoadPutParams;
+import org.apache.doris.thrift.THttpLoadPutRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TListPrivilegesResult;
@@ -177,10 +187,12 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.StringReader;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -1741,6 +1753,89 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setParams(planFragmentParamsList);
         return result;
+    }
+
+    @Override
+    public THttpLoadPutParams httpLoadPut(THttpLoadPutRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive http load put request: {}, backend: {}", request, clientAddr);
+        THttpLoadPutParams params = null;
+        try {
+            params = httpLoadPutImpl(request);
+        } catch (UserException e) {
+            LOG.warn("failed to get stream load plan: {}", e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+        }
+        return params;
+    }
+
+    private THttpLoadPutParams httpLoadPutImpl(THttpLoadPutRequest request) throws UserException {
+        LOG.info("receive http load put request");
+        THttpLoadPutParams params = new THttpLoadPutParams();
+        String loadSql = request.getLoadSql();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setQueryId(request.getLoadId());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        ctx.setThreadLocalInfo();
+
+        SqlScanner input = new SqlScanner(new StringReader(loadSql), ctx.getSessionVariable().getSqlMode());
+        SqlParser parser = new SqlParser(input);
+        try {
+            StatementBase parsedStmt = SqlParserUtils.getFirstStmt(parser);
+            if (parsedStmt instanceof InsertStmt) {
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
+
+                SelectStmt selectStmt = (SelectStmt) insertStmt.getQueryStmt();
+
+                List<TableRef> tableRefList = selectStmt.getTableRefs();
+                TableValuedFunctionRef tableValuedFunctionRef = (TableValuedFunctionRef) tableRefList.get(0);
+                // case-insensitive
+                Map<String, String> paramMap = new CaseInsensitiveMap(tableValuedFunctionRef.getParams());
+
+                params.setDb(insertStmt.getDbName());
+                params.setTable(insertStmt.getTbl());
+                params.setLabel(insertStmt.getLabel());
+                // setting params
+                params.setColumnSeparator(paramMap.get("column_separator"));
+                params.setLineDelimiter(paramMap.get("line_delimiter"));
+                params.setMaxFilterRatio(Double.valueOf(paramMap.getOrDefault("max_filter_ratio", "0")));
+                params.setWhere(paramMap.get("where"));
+                params.setPartitions(paramMap.get("partitions"));
+                params.setTemporaryPartitions(paramMap.get("temporary_partitions"));
+                params.setColumns(paramMap.get("columns"));
+                params.setFormat(paramMap.get("format"));
+                params.setExecMemLimit(paramMap.get("exec_mem_limit"));
+                params.setStrictMode(Boolean.valueOf(paramMap.getOrDefault("strict_mode", "false")));
+                // params.setMergeType((TMergeType) paramMap.get("merge_type"));
+                params.setTwoPhaseCommit(Boolean.valueOf(paramMap.getOrDefault("two_phase_commit", "false")));
+                params.setEnableProfile(Boolean.valueOf(paramMap.getOrDefault("enable_profile", "false")));
+                params.setCompressType(paramMap.get("compress_type"));
+                params.setReadJsonByLine(Boolean.valueOf(paramMap.getOrDefault("read_json_by_line", "false")));
+                params.setTimeout(paramMap.get("timeout"));
+                params.setComment(paramMap.get("comment"));
+                params.setNegative(Boolean.valueOf(paramMap.getOrDefault("negative", "false")));
+                params.setJsonpaths(paramMap.get("jsonpaths"));
+                params.setJsonRoot(paramMap.get("json_root"));
+                params.setStripOuterArray(Boolean.valueOf(paramMap.getOrDefault("strip_outer_array", "false")));
+                params.setNumAsString(Boolean.valueOf(paramMap.getOrDefault("num_as_string", "false")));
+                params.setFuzzyParse(Boolean.valueOf(paramMap.getOrDefault("fuzzy_parse", "false")));
+                params.setSequenceCol(paramMap.get("sequence_col"));
+                params.setSendBatchParallelism(Integer.valueOf(paramMap.getOrDefault("send_batch_parallelism", "0")));
+                params.setLoadToSingleTablet(Boolean.valueOf(paramMap.getOrDefault("load_to_single_tablet", "false")));
+                params.setDeleteCondition(paramMap.get("delete_condition"));
+                params.setHiddenColumns(paramMap.get("hidden_columns"));
+                params.setTrimDoubleQuotes(Boolean.valueOf(paramMap.getOrDefault("trim_double_quotes", "false")));
+                params.setSkipLines(Integer.valueOf(paramMap.getOrDefault("skip_lines", "0")));
+                params.setPartialColumns(Boolean.valueOf(paramMap.getOrDefault("partial_columns", "false")));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return params;
     }
 
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {

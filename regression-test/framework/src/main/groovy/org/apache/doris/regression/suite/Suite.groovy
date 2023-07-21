@@ -29,6 +29,7 @@ import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
 import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
+import org.apache.doris.regression.action.HttpLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.action.HttpCliAction
@@ -475,6 +476,10 @@ class Suite implements GroovyInterceptable {
 
     void streamLoad(Closure actionSupplier) {
         runAction(new StreamLoadAction(context), actionSupplier)
+    }
+
+    void httpLoad(Closure actionSupplier) {
+        runAction(new HttpLoadAction(context), actionSupplier)
     }
 
     void restore(Closure actionSupplier) {

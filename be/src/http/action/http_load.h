@@ -21,10 +21,13 @@
 #include <string>
 
 #include "http/http_handler.h"
+#include "util/metrics.h"
 
 namespace doris {
 
 class ExecEnv;
+class Status;
+class StreamLoadContext;
 
 class HttpLoadAction : public HttpHandler {
 public:
@@ -41,7 +44,23 @@ public:
     void free_handler_ctx(std::shared_ptr<void> ctx) override;
 
 private:
+    Status _on_header(HttpRequest* http_req, THttpLoadPutParams& params,
+                      std::shared_ptr<StreamLoadContext> ctx);
+    Status _handle(THttpLoadPutParams& params, std::shared_ptr<StreamLoadContext> ctx);
+    Status _data_saved_path(THttpLoadPutParams& params, std::string* file_path);
+    Status _process_put(THttpLoadPutParams& params, std::shared_ptr<StreamLoadContext> ctx);
+    void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
+    void _parse_format(const std::string& format_str, const std::string& compress_type_str,
+                       TFileFormatType::type* format_type, TFileCompressType::type* compress_type);
+    bool _is_format_support_streaming(TFileFormatType::type format);
+
+private:
     ExecEnv* _exec_env;
+
+    std::shared_ptr<MetricEntity> _http_load_entity;
+    IntCounter* http_load_requests_total;
+    IntCounter* http_load_duration_ms;
+    IntGauge* http_load_current_processing;
 };
 
 } // namespace doris

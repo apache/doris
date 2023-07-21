@@ -44,7 +44,10 @@ public class TableValuedFunctionRef extends TableRef {
         this.funcName = funcName;
         this.params = params;
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
-        this.table = tableFunction.getTable();
+        // skip http
+        if (!funcName.equals("http")) {
+            this.table = tableFunction.getTable();
+        }
         if (hasExplicitAlias()) {
             return;
         }
@@ -125,4 +128,7 @@ public class TableValuedFunctionRef extends TableRef {
         return tableFunction;
     }
 
+    public Map<String, String> getParams() {
+        return params;
+    }
 }

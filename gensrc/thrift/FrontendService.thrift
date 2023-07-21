@@ -619,6 +619,59 @@ struct TStreamLoadMultiTablePutResult {
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
 }
 
+// HttpLoad request, used to load a streaming to engine
+struct THttpLoadPutRequest {
+    1: required Types.TUniqueId loadId
+    2: optional string load_sql // insert into sql used by http load
+}
+
+struct THttpLoadPutResult {
+    1: required Status.TStatus status
+    2: required i64 txn_id
+    3: optional i64 total_rows
+    4: optional i64 loaded_rows
+    5: optional i64 filtered_rows
+    6: optional i64 unselected_rows
+}
+
+// httptvf properties
+struct THttpLoadPutParams {
+    1: required string db
+    2: required string table
+    3: optional string label
+    4: optional string column_separator
+    5: optional string line_delimiter
+    6: optional double max_filter_ratio
+    7: optional string where
+    8: optional string partitions
+    9: optional string temporary_partitions
+    10: optional string columns
+    11: required string format
+    12: optional string exec_mem_limit
+    13: optional bool strict_mode
+    14: optional string merge_type
+    15: optional bool two_phase_commit
+    16: optional bool enable_profile
+    17: optional string compress_type
+    18: optional bool read_json_by_line
+    19: optional string timeout
+    20: optional string comment
+    21: optional bool negative
+    22: optional string jsonpaths
+    23: optional string json_root
+    24: optional bool strip_outer_array
+    25: optional bool num_as_string
+    26: optional bool fuzzy_parse
+    27: optional string sequence_col
+    28: optional i32 send_batch_parallelism
+    29: optional bool load_to_single_tablet
+    30: optional string delete_condition // delete
+    31: optional string hidden_columns
+    32: optional bool trim_double_quotes // trim double quotes for csv
+    33: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
+    34: optional bool partial_columns
+}
+
 struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
@@ -1081,6 +1134,8 @@ service FrontendService {
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
+
+    THttpLoadPutParams httpLoadPut(1: THttpLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 

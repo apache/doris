@@ -171,6 +171,7 @@ public:
 
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
+    THttpLoadPutResult http_put_result;
 
     std::vector<TTabletCommitInfo> commit_infos;
 
