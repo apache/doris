@@ -121,12 +121,13 @@ public class InternalSchemaInitializer extends Thread {
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+                put("replication_num", String.valueOf(
+                        Math.max(Config.statistic_internal_table_replica_num, Config.min_replication_num_per_tablet)));
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
+                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
     }
@@ -160,12 +161,13 @@ public class InternalSchemaInitializer extends Thread {
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+                put("replication_num", String.valueOf(
+                        Math.max(Config.statistic_internal_table_replica_num, Config.min_replication_num_per_tablet)));
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
+                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
@@ -193,12 +195,13 @@ public class InternalSchemaInitializer extends Thread {
                 StatisticConstants.STATISTIC_TABLE_BUCKET_COUNT, uniqueKeys);
         Map<String, String> properties = new HashMap<String, String>() {
             {
-                put("replication_num", String.valueOf(Config.statistic_internal_table_replica_num));
+                put("replication_num", String.valueOf(Math.max(Config.statistic_internal_table_replica_num,
+                        Config.min_replication_num_per_tablet)));
             }
         };
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
-                properties, null, "Doris internal statistics table, don't modify it", null);
+                properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
         // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         return createTableStmt;
