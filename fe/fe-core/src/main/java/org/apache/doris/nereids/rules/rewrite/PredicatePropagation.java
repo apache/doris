@@ -83,14 +83,14 @@ public class PredicatePropagation {
                 return super.visit(cp, context);
             }
 
-            private boolean isOriginDataTypeBigger(DataType originDataType, Expression expr) {
+            private boolean isDataTypeValid(DataType originDataType, Expression expr) {
                 if ((leftSlotEqualToRightSlot.child(0).getDataType() instanceof IntegralType)
                         && (leftSlotEqualToRightSlot.child(1).getDataType() instanceof IntegralType)
                                 && (originDataType instanceof IntegralType)) {
                     // infer filter can not be lower than original datatype, or dataset would be wrong
-                    if (((IntegralType) originDataType).widerThan(
+                    if (!((IntegralType) originDataType).widerThan(
                             (IntegralType) leftSlotEqualToRightSlot.child(0).getDataType())
-                                    || ((IntegralType) originDataType).widerThan(
+                                    && !((IntegralType) originDataType).widerThan(
                                             (IntegralType) leftSlotEqualToRightSlot.child(1).getDataType())) {
                         return true;
                     }
@@ -100,16 +100,14 @@ public class PredicatePropagation {
 
             private Expression replaceSlot(Expression expr, DataType originDataType) {
                 return expr.rewriteUp(e -> {
-                    if (isOriginDataTypeBigger(originDataType, leftSlotEqualToRightSlot)) {
-                        return e;
+                    if (isDataTypeValid(originDataType, leftSlotEqualToRightSlot)) {
+                        if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(0))) {
+                            return leftSlotEqualToRightSlot.child(1);
+                        } else if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(1))) {
+                            return leftSlotEqualToRightSlot.child(0);
+                        }
                     }
-                    if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(0))) {
-                        return leftSlotEqualToRightSlot.child(1);
-                    } else if (ExpressionUtils.isTwoExpressionEqualWithCast(e, leftSlotEqualToRightSlot.child(1))) {
-                        return leftSlotEqualToRightSlot.child(0);
-                    } else {
-                        return e;
-                    }
+                    return e;
                 });
             }
         }, null);
