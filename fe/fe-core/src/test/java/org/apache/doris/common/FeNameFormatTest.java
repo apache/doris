@@ -53,6 +53,8 @@ public class FeNameFormatTest {
         // check common name use correct regex, length 65
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", tblName + "t"));
         ExceptionChecker.expectThrows(AnalysisException.class, () -> FeNameFormat.checkCommonName("fakeType", "_commonName"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "common-Name"));
+        ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkCommonName("fakeType", "commonName-"));
     }
 
 }

@@ -240,7 +240,10 @@ public class Auth implements Writable {
             roles.add(roleManager.getRole(roleName));
         }
         if (isLdapAuthEnabled()) {
-            roles.addAll(ldapManager.getUserRoles(userIdentity.getQualifiedUser()));
+            Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            if (!CollectionUtils.isEmpty(ldapRoles)) {
+                roles.addAll(ldapRoles);
+            }
         }
         return roles;
     }
