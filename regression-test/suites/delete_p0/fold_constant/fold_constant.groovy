@@ -88,5 +88,6 @@ suite("fold_constant") {
     sql """
     delete from  delete_condition PARTITION p201702  where  `create_date` > str_to_date('2017-02-02 00:00:00', '%Y-%m-%d %H:%i:%s'); 
     """
+    "sync"
     qt_select """select * from delete_condition order by 1,2;"""
 }
