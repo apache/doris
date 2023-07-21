@@ -80,6 +80,7 @@ public class JdbcTable extends Table {
         tempMap.put("presto", TOdbcTableType.PRESTO);
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
+        tempMap.put("dlc", TOdbcTableType.DLC);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -372,6 +373,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case DLC:
                 return formatName(name, "`", "`", false, false);
             case SQLSERVER:
                 return formatName(name, "[", "]", false, false);

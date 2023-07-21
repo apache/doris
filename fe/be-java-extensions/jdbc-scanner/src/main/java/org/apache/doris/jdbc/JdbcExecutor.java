@@ -119,6 +119,10 @@ public class JdbcExecutor {
         return tableType == TOdbcTableType.NEBULA;
     }
 
+    public boolean isDLC() {
+        return tableType == TOdbcTableType.DLC;
+    }
+
     public void close() throws Exception {
         if (resultSet != null) {
             resultSet.close();
@@ -148,7 +152,7 @@ public class JdbcExecutor {
             resultColumnTypeNames = new ArrayList<>(columnCount);
             block = new ArrayList<>(columnCount);
             for (int i = 0; i < columnCount; ++i) {
-                if (!isNebula()) {
+                if (!isNebula() && !isDLC()) {
                     resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
                 }
                 block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));

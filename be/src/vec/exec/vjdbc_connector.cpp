@@ -203,7 +203,9 @@ Status JdbcConnector::query() {
     }
 
     LOG(INFO) << "JdbcConnector::query has exec success: " << _sql_str;
-    if (_conn_param.table_type != TOdbcTableType::NEBULA) {
+
+    if (_conn_param.table_type != TOdbcTableType::NEBULA &&
+        _conn_param.table_type != TOdbcTableType::DLC) {
         RETURN_IF_ERROR(_check_column_type());
     }
     return Status::OK();
