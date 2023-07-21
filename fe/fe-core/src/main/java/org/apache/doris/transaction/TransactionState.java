@@ -48,12 +48,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
@@ -526,8 +528,16 @@ public class TransactionState implements Writable {
         return this.errorReplicas;
     }
 
+    public Map<Long, Set<Long>> getCommitErrorReplicas() {
+        return commitErrorReplicas;
+    }
+
     public void setCommitErrorReplicas(Map<Long, Set<Long>> commitErrorReplicas) {
         this.commitErrorReplicas = commitErrorReplicas;
+    }
+
+    public Map<Long, Set<Long>> getPublishErrorReplicas() {
+        return publishErrorReplicas;
     }
 
     public void setPublishErrorReplicas(Map<Long, Set<Long>> publishErrorReplicas) {
@@ -733,8 +743,8 @@ public class TransactionState implements Writable {
         for (long errorReplciaId : errorReplicas) {
             out.writeLong(errorReplciaId);
         }
-        IOUtils.writeMapLongCollectionLong(out, commitErrorReplicas);
-        IOUtils.writeMapLongCollectionLong(out, publishErrorReplicas);
+        IOUtils.write(out, commitErrorReplicas);
+        IOUtils.write(out, publishErrorReplicas);
 
         if (txnCommitAttachment == null) {
             out.writeBoolean(false);
@@ -775,8 +785,8 @@ public class TransactionState implements Writable {
             errorReplicas.add(in.readLong());
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_125) {
-            IOUtils.readMapLongCollectionLong(in, commitErrorReplicas, Sets::newHashSet);
-            IOUtils.readMapLongCollectionLong(in, publishErrorReplicas, Sets::newHashSet);
+            readMapLongCollectionLong(in, commitErrorReplicas, Sets::newHashSet);
+            readMapLongCollectionLong(in, publishErrorReplicas, Sets::newHashSet);
         }
         if (in.readBoolean()) {
             txnCommitAttachment = TxnCommitAttachment.read(in);
@@ -800,5 +810,19 @@ public class TransactionState implements Writable {
 
     public String getErrMsg() {
         return this.errMsg;
+    }
+
+    public static <C extends Collection<Long>> void readMapLongCollectionLong(DataInput input,
+            Map<Long, C> map, Supplier<C> supplier) throws IOException {
+        int msize = input.readInt();
+        for (int i = 0; i < msize; i++) {
+            Long key = input.readLong();
+            int csize = input.readInt();
+            C collection = supplier.get();
+            for (int j = 0; j < csize; j++) {
+                collection.add(input.readLong());
+            }
+            map.put(key, collection);
+        }
     }
 }

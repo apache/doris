@@ -25,6 +25,8 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -35,6 +37,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class TransactionStateTest {
@@ -64,6 +68,33 @@ public class TransactionStateTest {
                 LoadJobSourceType.BACKEND_STREAMING, new TxnCoordinator(TxnSourceType.BE, "127.0.0.1"), 50000L,
                 60 * 1000L);
 
+        Set<Long> errorReplicas = Sets.newHashSet();
+        for (long i = 0; i < 100; i++) {
+            errorReplicas.add(i);
+        }
+        transactionState.setErrorReplicas(errorReplicas);
+
+        Map<Long, Set<Long>> commitErrorReplicas = Maps.newHashMap();
+        for (long i = 1000; i < 2000; i++) {
+            Set<Long> replicas = Sets.newHashSet();
+            for (long j = 0; j < 10; j++) {
+                replicas.add(i+j);
+            }
+            commitErrorReplicas.put(i, replicas);
+        }
+        transactionState.setCommitErrorReplicas(commitErrorReplicas);
+
+        Map<Long, Set<Long>> publishErrorReplicas = Maps.newHashMap();
+        for (long i = 2000; i < 3000; i++) {
+            Set<Long> replicas = Sets.newHashSet();
+            for (long j = 0; j < 10; j++) {
+                replicas.add(i+j);
+            }
+            publishErrorReplicas.put(i, replicas);
+        }
+        transactionState.setPublishErrorReplicas(publishErrorReplicas);
+
+        transactionState.setCommitErrorReplicas(commitErrorReplicas);
         transactionState.write(out);
         out.flush();
         out.close();
@@ -72,9 +103,11 @@ public class TransactionStateTest {
         DataInputStream in = new DataInputStream(new FileInputStream(file));
         TransactionState readTransactionState = new TransactionState();
         readTransactionState.readFields(in);
+        in.close();
 
         Assert.assertEquals(transactionState.getCoordinator().ip, readTransactionState.getCoordinator().ip);
-        in.close();
+        Assert.assertEquals(errorReplicas, readTransactionState.getErrorReplicas());
+        Assert.assertEquals(commitErrorReplicas, readTransactionState.getCommitErrorReplicas());
+        Assert.assertEquals(publishErrorReplicas, readTransactionState.getPublishErrorReplicas());
     }
-
 }

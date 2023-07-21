@@ -29,7 +29,6 @@ import java.io.PrintStream;
 import java.net.Socket;
 import java.util.Collection;
 import java.util.Map;
-import java.util.function.Supplier;
 
 /**
  * An utility class for I/O related functionality.
@@ -274,30 +273,32 @@ public class IOUtils {
         return null;
     }
 
-    public static <C extends Collection<Long>> void writeMapLongCollectionLong(DataOutput output,
-            Map<Long, C> map) throws IOException {
-        output.writeInt(map.size());
-        for (Map.Entry<Long, C> pair : map.entrySet()) {
-            output.writeLong(pair.getKey());
-            C collection = pair.getValue();
+    public static void write(DataOutput output, Object value) throws IOException {
+        if (value instanceof Integer) {
+            output.writeInt((Integer)value);
+        } else if (value instanceof Long) {
+            output.writeLong((Long)value);
+        } else if (value instanceof Boolean) {
+            output.writeBoolean((Boolean)value);
+        } else if (value instanceof Float) {
+            output.writeFloat((Float)value);
+        } else if (value instanceof Collection) {
+            Collection collection = (Collection)value;
             output.writeInt(collection.size());
-            for (Long e : collection) {
-                output.writeLong(e);
+            for (Object elem : collection) {
+                write(output, elem);
             }
-        }
-    }
-
-    public static <C extends Collection<Long>> void readMapLongCollectionLong(DataInput input,
-            Map<Long, C> map, Supplier<C> supplier) throws IOException {
-        int msize = input.readInt();
-        for (int i = 0; i < msize; i++) {
-            Long key = input.readLong();
-            int size = input.readInt();
-            C collection = supplier.get();
-            for (int j = 0; j < size; j++) {
-                collection.add(input.readLong());
+        } else if (value instanceof Map) {
+            Map<?, ?> map = (Map)value;
+            output.writeInt(map.size());
+            for (Map.Entry<?, ?> pair : map.entrySet()) {
+                write(output, pair.getKey());
+                write(output, pair.getValue());
             }
-            map.put(key, collection);
+        } else if (value == null) {
+            throw new IOException("IOUtils not support write null pointers");
+        } else {
+            throw new IOException("IOUtils not support write " + value.getClass());
         }
     }
 }
