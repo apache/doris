@@ -18,6 +18,7 @@
 suite('nereids_delete_using') {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_dml=true'
 
     sql 'insert into t1(id, c1, c2, c3) select id, c1 * 2, c2, c3 from t1'
     sql 'insert into t2(id, c1, c2, c3) select id, c1, c2 * 2, c3 from t2'

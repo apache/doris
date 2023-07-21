@@ -42,7 +42,6 @@ class TPlanFragmentDestination;
 class TResultFileSink;
 
 namespace vectorized {
-class VResultWriter;
 class VExprContext;
 
 class VResultFileSink : public DataSink {
@@ -84,7 +83,7 @@ private:
     std::unique_ptr<Block> _output_block = nullptr;
     std::shared_ptr<BufferControlBlock> _sender;
     std::unique_ptr<VDataStreamSender> _stream_sender;
-    std::shared_ptr<VResultWriter> _writer;
+    std::shared_ptr<ResultWriter> _writer;
     int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
     std::string _header;

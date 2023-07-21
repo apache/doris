@@ -57,6 +57,7 @@ TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
 TStatusError(NOT_AUTHORIZED);
+TStatusError(HTTP_ERROR);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -400,6 +401,7 @@ public:
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
     ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR(HttpError, HTTP_ERROR)
 #undef ERROR_CTOR
 
     template <int code>

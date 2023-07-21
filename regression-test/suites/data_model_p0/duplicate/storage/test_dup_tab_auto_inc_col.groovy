@@ -17,7 +17,6 @@
 
 suite("test_dup_table_auto_inc_col") {
 
-    // duplicate table with a auto-increment key column
     def table1 = "test_dup_tab_auto_inc_col1"
     sql "drop table if exists ${table1}"
     sql """

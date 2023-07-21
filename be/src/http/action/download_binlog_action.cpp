@@ -77,10 +77,19 @@ void handle_get_binlog_info(HttpRequest* req) {
         auto tablet = get_tablet(tablet_id);
 
         const auto& [rowset_id, num_segments] = tablet->get_binlog_info(binlog_version);
-        auto binlog_info_msg = fmt::format("{}:{}", rowset_id, num_segments);
-        HttpChannel::send_reply(req, binlog_info_msg);
+        if (rowset_id.empty()) {
+            HttpChannel::send_reply(
+                    req, HttpStatus::NOT_FOUND,
+                    fmt::format("get binlog info failed, binlog_version={}", binlog_version));
+        } else if (num_segments < 0) {
+            HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                    fmt::format("invalid num_segments: {}", num_segments));
+        } else {
+            auto binlog_info_msg = fmt::format("{}:{}", rowset_id, num_segments);
+            HttpChannel::send_reply(req, binlog_info_msg);
+        }
     } catch (const std::exception& e) {
-        HttpChannel::send_reply(req, e.what());
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get binlog info failed, error: " << e.what();
         return;
     }
@@ -97,7 +106,7 @@ void handle_get_segment_file(HttpRequest* req) {
         const auto& segment_index = get_http_param(req, kSegmentIndexParameter);
         segment_file_path = tablet->get_segment_filepath(rowset_id, segment_index);
     } catch (const std::exception& e) {
-        HttpChannel::send_reply(req, e.what());
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get download file path failed, error: " << e.what();
         return;
     }
@@ -107,12 +116,12 @@ void handle_get_segment_file(HttpRequest* req) {
     bool exists = false;
     Status status = io::global_local_filesystem()->exists(segment_file_path, &exists);
     if (!status.ok()) {
-        HttpChannel::send_reply(req, status.to_string());
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status.to_string());
         LOG(WARNING) << "check file exists failed, error: " << status.to_string();
         return;
     }
     if (!exists) {
-        HttpChannel::send_reply(req, "file not exist.");
+        HttpChannel::send_reply(req, HttpStatus::NOT_FOUND, "file not exist.");
         LOG(WARNING) << "file not exist, file path: " << segment_file_path;
         return;
     }
@@ -127,14 +136,13 @@ void handle_get_rowset_meta(HttpRequest* req) {
         const auto& binlog_version = get_http_param(req, kBinlogVersionParameter);
         auto rowset_meta = tablet->get_binlog_rowset_meta(binlog_version, rowset_id);
         if (rowset_meta.empty()) {
-            // TODO(Drogon): send error
-            HttpChannel::send_reply(req,
+            HttpChannel::send_reply(req, HttpStatus::NOT_FOUND,
                                     fmt::format("get rowset meta failed, rowset_id={}", rowset_id));
         } else {
             HttpChannel::send_reply(req, rowset_meta);
         }
     } catch (const std::exception& e) {
-        HttpChannel::send_reply(req, e.what());
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
         LOG(WARNING) << "get download file path failed, error: " << e.what();
     }
 }
@@ -147,7 +155,8 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download binlog request " << req->debug_string();
 
     if (!config::enable_feature_binlog) {
-        HttpChannel::send_reply(req, "binlog feature is not enabled.");
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR,
+                                "binlog feature is not enabled.");
         return;
     }
 
@@ -157,7 +166,7 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
         // FIXME(Drogon): support check token
         // status = _check_token(req);
         if (!status.ok()) {
-            HttpChannel::send_reply(req, status.to_string());
+            HttpChannel::send_reply(req, HttpStatus::UNAUTHORIZED, status.to_string());
             return;
         }
     }
@@ -175,7 +184,7 @@ void DownloadBinlogAction::handle(HttpRequest* req) {
     } else {
         auto error_msg = fmt::format("invalid method: {}", method);
         LOG(WARNING) << error_msg;
-        HttpChannel::send_reply(req, error_msg);
+        HttpChannel::send_reply(req, HttpStatus::NOT_IMPLEMENTED, error_msg);
     }
 }
 
