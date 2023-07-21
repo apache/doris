@@ -308,7 +308,7 @@ CTE 名称可以在其他 CTE 中引用，从而可以基于其他 CTE 定义 CT
 
 1. 关于SELECT子句的一些附加知识
 
-   - 可以使用AS alias_name为select_expr指定别名。别名用作表达式的列名，可用于GROUP BY，ORDER BY或HAVING子句。AS关键字是在指定列的别名时养成使用AS是一种好习惯。
+   - 可以使用AS alias_name为select_expr指定别名。别名用作表达式的列名，可用于GROUP BY，ORDER BY或HAVING子句。AS关键字是在指定列的别名时使用的，养成使用AS是一种好习惯。
 
    - FROM后的table_references指示参与查询的一个或者多个表。如果列出了多个表，就会执行JOIN操作。而对于每一个指定表，都可以为其定义别名
 
