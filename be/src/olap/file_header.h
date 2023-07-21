@@ -44,7 +44,7 @@ using FixedFileHeader = struct _FixedFileHeader {
     uint32_t protobuf_length;
     // Checksum of Protobuf part
     uint32_t protobuf_checksum;
-};
+} __attribute__((packed));
 
 using FixedFileHeaderV2 = struct _FixedFileHeaderV2 {
     uint64_t magic_number;
@@ -57,7 +57,7 @@ using FixedFileHeaderV2 = struct _FixedFileHeaderV2 {
     uint64_t protobuf_length;
     // Checksum of Protobuf part
     uint32_t protobuf_checksum;
-};
+} __attribute__((packed));
 
 template <typename MessageType, typename ExtraType = uint32_t>
 class FileHeader {
@@ -158,6 +158,9 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
     size_t bytes_read = 0;
     RETURN_IF_ERROR(file_reader->read_at(
             0, {(const uint8_t*)&_fixed_file_header, _fixed_file_header_size}, &bytes_read));
+    DCHECK(_fixed_file_header_size == bytes_read)
+            << " deserialize read bytes dismatch, request bytes " << _fixed_file_header_size
+            << " actual read " << bytes_read;
 
     //Status read_at(size_t offset, Slice result, size_t* bytes_read,
     //             const IOContext* io_ctx = nullptr);
@@ -167,6 +170,9 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
         FixedFileHeader tmp_header;
         RETURN_IF_ERROR(file_reader->read_at(0, {(const uint8_t*)&tmp_header, sizeof(tmp_header)},
                                              &bytes_read));
+        DCHECK(sizeof(tmp_header) == bytes_read)
+                << " deserialize read bytes dismatch, request bytes " << sizeof(tmp_header)
+                << " actual read " << bytes_read;
         _fixed_file_header.file_length = tmp_header.file_length;
         _fixed_file_header.checksum = tmp_header.checksum;
         _fixed_file_header.protobuf_length = tmp_header.protobuf_length;
@@ -200,7 +206,7 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
 
     if (file_length() != static_cast<uint64_t>(real_file_length)) {
         return Status::Error<ErrorCode::FILE_DATA_ERROR>(
-                "file length is not match. file={}, file_length=, real_file_length={}",
+                "file length is not match. file={}, file_length={}, real_file_length={}",
                 file_reader->path().native(), file_length(), real_file_length);
     }
 
@@ -209,9 +215,13 @@ Status FileHeader<MessageType, ExtraType>::deserialize() {
             olap_adler32(olap_adler32_init(), buf.get(), _fixed_file_header.protobuf_length);
 
     if (real_protobuf_checksum != _fixed_file_header.protobuf_checksum) {
+        // When compiling using gcc there woule be error like:
+        // Cannot bind packed field '_FixedFileHeaderV2::protobuf_checksum' to 'unsigned int&'
+        // so we need to using unary operator+ to evaluate one value to pass
+        // to status to successfully compile.
         return Status::Error<ErrorCode::CHECKSUM_ERROR>(
                 "checksum is not match. file={}, expect={}, actual={}",
-                file_reader->path().native(), _fixed_file_header.protobuf_checksum,
+                file_reader->path().native(), +_fixed_file_header.protobuf_checksum,
                 real_protobuf_checksum);
     }
 

@@ -73,6 +73,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected Map<String, Long> tableNameToId = Maps.newConcurrentMap();
     @SerializedName(value = "idToTbl")
     protected Map<Long, T> idToTbl = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
     protected boolean invalidCacheInInit = true;
@@ -147,6 +149,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
         tableNameToId = tmpTableNameToId;
         idToTbl = tmpIdToTbl;
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
@@ -179,6 +182,10 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             tableNameToId = tmpTableNameToId;
             idToTbl = tmpIdToTbl;
         }
+
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initDatabaseLog.setLastUpdateTime(lastUpdateTime);
         initialized = true;
         Env.getCurrentEnv().getEditLog().logInitExternalDb(initDatabaseLog);
     }
@@ -305,6 +312,14 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     public T getTableNullable(long tableId) {
         makeSureInitialized();
         return idToTbl.get(tableId);
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
     }
 
     @Override

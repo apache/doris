@@ -17,18 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.algebra.Scan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import org.json.JSONObject;
@@ -40,42 +35,19 @@ import java.util.Optional;
 /**
  * Logical relation plan.
  */
-public abstract class LogicalRelation extends LogicalLeaf implements Scan {
+public abstract class LogicalRelation extends LogicalLeaf implements Relation {
 
-    protected final ObjectId id;
-    protected final TableIf table;
-    protected final ImmutableList<String> qualifier;
+    protected final RelationId relationId;
 
-    public LogicalRelation(ObjectId id, PlanType type, TableIf table, List<String> qualifier) {
-        this(id, type, table, qualifier, Optional.empty(), Optional.empty());
+    public LogicalRelation(RelationId relationId, PlanType type) {
+        this(relationId, type, Optional.empty(), Optional.empty());
     }
 
-    public LogicalRelation(ObjectId id, PlanType type, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
-        this(id, type, new OlapTable(), ImmutableList.of(), groupExpression, logicalProperties);
-    }
-
-    /**
-     * Constructor for LogicalRelationPlan.
-     *
-     * @param table Doris table
-     * @param qualifier qualified relation name
-     */
-    public LogicalRelation(ObjectId id, PlanType type, TableIf table, List<String> qualifier,
+    public LogicalRelation(RelationId relationId, PlanType type,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(type, groupExpression, logicalProperties);
-        this.id = id;
-        this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-    }
+        this.relationId = relationId;
 
-    @Override
-    public TableIf getTable() {
-        return table;
-    }
-
-    public List<String> getQualifier() {
-        return qualifier;
     }
 
     @Override
@@ -87,22 +59,12 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
             return false;
         }
         LogicalRelation that = (LogicalRelation) o;
-        return this.id.equals(that.getId())
-                && Objects.equals(this.table.getId(), that.table.getId())
-                && Objects.equals(this.qualifier, that.qualifier);
+        return this.relationId.equals(that.getRelationId());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id);
-    }
-
-    @Override
-    public List<Slot> computeOutput() {
-        return table.getBaseSchema()
-                .stream()
-                .map(col -> SlotReference.fromColumn(col, qualified()))
-                .collect(ImmutableList.toImmutableList());
+        return Objects.hash(relationId);
     }
 
     @Override
@@ -115,31 +77,15 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
         return ImmutableList.of();
     }
 
-    /**
-     * Full qualified name parts, i.e., concat qualifier and name into a list.
-     */
-    public List<String> qualified() {
-        return Utils.qualifiedNameParts(qualifier, table.getName());
-    }
-
-    /**
-     * Full qualified table name, concat qualifier and name with `.` as separator.
-     */
-    public String qualifiedName() {
-        return Utils.qualifiedName(qualifier, table.getName());
-    }
-
-    public ObjectId getId() {
-        return id;
+    public RelationId getRelationId() {
+        return relationId;
     }
 
     @Override
     public JSONObject toJson() {
         JSONObject logicalRelation = super.toJson();
         JSONObject properties = new JSONObject();
-        properties.put("ObjectId", id.toString());
-        properties.put("Table", table.toString());
-        properties.put("Qualifier", qualifier.toString());
+        properties.put("RelationId", relationId.toString());
         logicalRelation.put("Properties", properties);
         return logicalRelation;
     }

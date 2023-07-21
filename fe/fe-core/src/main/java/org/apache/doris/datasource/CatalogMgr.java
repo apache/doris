@@ -43,6 +43,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -338,6 +339,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             CatalogIf catalog = nameToCatalog.get(stmt.getCatalogName());
+            Map<String, String> oldProperties = catalog.getProperties();
             if (catalog == null) {
                 throw new DdlException("No catalog found with name: " + stmt.getCatalogName());
             }
@@ -346,7 +348,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 throw new DdlException("Can't modify the type of catalog property with name: " + stmt.getCatalogName());
             }
             CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
-            replayAlterCatalogProps(log);
+            replayAlterCatalogProps(log, oldProperties, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
             writeUnlock();
@@ -377,7 +379,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                             CaseSensibility.CATALOG.getCaseSensibility());
                 }
-
                 for (CatalogIf catalog : nameToCatalog.values()) {
                     if (Env.getCurrentEnv().getAccessManager()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
@@ -398,6 +399,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         Map<String, String> props = catalog.getProperties();
                         String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
                         row.add(createTime);
+                        row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
                         row.add(catalog.getComment());
                         rows.add(row);
                     }
@@ -563,10 +565,31 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     /**
      * Reply for alter catalog props event.
      */
-    public void replayAlterCatalogProps(CatalogLog log) {
+    public void replayAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties, boolean isReplay)
+            throws DdlException {
         writeLock();
         try {
             CatalogIf catalog = idToCatalog.get(log.getCatalogId());
+            if (catalog instanceof ExternalCatalog) {
+                Map<String, String> newProps = log.getNewProps();
+                ((ExternalCatalog) catalog).tryModifyCatalogProps(newProps);
+                if (!isReplay) {
+                    try {
+                        ((ExternalCatalog) catalog).checkProperties();
+                    } catch (DdlException ddlException) {
+                        if (oldProperties != null) {
+                            ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
+                        }
+                        throw ddlException;
+                    }
+                }
+                if (newProps.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
+                    long catalogId = catalog.getId();
+                    Integer metadataRefreshIntervalSec = Integer.valueOf(newProps.get(METADATA_REFRESH_INTERVAL_SEC));
+                    Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
+                    Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
+                }
+            }
             catalog.modifyCatalogProps(log.getNewProps());
         } finally {
             writeUnlock();
@@ -692,6 +715,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setCatalogId(catalog.getId());
         log.setDbId(db.getId());
         log.setTableId(table.getId());
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayDropExternalTable(log);
         Env.getCurrentEnv().getEditLog().logDropExternalTable(log);
     }
@@ -717,6 +741,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             db.dropTableForReplay(table.getName());
+            db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
         }
@@ -766,6 +791,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         log.setDbId(db.getId());
         log.setTableName(tableName);
         log.setTableId(Env.getCurrentEnv().getNextId());
+        log.setLastUpdateTime(System.currentTimeMillis());
         replayCreateExternalTableFromEvent(log);
         Env.getCurrentEnv().getEditLog().logCreateExternalTable(log);
     }
@@ -786,6 +812,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         db.writeLock();
         try {
             db.createTableForReplay(log.getTableName(), log.getTableId());
+            db.setLastUpdateTime(log.getLastUpdateTime());
         } finally {
             db.writeUnlock();
         }
