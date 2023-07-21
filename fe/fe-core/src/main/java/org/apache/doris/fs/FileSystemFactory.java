@@ -62,7 +62,8 @@ public class FileSystemFactory {
             return FileSystemType.S3;
         } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS) || location.startsWith(FeConstants.FS_PREFIX_GFS)) {
             return FileSystemType.DFS;
-        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+        } else if (location.startsWith(FeConstants.FS_PREFIX_OFS) || location.startsWith(FeConstants.FS_PREFIX_COSN)) {
+            // ofs:// and cosn:// use the same underlying file system: Tencent Cloud HDFS, aka CHDFS
             return FileSystemType.OFS;
         } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
             return FileSystemType.JFS;

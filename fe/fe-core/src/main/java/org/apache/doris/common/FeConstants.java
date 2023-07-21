@@ -80,6 +80,7 @@ public class FeConstants {
     public static String FS_PREFIX_GCS = "gs";
     public static String FS_PREFIX_BOS = "bos";
     public static String FS_PREFIX_COS = "cos";
+    public static String FS_PREFIX_COSN = "cosn";
     public static String FS_PREFIX_OBS = "obs";
     public static String FS_PREFIX_OFS = "ofs";
     public static String FS_PREFIX_GFS = "gfs";
