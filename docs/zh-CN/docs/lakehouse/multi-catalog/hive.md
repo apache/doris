@@ -44,17 +44,11 @@ under the License.
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'hadoop.username' = 'hive',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083'
 );
 ```
 
-除了 `type` 和 `hive.metastore.uris` 两个必须参数外，还可以通过更多参数来传递连接所需要的信息。
+还可以通过更多参数来传递连接所需要的信息。
 
 如提供 HDFS HA 信息，示例如下：
 
@@ -70,29 +64,6 @@ CREATE CATALOG hive PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
-
-同时提供 HDFS HA 信息和 Kerberos 认证信息，示例如下：
-
-```sql
-CREATE CATALOG hive PROPERTIES (
-    'type'='hms',
-    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
-    'hive.metastore.sasl.enabled' = 'true',
-    'hive.metastore.kerberos.principal' = 'your-hms-principal',
-    'dfs.nameservices'='your-nameservice',
-    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
-    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
-    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
-    'hadoop.security.authentication' = 'kerberos',
-    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
-    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
-    'yarn.resourcemanager.principal' = 'your-rm-principal'
-);
-```
-
-请在所有的 `BE`、`FE` 节点下放置 `krb5.conf` 文件和 `keytab` 认证文件，`keytab` 认证文件路径和配置保持一致，`krb5.conf` 文件默认放置在 `/etc/krb5.conf` 路径。
-`hive.metastore.kerberos.principal` 的值需要和所连接的 hive metastore 的同名属性保持一致，可从 `hive-site.xml` 中获取。
 
 ### Hive On JuiceFS
 
@@ -176,6 +147,40 @@ CREATE CATALOG hive PROPERTIES (
     "glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
     "glue.access_key" = "ak",
     "glue.secret_key" = "sk"
+);
+```
+### 配置 kerberos
+
+集群开启 kerberos 认证的前提下需要在创建 catalog 时增加以下配置项才可正常访问
+
+```sql
+(
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
+);
+```
+
+请在所有的 `BE` 和 `FE` 节点下放置 `krb5.conf` 文件和 `keytab` 认证文件，`keytab` 认证文件路径和配置保持一致，`krb5.conf` 文件默认放置在 `/etc/krb5.conf` 路径。 `hive.metastore.kerberos.principal` 的值需要和所连接的 hive metastore 的同名属性保持一致，可从 `hive-site.xml` 中获取。 `yarn.resourcemanager.principal` 的值可从 `yarn-site.xml` 中获取。如若遇到查询 catalog 失败，可在 fe 启动脚本里增加 `-Dsun.security.krb5.debug=true -Dsun.security.jgss.debug=true` 进行 debug 。
+
+示例：提供 HA 信息和 kerberos 认证信息创建 catalog 
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    'type'='hms',
+    'hive.metastore.uris' = 'thrift://172.0.0.1:9083',
+    'hive.metastore.sasl.enabled' = 'true',
+    'hive.metastore.kerberos.principal' = 'your-hms-principal',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:8088',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:8088',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+    'hadoop.security.authentication' = 'kerberos',
+    'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
+    'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
+    'yarn.resourcemanager.principal' = 'your-rm-principal'
 );
 ```
 
