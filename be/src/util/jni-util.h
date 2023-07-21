@@ -90,6 +90,7 @@ private:
     static jmethodID get_jvm_metrics_id_;
     static jmethodID get_jvm_threads_id_;
     static jmethodID get_jmx_json_;
+    static jmethodID load_jni_scanners_;
 
     // Thread-local cache of the JNIEnv for this thread.
     static __thread JNIEnv* tls_env_;

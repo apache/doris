@@ -153,6 +153,7 @@ jmethodID JniUtil::throwable_to_stack_trace_id_ = NULL;
 jmethodID JniUtil::get_jvm_metrics_id_ = NULL;
 jmethodID JniUtil::get_jvm_threads_id_ = NULL;
 jmethodID JniUtil::get_jmx_json_ = NULL;
+jmethodID JniUtil::load_jni_scanners_ = NULL;
 
 Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) {
     DCHECK(jstr != nullptr);
@@ -346,6 +347,7 @@ Status JniUtil::Init() {
     // Get the JNIEnv* corresponding to current thread.
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");
     // Find JniUtil class and create a global ref.
     jclass local_jni_util_cl = env->FindClass("org/apache/doris/common/jni/utils/JniUtil");
@@ -454,6 +456,13 @@ Status JniUtil::Init() {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.getJMXJson method.");
     }
+
+    load_jni_scanners_ = env->GetStaticMethodID(jni_util_cl_, "loadJNIScanner", "()V");
+    if (load_jni_scanners_ == NULL) {
+        if (env->ExceptionOccurred()) env->ExceptionDescribe();
+        return Status::InternalError("Failed to find JniUtil.loadJNIScanner method.");
+    }
+
     jvm_inited_ = true;
     return Status::OK();
 }

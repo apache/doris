@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.jni.utils;
 
+import org.apache.doris.common.classloader.ScannerLoader;
 import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.thrift.TGetJMXJsonResponse;
 import org.apache.doris.thrift.TGetJvmMemoryMetricsResponse;
@@ -268,5 +269,9 @@ public class JniUtil {
             sb.append(entry.getKey() + ":" + entry.getValue() + "\n");
         }
         return sb.toString();
+    }
+
+    public static void loadJNIScanner() {
+        ScannerLoader.load();
     }
 }
