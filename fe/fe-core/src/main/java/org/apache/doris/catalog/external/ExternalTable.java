@@ -371,6 +371,13 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return Optional.empty();
     }
 
+    /**
+     * Should only be called in ExternalCatalog's getSchema(),
+     * which is called from schema cache.
+     * If you want to get schema of this table, use getFullSchema()
+     *
+     * @return
+     */
     public List<Column> initSchemaAndUpdateTime() {
         lastUpdateTime = System.currentTimeMillis();
         return initSchema();
