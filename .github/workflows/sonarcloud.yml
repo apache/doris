@@ -18,6 +18,7 @@
 ---
 name: Code Quality Analysis
 on:
+  pull_request:
   schedule:
     - cron: '30 3,14 * * *'
 
@@ -56,11 +57,13 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+      - name: Generated Source Code
+        run: |
+           sh generated-source.sh
       - name: Analyze FE
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          sh generated-source.sh
           cd fe
           mvn --batch-mode verify sonar:sonar -DskipTests -Dsonar.host.url=https://sonarcloud.io -Dsonar.organization=apache -Dsonar.projectKey=apache_incubator-doris -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.httpconnectionManager.ttlSeconds=120
