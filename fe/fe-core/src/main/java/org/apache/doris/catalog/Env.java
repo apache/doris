@@ -99,6 +99,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -253,7 +254,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -292,12 +292,14 @@ public class Env {
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
     private static final String VERSION_FILE = "/VERSION";
-    private static final int CURRENT_FE_VERSION = 2000; // 2.0.0.0
+    public static String[] FeVersionHistory = { "1_2_4", "1_2_5", "2_0_0" };
+    public static String latestFeVersion = "2_0_0";
+    private String previousFeVersion;
     private int oldFeVersion;
     private String metaDir;
     private String bdbDir;
     private String imageDir;
-
+    private String versionDir;
     private MetaContext metaContext;
     private long epoch = 0;
 
@@ -856,6 +858,7 @@ public class Env {
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
+        this.versionDir = EnvUtils.getDorisHome() + VERSION_FILE;
 
         // 0. get local node and helper node info
         getSelfHostPort();
@@ -876,13 +879,24 @@ public class Env {
             }
         }
         File imageDir = new File(this.imageDir);
-        if (!imageDir.exists()) {
-            // If the 'image' folder does not exist, the current FE is the latest version.
-            writeVersion();
-            imageDir.mkdirs();
-        }
+        File verDir = new File(this.versionDir);
 
-        diffVersion();
+        if (!imageDir.exists()) {
+            // If the 'image' folder does not exist, this is a completely new project.
+            imageDir.mkdirs();
+            verDir.mkdirs();
+            writeLatestVersion();
+            this.previousFeVersion = Env.latestFeVersion;
+        } else {
+            if (!verDir.exists()) {
+                // The current FE is an upgrade from a lower version.
+                verDir.mkdirs();
+                writeLatestVersion();
+                this.previousFeVersion = Env.FeVersionHistory[0];
+            } else {
+                diffVersion();
+            }
+        }
 
         // init plugin manager
         pluginMgr.init();
@@ -5338,43 +5352,41 @@ public class Env {
         }
     }
 
-    private void writeVersion() {
+    private void writeLatestVersion() {
         // "Write down the latest version of FE.
-        String fileName = this.metaDir + VERSION_FILE;
+        String fileName = this.versionDir + "/" + latestFeVersion;
         try (FileWriter fileWriter = new FileWriter(fileName)) {
-            fileWriter.write(CURRENT_FE_VERSION + "");
+            fileWriter.write("Version :" + latestFeVersion);
         } catch (IOException e) {
-            e.printStackTrace();
+            LOG.info(e.toString());
         }
     }
 
-    private boolean checkVersion() {
-        String fileName = this.metaDir + VERSION_FILE;
-        File file = new File(fileName);
+    private boolean checkVersion(String version) {
+        String versionFile = this.versionDir + "/" + version;
+        File file = new File(versionFile);
         return file.exists();
     }
 
     private void diffVersion() {
-        if (checkVersion()) {
-            String fileName = this.metaDir + VERSION_FILE;
-            try (BufferedReader reader = new BufferedReader(new FileReader(fileName))) {
-                String line = reader.readLine();
-                oldFeVersion = Integer.parseInt(line);
-            } catch (Exception e) {
-                e.printStackTrace();
+        for (String version : Env.FeVersionHistory) {
+            if (checkVersion(version)) {
+                this.previousFeVersion = version;
             }
-        } else {
-            oldFeVersion = 1250; // fe version small 2.0
         }
-        writeVersion();
+        writeLatestVersion();
+        if (previousFeVersion == null) {
+            LOG.error("can not find FeVersion file");
+            previousFeVersion = latestFeVersion;
+        }
+    }
+
+    public boolean isMajorVersionUpgrade() {
+        return previousFeVersion.charAt(0) != latestFeVersion.charAt(0);
     }
 
     public int getOldFeVersion() {
         return oldFeVersion;
-    }
-
-    public int getCurrentFeVersion() {
-        return CURRENT_FE_VERSION;
     }
 
     public int getFollowerCount() {
