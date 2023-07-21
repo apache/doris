@@ -186,7 +186,9 @@ public class LoadScanProvider {
                 String finalSequenceCol = sequenceCol;
                 Optional<ImportColumnDesc> foundCol = columnDescs.descs.stream()
                         .filter(c -> c.getColumnName().equalsIgnoreCase(finalSequenceCol)).findAny();
-                if (foundCol.isPresent()) {
+                // if `columnDescs.descs` is empty, that means it's not a partial update load, and user not specify
+                // column name.
+                if (foundCol.isPresent() || columnDescs.descs.isEmpty()) {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
                 } else if (!fileGroupInfo.isPartialUpdate()) {
