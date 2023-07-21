@@ -631,6 +631,9 @@ suite("test_date_function") {
         sql("select * from ${tableName} where date(birth1) < timestamp(date '2022-01-01')")
         contains "`birth1` < '2022-01-01'"
     }
+    
+    def result = sql "explain select date_trunc('2021-01-01 00:00:12', 'month')"
+    assertFalse(result[0][0].contains("date_trunc"))
 
     sql """
         insert into ${tableName} values 
