@@ -113,7 +113,13 @@ Status DeltaWriter::init() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         std::lock_guard<std::shared_mutex> lck(_tablet->get_header_lock());
         _cur_max_version = _tablet->max_version_unlocked().second;
-        _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+        // tablet is under alter process. The delete bitmap will be calculated after conversion.
+        if (_tablet->tablet_state() == TABLET_NOTREADY &&
+            SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+            _rowset_ids.clear();
+        } else {
+            _rowset_ids = _tablet->all_rs_id(_cur_max_version);
+        }
     }
 
     // check tablet version number
@@ -399,19 +405,22 @@ Status DeltaWriter::close_wait(const PSlaveTabletNodes& slave_tablet_nodes,
         return res;
     }
     if (_tablet->enable_unique_key_merge_on_write()) {
-        auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
-        std::vector<segment_v2::SegmentSharedPtr> segments;
-        RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
         // tablet is under alter process. The delete bitmap will be calculated after conversion.
         if (_tablet->tablet_state() == TABLET_NOTREADY &&
             SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
-            return Status::OK();
+            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                         "tablet_id: "
+                      << _tablet->tablet_id() << " txn_id: " << _req.txn_id;
+        } else {
+            auto beta_rowset = reinterpret_cast<BetaRowset*>(_cur_rowset.get());
+            std::vector<segment_v2::SegmentSharedPtr> segments;
+            RETURN_IF_ERROR(beta_rowset->load_segments(&segments));
+            if (segments.size() > 1) {
+                RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments,
+                                                            nullptr, _delete_bitmap,
+                                                            _cur_max_version, true));
+            }
         }
-        if (segments.size() > 1) {
-            RETURN_IF_ERROR(_tablet->calc_delete_bitmap(beta_rowset->rowset_id(), segments, nullptr,
-                                                        _delete_bitmap, _cur_max_version, true));
-        }
-
         _storage_engine->txn_manager()->set_txn_related_delete_bitmap(
                 _req.partition_id, _req.txn_id, _tablet->tablet_id(), _tablet->schema_hash(),
                 _tablet->tablet_uid(), true, _delete_bitmap, _rowset_ids);
