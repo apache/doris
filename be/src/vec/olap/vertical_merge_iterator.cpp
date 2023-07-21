@@ -356,6 +356,7 @@ Status VerticalMergeIteratorContext::_load_next_block() {
         if (!st.ok()) {
             _valid = false;
             if (st.is<END_OF_FILE>()) {
+                _block.reset();
                 return Status::OK();
             } else {
                 return st;
@@ -601,7 +602,9 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts) {
 Status VerticalMaskMergeIterator::check_all_iter_finished() {
     for (auto iter : _origin_iter_ctx) {
         if (iter->inited()) {
-            RETURN_IF_ERROR(iter->advance());
+            if (iter->valid()) {
+                RETURN_IF_ERROR(iter->advance());
+            }
             DCHECK(!iter->valid());
         }
     }
