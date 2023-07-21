@@ -69,11 +69,17 @@ public class PublishVersionDaemon extends MasterDaemon {
             Set<Long> errorReplicas = Sets.newHashSet();
             for (Long tabletId : task.getErrorTablets()) {
                 if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
+                    LOG.warn("tablet {} has been removed when publish transaction {}",
+                            tabletId, transactionState.getTransactionId());
                     continue;
                 }
                 Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
                 if (replica != null) {
                     errorReplicas.add(replica.getId());
+                } else {
+                    LOG.warn("tablet {} on backend {} has been removed when publish"
+                           + " transaction {}", tabletId, backendId,
+                           transactionState.getTransactionId());
                 }
             }
             publishErrorReplicas.put(backendId, errorReplicas);
