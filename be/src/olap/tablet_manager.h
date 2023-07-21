@@ -76,8 +76,7 @@ public:
 
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
-            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);

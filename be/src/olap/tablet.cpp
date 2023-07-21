@@ -270,6 +270,11 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
         _max_version_schema =
                 rowset_meta_with_max_schema_version(_tablet_meta->all_rs_metas())->tablet_schema();
     }
+    if (tablet_meta->cumulative_compaction_policy() == CompactionPolicyPB::TIME_SERIES) {
+        _cumulative_compaction_policy = std::make_unique<TimeSeriesCumulativeCompactionPolicy>();
+    } else {
+        _cumulative_compaction_policy = std::make_unique<SizeBasedCumulativeCompactionPolicy>();
+    }
     DCHECK(_max_version_schema);
 
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
@@ -280,12 +285,6 @@ Status Tablet::_init_once_action() {
     Status res = Status::OK();
     VLOG_NOTICE << "begin to load tablet. tablet=" << full_name()
                 << ", version_size=" << _tablet_meta->version_count();
-
-#ifdef BE_TEST
-    // init cumulative compaction policy by type
-    _cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
-#endif
 
     RowsetVector rowset_vec;
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
@@ -991,13 +990,11 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
     return true;
 }
 
-uint32_t Tablet::calc_compaction_score(
-        CompactionType compaction_type,
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+uint32_t Tablet::calc_compaction_score(CompactionType compaction_type) {
     // Need meta lock, because it will iterator "all_rs_metas" of tablet meta.
     std::shared_lock rdlock(_meta_lock);
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-        return _calc_cumulative_compaction_score(cumulative_compaction_policy);
+        return _calc_cumulative_compaction_score();
     } else {
         DCHECK_EQ(compaction_type, CompactionType::BASE_COMPACTION);
         return _calc_base_compaction_score();
@@ -1030,14 +1027,7 @@ uint32_t Tablet::calc_cold_data_compaction_score() const {
     return (keys_type() != KeysType::DUP_KEYS) ? score * 2 : score;
 }
 
-uint32_t Tablet::_calc_cumulative_compaction_score(
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
-#ifndef BE_TEST
-    if (_cumulative_compaction_policy == nullptr ||
-        _cumulative_compaction_policy->name() != cumulative_compaction_policy->name()) {
-        _cumulative_compaction_policy = cumulative_compaction_policy;
-    }
-#endif
+uint32_t Tablet::_calc_cumulative_compaction_score() {
     return _cumulative_compaction_policy->calc_cumulative_compaction_score(this);
 }
 
@@ -1062,7 +1052,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
 
     // In the time series compaction policy, we want the base compaction to be triggered
     // when there are delete versions present.
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
+    if (_tablet_meta->cumulative_compaction_policy() == CompactionPolicyPB::TIME_SERIES) {
         return (base_rowset_exist && has_delete) ? score : 0;
     }
 
@@ -1385,11 +1375,8 @@ void Tablet::get_compaction_status(std::string* json_result) {
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     }
     rapidjson::Value cumulative_policy_type;
-    std::string policy_type_str = "cumulative compaction policy not initializied";
-    if (_cumulative_compaction_policy != nullptr) {
-        policy_type_str = _cumulative_compaction_policy->name();
-    }
-    cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(),
+    std::string_view policy_type_str = _cumulative_compaction_policy->name();
+    cumulative_policy_type.SetString(policy_type_str.data(), policy_type_str.length(),
                                      root.GetAllocator());
     root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());

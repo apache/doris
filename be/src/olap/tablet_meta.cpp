@@ -65,7 +65,9 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             request.__isset.enable_unique_key_merge_on_write
                     ? request.enable_unique_key_merge_on_write
                     : false,
-            std::move(binlog_config));
+            std::move(binlog_config),
+            request.__isset.compaction_policy ? request.compaction_policy
+                                              : TCompactionPolicy::type::SIZE_BASED);
     return Status::OK();
 }
 
@@ -81,7 +83,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TCompressionType::type compression_type, int64_t storage_policy_id,
                        bool enable_unique_key_merge_on_write,
-                       std::optional<TBinlogConfig> binlog_config)
+                       std::optional<TBinlogConfig> binlog_config,
+                       TCompactionPolicy::type compaction_policy)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)) {
@@ -272,6 +275,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         tmp_binlog_config = binlog_config.value();
         tmp_binlog_config.to_pb(tablet_meta_pb.mutable_binlog_config());
     }
+
+    tablet_meta_pb.set_compaction_policy(compaction_policy == TCompactionPolicy::type::SIZE_BASED
+                                                 ? CompactionPolicyPB::SIZE_BASED
+                                                 : CompactionPolicyPB::TIME_SERIES);
 
     init_from_pb(tablet_meta_pb);
     LOG(INFO) << "init tablet meta from pb: " << tablet_meta_pb.ShortDebugString();
@@ -557,6 +564,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     if (tablet_meta_pb.has_binlog_config()) {
         _binlog_config = tablet_meta_pb.binlog_config();
     }
+
+    if (tablet_meta_pb.has_compaction_policy()) {
+        _compaction_policy = tablet_meta_pb.compaction_policy();
+    }
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
@@ -631,6 +642,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         }
     }
     _binlog_config.to_pb(tablet_meta_pb->mutable_binlog_config());
+
+    tablet_meta_pb->set_compaction_policy(_compaction_policy);
 }
 
 uint32_t TabletMeta::mem_size() const {

@@ -805,6 +805,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.isInMemory(),
                                             olapTable.getPartitionInfo().getTabletType(partitionId),
                                             null,
+                                            olapTable.getCompactionPolicy(),
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),

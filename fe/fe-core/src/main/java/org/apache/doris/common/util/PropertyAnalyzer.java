@@ -35,6 +35,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TCompactionPolicy;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -78,6 +79,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
 
     public static final String PROPERTIES_TIMEOUT = "timeout";
+    public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
     public static final String PROPERTIES_COMPRESSION = "compression";
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
@@ -593,6 +595,22 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                 + " must be `true` or `false`");
+    }
+
+    public static TCompactionPolicy analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+        String compactionPolicy = "";
+        if (properties != null && properties.containsKey(PROPERTIES_COMPACTION_POLICY)) {
+            compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
+            properties.remove(PROPERTIES_COMPACTION_POLICY);
+        } else {
+            return TCompactionPolicy.SIZE_BASED;
+        }
+
+        if (compactionPolicy.equalsIgnoreCase("TIME_SERIES")) {
+            return TCompactionPolicy.TIME_SERIES;
+        } else {
+            return TCompactionPolicy.SIZE_BASED;
+        }
     }
 
     // analyzeCompressionType will parse the compression type from properties

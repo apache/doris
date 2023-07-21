@@ -343,13 +343,4 @@ int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
     if (size >= max_level) return max_level;
     return (int64_t)1 << (sizeof(size) * 8 - 1 - __builtin_clzl(size));
 }
-
-std::shared_ptr<CumulativeCompactionPolicy>
-CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy() {
-    if (config::compaction_policy == CUMULATIVE_TIME_SERIES_POLICY) {
-        return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
-    }
-    return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
-}
-
 } // namespace doris

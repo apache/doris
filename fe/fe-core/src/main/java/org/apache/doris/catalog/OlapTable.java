@@ -57,6 +57,7 @@ import org.apache.doris.statistics.MVAnalysisTask;
 import org.apache.doris.statistics.OlapAnalysisTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TCompactionPolicy;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TSortType;
@@ -1993,6 +1994,12 @@ public class OlapTable extends Table {
         return !tempPartitions.isEmpty();
     }
 
+    public void setCompactionPolicy(TCompactionPolicy compactionPolicy) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, compactionPolicy.name());
+        tableProperty.buildCompactionPolicy();
+    }
+
     public void setCompressionType(TCompressionType compressionType) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_COMPRESSION, compressionType.name());
@@ -2010,6 +2017,13 @@ public class OlapTable extends Table {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public TCompactionPolicy getCompactionPolicy() {
+        if (tableProperty == null) {
+            return TCompactionPolicy.SIZE_BASED;
+        }
+        return tableProperty.getCompactionPolicy();
     }
 
     public TCompressionType getCompressionType() {

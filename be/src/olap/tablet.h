@@ -18,6 +18,7 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -209,9 +210,7 @@ public:
 
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
-    uint32_t calc_compaction_score(
-            CompactionType compaction_type,
-            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+    uint32_t calc_compaction_score(CompactionType compaction_type);
 
     // operation for clone
     void calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions);
@@ -314,15 +313,6 @@ public:
 
     void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
     bool get_clone_occurred() { return _is_clone_occurred; }
-
-    void set_cumulative_compaction_policy(
-            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
-        _cumulative_compaction_policy = cumulative_compaction_policy;
-    }
-
-    std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy() {
-        return _cumulative_compaction_policy;
-    }
 
     inline bool all_beta() const {
         std::shared_lock rdlock(_meta_lock);
@@ -561,8 +551,7 @@ private:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    uint32_t _calc_cumulative_compaction_score(
-            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+    uint32_t _calc_cumulative_compaction_score();
     uint32_t _calc_base_compaction_score() const;
 
     // When the proportion of empty edges in the adjacency matrix used to represent the version graph
@@ -645,7 +634,7 @@ private:
     std::atomic<int64_t> _last_checkpoint_time;
 
     // cumulative compaction policy
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
+    std::unique_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
     std::string_view _cumulative_compaction_type;
 
     std::shared_ptr<CumulativeCompaction> _cumulative_compaction;

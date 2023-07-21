@@ -114,6 +114,11 @@ struct TBinlogConfig {
     4: optional i64 max_history_nums;
 }
 
+enum TCompactionPolicy {
+    SIZE_BASED = 0,
+    TIME_SERIES = 1
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -141,6 +146,7 @@ struct TCreateTabletReq {
     19: optional bool enable_unique_key_merge_on_write = false
     20: optional i64 storage_policy_id
     21: optional TBinlogConfig binlog_config
+    22: optional TCompactionPolicy compaction_policy
 }
 
 struct TDropTabletReq {

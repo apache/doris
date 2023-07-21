@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TCompactionPolicy;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TStorageFormat;
 
@@ -75,6 +76,8 @@ public class TableProperty implements Writable {
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     private TCompressionType compressionType = TCompressionType.LZ4F;
+
+    private TCompactionPolicy compactionPolicy = TCompactionPolicy.SIZE_BASED;
 
     private boolean enableLightSchemaChange = false;
 
@@ -292,6 +295,13 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildCompactionPolicy() {
+        compactionPolicy = TCompactionPolicy
+                .valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY,
+                        TCompactionPolicy.SIZE_BASED.name()));
+        return this;
+    }
+
     public TableProperty buildCompressionType() {
         compressionType = TCompressionType.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPRESSION,
                 TCompressionType.LZ4F.name()));
@@ -373,6 +383,10 @@ public class TableProperty implements Writable {
 
     public DataSortInfo getDataSortInfo() {
         return dataSortInfo;
+    }
+
+    public TCompactionPolicy getCompactionPolicy() {
+        return compactionPolicy;
     }
 
     public TCompressionType getCompressionType() {

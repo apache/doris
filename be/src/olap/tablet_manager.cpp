@@ -668,8 +668,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+        const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -721,8 +720,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
             }
 
-            uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
-                    compaction_type, cumulative_compaction_policy);
+            uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(compaction_type);
             if (current_compaction_score < 5) {
                 tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
             }

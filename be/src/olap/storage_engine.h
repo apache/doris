@@ -302,8 +302,6 @@ private:
     std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
-    void _update_cumulative_compaction_policy();
-
     bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
                                                 CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
@@ -460,8 +458,6 @@ private:
     std::condition_variable _compaction_producer_sleep_cv;
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
-
-    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
     scoped_refptr<Thread> _remove_unused_remote_files_thread;

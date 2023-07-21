@@ -197,11 +197,6 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
     MonotonicStopWatch timer;
     timer.start();
 
-    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
-            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy();
-    if (tablet->get_cumulative_compaction_policy() == nullptr) {
-        tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
-    }
     Status res = Status::OK();
     if (compaction_type == PARAM_COMPACTION_BASE) {
         BaseCompaction base_compaction(tablet);

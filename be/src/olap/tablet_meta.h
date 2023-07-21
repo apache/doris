@@ -106,7 +106,8 @@ public:
                TabletUid tablet_uid, TTabletType::type tabletType,
                TCompressionType::type compression_type, int64_t storage_policy_id = 0,
                bool enable_unique_key_merge_on_write = false,
-               std::optional<TBinlogConfig> binlog_config = {});
+               std::optional<TBinlogConfig> binlog_config = {},
+               TCompactionPolicy::type compaction_policy = TCompactionPolicy::type::SIZE_BASED);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -228,6 +229,7 @@ public:
         _binlog_config = std::move(binlog_config);
     }
 
+    CompactionPolicyPB cumulative_compaction_policy() { return _compaction_policy; }
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -273,6 +275,8 @@ private:
 
     // binlog config
     BinlogConfig _binlog_config {};
+
+    CompactionPolicyPB _compaction_policy = CompactionPolicyPB::SIZE_BASED;
 
     mutable std::shared_mutex _meta_lock;
 };

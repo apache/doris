@@ -29,6 +29,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TCompactionPolicy;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -62,6 +63,7 @@ public class CreateReplicaTask extends AgentTask {
     private TStorageType storageType;
     private TStorageMedium storageMedium;
     private TCompressionType compressionType;
+    private TCompactionPolicy compactionPolicy;
 
     private List<Column> columns;
 
@@ -118,6 +120,7 @@ public class CreateReplicaTask extends AgentTask {
                              boolean isInMemory,
                              TTabletType tabletType,
                              DataSortInfo dataSortInfo,
+                             TCompactionPolicy compactionPolicy,
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
@@ -137,6 +140,7 @@ public class CreateReplicaTask extends AgentTask {
         this.keysType = keysType;
         this.storageType = storageType;
         this.storageMedium = storageMedium;
+        this.compactionPolicy = compactionPolicy;
         this.compressionType = compressionType;
 
         this.columns = columns;
@@ -298,6 +302,7 @@ public class CreateReplicaTask extends AgentTask {
         }
 
         createTabletReq.setTabletType(tabletType);
+        createTabletReq.setCompactionPolicy(compactionPolicy);
         createTabletReq.setCompressionType(compressionType);
         createTabletReq.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
 

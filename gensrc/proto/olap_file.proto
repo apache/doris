@@ -276,6 +276,11 @@ message BinlogConfigPB {
     optional int64 max_history_nums = 4;
 }
 
+enum CompactionPolicyPB {
+    SIZE_BASED = 0;
+    TIME_SERIES = 1;
+}
+
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -311,6 +316,7 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
+    optional CompactionPolicyPB compaction_policy = 28;
 }
 
 message OLAPRawDeltaHeaderMessage {
