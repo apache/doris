@@ -165,7 +165,7 @@ eg: user_address data format
 
 ```
     user_address|{"user_id":128787321878,"address":"朝阳区朝阳大厦XXX号","timestamp":1589191587}
- ```
+```
 eg: user_info data format
 ```
     user_info|{"user_id":128787321878,"name":"张三","age":18,"timestamp":1589191587}
@@ -261,7 +261,7 @@ eg: user_info data format
              "address":"Los Angeles, CA, USA",
              "timestamp":1589191587
          }
-   ```
+```
 
 Create the Doris data table to be imported
 
@@ -410,6 +410,36 @@ FROM KAFKA
 >
 >
 
+**Access Alibaba Cloud Message Queue Kafka Cluster((Access Point Type is SSL))**
+
+```sql
+#Upload certificate file address, address：https://github.com/AliwareMQ/aliware-kafka-demos/blob/master/kafka-cpp-demo/vpc-ssl/only-4096-ca-cert
+CREATE FILE "ca.pem" PROPERTIES("url" = "http://xxx/only-4096-ca-cert", "catalog" = "kafka");
+
+# create routine load job
+CREATE ROUTINE LOAD test.test_job on test_tbl
+PROPERTIES
+(
+    "desired_concurrent_number"="1",
+    "format" = "json"
+)
+FROM KAFKA
+(
+    "kafka_broker_list"= "xxx.alikafka.aliyuncs.com:9093",
+    "kafka_topic" = "test",
+    "property.group.id" = "test_group",
+    "property.client.id" = "test_group",
+    "property.security.protocol"="ssl",
+    "property.ssl.ca.location"="FILE:ca.pem",
+    "property.security.protocol"="sasl_ssl",
+    "property.sasl.mechanism"="PLAIN",
+    "property.sasl.username"="xxx",
+    "property.sasl.password"="xxx"
+);
+```
+
+
+
 **Access the PLAIN certified Kafka cluster**
 
 To access a Kafka cluster with PLAIN authentication enabled, you need to add the following configuration：
@@ -435,7 +465,7 @@ To access a Kafka cluster with PLAIN authentication enabled, you need to add the
         "property.sasl.username"="admin",
         "property.sasl.password"="admin"
     );
-
+    
     ```
 
 <version since="1.2">
