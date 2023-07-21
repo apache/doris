@@ -18,7 +18,6 @@
 ---
 name: Code Quality Analysis
 on:
-  pull_request:
   schedule:
     - cron: '30 3,14 * * *'
 
