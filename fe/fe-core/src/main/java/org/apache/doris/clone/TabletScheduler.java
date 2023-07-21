@@ -1357,6 +1357,8 @@ public class TabletScheduler extends MasterDaemon {
             return rootPathLoadStatistic;
         }
 
+        boolean hasBePath = false;
+
         // no root path with specified media type is found, get arbitrary one.
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
@@ -1367,6 +1369,7 @@ public class TabletScheduler extends MasterDaemon {
                 continue;
             }
 
+            hasBePath = true;
             long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
             if (pathHash == -1) {
                 LOG.debug("backend {}'s path {}'s slot is full, skip. tablet: {}",
@@ -1377,7 +1380,13 @@ public class TabletScheduler extends MasterDaemon {
             return rootPathLoadStatistic;
         }
 
-        throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path which can be fit in");
+        if (hasBePath) {
+            throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
+                    "unable to find dest path which can be fit in");
+        } else {
+            throw new SchedException(Status.UNRECOVERABLE,
+                    "unable to find dest path which can be fit in");
+        }
     }
 
 
