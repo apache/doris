@@ -17,23 +17,30 @@
 
 package org.apache.doris.ldap;
 
+import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.Role;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -122,9 +129,9 @@ public class LdapManager {
         return false;
     }
 
-    public List<Role> getUserRoles(String fullName) {
+    public Set<Role> getUserRoles(String fullName) {
         LdapUserInfo info = getUserInfo(fullName);
-        return !Objects.isNull(info) && info.isExists() ? info.getPaloRoles() : Lists.newArrayList(new Role(LDAP_GROUPS_PRIVS_NAME));
+        return info == null ? Collections.emptySet() : info.getPaloRoles();
     }
 
     private boolean checkParam(String fullName) {
@@ -142,7 +149,7 @@ public class LdapManager {
         }
         checkTimeoutCleanCache();
 
-        LdapUserInfo ldapUserInfo = new LdapUserInfo(fulName, false, "", getLdapGroupsPrivs(userName, cluster));
+        LdapUserInfo ldapUserInfo = new LdapUserInfo(fulName, false, "", getLdapGroupsRoles(userName, cluster));
         writeLock();
         try {
             ldapUserInfoCache.put(ldapUserInfo.getUserName(), ldapUserInfo);
@@ -200,10 +207,10 @@ public class LdapManager {
      * Step2: get roles by ldap groups;
      * Step3: merge the roles;
      */
-    private List<Role> getLdapGroupsPrivs(String userName, String clusterName) throws DdlException {
+    private Set<Role> getLdapGroupsRoles(String userName, String clusterName) throws DdlException {
         //get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
-        List<Role> roles = Lists.newArrayList();
+        Set<Role> roles = Sets.newHashSet();
         for (String group : ldapGroups) {
             String qualifiedRole = ClusterNamespace.getFullName(clusterName, group);
             if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
@@ -213,7 +220,7 @@ public class LdapManager {
         LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
 
         Role ldapGroupsPrivs = new Role(LDAP_GROUPS_PRIVS_NAME);
-        LdapPrivsChecker.grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
+        grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
         roles.add(ldapGroupsPrivs);
         return roles;
     }
@@ -232,5 +239,17 @@ public class LdapManager {
         } finally {
             writeUnlock();
         }
+    }
+
+    // Temporary user has information_schema 'Select_priv' priv by default.
+    public static void grantDefaultPrivToTempUser(Role role, String clusterName) throws DdlException {
+        TablePattern tblPattern = new TablePattern(InfoSchemaDb.DATABASE_NAME, "*");
+        try {
+            tblPattern.analyze(clusterName);
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen.", e);
+        }
+        Role newRole = new Role(role.getRoleName(), tblPattern, PrivBitSet.of(Privilege.SELECT_PRIV));
+        role.merge(newRole);
     }
 }
