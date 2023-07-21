@@ -1082,7 +1082,7 @@ public class TabletScheduler extends MasterDaemon {
          */
         if (!force && !Config.enable_force_drop_redundant_replica
                 && !FeConstants.runningUnitTest
-                && (!replica.getState().canLoad() || replica.getState() == ReplicaState.DECOMMISSION)) {
+                && (replica.getState().canLoad() || replica.getState() == ReplicaState.DECOMMISSION)) {
             if (replica.getState() != ReplicaState.DECOMMISSION) {
                 replica.setState(ReplicaState.DECOMMISSION);
                 // set priority to normal because it may wait for a long time.
