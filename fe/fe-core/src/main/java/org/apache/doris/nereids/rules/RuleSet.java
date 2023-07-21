@@ -195,7 +195,6 @@ public class RuleSet {
 
     public static final List<Rule> DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
             .add(JoinCommute.BUSHY.build())
-            .addAll(OTHER_REORDER_RULES)
             .build();
 
     public List<Rule> getDPHypReorderRules() {
