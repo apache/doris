@@ -359,7 +359,6 @@ terminal String
     KW_ENGINES,
     KW_ENTER,
     KW_ERRORS,
-    KW_EVENT,
     KW_EVENTS,
     KW_EVERY,
     KW_EXCEPT,
@@ -428,6 +427,7 @@ terminal String
     KW_ISOLATION,
     KW_INVERTED,
     KW_JOB,
+    KW_JOBS,    
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
@@ -581,6 +581,7 @@ terminal String
     KW_STOP,
     KW_STORAGE,
     KW_STREAM,
+    KW_STREAMING,
     KW_STRING,
     KW_STRUCT,
     KW_SUM,
@@ -594,6 +595,7 @@ terminal String
     KW_TABLET,
     KW_TABLETS,
     KW_TASK,
+    KW_TASKS,
     KW_TEMPORARY,
     KW_TERMINATED,
     KW_TEXT,
@@ -668,7 +670,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
-    create_event_stmt,pause_event_stmt,resume_event_stmt,stop_event_stmt,show_event_stmt,
+    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -803,9 +805,8 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 nonterminal String optional_on_ident;
-nonterminal String opt_event_starts;
-nonterminal String opt_event_ends;
-nonterminal String event_do;
+nonterminal String opt_job_starts;
+nonterminal String opt_job_ends;
 
 nonterminal LoadTask.MergeType opt_merge_type, opt_with_merge_type;
 
@@ -1138,16 +1139,16 @@ stmt ::=
     {: RESULT = stmt; :}
     | show_create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
-    | create_event_stmt : stmt   
+    | create_job_stmt : stmt   
     {: RESULT = stmt; :}
-    | pause_event_stmt : stmt   
+    | pause_job_stmt : stmt   
     {: RESULT = stmt; :}
-    | show_event_stmt : stmt   
+    | show_job_stmt : stmt   
     {: RESULT = stmt; :}
-    | stop_event_stmt : stmt   
+    | stop_job_stmt : stmt   
     {: RESULT = stmt; :}
-    | resume_event_stmt : stmt                    
-    {: RESULT = stmt; :}
+    | resume_job_stmt : stmt                    
+    {: RESULT = stmt; :}   
     | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_reporitory_stmt : stmt
@@ -2630,19 +2631,24 @@ resource_desc ::=
         RESULT = new ResourceDesc(resourceName, properties);                         
     :}                                                                               
     ; 
-create_event_stmt ::=
-     KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_event_starts:startsTime opt_event_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
+create_job_stmt ::=
+     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,null,false,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
-    | KW_CREATE KW_EVENT job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
-        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,null,null,null,null,comment,executeSql);
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,true,null,null,null,null,comment,executeSql);
+        RESULT = stmt;
+    :}    
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    {:
+        CreateJobStmt stmt = new CreateJobStmt(jobLabel,atTime,false,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}
     ;                           
- opt_event_starts ::= 
+ opt_job_starts ::= 
      {:
          RESULT = null;
      :}
@@ -2652,7 +2658,7 @@ create_event_stmt ::=
      :}
      ;
  
- opt_event_ends ::= 
+ opt_job_ends ::= 
      {:
          RESULT = null;
      :}    
@@ -2660,42 +2666,40 @@ create_event_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ; 
- event_do ::=
-     KW_DO STRING_LITERAL:sqlString
-     {:
-        RESULT = sqlString;
-     :}
-     ;         
-resume_event_stmt ::=
-    KW_RESUME KW_EVENT job_label:jobLabel
+     ;       
+resume_job_stmt ::=
+    KW_RESUME KW_JOB job_label:jobLabel
     {:
         RESULT = new ResumeJobStmt(jobLabel);
     :}
     ;    
-show_event_stmt ::=
-    KW_SHOW KW_EVENT
+show_job_stmt ::=
+    KW_SHOW KW_JOBS
     {:
         RESULT = new ShowJobStmt(null,null);
     :}
-    | KW_SHOW  KW_EVENT KW_FOR job_label:jobLabel
+    | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowJobStmt(jobLabel,null);
+    :}
+    | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowJobTaskStmt(jobLabel);
     :}    
     ;
-pause_event_stmt ::=
-    KW_PAUSE KW_EVENT KW_FOR job_label:jobLabel
+pause_job_stmt ::=
+    KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
     {:
         RESULT = new PauseJobStmt(jobLabel);
     :}
     ;
 
-stop_event_stmt ::=
-    KW_STOP KW_EVENT KW_FOR job_label:jobLabel
+stop_job_stmt ::=
+    KW_STOP KW_JOB KW_FOR job_label:jobLabel
     {:
         RESULT = new StopJobStmt(jobLabel);
     :}
-    ;                   
+    ;                       
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -7491,6 +7495,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_JOB:id
     {: RESULT = id; :}
+    | KW_JOBS:id    
+    {: RESULT = id; :}
     | KW_JSON:id
     {: RESULT = id; :}
     | KW_JSONB:id
@@ -7629,6 +7635,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_STREAM:id
     {: RESULT = id; :}
+    | KW_STREAMING:id    
+    {: RESULT = id; :}
     | KW_STRUCT:id
     {: RESULT = id; :}
     | KW_STRING:id
@@ -7695,7 +7703,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_TASK:id
     {: RESULT = id; :}
-    | KW_EVENT:id
+    | KW_TASKS:id    
     {: RESULT = id; :}
     | KW_ROUTINE:id
     {: RESULT = id; :}

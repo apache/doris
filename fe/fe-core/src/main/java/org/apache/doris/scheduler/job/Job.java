@@ -93,6 +93,9 @@ public class Job implements Writable {
     @SerializedName("isCycleJob")
     private boolean isCycleJob = false;
 
+    @SerializedName("isStreamingJob")
+    private boolean isStreamingJob = false;
+
     @SerializedName("intervalMs")
     private Long intervalMs = 0L;
     @SerializedName("startTimeMs")
@@ -219,7 +222,15 @@ public class Job implements Writable {
         row.add(jobName);
         row.add(user);
         row.add(timezone);
-        row.add(isCycleJob ? JobType.RECURRING.name() : JobType.ONE_TIME.name());
+        if (isCycleJob) {
+            row.add(JobType.RECURRING.name());
+        } else {
+            if (isStreamingJob) {
+                row.add(JobType.STREAMING.name());
+            } else {
+                row.add(JobType.ONE_TIME.name());
+            }
+        }
         row.add(isCycleJob ? "null" : TimeUtils.longToTimeString(startTimeMs));
         row.add(isCycleJob ? originInterval.toString() : "null");
         row.add(isCycleJob ? intervalUnit.name() : "null");

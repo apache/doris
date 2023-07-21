@@ -37,13 +37,13 @@ import org.apache.commons.lang3.StringUtils;
  * syntax:
  * CREATE
  *     [DEFINER = user]
- *     EVENT
+ *     JOB
  *     event_name
  *     ON SCHEDULE schedule
  *     [COMMENT 'string']
  *     DO event_body;
  * schedule: {
- *    AT timestamp
+ *    [STREAMING] AT timestamp
  *   | EVERY interval
  *     [STARTS timestamp ]
  *     [ENDS timestamp ]
@@ -82,7 +82,8 @@ public class CreateJobStmt extends DdlStmt {
     private static final ImmutableSet<String> supportStmtClassName = new ImmutableSet.Builder<String>()
             .add(NativeInsertStmt.class.getName()).build();
 
-    public CreateJobStmt(LabelName labelName, String onceJobStartTimestamp, Long interval, String intervalTimeUnit,
+    public CreateJobStmt(LabelName labelName, String onceJobStartTimestamp, Boolean isStreamingJob,
+                         Long interval, String intervalTimeUnit,
                          String startsTimeStamp, String endsTimeStamp, String comment, StatementBase doStmt) {
         this.labelName = labelName;
         this.onceJobStartTimestamp = onceJobStartTimestamp;
@@ -93,6 +94,7 @@ public class CreateJobStmt extends DdlStmt {
         this.comment = comment;
         this.stmt = doStmt;
         this.job = new Job();
+        job.setStreamingJob(isStreamingJob);
     }
 
     private String parseExecuteSql(String sql) throws AnalysisException {

@@ -63,6 +63,7 @@ import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowJobStmt;
+import org.apache.doris.analysis.ShowJobTaskStmt;
 import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
@@ -191,6 +192,7 @@ import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -216,6 +218,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -428,6 +431,8 @@ public class ShowExecutor {
             handleShowAnalyzeTaskStatus();
         } else if (stmt instanceof ShowJobStmt) {
             handleShowJob();
+        } else if (stmt instanceof ShowJobTaskStmt) {
+            handleShowJobTask();
         } else {
             handleEmtpy();
         }
@@ -1381,6 +1386,28 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowJobTask() {
+        ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<Job> jobs = Env.getCurrentEnv().getJobRegister()
+                .getJobs(showJobTaskStmt.getDbFullName(), showJobTaskStmt.getName(), JobCategory.SQL,
+                        null);
+        if (CollectionUtils.isEmpty(jobs)) {
+            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            return;
+        }
+        long jobId = jobs.get(0).getJobId();
+        List<JobTask> jobTasks = Env.getCurrentEnv().getJobTaskManager().getJobTasks(jobId);
+        if (CollectionUtils.isEmpty(jobTasks)) {
+            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
+            return;
+        }
+        for (JobTask job : jobTasks) {
+            rows.add(job.getShowInfo());
+        }
+        resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
     }
 
     private void handleShowJob() throws AnalysisException {

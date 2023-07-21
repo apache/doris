@@ -25,5 +25,9 @@ public enum JobType {
     /**
      * The job will be executed periodically.
      */
-    RECURRING
+    RECURRING,
+    /**
+     * JOB_TYPE_STREAMING is used to identify the streaming job.
+     */
+    STREAMING
 }

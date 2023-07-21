@@ -148,7 +148,7 @@ public class AsyncJobManager implements Closeable, Writable {
         if (startTimeMs != 0L && startTimeMs > currentTimeMs) {
             return startTimeMs;
         }
-        // if it's cycle job and already delay, next execute time is current time
+        // if it's not cycle job and already delay, next execute time is current time
         if (!isCycleJob) {
             return currentTimeMs;
         }
@@ -285,7 +285,11 @@ public class AsyncJobManager implements Closeable, Writable {
         List<Long> jobExecuteTimes = new ArrayList<>();
         if (!job.isCycleJob() && (nextExecuteTime < endTimeEndWindow)) {
             jobExecuteTimes.add(nextExecuteTime);
-            job.setJobStatus(JobStatus.WAITING_FINISH);
+            if (job.isStreamingJob()) {
+                job.setJobStatus(JobStatus.RUNNING);
+            } else {
+                job.setJobStatus(JobStatus.WAITING_FINISH);
+            }
             return jobExecuteTimes;
         }
         while (endTimeEndWindow >= nextExecuteTime) {
@@ -435,6 +439,9 @@ public class AsyncJobManager implements Closeable, Writable {
         return null == matcher || matcher.match(job.getJobName());
     }
 
+    public void putOneJobToQueen(Long jobId) {
+        disruptor.tryPublish(jobId);
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
@@ -446,6 +453,7 @@ public class AsyncJobManager implements Closeable, Writable {
 
     /**
      * read job from data input, and init job
+     *
      * @param in data input
      * @throws IOException io exception when read data input error
      */

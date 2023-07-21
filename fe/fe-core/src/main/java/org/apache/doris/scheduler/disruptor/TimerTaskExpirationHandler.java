@@ -17,10 +17,13 @@
 
 package org.apache.doris.scheduler.disruptor;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.constants.SystemJob;
 import org.apache.doris.scheduler.job.AsyncJobManager;
 import org.apache.doris.scheduler.job.Job;
+import org.apache.doris.scheduler.job.JobTask;
+import org.apache.doris.scheduler.job.JobTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +44,8 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
      * The event job manager used to retrieve and execute event jobs.
      */
     private AsyncJobManager asyncJobManager;
+
+    private JobTaskManager jobTaskManager;
 
     /**
      * Constructs a new {@link TimerTaskExpirationHandler} instance with the specified event job manager.
@@ -85,7 +90,11 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
             return;
         }
         log.debug("Event job is running, eventJobId: {}", jobId);
+        JobTask jobTask = new JobTask(jobId);
         try {
+            jobTask.setStartTimeMs(System.currentTimeMillis());
+
+
             // TODO: We should record the result of the event task.
             //Object result = job.getExecutor().execute();
             job.getExecutor().execute(job);
@@ -94,12 +103,20 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
                 updateJobStatusIfPastEndTime(job);
             } else {
                 // one time job should be finished after execute
-                job.finish();
+                updateOnceTimeJobStatus(job);
             }
+            jobTask.setIsSuccessful(true);
         } catch (Exception e) {
             log.warn("Event job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
             job.pause(e.getMessage());
+            jobTask.setErrorMsg(e.getMessage());
+            jobTask.setIsSuccessful(false);
         }
+        jobTask.setEndTimeMs(System.currentTimeMillis());
+        if (null == jobTaskManager) {
+            jobTaskManager = Env.getCurrentEnv().getJobTaskManager();
+        }
+        jobTaskManager.addJobTask(jobTask);
     }
 
     /**
@@ -128,4 +145,13 @@ public class TimerTaskExpirationHandler implements WorkHandler<TimerTaskEvent> {
             job.finish();
         }
     }
+
+    private void updateOnceTimeJobStatus(Job job) {
+        if (job.isStreamingJob()) {
+            asyncJobManager.putOneJobToQueen(job.getJobId());
+            return;
+        }
+        job.finish();
+    }
+
 }

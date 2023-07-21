@@ -33,41 +33,26 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * SHOW JOB [FOR JobName]
- * eg: show event
- *     return all job in connection db
- * eg: show event for test
- *     return job named test in connection db
+ * SHOW JOB TASKS [FOR JobName]
  */
-public class ShowJobStmt extends ShowStmt {
+public class ShowJobTaskStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
-                    .add("Id")
-                    .add("Db")
-                    .add("Name")
-                    .add("Definer")
-                    .add("TimeZone")
-                    .add("ExecuteType")
-                    .add("ExecuteAt")
-                    .add("ExecuteInterval")
-                    .add("ExecuteIntervalUnit")
-                    .add("Starts")
-                    .add("Ends")
+                    .add("JobId")
+                    .add("TaskId")
+                    .add("StartTime")
+                    .add("EndTime")
                     .add("Status")
-                    .add("LastExecuteFinishTime")
                     .add("ErrorMsg")
-                    .add("Comment")
                     .build();
 
     private final LabelName labelName;
     private String dbFullName; // optional
     private String name; // optional
-    private String pattern; // optional
 
-    public ShowJobStmt(LabelName labelName, String pattern) {
+    public ShowJobTaskStmt(LabelName labelName) {
         this.labelName = labelName;
-        this.pattern = pattern;
     }
 
     public String getDbFullName() {
@@ -76,10 +61,6 @@ public class ShowJobStmt extends ShowStmt {
 
     public String getName() {
         return name;
-    }
-
-    public String getPattern() {
-        return pattern;
     }
 
     @Override
@@ -106,7 +87,10 @@ public class ShowJobStmt extends ShowStmt {
         } else {
             dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
-        name = labelName == null ? null : labelName.getLabelName();
+        if (null == labelName) {
+            throw new AnalysisException("Job name is null");
+        }
+        name = labelName.getLabelName();
     }
 
     public static List<String> getTitleNames() {

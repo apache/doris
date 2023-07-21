@@ -28,7 +28,7 @@ import com.google.common.base.Strings;
 
 /**
  * syntax:
- *  PAUSE EVENT FOR  [database.]name
+ *  PAUSE JOB FOR  [database.]name
  *  we can pause a job by jobName
  *  it's only running job can be paused, and it will be paused immediately
  *  paused job can be resumed by RESUME EVENT FOR jobName

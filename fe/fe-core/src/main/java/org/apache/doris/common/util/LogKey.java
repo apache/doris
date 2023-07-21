@@ -23,5 +23,6 @@ public enum LogKey {
     LOAD_JOB,
     LOAD_TASK,
     SYNC_JOB,
-    SCHEDULER_JOB
+    SCHEDULER_JOB,
+    SCHEDULER_TASK
 }

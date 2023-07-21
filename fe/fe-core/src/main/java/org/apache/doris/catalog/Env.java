@@ -211,6 +211,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.scheduler.AsyncJobRegister;
 import org.apache.doris.scheduler.job.AsyncJobManager;
+import org.apache.doris.scheduler.job.JobTaskManager;
 import org.apache.doris.scheduler.registry.JobRegister;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
@@ -330,7 +331,7 @@ public class Env {
 
     private JobRegister jobRegister;
     private AsyncJobManager asyncJobManager;
-
+    private JobTaskManager jobTaskManager;
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
     private Daemon replayer;
@@ -586,6 +587,7 @@ public class Env {
             this.cooldownConfHandler = new CooldownConfHandler();
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
+        this.jobTaskManager = new JobTaskManager();
         this.asyncJobManager = new AsyncJobManager();
         this.jobRegister = new AsyncJobRegister(asyncJobManager);
         this.replayedJournalId = new AtomicLong(0L);
@@ -1958,6 +1960,18 @@ public class Env {
     public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
         asyncJobManager.write(out);
         LOG.info("finished save analysisMgr to image");
+        return checksum;
+    }
+
+    public long loadJobTaskManager(DataInputStream in, long checksum) throws IOException {
+        jobTaskManager.readFields(in);
+        LOG.info("finished replay jobTaskMgr from image");
+        return checksum;
+    }
+
+    public long saveJobTaskManager(CountingDataOutputStream out, long checksum) throws IOException {
+        jobTaskManager.write(out);
+        LOG.info("finished save jobTaskMgr to image");
         return checksum;
     }
 
@@ -3689,6 +3703,10 @@ public class Env {
 
     public AsyncJobManager getAsyncJobManager() {
         return asyncJobManager;
+    }
+
+    public JobTaskManager getJobTaskManager() {
+        return jobTaskManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {

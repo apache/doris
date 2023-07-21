@@ -32,7 +32,5 @@ public class TimerTaskEvent {
 
     private Long jobId;
 
-    private Long taskId;
-
     public static final EventFactory<TimerTaskEvent> FACTORY = TimerTaskEvent::new;
 }

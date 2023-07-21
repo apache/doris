@@ -30,7 +30,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class TimerTaskDisruptorTest {
@@ -56,7 +55,7 @@ public class TimerTaskDisruptorTest {
                 asyncJobManager.getJob(anyLong);
                 result = job;
             }};
-        timerTaskDisruptor.tryPublish(job.getJobId(), UUID.randomUUID().getMostSignificantBits());
+        timerTaskDisruptor.tryPublish(job.getJobId());
         Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> testEventExecuteFlag);
         Assertions.assertTrue(testEventExecuteFlag);
     }
