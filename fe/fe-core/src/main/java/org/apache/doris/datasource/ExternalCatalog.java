@@ -84,6 +84,8 @@ public abstract class ExternalCatalog
     private boolean initialized = false;
     @SerializedName(value = "idToDb")
     protected Map<Long, ExternalDatabase<? extends ExternalTable>> idToDb = Maps.newConcurrentMap();
+    @SerializedName(value = "lastUpdateTime")
+    protected long lastUpdateTime;
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
@@ -257,6 +259,9 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        long currentTime = System.currentTimeMillis();
+        lastUpdateTime = currentTime;
+        initCatalogLog.setLastUpdateTime(lastUpdateTime);
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
@@ -279,7 +284,7 @@ public abstract class ExternalCatalog
         if (db.isPresent()) {
             Optional<? extends ExternalTable> table = db.get().getTable(tblName);
             if (table.isPresent()) {
-                return table.get().initSchema();
+                return table.get().initSchemaAndUpdateTime();
             }
         }
         // return one column with unsupported type.
@@ -403,6 +408,14 @@ public abstract class ExternalCatalog
         props.remove("comment");
     }
 
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    public void setLastUpdateTime(long lastUpdateTime) {
+        this.lastUpdateTime = lastUpdateTime;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -437,6 +450,7 @@ public abstract class ExternalCatalog
         }
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
+        lastUpdateTime = log.getLastUpdateTime();
         initialized = true;
     }
 
