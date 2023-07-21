@@ -45,7 +45,7 @@ Paimon Catalog Currently supports two types of Metastore creation catalogs:
 
 #### HDFS
 ```sql
- CREATE CATALOG `paimon_hdfs` PROPERTIES (
+CREATE CATALOG `paimon_hdfs` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "hdfs://HDFS8000871/user/paimon",
     "dfs.nameservices"="HDFS8000871",
@@ -61,7 +61,7 @@ Paimon Catalog Currently supports two types of Metastore creation catalogs:
 #### S3
 
 ```sql
-  CREATE CATALOG `paimon_s3` PROPERTIES (
+CREATE CATALOG `paimon_s3` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "s3://paimon-1308700295.cos.ap-beijing.myqcloud.com/paimoncos",
     "s3.endpoint"="cos.ap-beijing.myqcloud.com",
@@ -74,7 +74,7 @@ Paimon Catalog Currently supports two types of Metastore creation catalogs:
 #### OSS
 
 ```sql
-   CREATE CATALOG `paimon_oss` PROPERTIES (
+CREATE CATALOG `paimon_oss` PROPERTIES (
     "type" = "paimon",
     "warehouse" = "oss://paimon-zd/paimonoss",
     "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
