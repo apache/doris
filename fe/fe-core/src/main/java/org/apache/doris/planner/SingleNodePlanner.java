@@ -1823,18 +1823,6 @@ public class SingleNodePlanner {
             e.setIsOnClauseConjunct(false);
         }
         inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
-        QueryStmt queryStmt = inlineViewRef.getQueryStmt();
-        if (queryStmt instanceof SetOperationStmt) {
-            // registerConjuncts for every set operand
-            SetOperationStmt setOperationStmt = (SetOperationStmt) queryStmt;
-            for (SetOperationStmt.SetOperand setOperand : setOperationStmt.getOperands()) {
-                setOperand.getAnalyzer().registerConjuncts(
-                        Expr.substituteList(viewPredicates, setOperand.getSmap(),
-                                setOperand.getAnalyzer(), false),
-                        inlineViewRef.getAllTupleIds());
-            }
-        }
-
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
         List<Expr> substUnassigned = Expr.substituteList(unassignedConjuncts,
@@ -1860,15 +1848,21 @@ public class SingleNodePlanner {
             return;
         }
 
-        List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
         viewAnalyzer.markConjunctsAssigned(conjuncts);
+        // even if the conjuncts are constant, they may contains slotRef
+        // for example: case when slotRef is null then 0 else 1
+        // we need substitute the conjuncts using inlineViewRef's analyzer
+        // otherwise, when analyzing the conjunct in the inline view
+        // the analyzer is not able to find the column because it comes from outside
+        List<Expr> newConjuncts =
+                Expr.substituteList(conjuncts, inlineViewRef.getSmap(), viewAnalyzer, false);
         if (stmt instanceof SelectStmt) {
             final SelectStmt select = (SelectStmt) stmt;
             if (select.getAggInfo() != null) {
                 viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
-            } else if (select.getTableRefs().size() > 1) {
+            } else if (select.getTableRefs().size() > 0) {
                 for (int i = select.getTableRefs().size() - 1; i >= 0; i--) {
                     viewAnalyzer.registerConjuncts(newConjuncts,
                             select.getTableRefs().get(i).getDesc().getId().asList());
@@ -2799,7 +2793,9 @@ public class SingleNodePlanner {
                 }
                 GroupByClause groupByClause = stmt.getGroupByClause();
                 List<Expr> exprs = groupByClause.getGroupingExprs();
-                if (!exprs.contains(sourceExpr)) {
+                final Expr srcExpr = sourceExpr;
+                if (!exprs.stream().anyMatch(expr -> expr.comeFrom(srcExpr))) {
+                    // the sourceExpr doesn't come from any of the group by exprs
                     isAllSlotReferToGroupBys = false;
                     break;
                 }

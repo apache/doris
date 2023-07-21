@@ -32,8 +32,10 @@
 #include <utility>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
@@ -53,17 +55,35 @@ class IColumn;
 
 namespace doris::vectorized {
 
+enum class WindowFunnelMode : Int64 { INVALID, DEFAULT, DEDUPLICATION, FIXED, INCREASE };
+
+WindowFunnelMode string_to_window_funnel_mode(const String& string) {
+    if (string == "default") {
+        return WindowFunnelMode::DEFAULT;
+    } else if (string == "deduplication") {
+        return WindowFunnelMode::DEDUPLICATION;
+    } else if (string == "fixed") {
+        return WindowFunnelMode::FIXED;
+    } else if (string == "increase") {
+        return WindowFunnelMode::INCREASE;
+    } else {
+        return WindowFunnelMode::INVALID;
+    }
+}
+
 template <typename DateValueType, typename NativeType>
 struct WindowFunnelState {
     std::vector<std::pair<DateValueType, int>> events;
     int max_event_level;
     bool sorted;
     int64_t window;
+    WindowFunnelMode window_funnel_mode;
 
     WindowFunnelState() {
         sorted = true;
         max_event_level = 0;
         window = 0;
+        window_funnel_mode = WindowFunnelMode::INVALID;
     }
 
     void reset() {
@@ -73,9 +93,12 @@ struct WindowFunnelState {
         events.shrink_to_fit();
     }
 
-    void add(const DateValueType& timestamp, int event_idx, int event_num, int64_t win) {
+    void add(const DateValueType& timestamp, int event_idx, int event_num, int64_t win,
+             WindowFunnelMode mode) {
         window = win;
         max_event_level = event_num;
+        window_funnel_mode = mode;
+
         if (sorted && events.size() > 0) {
             if (events.back().first == timestamp) {
                 sorted = events.back().second <= event_idx;
@@ -94,25 +117,58 @@ struct WindowFunnelState {
     }
 
     int get() const {
-        std::vector<std::optional<DateValueType>> events_timestamp(max_event_level);
+        if (max_event_level == 0) {
+            return 0;
+        }
+        std::vector<std::optional<std::pair<DateValueType, DateValueType>>> events_timestamp(
+                max_event_level);
+        bool is_first_set = false;
         for (int64_t i = 0; i < events.size(); i++) {
             const int& event_idx = events[i].second;
             const DateValueType& timestamp = events[i].first;
             if (event_idx == 0) {
-                events_timestamp[0] = timestamp;
+                events_timestamp[0] = {timestamp, timestamp};
+                is_first_set = true;
                 continue;
             }
+            if (window_funnel_mode == WindowFunnelMode::DEDUPLICATION &&
+                events_timestamp[event_idx].has_value()) {
+                break;
+            }
             if (events_timestamp[event_idx - 1].has_value()) {
-                const DateValueType& first_timestamp = events_timestamp[event_idx - 1].value();
+                const DateValueType& first_timestamp =
+                        events_timestamp[event_idx - 1].value().first;
                 DateValueType last_timestamp = first_timestamp;
                 TimeInterval interval(SECOND, window, false);
                 last_timestamp.template date_add_interval<SECOND>(interval);
 
-                if (timestamp <= last_timestamp) {
-                    events_timestamp[event_idx] = first_timestamp;
-                    if (event_idx + 1 == max_event_level) {
-                        // Usually, max event level is small.
-                        return max_event_level;
+                if (window_funnel_mode != WindowFunnelMode::INCREASE) {
+                    if (timestamp <= last_timestamp) {
+                        events_timestamp[event_idx] = {first_timestamp, timestamp};
+                        if (event_idx + 1 == max_event_level) {
+                            // Usually, max event level is small.
+                            return max_event_level;
+                        }
+                    }
+                } else {
+                    if (timestamp <= last_timestamp &&
+                        events_timestamp[event_idx - 1].value().second < timestamp) {
+                        if (!events_timestamp[event_idx].has_value() ||
+                            events_timestamp[event_idx].value().second > timestamp) {
+                            events_timestamp[event_idx] = {first_timestamp, timestamp};
+                        }
+                        if (event_idx + 1 == max_event_level) {
+                            // Usually, max event level is small.
+                            return max_event_level;
+                        }
+                    }
+                }
+            } else {
+                if (is_first_set && window_funnel_mode == WindowFunnelMode::FIXED) {
+                    for (size_t i = 0; i < events_timestamp.size(); i++) {
+                        if (!events_timestamp[i].has_value()) {
+                            return i;
+                        }
                     }
                 }
             }
@@ -147,13 +203,17 @@ struct WindowFunnelState {
         std::inplace_merge(begin, middle, end);
         max_event_level = max_event_level > 0 ? max_event_level : other.max_event_level;
         window = window > 0 ? window : other.window;
-
+        window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
+                                     ? other.window_funnel_mode
+                                     : window_funnel_mode;
         sorted = true;
     }
 
     void write(BufferWritable& out) const {
         write_var_int(max_event_level, out);
         write_var_int(window, out);
+        write_var_int(static_cast<std::underlying_type_t<WindowFunnelMode>>(window_funnel_mode),
+                      out);
         write_var_int(events.size(), out);
 
         for (int64_t i = 0; i < events.size(); i++) {
@@ -169,6 +229,9 @@ struct WindowFunnelState {
         read_var_int(event_level, in);
         max_event_level = (int)event_level;
         read_var_int(window, in);
+        int64_t mode;
+        read_var_int(mode, in);
+        window_funnel_mode = static_cast<WindowFunnelMode>(mode);
         int64_t size = 0;
         read_var_int(size, in);
         for (int64_t i = 0; i < size; i++) {
@@ -178,7 +241,7 @@ struct WindowFunnelState {
             read_var_int(timestamp, in);
             read_var_int(event_idx, in);
             DateValueType time_value = binary_cast<NativeType, DateValueType>(timestamp);
-            add(time_value, (int)event_idx, max_event_level, window);
+            add(time_value, (int)event_idx, max_event_level, window, window_funnel_mode);
         }
     }
 };
@@ -204,8 +267,7 @@ public:
              Arena*) const override {
         const auto& window =
                 assert_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
-        // TODO: handle mode in the future.
-        // be/src/olap/row_block2.cpp copy_data_to_column
+        StringRef mode = columns[1]->get_data_at(row_num);
         const auto& timestamp =
                 assert_cast<const ColumnVector<NativeType>&>(*columns[2]).get_data()[row_num];
         const int NON_EVENT_NUM = 3;
@@ -215,7 +277,8 @@ public:
             if (is_set) {
                 this->data(place).add(
                         binary_cast<NativeType, DateValueType>(timestamp), i - NON_EVENT_NUM,
-                        IAggregateFunction::get_argument_types().size() - NON_EVENT_NUM, window);
+                        IAggregateFunction::get_argument_types().size() - NON_EVENT_NUM, window,
+                        string_to_window_funnel_mode(mode.to_string()));
             }
         }
     }
