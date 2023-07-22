@@ -28,7 +28,6 @@ suite("test_map_load_and_compaction", "p0") {
     def dataFile1 = "map_4093_rows.json"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
-    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (
