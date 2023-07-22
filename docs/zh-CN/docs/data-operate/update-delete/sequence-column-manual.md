@@ -268,5 +268,9 @@ MySQL [test]> select * from test_table;
 
 此时就可以替换表中原有的数据。综上，在导入过程中，会比较所有批次的sequence列值，选择值最大的记录导入Doris表中。
 
-
-
+## 注意
+1. 为防止误用，在StreamLoad/BrokerLoad等导入任务中，必须要指定sequence列，不然会收到以下报错信息：
+```
+Table test_tbl has sequence column, need to specify the sequence column
+```
+2. 自版本2.0起，Doris对Unique Key表的Merge-on-Write实现支持了部分列更新能力，在部分列更新导入中，用户每次可以只更新一部分列，因此并不是必须要包含sequence列。若用户提交的导入任务中，包含sequence列，则行为无影响；若用户提交的导入任务不包含sequence列，Doris会使用匹配的历史数据中的sequence列作为更新后该行的sequence列的值。如果历史数据中不存在相同key的列，则会自动用null或默认值填充。 
