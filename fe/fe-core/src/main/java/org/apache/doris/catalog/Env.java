@@ -5390,9 +5390,10 @@ public class Env {
     }
 
     public void updateSessionVariable(SessionVariable sessionVariable) {
-        if (isMajorVersionUpgrade() && sessionVariable != null) {
-            sessionVariable.parallelPipelineTaskNum = sessionVariable.parallelExecInstanceNum;
-        }
+        // if (isMajorVersionUpgrade() && sessionVariable != null) {
+        // sessionVariable.parallelPipelineTaskNum =
+        // sessionVariable.parallelExecInstanceNum;
+        // }
     }
 
     public int getOldFeVersion() {
