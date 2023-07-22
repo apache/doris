@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("multiple_no_where") {
+suite ("q_4_1_r1") {
     sql """ DROP TABLE IF EXISTS lineorder_flat; """
     sql """set enable_nereids_planner=true"""
     sql """SET enable_fallback_to_original_planner=false"""
@@ -84,41 +84,7 @@ suite ("multiple_no_where") {
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 100 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container');"""
 
-    test {
-        sql """create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT)
-                FROM lineorder_flat GROUP BY
-                    LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY;"""
-        exception "not in select list"
-    }
-
-    createMV ("""create materialized view lineorder_q_1_1 as 
-                SELECT LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT)
-                FROM lineorder_flat GROUP BY
-                    LO_ORDERKEY, LO_ORDERDATE, LO_DISCOUNT, LO_QUANTITY;""")
-
-    createMV ("""create materialized view lineorder_q_2_1 as 
-                SELECT
-                    (LO_ORDERDATE DIV 10000) AS YEAR,
-                    P_BRAND, P_CATEGORY, S_REGION,
-                    SUM(LO_REVENUE)
-                FROM lineorder_flat
-                GROUP BY YEAR, P_BRAND, P_CATEGORY,S_REGION;""")
-
-    createMV ("""create materialized view lineorder_q_3_1 as 
-                SELECT
-                    C_NATION,
-                    S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR, C_REGION, S_REGION, LO_ORDERDATE,
-                    SUM(LO_REVENUE) AS revenue
-                FROM lineorder_flat
-                GROUP BY C_NATION, S_NATION, YEAR, C_REGION, S_REGION, LO_ORDERDATE;""")
-
-    createMV ("""create materialized view lineorder_q_4_1 as 
-                SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
-                C_NATION,C_REGION,S_REGION,P_MFGR,
-                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
-                FROM lineorder_flat
-                GROUP BY YEAR, C_NATION,C_REGION,S_REGION,P_MFGR;""")
+    createMV ("""create materialized view lineorder_mv as select LO_ORDERDATE DIV 10000, C_NATION, C_REGION, S_REGION, P_MFGR, SUM(LO_REVENUE - LO_SUPPLYCOST) from lineorder_flat group by LO_ORDERDATE DIV 10000, C_NATION, C_REGION, S_REGION, P_MFGR;""")
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE,C_NAME,C_ADDRESS,C_CITY,C_NATION,C_REGION,C_PHONE,C_MKTSEGMENT,S_NAME,S_ADDRESS,S_CITY,S_NATION,S_REGION,S_PHONE,P_NAME,P_MFGR,P_CATEGORY,P_BRAND,P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 2 , 2 , 2 , 2 , 2 ,'2',2 ,2 ,2 ,2 ,2 ,2 ,2 ,2 ,'2023-06-09','shipmode','name','address','city','nation','region','phone','mktsegment','name','address','city','nation','region','phone','name','mfgr','category','brand','color','type',4,'container');"""
 
@@ -137,83 +103,20 @@ suite ("multiple_no_where") {
     qt_select_star "select * from lineorder_flat order by 1,2;"
     
     explain {
-        sql("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
-                FROM lineorder_flat
-                WHERE
-                    LO_ORDERDATE >= 19930101
-                    AND LO_ORDERDATE <= 19931231
-                    AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
-                    AND LO_QUANTITY < 25;""")
-        contains "(lineorder_q_1_1)"
-    }
-    qt_select_q_1_1 """SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
-                FROM lineorder_flat
-                WHERE
-                    LO_ORDERDATE >= 19930101
-                    AND LO_ORDERDATE <= 19931231
-                    AND LO_DISCOUNT >= 1 AND LO_DISCOUNT <= 3
-                    AND LO_QUANTITY < 25;"""
-
-    explain {
-        sql("""SELECT
-                SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
-                P_BRAND
-            FROM lineorder_flat
-            WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
-            GROUP BY (LO_ORDERDATE DIV 10000), P_BRAND
-            ORDER BY YEAR, P_BRAND;""")
-        contains "(lineorder_q_2_1)"
-    }
-    qt_select_q_2_1 """SELECT
-                    SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
-                    P_BRAND
-                FROM lineorder_flat
-                WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
-                GROUP BY YEAR, P_BRAND
-                ORDER BY YEAR, P_BRAND;"""
-
-    explain {
-        sql("""SELECT
-                C_NATION,
-                S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
-                SUM(LO_REVENUE) AS revenue
+        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+            C_NATION,
+            SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
             FROM lineorder_flat
             WHERE
-                C_REGION = 'ASIA'
-                AND S_REGION = 'ASIA'
-                AND LO_ORDERDATE >= 19920101
-                AND LO_ORDERDATE <= 19971231
-            GROUP BY C_NATION, S_NATION, YEAR
-            ORDER BY YEAR ASC, revenue DESC;""")
-        contains "(lineorder_q_3_1)"
+            C_REGION = 'AMERICA'
+            AND S_REGION = 'AMERICA'
+            AND P_MFGR IN ('MFGR#1', 'MFGR#2')
+            GROUP BY YEAR, C_NATION
+            ORDER BY YEAR ASC, C_NATION ASC;""")
+        contains "(lineorder_mv)"
     }
-    qt_select_q_3_1 """SELECT
-                        C_NATION,
-                        S_NATION, (LO_ORDERDATE DIV 10000) AS YEAR,
-                        SUM(LO_REVENUE) AS revenue
-                    FROM lineorder_flat
-                    WHERE
-                        C_REGION = 'ASIA'
-                        AND S_REGION = 'ASIA'
-                        AND LO_ORDERDATE >= 19920101
-                        AND LO_ORDERDATE <= 19971231
-                    GROUP BY C_NATION, S_NATION, YEAR
-                    ORDER BY YEAR ASC, revenue DESC;"""
 
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
-                C_NATION,
-                SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
-                FROM lineorder_flat
-                WHERE
-                C_REGION = 'AMERICA'
-                AND S_REGION = 'AMERICA'
-                AND P_MFGR IN ('MFGR#1', 'MFGR#2')
-                GROUP BY YEAR, C_NATION
-                ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_q_4_1)"
-    }
-    qt_select_q_4_1 """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    qt_select_mv """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
                 FROM lineorder_flat
