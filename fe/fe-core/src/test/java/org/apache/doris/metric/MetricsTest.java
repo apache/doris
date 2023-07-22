@@ -58,8 +58,8 @@ public class MetricsTest {
     }
 
     @Test
-    public void testDBMetrics() {
-        MetricRepo.DB_HISTO_QUERY_LATENCY.getOrAdd("test_db").update(10L);
+    public void testUserMetrics() {
+        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd("test_user").update(10L);
         StringBuilder sb = new StringBuilder();
         MetricVisitor visitor = new PrometheusMetricVisitor();
         SortedMap<String, Histogram> histograms = MetricRepo.METRIC_REGISTER.getHistograms();
@@ -69,7 +69,7 @@ public class MetricsTest {
         String metricResult = sb.toString();
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_query_latency_ms summary"));
         Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\"} 0.0"));
-        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",db=\"test_db\"} 10.0"));
+        Assert.assertTrue(metricResult.contains("doris_fe_query_latency_ms{quantile=\"0.999\",user=\"test_user\"} 10.0"));
 
     }
 }
