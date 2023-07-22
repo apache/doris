@@ -48,7 +48,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     //  NDV should only be computed for the relevant partition.
     private static final String ANALYZE_COLUMN_SQL_TEMPLATE = INSERT_COL_STATISTICS
             + "     (SELECT NDV(`${colName}`) AS ndv "
-            + "     FROM `${dbName}`.`${tblName}`) t2\n";
+            + "     FROM `${dbName}`.`${tblName}` ${sampleExpr}) t2\n";
 
     @VisibleForTesting
     public OlapAnalysisTask() {
@@ -93,12 +93,11 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         }
         execSQLs(partitionAnalysisSQLs);
         params.remove("partId");
-        params.remove("sampleExpr");
         params.put("type", col.getType().toString());
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_COLUMN_SQL_TEMPLATE);
         execSQL(sql);
-        Env.getCurrentEnv().getStatisticsCache().refreshColStatsSync(tbl.getId(), -1, col.getName());
+        Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tbl.getId(), -1, col.getName());
     }
 
     @VisibleForTesting
@@ -113,6 +112,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         if (killed) {
             return;
         }
+        long startTime = System.currentTimeMillis();
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -120,9 +120,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             stmtExecutor.execute();
             QueryState queryState = r.connectContext.getState();
             if (queryState.getStateType().equals(MysqlStateType.ERR)) {
-                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s",
-                        info.catalogName, info.dbName, info.colName, queryState.getErrorMessage()));
+                throw new RuntimeException(String.format("Failed to analyze %s.%s.%s, error: %s sql: %s",
+                        info.catalogName, info.dbName, info.colName, sql, queryState.getErrorMessage()));
             }
+            LOG.info("Analyze SQL: " + sql + " cost time: " + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
 }

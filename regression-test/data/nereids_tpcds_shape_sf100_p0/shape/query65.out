@@ -5,8 +5,6 @@ PhysicalTopN
 ----PhysicalTopN
 ------PhysicalProject
 --------hashJoin[INNER_JOIN](item.i_item_sk = sc.ss_item_sk)
-----------PhysicalProject
-------------PhysicalOlapScan[item]
 ----------PhysicalDistribute
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN](store.s_store_sk = sc.ss_store_sk)
@@ -41,4 +39,7 @@ PhysicalTopN
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------PhysicalOlapScan[item]
 

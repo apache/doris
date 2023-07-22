@@ -274,6 +274,52 @@ public:
                                      const uint8_t* null_map,
                                      size_t max_row_byte_size) const override;
 
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; i++) {
+                if (null_data[i] == 0) {
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                      sizeof(T), hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; i++) {
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                                                  sizeof(T), hash);
+            }
+        }
+    }
+
+    void ALWAYS_INLINE update_crc_with_value_without_null(size_t idx, uint64_t& hash) const {
+        if constexpr (!std::is_same_v<T, Int64>) {
+            hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(T), hash);
+        } else {
+            if (this->is_date_type() || this->is_datetime_type()) {
+                char buf[64];
+                const VecDateTimeValue& date_val = (const VecDateTimeValue&)data[idx];
+                auto len = date_val.to_buffer(buf);
+                hash = HashUtil::zlib_crc_hash(buf, len, hash);
+            } else {
+                hash = HashUtil::zlib_crc_hash(&data[idx], sizeof(T), hash);
+            }
+        }
+    }
+
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; i++) {
+                if (null_data[i] == 0) {
+                    update_crc_with_value_without_null(i, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; i++) {
+                update_crc_with_value_without_null(i, hash);
+            }
+        }
+    }
     void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
@@ -379,8 +425,7 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     void get_extremes(Field& min, Field& max) const override;
 

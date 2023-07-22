@@ -298,6 +298,12 @@ JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
 JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
 JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
+# libunwind
+LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.6.2.tar.gz"
+LIBUNWIND_NAME="libunwind-1.6.2.tar.gz"
+LIBUNWIND_SOURCE="libunwind-1.6.2"
+LIBUNWIND_MD5SUM="f625b6a98ac1976116c71708a73dc44a"
+
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
@@ -386,10 +392,10 @@ PDQSORT_FILE="pdqsort.h"
 PDQSORT_MD5SUM="af28f79d5d7d7a5486f54d9f1244c2b5"
 
 # benchmark
-BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"
-BENCHMARK_NAME=benchmark-1.5.6.tar.gz
-BENCHMARK_SOURCE=benchmark-1.5.6
-BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
+BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/refs/tags/v1.8.0.tar.gz"
+BENCHMARK_NAME=v1.8.0.tar.gz
+BENCHMARK_SOURCE=benchmark-1.8.0
+BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
 # xsimd
 # for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
@@ -499,6 +505,7 @@ export TP_ARCHIVES=(
     'ORC'
     'JEMALLOC_ARROW'
     'JEMALLOC_DORIS'
+    'LIBUNWIND'
     'CCTZ'
     'DATATABLES'
     'BOOTSTRAP_TABLE_JS'

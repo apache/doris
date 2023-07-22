@@ -33,6 +33,9 @@ public class PrivPredicate {
     public static final PrivPredicate SHOW_RESOURCES = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.USAGE_PRIV),
             Operator.OR);
+    public static final PrivPredicate SHOW_WORKLOAD_GROUP = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+                    Privilege.USAGE_PRIV),
+            Operator.OR);
     // create/drop/alter/show user
     public static final PrivPredicate GRANT = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.GRANT_PRIV),
@@ -70,7 +73,7 @@ public class PrivPredicate {
     public static final PrivPredicate OPERATOR = PrivPredicate.of(PrivBitSet.of(Privilege.NODE_PRIV),
             Operator.OR);
 
-    // resource usage
+    // resource/workloadGroup usage
     public static final PrivPredicate USAGE = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
             Privilege.USAGE_PRIV),
             Operator.OR);

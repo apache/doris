@@ -127,8 +127,8 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalGenerate<>(generators, generatorOutput,
-                getLogicalProperties(), children.get(0));
+        return new PhysicalGenerate<>(generators, generatorOutput, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
     @Override
@@ -138,9 +138,11 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     }
 
     @Override
-    public PhysicalGenerate<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1);
         return new PhysicalGenerate<>(generators, generatorOutput,
-                Optional.empty(), logicalProperties.get(), child());
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override

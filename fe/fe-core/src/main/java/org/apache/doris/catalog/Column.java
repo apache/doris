@@ -508,6 +508,7 @@ public class Column implements Writable, GsonPostProcessable {
 
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
+        tColumn.setIsAutoIncrement(this.isAutoInc);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);
@@ -723,8 +724,21 @@ public class Column implements Writable, GsonPostProcessable {
         if (isCompatible) {
             if (type.isDatetimeV2()) {
                 sb.append("datetime");
+                if (((ScalarType) type).getScalarScale() > 0) {
+                    sb.append("(").append(((ScalarType) type).getScalarScale()).append(")");
+                }
             } else if (type.isDateV2()) {
                 sb.append("date");
+            } else if (type.isDecimalV3()) {
+                sb.append("DECIMAL");
+                ScalarType sType = (ScalarType) type;
+                int scale = sType.getScalarScale();
+                int precision = sType.getScalarPrecision();
+                // not default
+                if (scale > 0 && precision != 9) {
+                    sb.append("(").append(precision).append(", ").append(scale)
+                            .append(")");
+                }
             } else {
                 sb.append(typeStr);
             }

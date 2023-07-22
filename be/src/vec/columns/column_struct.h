@@ -35,6 +35,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/common/cow.h"
+#include "vec/common/sip_hash.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -103,7 +104,21 @@ public:
     void pop_back(size_t n) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
+
     void update_hash_with_value(size_t n, SipHash& hash) const override;
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(std::vector<SipHash>& hashes,
+                                  const uint8_t* __restrict null_data) const override;
+
+    void update_hashes_with_value(uint64_t* __restrict hashes,
+                                  const uint8_t* __restrict null_data = nullptr) const override;
+
+    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+                                const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_indices_from(const IColumn& src, const int* indices_begin,
                              const int* indices_end) override;
@@ -128,8 +143,7 @@ public:
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     ColumnPtr replicate(const Offsets& offsets) const override;
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override;
 
     // ColumnPtr index(const IColumn & indexes, size_t limit) const override;

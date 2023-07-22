@@ -111,6 +111,7 @@
 
 
     def tableName3 = "test_round_decimal"
+    sql """ DROP TABLE IF EXISTS `${tableName3}` """
     sql """ CREATE TABLE `${tableName3}` (
           `id` int NOT NULL COMMENT 'id',
           `d1` decimalv3(9, 4) NULL COMMENT '',

@@ -23,7 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
@@ -257,7 +256,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         // for vectorized execution, we force it to using hash set to execution
         if (distinctAggExprs.size() == 1
                 && distinctAggExprs.get(0).getFnParams().isDistinct()
-                && VectorizedUtil.isVectorized()
                 && ConnectContext.get().getSessionVariable().enableSingleDistinctColumnOpt()) {
             isSetUsingSetForDistinct = true;
         }

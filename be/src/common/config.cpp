@@ -126,6 +126,8 @@ DEFINE_mString(process_full_gc_size, "20%");
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DEFINE_mBool(enable_query_memory_overcommit, "true");
 
+DEFINE_mBool(disable_memory_gc, "false");
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DEFINE_mInt32(thread_wait_gc_max_milliseconds, "1000");
 
@@ -157,8 +159,8 @@ DEFINE_Int32(clear_transaction_task_worker_count, "1");
 DEFINE_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 DEFINE_Int32(alter_tablet_worker_count, "3");
-// the count of thread to alter inverted index
-DEFINE_Int32(alter_inverted_index_worker_count, "3");
+// the count of thread to alter index
+DEFINE_Int32(alter_index_worker_count, "3");
 // the count of thread to clone
 DEFINE_Int32(clone_worker_count, "3");
 // the count of thread to clone
@@ -312,6 +314,10 @@ DEFINE_Bool(disable_storage_row_cache, "true");
 DEFINE_String(pk_storage_page_cache_limit, "10%");
 // data page size for primary key index
 DEFINE_Int32(primary_key_data_page_size, "32768");
+
+DEFINE_mInt32(data_page_cache_stale_sweep_time_sec, "300");
+DEFINE_mInt32(index_page_cache_stale_sweep_time_sec, "600");
+DEFINE_mInt32(pk_index_page_cache_stale_sweep_time_sec, "600");
 
 DEFINE_Bool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
@@ -505,25 +511,6 @@ DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in
 // For each io buffer size, the maximum number of buffers the IoMgr will hold onto
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DEFINE_Int32(max_free_io_buffers, "128");
-
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DEFINE_Bool(disable_mem_pools, "false");
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DEFINE_mString(chunk_reserved_bytes_limit, "0");
-// 1024, The minimum chunk allocator size (in bytes)
-DEFINE_Int32(min_chunk_reserved_bytes, "1024");
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DEFINE_mBool(disable_chunk_allocator_in_vec, "true");
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -941,7 +928,7 @@ DEFINE_Bool(enable_java_support, "true");
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
-DEFINE_mInt16(pipeline_short_query_timeout_s, "20");
+DEFINE_Bool(enable_workload_group_for_scan, "false");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -966,11 +953,8 @@ DEFINE_Validator(file_cache_min_file_segment_size, [](const int64_t config) -> b
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
 
-// inverted index searcher cache
-// cache entry stay time after lookup, default 1h
-DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
-// cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DEFINE_mInt32(index_cache_entry_no_visit_gc_time_s, "3600");
+DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
+DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -994,7 +978,7 @@ DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "true");
+DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // Currently, two compaction strategies are implemented, SIZE_BASED and TIME_SERIES.
 // In the case of time series compaction, the execution of compaction is adjusted
@@ -1042,6 +1026,23 @@ DEFINE_Bool(enable_set_in_bitmap_value, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int64(max_external_file_meta_cache_num, "20000");
+
+// max_write_buffer_number for rocksdb
+DEFINE_Int32(rocksdb_max_write_buffer_number, "5");
+
+DEFINE_Bool(allow_invalid_decimalv2_literal, "false");
+DEFINE_mInt64(kerberos_expiration_time_seconds, "43200");
+
+DEFINE_mString(get_stack_trace_tool, "libunwind");
+
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DEFINE_mInt64(auto_inc_low_water_level_mark_size_ratio, "3");
+
+// number of threads that fetch auto-inc ranges from FE
+DEFINE_mInt64(auto_inc_fetch_thread_num, "3");
 
 #ifdef BE_TEST
 // test s3

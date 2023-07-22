@@ -27,6 +27,7 @@ under the License.
         <module>jdbc-scanner</module>
         <module>paimon-scanner</module>
         <module>max-compute-scanner</module>
+        <module>avro-scanner</module>
     </modules>
 
     <parent>

@@ -99,6 +99,9 @@ public class BackupJobInfo implements Writable {
     @SerializedName("tablet_snapshot_path_map")
     public Map<Long, String> tabletSnapshotPathMap = Maps.newHashMap();
 
+    @SerializedName("table_commit_seq_map")
+    public Map<Long, Long> tableCommitSeqMap;
+
     public static class ExtraInfo {
         public static class NetworkAddrss {
             @SerializedName("ip")
@@ -575,7 +578,7 @@ public class BackupJobInfo implements Writable {
 
     public static BackupJobInfo fromCatalog(long backupTime, String label, String dbName, long dbId,
                                             BackupContent content, BackupMeta backupMeta,
-                                            Map<Long, SnapshotInfo> snapshotInfos) {
+                                            Map<Long, SnapshotInfo> snapshotInfos, Map<Long, Long> tableCommitSeqMap) {
 
         BackupJobInfo jobInfo = new BackupJobInfo();
         jobInfo.backupTime = backupTime;
@@ -584,6 +587,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbId = dbId;
         jobInfo.metaVersion = FeConstants.meta_version;
         jobInfo.content = content;
+        jobInfo.tableCommitSeqMap = tableCommitSeqMap;
 
         Collection<Table> tbls = backupMeta.getTables().values();
         // tbls

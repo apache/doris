@@ -24,9 +24,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -111,6 +113,10 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     // union can not prune children by the common logic, we must override visit method to write special code.
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, PruneContext context) {
+        if (union.getQualifier() == Qualifier.DISTINCT) {
+            return skipPruneThisAndFirstLevelChildren(union);
+        }
+
         LogicalUnion prunedOutputUnion = pruneOutput(union, union.getOutputs(), union::pruneOutputs, context);
 
         // start prune children of union
@@ -156,8 +162,13 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
     }
 
     @Override
-    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink olapTableSink, PruneContext context) {
+    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> olapTableSink, PruneContext context) {
         return skipPruneThisAndFirstLevelChildren(olapTableSink);
+    }
+
+    @Override
+    public Plan visitLogicalFileSink(LogicalFileSink<? extends Plan> fileSink, PruneContext context) {
+        return skipPruneThisAndFirstLevelChildren(fileSink);
     }
 
     // the backend not support filter(project(agg)), so we can not prune the key set in the agg,

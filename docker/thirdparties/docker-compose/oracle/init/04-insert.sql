@@ -47,12 +47,13 @@ insert into doris_test.test_date (id, t3) values (5, interval '12 10:23:01.12345
 
 insert into doris_test.test_timestamp (id, t1) values (1, to_date('2013-1-21 5:23:01','yyyy-mm-dd hh24:mi:ss'));
 insert into doris_test.test_timestamp (id, t1) values (2, to_date('20131112203256', 'yyyymmddhh24miss'));
-insert into doris_test.test_timestamp (id, t2) values (3, to_timestamp('20191112203357.999997623', 'yyyymmddhh24miss.ff'));
-insert into doris_test.test_timestamp (id, t3) values (4, to_timestamp_tz('20191112203357.999996623', 'yyyymmddhh24miss.ff'));
+insert into doris_test.test_timestamp (id, t2) values (3, to_timestamp('20191112203357.999', 'yyyymmddhh24miss.ff'));
+insert into doris_test.test_timestamp (id, t3) values (4, to_timestamp('20191112203357.999997623', 'yyyymmddhh24miss.ff'));
 insert into doris_test.test_timestamp (id, t4) values (5, to_timestamp_tz('20191112203357.999996623', 'yyyymmddhh24miss.ff'));
-insert into doris_test.test_timestamp (id, t5) values (6, interval '11' year);
-insert into doris_test.test_timestamp (id, t5) values (7, interval '223-9' year(3) to month);
-insert into doris_test.test_timestamp (id, t6) values (8, interval '12 10:23:01.1234568' day to second);
+insert into doris_test.test_timestamp (id, t5) values (6, to_timestamp_tz('20191112203357.999996623', 'yyyymmddhh24miss.ff'));
+insert into doris_test.test_timestamp (id, t6) values (7, interval '11' year);
+insert into doris_test.test_timestamp (id, t6) values (8, interval '223-9' year(3) to month);
+insert into doris_test.test_timestamp (id, t7) values (9, interval '12 10:23:01.1234568' day to second);
 
 insert into doris_test.test_number values (1, 123.45, 12345, 0.0012345);
 insert into doris_test.test_number values (2, 123.45, 12345, 0.0099999);

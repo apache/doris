@@ -81,8 +81,8 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         std::unique_ptr<RowwiseIterator> iter;
         auto s = seg_ptr->new_iterator(schema, read_options, &iter);
         if (!s.ok()) {
-            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return Status::Error<INIT_FAILED>();
+            return Status::Error<INIT_FAILED>("failed to create iterator[{}]: {}", seg_ptr->id(),
+                                              s.to_string());
         }
         seg_iterators.push_back(std::move(iter));
     }
@@ -102,7 +102,7 @@ Status SegcompactionWorker::_get_segcompaction_reader(
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> SegcompactionWorker::_create_segcompaction_writer(
-        uint64_t begin, uint64_t end) {
+        uint32_t begin, uint32_t end) {
     Status status;
     std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
@@ -120,7 +120,8 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
     auto ctx = _writer->_context;
     auto schema = ctx.tablet_schema;
     if (!fs) {
-        return Status::Error<INIT_FAILED>();
+        return Status::Error<INIT_FAILED>(
+                "SegcompactionWorker::_delete_original_segments get fs failed");
     }
     for (uint32_t i = begin; i <= end; ++i) {
         auto seg_path = BetaRowset::segment_file_path(ctx.rowset_dir, ctx.rowset_id, i);
@@ -164,40 +165,40 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
     }
 
     if (raw_rows_read != sum_src_row) {
-        LOG(WARNING) << "segcompaction read row num does not match source. expect read row:"
-                     << sum_src_row << " actual read row:" << raw_rows_read;
-        return Status::Error<CHECK_LINES_ERROR>();
+        return Status::Error<CHECK_LINES_ERROR>(
+                "segcompaction read row num does not match source. expect read row:{}, actual read "
+                "row:{}",
+                sum_src_row, raw_rows_read);
     }
 
     if ((output_rows + merged_rows) != raw_rows_read) {
-        LOG(WARNING) << "segcompaction total row num does not match after merge. expect total row:"
-                     << raw_rows_read << " actual total row:" << output_rows + merged_rows
-                     << " (output_rows:" << output_rows << ", merged_rows:" << merged_rows << ")";
-        return Status::Error<CHECK_LINES_ERROR>();
+        return Status::Error<CHECK_LINES_ERROR>(
+                "segcompaction total row num does not match after merge. expect total row:{},  "
+                "actual total row:{}, (output_rows:{},merged_rows:{})",
+                raw_rows_read, output_rows + merged_rows, output_rows, merged_rows);
     }
     if (filtered_rows != 0) {
-        LOG(WARNING) << "segcompaction should not have filtered rows but"
-                     << " actual filtered rows:" << filtered_rows;
-        return Status::Error<CHECK_LINES_ERROR>();
+        return Status::Error<CHECK_LINES_ERROR>(
+                "segcompaction should not have filtered rows but actual filtered rows:{}",
+                filtered_rows);
     }
     return Status::OK();
 }
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end) {
-    return _writer->_do_create_segment_writer(writer, true, begin, end);
+    return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
     SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
     /* throttle segcompaction task if memory depleted */
     if (MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
-        LOG(WARNING) << "skip segcompaction due to memory shortage";
-        return Status::Error<FETCH_MEMORY_EXCEEDED>();
+        return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
     }
 
-    uint64_t begin = (*(segments->begin()))->id();
-    uint64_t end = (*(segments->end() - 1))->id();
+    uint32_t begin = (*(segments->begin()))->id();
+    uint32_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
     uint64_t index_size = 0;
     uint64_t total_index_size = 0;
@@ -205,8 +206,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
     auto writer = _create_segcompaction_writer(begin, end);
     if (UNLIKELY(writer == nullptr)) {
-        LOG(WARNING) << "failed to get segcompaction writer";
-        return Status::Error<SEGCOMPACTION_INIT_WRITER>();
+        return Status::Error<SEGCOMPACTION_INIT_WRITER>("failed to get segcompaction writer");
     }
 
     DCHECK(ctx.tablet);
@@ -234,8 +234,7 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
                                            is_key, column_ids, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
-            LOG(WARNING) << "failed to get segcompaction reader";
-            return Status::Error<SEGCOMPACTION_INIT_READER>();
+            return Status::Error<SEGCOMPACTION_INIT_READER>("failed to get segcompaction reader.");
         }
 
         Merger::Statistics merger_stats;

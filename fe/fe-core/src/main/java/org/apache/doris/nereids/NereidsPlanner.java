@@ -268,7 +268,7 @@ public class NereidsPlanner extends Planner {
     }
 
     private void initCascadesContext(LogicalPlan plan, PhysicalProperties requireProperties) {
-        cascadesContext = CascadesContext.newRewriteContext(statementContext, plan, requireProperties);
+        cascadesContext = CascadesContext.initContext(statementContext, plan, requireProperties);
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
@@ -283,7 +283,7 @@ public class NereidsPlanner extends Planner {
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        new Rewriter(cascadesContext).execute();
+        Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
     }
 
@@ -370,6 +370,7 @@ public class NereidsPlanner extends Planner {
 
             Plan plan = groupExpression.getPlan().withChildren(planChildren);
             if (!(plan instanceof PhysicalPlan)) {
+                // TODO need add some log
                 throw new AnalysisException("Result plan must be PhysicalPlan");
             }
             // add groupExpression to plan so that we could print group id in plan.treeString()
@@ -407,6 +408,10 @@ public class NereidsPlanner extends Planner {
                 return "cost = " + cost + "\n" + optimizedPlan.treeString();
             case SHAPE_PLAN:
                 return optimizedPlan.shape("");
+            case MEMO_PLAN:
+                return cascadesContext.getMemo().toString()
+                    + "\n\n========== OPTIMIZED PLAN ==========\n"
+                    + optimizedPlan.treeString();
             case ALL_PLAN:
                 return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"

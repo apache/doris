@@ -42,7 +42,7 @@ suite("test_load") {
         """
 
         StringBuilder commandBuilder = new StringBuilder()
-        commandBuilder.append("""curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
+        commandBuilder.append("""curl --max-time 5 --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword}""")
         commandBuilder.append(""" -H format:csv -T ${context.file.parent}/test_data/test.csv http://${context.config.feHttpAddress}/api/""" + dbName + "/" + tableName + "/_stream_load")
         command = commandBuilder.toString()
         process = command.execute()
@@ -51,6 +51,8 @@ suite("test_load") {
         out = process.getText()
         logger.info("Run command: command=" + command + ",code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
+
+        sql """sync"""
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY a; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

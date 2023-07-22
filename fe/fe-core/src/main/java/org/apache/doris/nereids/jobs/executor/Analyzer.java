@@ -20,9 +20,11 @@ package org.apache.doris.nereids.jobs.executor;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
+import org.apache.doris.nereids.rules.analysis.AnalyzeCTE;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindInsertTargetTable;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
+import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckBound;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -30,14 +32,14 @@ import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
-import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
-import org.apache.doris.nereids.rules.rewrite.HideOneRowRelationUnderUnion;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
@@ -45,22 +47,47 @@ import java.util.List;
  */
 public class Analyzer extends AbstractBatchJobExecutor {
 
-    public static final List<RewriteJob> ANALYZE_JOBS = jobs(
-            topDown(
-                new RegisterCTE()
-            ),
+    public static final List<RewriteJob> DEFAULT_ANALYZE_JOBS = buildAnalyzeJobs(Optional.empty());
+
+    private final List<RewriteJob> jobs;
+
+    /**
+     * Execute the analysis job with scope.
+     * @param cascadesContext planner context for execute job
+     */
+    public Analyzer(CascadesContext cascadesContext) {
+        this(cascadesContext, Optional.empty());
+    }
+
+    public Analyzer(CascadesContext cascadesContext, Optional<CustomTableResolver> customTableResolver) {
+        super(cascadesContext);
+        Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
+        this.jobs = !customTableResolver.isPresent() ? DEFAULT_ANALYZE_JOBS : buildAnalyzeJobs(customTableResolver);
+    }
+
+    @Override
+    public List<RewriteJob> getJobs() {
+        return jobs;
+    }
+
+    /**
+     * nereids analyze sql.
+     */
+    public void analyze() {
+        execute();
+    }
+
+    private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
+        return jobs(
+            topDown(new AnalyzeCTE()),
             bottomUp(
-                new BindRelation(),
+                new BindRelation(customTableResolver),
                 new CheckPolicy(),
                 new UserAuthentication(),
                 new BindExpression()
             ),
-            topDown(
-                new BindInsertTargetTable()
-            ),
-            bottomUp(
-                new CheckBound()
-            ),
+            topDown(new BindInsertTargetTable()),
+            bottomUp(new CheckBound()),
             bottomUp(
                 new ProjectToGlobalAggregate(),
                 // this rule check's the logicalProject node's isDistinct property
@@ -70,8 +97,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                 // please see rule BindSlotReference or BindFunction for example
                 new ProjectWithDistinctToAggregate(),
                 new ResolveOrdinalInOrderByAndGroupBy(),
-                new ReplaceExpressionByChildOutput(),
-                new HideOneRowRelationUnderUnion()
+                new ReplaceExpressionByChildOutput()
             ),
             topDown(
                 new FillUpMissingSlots(),
@@ -83,25 +109,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new SubqueryToApply()),
             bottomUp(new AdjustAggregateNullableForEmptySet()),
             bottomUp(new CheckAnalysis())
-    );
-
-    /**
-     * Execute the analysis job with scope.
-     * @param cascadesContext planner context for execute job
-     */
-    public Analyzer(CascadesContext cascadesContext) {
-        super(cascadesContext);
-    }
-
-    @Override
-    public List<RewriteJob> getJobs() {
-        return ANALYZE_JOBS;
-    }
-
-    /**
-     * nereids analyze sql.
-     */
-    public void analyze() {
-        execute();
+        );
     }
 }

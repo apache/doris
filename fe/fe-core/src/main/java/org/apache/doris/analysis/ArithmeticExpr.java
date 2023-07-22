@@ -260,7 +260,7 @@ public class ArithmeticExpr extends Expr {
         if (children.size() == 1) {
             return op.toString() + " " + getChild(0).toSql();
         } else {
-            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+            return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
         }
     }
 

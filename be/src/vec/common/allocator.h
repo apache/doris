@@ -28,8 +28,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "runtime/memory/chunk.h"
-#include "runtime/memory/chunk_allocator.h"
 #include "util/sse_util.hpp"
 
 #ifdef NDEBUG
@@ -62,17 +60,6 @@
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
 #endif
-
-/**
- * Memory allocation between 4KB and 64MB will be through ChunkAllocator,
- * those less than 4KB will be through malloc (for example, tcmalloc),
- * and those greater than 64MB will be through MMAP.
- * In the actual test, chunkallocator allocates less than 4KB of memory slower than malloc,
- * and chunkallocator allocates more than 64MB of memory slower than MMAP,
- * but the 4KB threshold is an empirical value, which needs to be determined
- * by more detailed test later.
-  */
-static constexpr size_t CHUNK_THRESHOLD = 4096;
 
 static constexpr size_t MMAP_MIN_ALIGNMENT = 4096;
 static constexpr size_t MALLOC_MIN_ALIGNMENT = 8;
@@ -110,7 +97,7 @@ public:
         memory_check(size);
         void* buf;
 
-        if (size >= doris::config::mmap_threshold && use_mmap) {
+        if (use_mmap && size >= doris::config::mmap_threshold) {
             if (alignment > MMAP_MIN_ALIGNMENT)
                 throw doris::Exception(
                         doris::ErrorCode::INVALID_ARGUMENT,
@@ -125,13 +112,6 @@ public:
             }
 
             /// No need for zero-fill, because mmap guarantees it.
-        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD) {
-            doris::Chunk chunk;
-            if (!doris::ChunkAllocator::instance()->allocate_align(size, &chunk)) {
-                throw_bad_alloc(fmt::format("Allocator: Cannot allocate chunk {}.", size));
-            }
-            buf = chunk.data;
-            if constexpr (clear_memory) memset(buf, 0, chunk.size);
         } else {
             if (alignment <= MALLOC_MIN_ALIGNMENT) {
                 if constexpr (clear_memory)
@@ -158,26 +138,17 @@ public:
     }
 
     /// Free memory range.
-    void free(void* buf, size_t size) {
-        if (size >= doris::config::mmap_threshold && use_mmap) {
+    void free(void* buf, size_t size = -1) {
+        if (use_mmap && size >= doris::config::mmap_threshold) {
+            DCHECK(size != -1);
             if (0 != munmap(buf, size)) {
                 throw_bad_alloc(fmt::format("Allocator: Cannot munmap {}.", size));
             } else {
                 release_memory(size);
             }
-        } else if (!doris::config::disable_chunk_allocator_in_vec && size >= CHUNK_THRESHOLD &&
-                   ((size & (size - 1)) == 0)) {
-            // Only power-of-two length are added to ChunkAllocator
-            doris::ChunkAllocator::instance()->free((uint8_t*)buf, size);
         } else {
             ::free(buf);
         }
-    }
-
-    // Free memory range by ::free.
-    void free_no_munmap(void* buf) {
-        CHECK(!use_mmap);
-        ::free(buf);
     }
 
     /** Enlarge memory range.
@@ -188,8 +159,9 @@ public:
         if (old_size == new_size) {
             /// nothing to do.
             /// BTW, it's not possible to change alignment while doing realloc.
-        } else if (old_size < CHUNK_THRESHOLD && new_size < CHUNK_THRESHOLD &&
-                   alignment <= MALLOC_MIN_ALIGNMENT) {
+        } else if (!use_mmap || (old_size < doris::config::mmap_threshold &&
+                                 new_size < doris::config::mmap_threshold &&
+                                 alignment <= MALLOC_MIN_ALIGNMENT)) {
             memory_check(new_size);
             /// Resize malloc'd memory region with no special alignment requirement.
             void* new_buf = ::realloc(buf, new_size);
@@ -203,7 +175,7 @@ public:
                 if (new_size > old_size)
                     memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
         } else if (old_size >= doris::config::mmap_threshold &&
-                   new_size >= doris::config::mmap_threshold && use_mmap) {
+                   new_size >= doris::config::mmap_threshold) {
             memory_check(new_size);
             /// Resize mmap'd memory region.
             consume_memory(new_size - old_size);
@@ -226,7 +198,6 @@ public:
             }
         } else {
             memory_check(new_size);
-            // CHUNK_THRESHOLD <= old_size <= MMAP_THRESHOLD use system realloc is slow, use ChunkAllocator.
             // Big allocs that requires a copy.
             void* new_buf = alloc(new_size, alignment);
             memcpy(new_buf, buf, std::min(old_size, new_size));

@@ -150,11 +150,6 @@ public:
         offsets.push_back(new_size);
     }
 
-    void prefetch(const IColumn& src_, size_t n) {
-        const ColumnString& src = assert_cast<const ColumnString&>(src_);
-        __builtin_prefetch(&src.chars[src.offsets[n - 1]], 0, 1);
-    }
-
     void insert_from(const IColumn& src_, size_t n) override {
         const ColumnString& src = assert_cast<const ColumnString&>(src_);
         const size_t size_to_append =
@@ -398,6 +393,44 @@ public:
     void deserialize_vec_with_null_map(std::vector<StringRef>& keys, const size_t num_rows,
                                        const uint8_t* null_map) override;
 
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    size_t string_size = size_at(i);
+                    size_t offset = offset_at(i);
+                    hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                      string_size, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                size_t string_size = size_at(i);
+                size_t offset = offset_at(i);
+                hash = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&chars[offset]),
+                                                  string_size, hash);
+            }
+        }
+    }
+
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override {
+        if (null_data) {
+            for (size_t i = start; i < end; ++i) {
+                if (null_data[i] == 0) {
+                    auto data_ref = get_data_at(i);
+                    hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+                }
+            }
+        } else {
+            for (size_t i = start; i < end; ++i) {
+                auto data_ref = get_data_at(i);
+                hash = HashUtil::zlib_crc_hash(data_ref.data, data_ref.size, hash);
+            }
+        }
+    }
+
     void update_hash_with_value(size_t n, SipHash& hash) const override {
         size_t string_size = size_at(n);
         size_t offset = offset_at(n);
@@ -473,8 +506,7 @@ public:
 
     ColumnPtr replicate(const Offsets& replicate_offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     MutableColumns scatter(ColumnIndex num_columns, const Selector& selector) const override {
         return scatter_impl<ColumnString>(num_columns, selector);

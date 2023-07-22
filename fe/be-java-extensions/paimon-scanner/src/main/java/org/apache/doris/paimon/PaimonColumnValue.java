@@ -17,6 +17,7 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.ColumnValue;
 
 import org.apache.paimon.data.columnar.ColumnarRow;
@@ -32,12 +33,14 @@ import java.util.List;
 public class PaimonColumnValue implements ColumnValue {
     private int idx;
     private ColumnarRow record;
+    ColumnType dorisType;
 
     public PaimonColumnValue() {
     }
 
-    public void setIdx(int idx) {
+    public void setIdx(int idx, ColumnType dorisType) {
         this.idx = idx;
+        this.dorisType = dorisType;
     }
 
     public void setOffsetRow(ColumnarRow record) {
@@ -46,7 +49,7 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public boolean canGetStringAsBytes() {
-        return false;
+        return true;
     }
 
     @Override
@@ -91,12 +94,17 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public BigDecimal getDecimal() {
-        return BigDecimal.valueOf(getDouble());
+        return record.getDecimal(idx, dorisType.getPrecision(), dorisType.getScale()).toBigDecimal();
     }
 
     @Override
     public String getString() {
         return record.getString(idx).toString();
+    }
+
+    @Override
+    public byte[] getStringAsBytes() {
+        return record.getString(idx).toBytes();
     }
 
     @Override

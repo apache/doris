@@ -29,6 +29,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "concurrentqueue.h"
 #include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -39,6 +40,10 @@ namespace doris {
 class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
+
+namespace taskgroup {
+class TaskGroup;
+} // namespace taskgroup
 
 namespace vectorized {
 
@@ -66,9 +71,8 @@ public:
     virtual ~ScannerContext() = default;
     virtual Status init();
 
-    virtual vectorized::BlockUPtr get_free_block(bool* has_free_block,
-                                                 bool get_not_empty_block = false);
-    virtual void return_free_block(std::unique_ptr<vectorized::Block> block);
+    vectorized::BlockUPtr get_free_block(bool* has_free_block, bool get_not_empty_block = false);
+    void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
     virtual void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);
@@ -82,10 +86,12 @@ public:
     // to return the scanner to the list for next scheduling.
     void push_back_scanner_and_reschedule(VScannerSPtr scanner);
 
-    bool set_status_on_error(const Status& status);
+    bool set_status_on_error(const Status& status, bool need_lock = true);
 
     Status status() {
-        std::lock_guard l(_transfer_lock);
+        if (_process_status.is<ErrorCode::END_OF_FILE>()) {
+            return Status::OK();
+        }
         return _process_status;
     }
 
@@ -98,10 +104,7 @@ public:
     }
 
     // Return true if this ScannerContext need no more process
-    virtual bool done() {
-        std::unique_lock l(_transfer_lock);
-        return _is_finished || _should_stop || !_process_status.ok();
-    }
+    virtual bool done() { return _is_finished || _should_stop; }
 
     // Update the running num of scanners and contexts
     void update_num_running(int32_t scanner_inc, int32_t sched_inc) {
@@ -120,7 +123,7 @@ public:
 
     void clear_and_join(VScanNode* node, RuntimeState* state);
 
-    virtual bool no_schedule();
+    bool no_schedule();
 
     std::string debug_string();
 
@@ -139,9 +142,8 @@ public:
         return _cur_bytes_in_queue < _max_bytes_in_queue / 2;
     }
 
-    virtual int cal_thread_slot_num_by_free_block_num() {
+    int cal_thread_slot_num_by_free_block_num() {
         int thread_slot_num = 0;
-        std::lock_guard f(_free_blocks_lock);
         thread_slot_num = (_free_blocks_capacity + _block_per_scanner - 1) / _block_per_scanner;
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
         if (thread_slot_num <= 0) {
@@ -149,6 +151,7 @@ public:
         }
         return thread_slot_num;
     }
+    taskgroup::TaskGroup* get_task_group() const;
 
     void reschedule_scanner_ctx();
 
@@ -164,7 +167,7 @@ private:
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
-    virtual void _init_free_block(int pre_alloc_block_count, int real_block_size);
+    void _init_free_block(int pre_alloc_block_count, int real_block_size);
 
     RuntimeState* _state;
     VScanNode* _parent;
@@ -208,12 +211,11 @@ protected:
     std::atomic_bool _is_finished = false;
 
     // Lazy-allocated blocks for all scanners to share, for memory reuse.
-    doris::Mutex _free_blocks_lock;
-    std::vector<vectorized::BlockUPtr> _free_blocks;
+    moodycamel::ConcurrentQueue<vectorized::BlockUPtr> _free_blocks;
     // The current number of free blocks available to the scanners.
     // Used to limit the memory usage of the scanner.
     // NOTE: this is NOT the size of `_free_blocks`.
-    int32_t _free_blocks_capacity = 0;
+    std::atomic_int32_t _free_blocks_capacity = 0;
 
     int _batch_size;
     // The limit from SQL's limit clause
@@ -248,6 +250,7 @@ protected:
     std::list<VScannerSPtr> _scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
+    std::vector<int64_t> _finished_scanner_wait_worker_time;
 
     const int _num_parallel_instances;
 

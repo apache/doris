@@ -37,7 +37,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
@@ -1836,7 +1835,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Looks up in the catalog the builtin for 'name' and 'argTypes'.
      * Returns null if the function is not found.
      */
-    protected Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
+    public Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
         Function searchDesc = new Function(fnName, Arrays.asList(getActualArgTypes(argTypes)), Type.INVALID, false,
@@ -1914,8 +1913,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     protected Function getTableFunction(String name, Type[] argTypes, Function.CompareMode mode) {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
-                VectorizedUtil.isVectorized());
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false);
         Function f = Env.getCurrentEnv().getTableFunction(searchDesc, mode);
         return f;
     }
@@ -2459,7 +2457,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    protected  Type getActualScalarType(Type originType) {
+    protected Type getActualScalarType(Type originType) {
         if (originType.getPrimitiveType() == PrimitiveType.DECIMAL32) {
             return Type.DECIMAL32;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMAL64) {
@@ -2474,6 +2472,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return Type.CHAR;
         } else if (originType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
+        } else if (originType.getPrimitiveType() == PrimitiveType.TIMEV2) {
+            return Type.TIMEV2;
         }
         return originType;
     }

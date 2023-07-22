@@ -25,7 +25,7 @@ import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
 
 import java.util.Map;
 
-public class AnalyzeStmt extends DdlStmt {
+public class AnalyzeStmt extends StatementBase {
 
     protected AnalyzeProperties analyzeProperties;
 
@@ -80,5 +80,10 @@ public class AnalyzeStmt extends DdlStmt {
 
     public AnalyzeProperties getAnalyzeProperties() {
         return analyzeProperties;
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_WITH_SYNC;
     }
 }

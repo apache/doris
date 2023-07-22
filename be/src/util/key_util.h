@@ -59,15 +59,20 @@ constexpr uint8_t KEY_MAXIMAL_MARKER = 0xFF;
 // fill a marker and return. If padding_minimal is true, KEY_MINIMAL_MARKER will
 // be added, if padding_minimal is false, KEY_MAXIMAL_MARKER will be added.
 // If all num_keys are found in row, no marker will be added.
+// if padding_minimal is false and padding_normal_marker is true,
+// KEY_NORMAL_MARKER will be added.
 template <typename RowType, bool null_first = true, bool full_encode = false>
 void encode_key_with_padding(std::string* buf, const RowType& row, size_t num_keys,
-                             bool padding_minimal) {
+                             bool padding_minimal, bool padding_normal_marker = false) {
     for (auto cid = 0; cid < num_keys; cid++) {
         auto field = row.schema()->column(cid);
         if (field == nullptr) {
             if (padding_minimal) {
                 buf->push_back(KEY_MINIMAL_MARKER);
             } else {
+                if (padding_normal_marker) {
+                    buf->push_back(KEY_NORMAL_MARKER);
+                }
                 buf->push_back(KEY_MAXIMAL_MARKER);
             }
             break;

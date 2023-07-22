@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -47,6 +48,7 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import javax.annotation.Nullable;
 
 /**
@@ -76,17 +78,15 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public UpdateCommand(List<String> nameParts, @Nullable String tableAlias, List<EqualTo> assignments,
             LogicalPlan logicalQuery) {
         super(PlanType.UPDATE_COMMAND);
-        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts,
-                "tableName is required in update command"));
-        this.assignments = ImmutableList.copyOf(Objects.requireNonNull(assignments,
-                "assignment is required in update command"));
+        this.nameParts = Utils.copyRequiredList(nameParts);
+        this.assignments = Utils.copyRequiredList(assignments);
         this.tableAlias = tableAlias;
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery is required in update command");
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), null).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -119,7 +119,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         logicalQuery = new LogicalProject<>(selectItems, logicalQuery);
 
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, null, null, null, logicalQuery);
+        return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {

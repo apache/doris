@@ -190,6 +190,13 @@ public class TableProperty implements Writable {
     public TableProperty buildStoreRowColumn() {
         storeRowColumn = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        // Remove deprecated prefix and try again
+        String deprecatedPrefix = "deprecated_";
+        if (!storeRowColumn && PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.startsWith(deprecatedPrefix)) {
+            storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(
+                    PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN.substring(deprecatedPrefix.length()), "false"));
+        }
         return this;
     }
 

@@ -65,9 +65,12 @@
 
 namespace doris::vectorized {
 
-#define RETURN_IF_PUSH_DOWN(stmt)            \
+#define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
-        stmt;                                \
+        status = stmt;                       \
+        if (!status.ok()) {                  \
+            return;                          \
+        }                                    \
     } else {                                 \
         return;                              \
     }
@@ -94,7 +97,9 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
 }
 
 Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(RuntimeFilterConsumerNode::init(tnode, state));
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
+    _state = state;
     _is_pipeline_scan = state->enable_pipeline_exec();
 
     const TQueryOptions& query_options = state->query_options();
@@ -115,12 +120,7 @@ Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
     // init profile for runtime filter
-    std::stringstream ss;
-    for (auto& rf_ctx : _runtime_filter_ctxs) {
-        rf_ctx.runtime_filter->init_profile(_runtime_profile.get());
-        ss << rf_ctx.runtime_filter->get_name() << ", ";
-    }
-    _runtime_profile->add_info_string("RuntimeFilters: ", ss.str());
+    RuntimeFilterConsumer::_init_profile(_runtime_profile.get());
 
     if (_is_pipeline_scan) {
         if (_shared_scan_opt) {
@@ -334,7 +334,7 @@ void VScanNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
-Status VScanNode::try_close() {
+Status VScanNode::try_close(RuntimeState* state) {
     if (_scanner_ctx.get()) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
@@ -475,6 +475,7 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
             }
             if (_is_predicate_acting_on_slot(cur_expr, in_predicate_checker, &slot, &range) ||
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
+                Status status = Status::OK();
                 std::visit(
                         [&](auto& value_range) {
                             Defer mark_runtime_filter_flag {[&]() {
@@ -482,27 +483,36 @@ Status VScanNode::_normalize_predicate(const VExprSPtr& conjunct_expr_root, VExp
                                         _is_runtime_filter_predicate);
                             }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
-                                    cur_expr, context, slot, value_range, &pdt));
+                                                        cur_expr, context, slot, value_range, &pdt),
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_not_in_and_not_eq_predicate(
-                                    cur_expr, context, slot, value_range, &pdt));
+                                                        cur_expr, context, slot, value_range, &pdt),
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_is_null_predicate(
-                                    cur_expr, context, slot, value_range, &pdt));
+                                                        cur_expr, context, slot, value_range, &pdt),
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
-                                    cur_expr, context, slot, value_range, &pdt));
+                                                        cur_expr, context, slot, value_range, &pdt),
+                                                status);
                             RETURN_IF_PUSH_DOWN(_normalize_match_predicate(cur_expr, context, slot,
-                                                                           value_range, &pdt));
+                                                                           value_range, &pdt),
+                                                status);
                             if (_is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(
-                                        _normalize_bitmap_filter(cur_expr, context, slot, &pdt));
+                                        _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
+                                        status);
                                 RETURN_IF_PUSH_DOWN(
-                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt));
+                                        _normalize_bloom_filter(cur_expr, context, slot, &pdt),
+                                        status);
                                 if (_state->enable_function_pushdown()) {
                                     RETURN_IF_PUSH_DOWN(_normalize_function_filters(
-                                            cur_expr, context, slot, &pdt));
+                                                                cur_expr, context, slot, &pdt),
+                                                        status);
                                 }
                             }
                         },
                         *range);
+                RETURN_IF_ERROR(status);
             }
 
             if (pdt == PushDownType::UNACCEPTABLE &&
@@ -775,6 +785,11 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
                         temp_range, reinterpret_cast<void*>(&val),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
             } else {
+                if (sizeof(typename PrimitiveTypeTraits<T>::CppType) != value.size) {
+                    return Status::InternalError(
+                            "PrimitiveType {} meet invalid input value size {}, expect size {}", T,
+                            value.size, sizeof(typename PrimitiveTypeTraits<T>::CppType));
+                }
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));

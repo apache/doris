@@ -315,6 +315,12 @@ There are two ways to configure BE configuration items:
 * Description:  When using the odbc external table, if a column type of the odbc source table is not HLL, CHAR or VARCHAR, and the length of the column value exceeds this value, the query will report an error 'column value length longer than buffer length'. You can increase this value
 * Default value: 100
 
+#### `jsonb_type_length_soft_limit_bytes`
+
+* Type: int32
+* Description: The soft limit of the maximum length of JSONB type.
+* Default value: 1,048,576
+
 ### Query
 
 #### `fragment_pool_queue_size`
@@ -553,7 +559,18 @@ There are two ways to configure BE configuration items:
 Base compaction is a long time cost background task, this configuration is the threshold to logging trace information. Trace information in log file looks like:
 
 ```
-W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
+W0610 11:26:33.804431 56452 storage_engine.cpp:552] execute base compaction cost 0.00319222
+BaseCompaction:546859:
+  - filtered_rows: 0
+   - input_row_num: 10
+   - input_rowsets_count: 10
+   - input_rowsets_data_size: 2.17 KB
+   - input_segments_num: 10
+   - merge_rowsets_latency: 100000.510ms
+   - merged_rows: 0
+   - output_row_num: 10
+   - output_rowset_data_size: 224.00 B
+   - output_segments_num: 1
 0610 11:23:03.727535 (+     0us) storage_engine.cpp:554] start to perform base compaction
 0610 11:23:03.728961 (+  1426us) storage_engine.cpp:560] found best tablet 546859
 0610 11:23:03.728963 (+     2us) base_compaction.cpp:40] got base compaction lock
@@ -566,7 +583,6 @@ W0610 11:26:33.804431 56452 storage_engine.cpp:552] Trace:
 0610 11:26:33.513197 (+ 28715us) compaction.cpp:110] modify rowsets finished
 0610 11:26:33.513300 (+   103us) base_compaction.cpp:49] compaction finished
 0610 11:26:33.513441 (+   141us) base_compaction.cpp:56] unused rowsets have been moved to GC queue
-Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"input_rowsets_data_size":1256413170,"input_segments_num":44,"merge_rowsets_latency_us":101574444,"merged_rows":0,"output_row_num":3346807,"output_rowset_data_size":1228439659,"output_segments_num":6}
 ```
 
 #### `cumulative_compaction_trace_threshold`
@@ -1259,12 +1275,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: Used to ignore brpc error '[E1011]The server is overcrowded' when writing data.
 * Default value: false
 
-#### `enable_lazy_open_partition`
-
-* Type: bool
-* Description: When importing, most partitions may not need to be written, and lazy opening can be used to only open the partitions that need to be written.When there is mixed deployment in the upgraded version, it needs to be set to false.
-* Default value: false
-
 #### `streaming_load_rpc_max_alive_time_sec`
 
 * Description: The lifetime of TabletsChannel. If the channel does not receive any data at this time, the channel will be deleted.
@@ -1273,6 +1283,11 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `alter_tablet_worker_count`
 
 * Description: The number of threads making schema changes
+* Default value: 3
+
+### `alter_index_worker_count`
+
+* Description: The number of threads making index change
 * Default value: 3
 
 #### `ignore_load_tablet_failure`
@@ -1452,7 +1467,7 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 #### `enable_simdjson_reader`
 
 * Description: Whether enable simdjson to parse json while stream load
-* Default value: false
+* Default value: true
 
 </version>
 

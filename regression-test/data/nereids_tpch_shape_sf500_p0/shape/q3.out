@@ -17,7 +17,8 @@ PhysicalTopN
 ----------------------PhysicalProject
 ------------------------filter((orders.o_orderdate < 1995-03-15))
 --------------------------PhysicalOlapScan[orders]
---------------------PhysicalProject
-----------------------filter((customer.c_mktsegment = 'BUILDING'))
-------------------------PhysicalOlapScan[customer]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------filter((customer.c_mktsegment = 'BUILDING'))
+--------------------------PhysicalOlapScan[customer]
 

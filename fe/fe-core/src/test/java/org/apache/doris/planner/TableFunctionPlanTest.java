@@ -50,12 +50,12 @@ public class TableFunctionPlanTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Env.getCurrentEnv().createDb(createDbStmt);
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar, k3 varchar) "
+        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar(1), k3 varchar(1)) "
                 + "DUPLICATE KEY(k1) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
 
-        createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar, v1 bitmap bitmap_union) "
+        createTblStmtStr = "create table db1.tbl2(k1 int, k2 varchar(1), v1 bitmap bitmap_union) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
@@ -78,7 +78,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
     }
 
@@ -94,7 +94,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
     }
 
@@ -115,7 +115,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
         // group by tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=null, byteSize=32}"));
@@ -134,7 +134,7 @@ public class TableFunctionPlanTest {
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("PREDICATES: `e1` = '1'"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
     }
 
@@ -150,7 +150,7 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(
                 explainString.contains("table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, colUniqueId=-1, type=varchar(*)"));
         Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainString, 0, "OlapScanNode"));
         Assert.assertTrue(explainString.contains("PREDICATES: `k1` = 1"));
@@ -170,10 +170,10 @@ public class TableFunctionPlanTest {
                 "table function: explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',') explode_split(`default_cluster:db1`.`tbl1`.`k2`, ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1 2"));
         // lateral view 2 tuple
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, colUniqueId=-1, type=varchar(*)"));
         // lateral view 1 tuple
-        Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=tmp1, byteSize=32}"));
+        Assert.assertTrue(explainString.contains("TupleDescriptor{id=2, tbl=tmp1, byteSize=16}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=2, col=e1, colUniqueId=-1, type=varchar(*)"));
     }
 
@@ -446,6 +446,12 @@ public class TableFunctionPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("table function: explode_json_array_double('[1.1, 2.2, 3.3]')"));
+        Assert.assertTrue(explainString.contains("output slot id: 0 1"));
+
+        sql = "desc select /*+ SET_VAR(enable_nereids_planner=false) */ k1, e1 from db1.tbl2 lateral view explode_json_array_json('[{\"id\":1,\"name\":\"John\"},{\"id\":2,\"name\":\"Mary\"},{\"id\":3,\"name\":\"Bob\"}]') tmp1 as e1 ";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("table function: explode_json_array_json('[{\"id\":1,\"name\":\"John\"},{\"id\":2,\"name\":\"Mary\"},{\"id\":3,\"name\":\"Bob\"}]')"));
         Assert.assertTrue(explainString.contains("output slot id: 0 1"));
     }
 

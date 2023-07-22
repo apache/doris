@@ -17,11 +17,14 @@
 
 package org.apache.doris.binlog;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.persist.BinlogGcInfo;
+import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 import org.apache.doris.thrift.TStatus;
@@ -35,15 +38,10 @@ import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.transport.TMemoryBuffer;
 import org.apache.thrift.transport.TMemoryInputTransport;
-import org.apache.thrift.transport.TTransportException;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -80,7 +78,7 @@ public class BinlogManager {
         try {
             dbBinlog = dbBinlogMap.get(dbId);
             if (dbBinlog == null) {
-                dbBinlog = new DBBinlog(dbId);
+                dbBinlog = new DBBinlog(binlog);
                 dbBinlogMap.put(dbId, dbBinlog);
             }
         } finally {
@@ -102,6 +100,7 @@ public class BinlogManager {
         if (tableIds != null && !tableIds.isEmpty()) {
             binlog.setTableIds(tableIds);
         }
+        binlog.setTableRef(0);
         addBinlog(binlog);
     }
 
@@ -118,7 +117,7 @@ public class BinlogManager {
 
     public void addAddPartitionRecord(AddPartitionRecord addPartitionRecord) {
         long dbId = addPartitionRecord.getDbId();
-        List<Long> tableIds = new ArrayList<Long>();
+        List<Long> tableIds = Lists.newArrayList();
         tableIds.add(addPartitionRecord.getTableId());
         long commitSeq = addPartitionRecord.getCommitSeq();
         long timestamp = -1;
@@ -128,8 +127,65 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
     }
 
+    public void addCreateTableRecord(CreateTableRecord createTableRecord) {
+        long dbId = createTableRecord.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(createTableRecord.getTableId());
+        long commitSeq = createTableRecord.getCommitSeq();
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.CREATE_TABLE;
+        String data = createTableRecord.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addDropPartitionRecord(DropPartitionInfo dropPartitionInfo, long commitSeq) {
+        long dbId = dropPartitionInfo.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(dropPartitionInfo.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.DROP_PARTITION;
+        String data = dropPartitionInfo.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addDropTableRecord(DropTableRecord record) {
+        long dbId = record.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(record.getTableId());
+        long commitSeq = record.getCommitSeq();
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.DROP_TABLE;
+        String data = record.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addAlterJobV2(AlterJobV2 alterJob, long commitSeq) {
+        long dbId = alterJob.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(alterJob.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.ALTER_JOB;
+        String data = alterJob.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
+    public void addModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_TABLE_ADD_OR_DROP_COLUMNS;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data);
+    }
+
     // get binlog by dbId, return first binlog.version > version
-    public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long commitSeq) {
+    public Pair<TStatus, TBinlog> getBinlog(long dbId, long tableId, long prevCommitSeq) {
         TStatus status = new TStatus(TStatusCode.OK);
         lock.readLock().lock();
         try {
@@ -140,7 +196,25 @@ public class BinlogManager {
                 return Pair.of(status, null);
             }
 
-            return dbBinlog.getBinlog(tableId, commitSeq);
+            return dbBinlog.getBinlog(tableId, prevCommitSeq);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    // get binlog by dbId, return first binlog.version > version
+    public Pair<TStatus, Long> getBinlogLag(long dbId, long tableId, long prevCommitSeq) {
+        TStatus status = new TStatus(TStatusCode.OK);
+        lock.readLock().lock();
+        try {
+            DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+            if (dbBinlog == null) {
+                status.setStatusCode(TStatusCode.BINLOG_NOT_FOUND_DB);
+                LOG.warn("dbBinlog not found. dbId: {}", dbId);
+                return Pair.of(status, null);
+            }
+
+            return dbBinlog.getBinlogLag(tableId, prevCommitSeq);
         } finally {
             lock.readLock().unlock();
         }
@@ -150,9 +224,9 @@ public class BinlogManager {
         LOG.info("begin gc binlog");
 
         lock.writeLock().lock();
-        Map<Long, DBBinlog> gcDbBinlogMap = null;
+        Map<Long, DBBinlog> gcDbBinlogMap;
         try {
-            gcDbBinlogMap = new HashMap<Long, DBBinlog>(dbBinlogMap);
+            gcDbBinlogMap = Maps.newHashMap(dbBinlogMap);
         } finally {
             lock.writeLock().unlock();
         }
@@ -164,9 +238,9 @@ public class BinlogManager {
 
         List<BinlogTombstone> tombstones = Lists.newArrayList();
         for (DBBinlog dbBinlog : gcDbBinlogMap.values()) {
-            List<BinlogTombstone> dbTombstones = dbBinlog.gc();
+            BinlogTombstone dbTombstones = dbBinlog.gc();
             if (dbTombstones != null) {
-                tombstones.addAll(dbTombstones);
+                tombstones.add(dbTombstones);
             }
         }
         return tombstones;
@@ -174,9 +248,9 @@ public class BinlogManager {
 
     public void replayGc(BinlogGcInfo binlogGcInfo) {
         lock.writeLock().lock();
-        Map<Long, DBBinlog> gcDbBinlogMap = null;
+        Map<Long, DBBinlog> gcDbBinlogMap;
         try {
-            gcDbBinlogMap = new HashMap<Long, DBBinlog>(dbBinlogMap);
+            gcDbBinlogMap = Maps.newHashMap(dbBinlogMap);
         } finally {
             lock.writeLock().unlock();
         }
@@ -231,18 +305,11 @@ public class BinlogManager {
             return checksum;
         }
 
-        List<TBinlog> binlogs = new ArrayList<TBinlog>();
+        List<TBinlog> binlogs = Lists.newArrayList();
         // Step 1: get all binlogs
         for (DBBinlog dbBinlog : dbBinlogMap.values()) {
             dbBinlog.getAllBinlogs(binlogs);
         }
-        // sort binlogs by commitSeq
-        Collections.sort(binlogs, new Comparator<TBinlog>() {
-            @Override
-            public int compare(TBinlog o1, TBinlog o2) {
-                return Long.compare(o1.getCommitSeq(), o2.getCommitSeq());
-            }
-        });
 
         // Step 2: write binlogs length
         dos.writeInt(binlogs.size());
@@ -261,31 +328,6 @@ public class BinlogManager {
         return checksum;
     }
 
-    public void read(DataInputStream dis) throws IOException {
-        // Step 1: read binlogs length
-        int length = dis.readInt();
-
-        // Step 2: read all binlogs from dis && add binlog
-        TMemoryBuffer buffer;
-        TBinaryProtocol protocol;
-        try {
-            buffer = new TMemoryBuffer(BUFFER_SIZE);
-            protocol = new TBinaryProtocol(buffer);
-        } catch (TTransportException e) {
-            throw new IOException("failed to create TMemoryBuffer");
-        }
-
-        for (int i = 0; i < length; i++) {
-            TBinlog binlog = new TBinlog();
-            try {
-                binlog.read(protocol);
-            } catch (TException e) {
-                throw new IOException("failed to read binlog from TMemoryBuffer");
-            }
-            addBinlog(binlog);
-        }
-    }
-
     public TBinlog readTBinlogFromStream(DataInputStream dis) throws TException, IOException {
         // We assume that the first int is the length of the serialized data.
         int length = dis.readInt();
@@ -298,23 +340,67 @@ public class BinlogManager {
         return binlog;
     }
 
+    // db TBinlogs in file struct:
+    // (tableDummy)TBinlog.belong == tableId, (dbDummy)TBinlog.belong == -1
+    // +---------------------------+------------------+-----------------------------------+
+    // | (tableDummy)TBinlog | ... | (dbDummy)TBinlog | TBinlog | TBinlog | TBinlog | ... |
+    // +---------------------------+------------------+-----------------------------------+
+    // |        Unnecessary        |     Necessary    |             Unnecessary           |
+    // +---------------------------+------------------+-----------------------------------+
     public long read(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         // Step 1: read binlogs length
         int size = dis.readInt();
         LOG.info("read binlogs length: {}", size);
 
         // Step 2: read all binlogs from dis
-        for (int i = 0; i < size; i++) {
-            try {
+        long currentDbId = -1;
+        boolean currentDbBinlogEnable = false;
+        List<TBinlog> tableDummies = Lists.newArrayList();
+        try {
+            for (int i = 0; i < size; i++) {
+                // Step 2.1: read a binlog
                 TBinlog binlog = readTBinlogFromStream(dis);
-                addBinlog(binlog);
-            } catch (TException e) {
-                throw new IOException("failed to read binlog from TMemoryBuffer", e);
+
+                if (!Config.enable_feature_binlog) {
+                    continue;
+                }
+
+                // Step 2.2: check if there is in next db Binlogs region
+                long dbId = binlog.getDbId();
+                if (dbId != currentDbId) {
+                    // if there is in next db Binlogs region, check and update metadata
+                    Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+                    if (db == null) {
+                        LOG.warn("db not found. dbId: {}", dbId);
+                        continue;
+                    }
+                    currentDbId = dbId;
+                    currentDbBinlogEnable = db.getBinlogConfig().isEnable();
+                    tableDummies = Lists.newArrayList();
+                }
+
+                // step 2.3: recover binlog
+                if (binlog.getType() == TBinlogType.DUMMY) {
+                    // collect tableDummyBinlogs and dbDummyBinlog to recover DBBinlog and TableBinlog
+                    if (binlog.getBelong() == -1) {
+                        DBBinlog dbBinlog = DBBinlog.recoverDbBinlog(binlog, tableDummies, currentDbBinlogEnable);
+                        dbBinlogMap.put(dbId, dbBinlog);
+                    } else {
+                        tableDummies.add(binlog);
+                    }
+                } else {
+                    // recover common binlogs
+                    DBBinlog dbBinlog = dbBinlogMap.get(dbId);
+                    if (dbBinlog == null) {
+                        LOG.warn("dbBinlog recover fail! binlog {} is before dummy. dbId: {}", binlog, dbId);
+                        continue;
+                    }
+                    binlog.setTableRef(0);
+                    dbBinlog.recoverBinlog(binlog, currentDbBinlogEnable);
+                }
             }
+        } catch (TException e) {
+            throw new IOException("failed to read binlog from TMemoryBuffer", e);
         }
 
         return checksum;

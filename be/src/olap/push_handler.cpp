@@ -110,12 +110,14 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
     if (tablet == nullptr) {
-        return Status::Error<TABLE_NOT_FOUND>();
+        return Status::Error<TABLE_NOT_FOUND>(
+                "PushHandler::_do_streaming_ingestion input tablet is nullptr");
     }
 
     std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>();
+        return Status::Error<TRY_LOCK_FAILED>(
+                "PushHandler::_do_streaming_ingestion get lock failed");
     }
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -154,10 +156,9 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 
     // check if version number exceed limit
     if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
-        LOG(WARNING) << "failed to push data. version count: " << tablet->version_count()
-                     << ", exceed limit: " << config::max_tablet_version_num
-                     << ". tablet: " << tablet->full_name();
-        return Status::Status::Error<TOO_MANY_VERSION>();
+        return Status::Status::Error<TOO_MANY_VERSION>(
+                "failed to push data. version count: {}, exceed limit: {}, tablet: {}",
+                tablet->version_count(), config::max_tablet_version_num, tablet->full_name());
     }
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
@@ -245,8 +246,8 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             // init schema
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
-                LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
-                res = Status::Error<MEM_ALLOC_FAILED>();
+                res = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
+                                                      cur_tablet->full_name());
                 break;
             }
 
@@ -255,9 +256,8 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
                     schema.get(), _request.broker_scan_range, _request.desc_tbl);
             res = reader->init();
             if (reader == nullptr || !res.ok()) {
-                LOG(WARNING) << "fail to init reader. res=" << res
-                             << ", tablet=" << cur_tablet->full_name();
-                res = Status::Error<PUSH_INIT_ERROR>();
+                res = Status::Error<PUSH_INIT_ERROR>("fail to init reader. res={}, tablet={}", res,
+                                                     cur_tablet->full_name());
                 break;
             }
 
@@ -296,8 +296,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         }
         *cur_rowset = rowset_writer->build();
         if (*cur_rowset == nullptr) {
-            LOG(WARNING) << "fail to build rowset";
-            res = Status::Error<MEM_ALLOC_FAILED>();
+            res = Status::Error<MEM_ALLOC_FAILED>("fail to build rowset");
             break;
         }
 
@@ -323,7 +322,6 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     if (0 == _ranges.size()) {
         return;
     }
-    _file_params.file_type = _ranges[0].file_type;
     _file_params.format_type = _ranges[0].format_type;
     _file_params.src_tuple_id = _params.src_tuple_id;
     _file_params.dest_tuple_id = _params.dest_tuple_id;
@@ -337,6 +335,12 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
 
     for (int i = 0; i < _ranges.size(); ++i) {
         TFileRangeDesc file_range;
+        // TODO(cmy): in previous implementation, the file_type is set in _file_params
+        // and it use _ranges[0].file_type.
+        // Later, this field is moved to TFileRangeDesc, but here we still only use _ranges[0]'s
+        // file_type.
+        // Because I don't know if other range has this field, so just keep it same as before.
+        file_range.file_type = _ranges[0].file_type;
         file_range.load_id = _ranges[i].load_id;
         file_range.path = _ranges[i].path;
         file_range.start_offset = _ranges[i].start_offset;
@@ -367,8 +371,7 @@ Status PushBrokerReader::init() {
     DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), _t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to create descriptor table, msg: " << status;
-        return Status::Error<PUSH_INIT_ERROR>();
+        return Status::Error<PUSH_INIT_ERROR>("Failed to create descriptor table, msg: {}", status);
     }
     _runtime_state->set_desc_tbl(desc_tbl);
     _runtime_state->init_mem_trackers(dummy_id, "PushBrokerReader");
@@ -393,7 +396,7 @@ Status PushBrokerReader::init() {
 
 Status PushBrokerReader::next(vectorized::Block* block) {
     if (!_ready || block == nullptr) {
-        return Status::Error<INVALID_ARGUMENT>();
+        return Status::Error<INVALID_ARGUMENT>("PushBrokerReader not ready or block is nullptr");
     }
     if (_cur_reader == nullptr || _cur_reader_eof) {
         RETURN_IF_ERROR(_get_next_reader());
@@ -641,8 +644,8 @@ Status PushBrokerReader::_get_next_reader() {
         break;
     }
     default:
-        LOG(WARNING) << "Unsupported file format type: " << _file_params.format_type;
-        return Status::Error<PUSH_INIT_ERROR>();
+        return Status::Error<PUSH_INIT_ERROR>("Unsupported file format type: {}",
+                                              _file_params.format_type);
     }
     _cur_reader_eof = false;
 

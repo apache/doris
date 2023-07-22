@@ -29,16 +29,11 @@
 
 namespace doris {
 
-struct TrackerGroup {
-    std::list<MemTracker*> trackers;
-    std::mutex group_lock;
-};
-
 // Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
 // When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
 // Each group corresponds to several MemTrackerLimiters and has a lock.
 // Multiple groups are used to reduce the impact of locks.
-static std::vector<TrackerGroup> mem_tracker_pool(1000);
+std::vector<MemTracker::TrackerGroup> MemTracker::mem_tracker_pool(1000);
 
 MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
                        const std::string& profile_counter_name)

@@ -38,7 +38,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/jsonb_value.h"
 #include "runtime/large_int_value.h"
-#include "runtime/memory/chunk_allocator.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 #include "vec/core/field.h"
@@ -49,7 +48,6 @@
 #include "vec/utils/util.hpp"
 
 TEST(TEST_VEXPR, ABSTEST) {
-    doris::ChunkAllocator::init_instance(4096);
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
     builder.declare_tuple() << doris::TYPE_INT << doris::TYPE_DOUBLE;

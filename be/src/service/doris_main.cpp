@@ -50,10 +50,12 @@
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
+#include "common/phdr_cache.h"
 #include "common/resource_tls.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block/block_file_cache_factory.h"
+#include "io/fs/s3_file_write_bufferpool.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -344,10 +346,6 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    if (doris::config::memory_mode == std::string("performance")) {
-        doris::MemTrackerLimiter::disable_oom_avoidance();
-    }
-
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (!olap_res) {
@@ -417,6 +415,10 @@ int main(int argc, char** argv) {
         }
     }
 
+    // PHDR speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
+    // will work only after additional call of this function.
+    updatePHDRCache();
+
     // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
@@ -431,6 +433,12 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     doris::TabletSchemaCache::create_global_schema_cache();
+
+    // init s3 write buffer pool
+    doris::io::S3FileBufferPool* s3_buffer_pool = doris::io::S3FileBufferPool::GetInstance();
+    s3_buffer_pool->init(doris::config::s3_write_buffer_whole_size,
+                         doris::config::s3_write_buffer_size,
+                         exec_env->buffered_reader_prefetch_thread_pool());
 
     // init and open storage engine
     doris::EngineOptions options;

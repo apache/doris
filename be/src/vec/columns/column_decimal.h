@@ -129,9 +129,6 @@ public:
         const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
         for (int i = 0; i < new_size; ++i) {
-            if (i + IColumn::PREFETCH_STEP < new_size) {
-                __builtin_prefetch(&src_data[indices_begin[i + IColumn::PREFETCH_STEP]], 0, 1);
-            }
             data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
@@ -184,6 +181,11 @@ public:
     void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
                                 const uint8_t* __restrict null_data) const override;
 
+    void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
+                                  const uint8_t* __restrict null_data) const override;
+    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override;
@@ -225,8 +227,7 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
-    void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
-                   int count_sz = -1) const override;
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     TypeIndex get_data_type() const override { return TypeId<T>::value; }
 
@@ -299,6 +300,14 @@ protected:
             std::partial_sort(res.begin(), sort_end, res.end(),
                               [this](size_t a, size_t b) { return data[a] < data[b]; });
     }
+
+    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint64_t& hash) const {
+        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+        int64_t int_val = dec_val.int_value();
+        int32_t frac_val = dec_val.frac_value();
+        hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);
+        hash = HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), hash);
+    };
 };
 
 template <typename>

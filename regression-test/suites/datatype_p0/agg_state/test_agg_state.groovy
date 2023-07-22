@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_agg_state") {
+    sql "set global enable_agg_state=true"
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """
             create table d_table(
@@ -53,7 +54,7 @@ suite("test_agg_state") {
 
     sql "insert into a_table select 1,max_by_state(1,3);"
     sql "insert into a_table select 1,max_by_state(2,2);"
-    sql "insert into a_table select 1,max_by_state(3,1);"
+    sql "insert into a_table values(1,max_by_state(3,1));"
 
     qt_length1 """select k1,length(k2) from a_table order by k1;"""
     qt_group1 """select k1,max_by_merge(k2) from a_table group by k1 order by k1;"""
@@ -67,4 +68,9 @@ suite("test_agg_state") {
     
     qt_union """ select max_by_merge(kstate) from (select k1,max_by_union(k2) kstate from a_table group by k1 order by k1) t; """
     qt_max_by_null """ select max_by_merge(max_by_state(k1,null)),min_by_merge(min_by_state(null,k3)) from d_table; """
+
+    test {
+        sql "select avg_state(1) from d_table;"
+        exception "[NOT_IMPLEMENTED_ERROR]"
+    }
 }

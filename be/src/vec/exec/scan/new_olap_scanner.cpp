@@ -65,10 +65,9 @@ NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int
                                const std::vector<OlapScanRange*>& key_ranges,
                                const std::vector<RowsetReaderSharedPtr>& rs_readers,
                                const std::vector<std::pair<int, int>>& rs_reader_seg_offsets,
-                               bool need_agg_finalize, RuntimeProfile* profile)
+                               RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
-          _need_agg_finalize(need_agg_finalize),
           _version(-1),
           _scan_range(scan_range),
           _key_ranges(key_ranges) {
@@ -376,11 +375,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
         }
     }
 
-    // If a agg node is this scan node direct parent
-    // we will not call agg object finalize method in scan node,
-    // to avoid the unnecessary SerDe and improve query performance
-    _tablet_reader_params.need_agg_finalize = _need_agg_finalize;
-
     if (!config::disable_storage_page_cache) {
         _tablet_reader_params.use_page_cache = true;
     }
@@ -419,6 +413,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     UnixSeconds() + _tablet_reader_params.runtime_state->execution_timeout() +
                     delayed_s;
             rs_reader->rowset()->update_delayed_expired_timestamp(delayed_expired_timestamp);
+            StorageEngine::instance()->add_quering_rowset(rs_reader->rowset());
         }
     }
 
@@ -571,6 +566,7 @@ void NewOlapScanner::_update_counters_before_close() {
     }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
+    COUNTER_UPDATE(olap_parent->_dict_filtered_counter, stats.rows_dict_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_by_bitmap);

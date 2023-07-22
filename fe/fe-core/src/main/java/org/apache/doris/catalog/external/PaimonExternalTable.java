@@ -92,6 +92,8 @@ public class PaimonExternalTable extends ExternalTable {
                 return Type.FLOAT;
             case DOUBLE:
                 return Type.DOUBLE;
+            case SMALLINT:
+                return Type.SMALLINT;
             case VARCHAR:
             case BINARY:
             case CHAR:

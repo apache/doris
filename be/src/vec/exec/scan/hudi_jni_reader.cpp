@@ -21,6 +21,7 @@
 #include <ostream>
 
 #include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "vec/core/types.h"
 
@@ -35,7 +36,7 @@ class Block;
 
 namespace doris::vectorized {
 
-const std::string HudiJniReader::HADOOP_FS_PREFIX = "hadoop_fs.";
+const std::string HudiJniReader::HADOOP_CONF_PREFIX = "hadoop_conf.";
 
 HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
                              const THudiFileDesc& hudi_params,
@@ -52,6 +53,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
     }
 
     std::map<String, String> params = {
+            {"query_id", print_id(_state->query_id())},
             {"base_path", _hudi_params.base_path},
             {"data_file_path", _hudi_params.data_file_path},
             {"data_file_length", std::to_string(_hudi_params.data_file_length)},
@@ -65,7 +67,7 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
 
     // Use compatible hadoop client to read data
     for (auto& kv : _scan_params.properties) {
-        params[HADOOP_FS_PREFIX + kv.first] = kv.second;
+        params[HADOOP_CONF_PREFIX + kv.first] = kv.second;
     }
 
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner", params,

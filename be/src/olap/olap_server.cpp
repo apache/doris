@@ -1021,9 +1021,8 @@ Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& re
         return Status::InternalError("tablet not exist, tablet_id={}.", tablet_id);
     }
 
-    IndexBuilderSharedPtr index_builder =
-            std::make_shared<IndexBuilder>(tablet, request.columns, request.indexes_desc,
-                                           request.alter_inverted_indexes, request.is_drop_op);
+    IndexBuilderSharedPtr index_builder = std::make_shared<IndexBuilder>(
+            tablet, request.columns, request.alter_inverted_indexes, request.is_drop_op);
     RETURN_IF_ERROR(_handle_index_change(index_builder));
     return Status::OK();
 }
@@ -1217,6 +1216,11 @@ void StorageEngine::add_async_publish_task(int64_t partition_id, int64_t tablet_
                                            bool is_recovery) {
     if (!is_recovery) {
         TabletSharedPtr tablet = tablet_manager()->get_tablet(tablet_id);
+        if (tablet == nullptr) {
+            LOG(INFO) << "tablet may be dropped when add async publish task, tablet_id: "
+                      << tablet_id;
+            return;
+        }
         PendingPublishInfoPB pending_publish_info_pb;
         pending_publish_info_pb.set_partition_id(partition_id);
         pending_publish_info_pb.set_transaction_id(transaction_id);
@@ -1260,7 +1264,6 @@ void StorageEngine::_async_publish_callback() {
                 if (!tablet) {
                     LOG(WARNING) << "tablet does not exist when async publush, tablet_id: "
                                  << tablet_id;
-                    // TODO(liaoxin) remove pending publish info from db
                     tablet_iter = _async_publish_tasks.erase(tablet_iter);
                     continue;
                 }
@@ -1269,11 +1272,7 @@ void StorageEngine::_async_publish_callback() {
                 int64_t version = task_iter->first;
                 int64_t transaction_id = task_iter->second.first;
                 int64_t partition_id = task_iter->second.second;
-                int64_t max_version;
-                {
-                    std::shared_lock rdlock(tablet->get_header_lock());
-                    max_version = tablet->max_version().second;
-                }
+                int64_t max_version = tablet->max_version().second;
 
                 if (version <= max_version) {
                     need_removed_tasks.emplace_back(tablet, version);

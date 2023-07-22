@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "concurrentqueue.h"
 #include "runtime/descriptors.h"
 #include "scanner_context.h"
 
@@ -46,10 +45,10 @@ public:
         {
             std::unique_lock l(_transfer_lock);
             if (state->is_cancelled()) {
-                _process_status = Status::Cancelled("cancelled");
+                set_status_on_error(Status::Cancelled("cancelled"), false);
             }
 
-            if (!_process_status.ok()) {
+            if (!status().ok()) {
                 return _process_status;
             }
         }
@@ -167,71 +166,16 @@ public:
         }
     }
 
-    vectorized::BlockUPtr get_free_block(bool* has_free_block,
-                                         bool get_not_empty_block = false) override {
-        {
-            vectorized::BlockUPtr block;
-            if (_free_blocks_queues.try_dequeue(block)) {
-                if (!get_not_empty_block || block->mem_reuse()) {
-                    _total_free_block_num--;
-                    _free_blocks_memory_usage->add(-block->allocated_bytes());
-                    return block;
-                }
-            }
-        }
-        *has_free_block = false;
-
-        COUNTER_UPDATE(_newly_create_free_blocks_num, 1);
-        return vectorized::Block::create_unique(_real_tuple_desc->slots(), _batch_size,
-                                                true /*ignore invalid slots*/);
-    }
-
-    void return_free_block(std::unique_ptr<vectorized::Block> block) override {
-        block->clear_column_data();
-        _free_blocks_memory_usage->add(block->allocated_bytes());
-        _free_blocks_queues.enqueue(std::move(block));
-        _total_free_block_num++;
-    }
-
-    void _init_free_block(int pre_alloc_block_count, int real_block_size) override {
-        // The free blocks is used for final output block of scanners.
-        // So use _output_tuple_desc;
-        int64_t free_blocks_memory_usage = 0;
-        auto block = vectorized::Block::create_unique(_output_tuple_desc->slots(), real_block_size,
-                                                      true /*ignore invalid slots*/);
-        free_blocks_memory_usage += block->allocated_bytes();
-        _free_blocks_queues.enqueue(std::move(block));
-        _total_free_block_num = pre_alloc_block_count;
-        _free_blocks_memory_usage->add(free_blocks_memory_usage);
-    }
-
-    int cal_thread_slot_num_by_free_block_num() override {
-        // For pipeline engine, we don't promise `thread_slot_num` is exact (e.g. scanners to
-        // schedule may need more free blocks than available free blocks).
-        // This is because we don't want a heavy lock for free block queues.
-        int local_val = _total_free_block_num;
-        int thread_slot_num = local_val / _block_per_scanner;
-        thread_slot_num += (local_val % _block_per_scanner != 0);
-        thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
-        if (thread_slot_num <= 0) {
-            thread_slot_num = 1;
-        }
-        return thread_slot_num;
-    }
-
 private:
     int _next_queue_to_feed = 0;
     std::vector<moodycamel::ConcurrentQueue<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
-    std::atomic_int32_t _total_free_block_num = 0;
 
     const std::vector<int>& _col_distribute_ids;
     const bool _need_colocate_distribute;
     std::vector<vectorized::BlockUPtr> _colocate_blocks;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _colocate_mutable_blocks;
     std::vector<std::unique_ptr<std::mutex>> _colocate_block_mutexs;
-
-    moodycamel::ConcurrentQueue<vectorized::BlockUPtr> _free_blocks_queues;
 
     void _add_rows_colocate_blocks(vectorized::Block* block, int loc,
                                    const std::vector<int>& rows) {

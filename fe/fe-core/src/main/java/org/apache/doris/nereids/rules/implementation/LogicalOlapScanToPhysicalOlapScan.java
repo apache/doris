@@ -25,9 +25,9 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.nereids.properties.DistributionSpec;
-import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -50,7 +50,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     public Rule build() {
         return logicalOlapScan().then(olapScan ->
                 new PhysicalOlapScan(
-                        olapScan.getId(),
+                        olapScan.getRelationId(),
                         olapScan.getTable(),
                         olapScan.getQualifier(),
                         olapScan.getSelectedIndexId(),
@@ -75,54 +75,49 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                 && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
         boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapScan.getSelectedPartitionIds().size() == 1;
-        if (isBelongStableCG || isSelectUnpartition) {
-            if (!(distributionInfo instanceof HashDistributionInfo)
-                    || olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
-                // TODO if a mv is selected, we ignore base table's distributionInfo for now
-                // need improve this to handle the case if mv's distributionInfo is the same as base table
-                if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    List<Slot> output = olapScan.getOutput();
-                    List<Slot> baseOutput = olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId());
-                    List<ExprId> hashColumns = Lists.newArrayList();
-                    for (int i = 0; i < output.size(); i++) {
+        // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
+        if (distributionInfo instanceof HashDistributionInfo && (isBelongStableCG || isSelectUnpartition)) {
+            if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()) {
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                List<Slot> output = olapScan.getOutput();
+                List<Slot> baseOutput = olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId());
+                List<ExprId> hashColumns = Lists.newArrayList();
+                for (Slot slot : output) {
+                    for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                        if (((SlotReference) slot).getColumn().get().getNameWithoutMvPrefix()
+                                .equals(column.getName())) {
+                            hashColumns.add(slot.getExprId());
+                        }
+                    }
+                }
+                if (hashColumns.size() != hashDistributionInfo.getDistributionColumns().size()) {
+                    for (Slot slot : baseOutput) {
                         for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                            if (((SlotReference) output.get(i)).getColumn().get().getNameWithoutMvPrefix()
-                                    .equals(column.getName())) {
-                                hashColumns.add(output.get(i).getExprId());
+                            if (((SlotReference) slot).getColumn().get().equals(column)) {
+                                hashColumns.add(slot.getExprId());
                             }
                         }
                     }
-                    if (hashColumns.size() != hashDistributionInfo.getDistributionColumns().size()) {
-                        for (int i = 0; i < baseOutput.size(); i++) {
-                            for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                                if (((SlotReference) baseOutput.get(i)).getColumn().get().equals(column)) {
-                                    hashColumns.add(baseOutput.get(i).getExprId());
-                                }
-                            }
-                        }
-                    }
-                    return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
+                }
+                return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
                         olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
-                }
-                return DistributionSpecAny.INSTANCE;
-            }
-            HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-            List<Slot> output = olapScan.getOutput();
-            List<ExprId> hashColumns = Lists.newArrayList();
-            for (int i = 0; i < output.size(); i++) {
-                for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                    if (((SlotReference) output.get(i)).getColumn().get().equals(column)) {
-                        hashColumns.add(output.get(i).getExprId());
+            } else {
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                List<Slot> output = olapScan.getOutput();
+                List<ExprId> hashColumns = Lists.newArrayList();
+                for (Slot slot : output) {
+                    for (Column column : hashDistributionInfo.getDistributionColumns()) {
+                        if (((SlotReference) slot).getColumn().get().equals(column)) {
+                            hashColumns.add(slot.getExprId());
+                        }
                     }
                 }
+                return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
+                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
             }
-            // TODO: need to consider colocate and dynamic partition and partition number
-            return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                    olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
         } else {
             // RandomDistributionInfo
-            return DistributionSpecAny.INSTANCE;
+            return DistributionSpecStorageAny.INSTANCE;
         }
     }
 }

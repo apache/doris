@@ -135,7 +135,12 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
 }
 
 void NewJsonReader::_init_system_properties() {
-    _system_properties.system_type = _params.file_type;
+    if (_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _range.file_type;
+    } else {
+        _system_properties.system_type = _params.file_type;
+    }
     _system_properties.properties = _params.properties;
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {
@@ -378,15 +383,13 @@ Status NewJsonReader::_open_file_reader() {
     _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader,
-                                                        _state->fragment_instance_id()));
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader, _state));
     } else {
         io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
-        reader_options.modification_time =
-                _range.__isset.modification_time ? _range.modification_time : 0;
+        _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, &_file_system, &_file_reader,
-                io::DelegateReader::AccessMode::SEQUENTIAL, reader_options, _io_ctx,
+                _profile, _system_properties, _file_description, reader_options, &_file_system,
+                &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
     }
     return Status::OK();
@@ -467,7 +470,13 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
     _bytes_read_counter += size;
     auto& dynamic_column = block.get_columns().back()->assume_mutable_ref();
     auto& column_object = assert_cast<vectorized::ColumnObject&>(dynamic_column);
+    bool filter_this_line = false;
     auto finalize_column = [&]() -> Status {
+        // Revise column object
+        if (filter_this_line) {
+            _counter->num_rows_filtered++;
+            column_object.revise_to(_cur_parsed_variant_rows);
+        }
         size_t batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
         if (column_object.size() >= batch_size || _reader_eof) {
             column_object.finalize();
@@ -478,6 +487,7 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
             // fill default values missing in static columns
             RETURN_IF_ERROR(schema_util::unfold_object(block.columns() - 1, block,
                                                        true /*cast to original column type*/));
+            _cur_parsed_variant_rows = 0;
         }
         return Status::OK();
     };
@@ -488,10 +498,23 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof, Block& 
         return Status::OK();
     }
 
-    RETURN_IF_CATCH_EXCEPTION(doris::vectorized::parse_json_to_variant(
-            column_object, StringRef {json_str, size}, _json_parser.get()));
+    try {
+        doris::vectorized::parse_json_to_variant(column_object, StringRef {json_str, size},
+                                                 _json_parser.get());
+        ++_cur_parsed_variant_rows;
+    } catch (const doris::Exception& e) {
+        if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+            return Status::MemoryLimitExceeded(fmt::format(
+                    "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}",
+                    e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+        } else {
+            filter_this_line = true;
+        }
+    }
+
     // TODO correctly handle data quality error
     RETURN_IF_ERROR(finalize_column());
+
     return Status::OK();
 }
 
@@ -870,7 +893,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
     switch (value->GetType()) {
     case rapidjson::Type::kStringType:
         str_value = value->GetString();
-        wbytes = strlen(str_value);
+        wbytes = value->GetStringLength();
         break;
     case rapidjson::Type::kNumberType:
         if (value->IsUint()) {
@@ -1072,6 +1095,7 @@ Status NewJsonReader::_simdjson_init_reader() {
         _slot_desc_index[_file_slot_descs[i]->col_name()] = i;
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
+    _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
     return Status::OK();
 }
 
@@ -1456,15 +1480,18 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         break;
     }
     default: {
-        auto str_view = simdjson::to_json_string(value).value();
         if (value.type() == simdjson::ondemand::json_type::string) {
+            uint8_t* unescape_buffer =
+                    reinterpret_cast<uint8_t*>(&_simdjson_ondemand_unscape_padding_buffer[0]);
+            std::string_view unescaped_value =
+                    _ondemand_json_parser->unescape(value.get_raw_json_string(), unescape_buffer);
             nullable_column->get_null_map_data().push_back(0);
-            // trim
-            column_string->insert_data(str_view.data() + 1, str_view.length() - 2);
+            column_string->insert_data(unescaped_value.data(), unescaped_value.length());
             break;
         }
+        auto value_str = simdjson::to_json_string(value).value();
         nullable_column->get_null_map_data().push_back(0);
-        column_string->insert_data(str_view.data(), str_view.length());
+        column_string->insert_data(value_str.data(), value_str.length());
     }
     }
     *valid = true;
@@ -1547,6 +1574,7 @@ Status NewJsonReader::_simdjson_parse_json_doc(size_t* size, bool* eof) {
         // For efficiency reasons, simdjson requires a string with a few bytes (simdjson::SIMDJSON_PADDING) at the end.
         // Hence, a re-allocation is needed if the space is not enough.
         _simdjson_ondemand_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
+        _simdjson_ondemand_unscape_padding_buffer.resize(*size + simdjson::SIMDJSON_PADDING);
         _padded_size = *size + simdjson::SIMDJSON_PADDING;
     }
     // trim BOM since simdjson does not handle UTF-8 Unicode (with BOM)

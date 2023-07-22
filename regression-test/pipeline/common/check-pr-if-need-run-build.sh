@@ -80,8 +80,17 @@ https://github.com/apache/doris/pull/${PULL_NUMBER}/files all change files:
     fi
 }
 
+_only_modified_regression_conf() {
+    if [[ ${modified_files} == "regression-test/conf/regression-conf.groovy" ]]; then
+        echo "only modified regression conf" && return 0
+    else
+        echo "Not only modified regression conf" && return 1
+    fi
+}
+
 need_run_fe_ut() {
     if ! _get_pr_changed_files "$1"; then echo "get pr changed files failed, return need" && return 0; fi
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
@@ -96,6 +105,7 @@ need_run_fe_ut() {
 
 need_run_be_ut() {
     if ! _get_pr_changed_files "$1"; then echo "get pr changed files failed, return need" && return 0; fi
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
@@ -111,6 +121,7 @@ need_run_be_ut() {
 
 need_run_regression_p0() {
     if ! _get_pr_changed_files "$1"; then echo "get pr changed files failed, return need" && return 0; fi
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
@@ -142,8 +153,8 @@ need_run_arm_regression_p0() {
 }
 
 need_run_ckb() {
-    if [[ $(($1 % 2)) -eq 0 ]]; then echo "the pull request id is even, return no need" && return 1; fi
     if ! _get_pr_changed_files "$1"; then echo "get pr changed files failed, return need" && return 0; fi
+    if _only_modified_regression_conf; then echo "return no need" && return 1; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||

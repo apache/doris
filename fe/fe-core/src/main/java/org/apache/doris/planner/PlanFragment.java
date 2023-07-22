@@ -167,6 +167,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.dataPartitionForThrift = partitionForThrift;
     }
 
+    public PlanFragment(PlanFragmentId id, PlanNode root, DataPartition partition,
+            Set<RuntimeFilterId> builderRuntimeFilterIds, Set<RuntimeFilterId> targetRuntimeFilterIds) {
+        this(id, root, partition);
+        this.builderRuntimeFilterIds = new HashSet<>(builderRuntimeFilterIds);
+        this.targetRuntimeFilterIds = new HashSet<>(targetRuntimeFilterIds);
+    }
+
     /**
      * Assigns 'this' as fragment of all PlanNodes in the plan tree rooted at node.
      * Does not traverse the children of ExchangeNodes because those must belong to a
@@ -248,7 +255,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             Preconditions.checkState(sink == null);
             // we're streaming to an exchange node
             DataStreamSink streamSink = new DataStreamSink(destNode.getId());
-            streamSink.setPartition(outputPartition);
+            streamSink.setOutputPartition(outputPartition);
             streamSink.setFragment(this);
             sink = streamSink;
         } else {

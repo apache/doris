@@ -39,6 +39,7 @@
 #include "olap/olap_common.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "util/string_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -225,6 +226,9 @@ Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
     return Status::OK();
 }
 
+static const std::regex COLUMN_NAME_REGEX(
+        "^[_a-zA-Z@0-9\\s<>/][.a-zA-Z0-9_+-/><?@#$%^&*\"\\s,:]{0,255}$");
+
 // Do batch add columns schema change
 // only the base table supported
 Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
@@ -241,7 +245,18 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     // TODO(lhy) more configurable
     req.__set_allow_type_conflict(true);
     req.__set_addColumns({});
+    // Deduplicate Column like `Level` and `level`
+    // TODO we will implement new version of dynamic column soon to handle this issue,
+    // also ignore column missmatch with regex
+    std::set<std::string> dedup;
     for (const auto& column_type_name : column_type_names) {
+        if (dedup.contains(to_lower(column_type_name.name))) {
+            continue;
+        }
+        if (!std::regex_match(column_type_name.name, COLUMN_NAME_REGEX)) {
+            continue;
+        }
+        dedup.insert(to_lower(column_type_name.name));
         TColumnDef col;
         get_column_def(column_type_name.type, column_type_name.name, &col);
         req.addColumns.push_back(col);
@@ -262,7 +277,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
                 fmt::format("Failed to do schema change, {}", res.status.error_msgs[0]));
     }
     size_t sz = res.allColumns.size();
-    if (sz < column_type_names.size()) {
+    if (sz < dedup.size()) {
         return Status::InternalError(
                 fmt::format("Unexpected result columns {}, expected at least {}",
                             res.allColumns.size(), column_type_names.size()));

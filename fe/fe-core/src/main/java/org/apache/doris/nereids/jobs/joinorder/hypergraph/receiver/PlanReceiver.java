@@ -59,6 +59,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -117,6 +118,9 @@ public class PlanReceiver implements AbstractReceiver {
         List<Expression> hashConjuncts = new ArrayList<>();
         List<Expression> otherConjuncts = new ArrayList<>();
         JoinType joinType = extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+        if (joinType == null) {
+            return true;
+        }
         long fullKey = LongBitmap.newBitmapUnion(left, right);
 
         List<Plan> physicalJoins = proposeAllPhysicalJoins(joinType, leftPlan, rightPlan, hashConjuncts,
@@ -207,30 +211,37 @@ public class PlanReceiver implements AbstractReceiver {
         // Check whether only NSL can be performed
         LogicalProperties joinProperties = new LogicalProperties(
                 () -> JoinUtils.getJoinOutput(joinType, left, right));
+        List<Plan> plans = Lists.newArrayList();
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
-            return Lists.newArrayList(
-                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
+            plans.add(new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
                             Optional.empty(), joinProperties,
-                            left, right),
-                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
-                            joinProperties,
-                            right, left));
+                            left, right));
+            if (joinType.isSwapJoinType()) {
+                plans.add(new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
+                        joinProperties,
+                        right, left));
+            }
         } else {
-            return Lists.newArrayList(
-                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, Optional.empty(),
-                            joinProperties,
-                            left, right),
-                    new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
-                            Optional.empty(),
-                            joinProperties,
-                            right, left));
+            plans.add(new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, Optional.empty(),
+                    joinProperties,
+                    left, right));
+            if (joinType.isSwapJoinType()) {
+                plans.add(new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
+                        Optional.empty(),
+                        joinProperties,
+                        right, left));
+            }
         }
+        return plans;
     }
 
-    private JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Expression> hashConjuncts,
+    private @Nullable JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Expression> hashConjuncts,
             List<Expression> otherConjuncts) {
         JoinType joinType = null;
         for (Edge edge : edges) {
+            if (edge.getJoinType() != joinType && joinType != null) {
+                return null;
+            }
             Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
             joinType = edge.getJoinType();
             for (Expression expression : edge.getExpressions()) {
@@ -306,7 +317,7 @@ public class PlanReceiver implements AbstractReceiver {
             }
             hasGenerated.add(groupExpression);
 
-            // process child first
+            // process child first, plan's child may be changed due to mergeGroup
             Plan physicalPlan = groupExpression.getPlan();
             for (Group child : groupExpression.children()) {
                 makeLogicalExpression(child);
@@ -316,12 +327,12 @@ public class PlanReceiver implements AbstractReceiver {
             if (physicalPlan instanceof PhysicalProject) {
                 PhysicalProject physicalProject = (PhysicalProject) physicalPlan;
                 logicalPlan = new LogicalProject<>(physicalProject.getProjects(),
-                        physicalProject.child(0));
+                        new GroupPlan(groupExpression.child(0)));
             } else if (physicalPlan instanceof AbstractPhysicalJoin) {
                 AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
                 logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
                         physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.getMarkJoinSlotReference(),
-                        physicalJoin.child(0), physicalJoin.child(1));
+                        groupExpression.children().stream().map(g -> new GroupPlan(g)).collect(Collectors.toList()));
             } else {
                 throw new RuntimeException("DPhyp can only handle join and project operator");
             }

@@ -39,7 +39,6 @@ import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.AnalyzeTblStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -172,6 +171,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
+import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
@@ -211,7 +211,6 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.StatisticsAutoAnalyzer;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
@@ -1920,10 +1919,6 @@ public class Env {
 
     // load binlogs
     public long loadBinlogs(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.enable_feature_binlog) {
-            return checksum;
-        }
-
         binlogManager.read(dis, checksum);
         LOG.info("finished replay binlogMgr from image");
         return checksum;
@@ -5345,18 +5340,6 @@ public class Env {
         return count;
     }
 
-    public AnalysisTaskScheduler getAnalysisJobScheduler() {
-        return analysisManager.taskScheduler;
-    }
-
-    // TODO:
-    //  1. handle partition level analysis statement properly
-    //  2. support sample job
-    //  3. support period job
-    public void createAnalysisJob(AnalyzeTblStmt analyzeTblStmt) throws DdlException {
-        analysisManager.createAnalysisJob(analyzeTblStmt);
-    }
-
     public AnalysisManager getAnalysisManager() {
         return analysisManager;
     }
@@ -5384,5 +5367,9 @@ public class Env {
     public void cleanQueryStats(CleanQueryStatsInfo info) throws DdlException {
         queryStats.clear(info);
         editLog.logCleanQueryStats(info);
+    }
+
+    public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws Exception {
+        getInternalCatalog().replayAutoIncrementIdUpdateLog(log);
     }
 }

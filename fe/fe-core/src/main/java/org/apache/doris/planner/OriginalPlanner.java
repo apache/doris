@@ -46,7 +46,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -165,9 +164,11 @@ public class OriginalPlanner extends Planner {
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setCreateSingleNodeFinishTime();
+        }
         ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
         projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
-
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
@@ -209,10 +210,7 @@ public class OriginalPlanner extends Planner {
                 && plannerContext.getStatement().getExplainOptions() == null) {
             collectQueryStat(singleNodePlan);
         }
-        // check and set flag for topn detail query opt
-        if (VectorizedUtil.isVectorized()) {
-            checkAndSetTopnOpt(singleNodePlan);
-        }
+        checkAndSetTopnOpt(singleNodePlan);
 
         if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
             // single-node execution; we're almost done
@@ -224,12 +222,13 @@ public class OriginalPlanner extends Planner {
             distributedPlanner = new DistributedPlanner(plannerContext);
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().setQueryDistributedFinishTime();
+        }
 
         // Push sort node down to the bottom of olapscan.
         // Because the olapscan must be in the end. So get the last two nodes.
-        if (VectorizedUtil.isVectorized()) {
-            pushSortToOlapScan();
-        }
+        pushSortToOlapScan();
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
@@ -268,9 +267,7 @@ public class OriginalPlanner extends Planner {
 
         pushDownResultFileSink(analyzer);
 
-        if (VectorizedUtil.isVectorized()) {
-            pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
-        }
+        pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -459,9 +456,6 @@ public class OriginalPlanner extends Planner {
         slotDesc.setColumn(col);
         slotDesc.setIsNullable(false);
         slotDesc.setIsMaterialized(true);
-        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-        slotDesc.setNullIndicatorBit(-1);
-        slotDesc.setNullIndicatorByte(0);
         return slotDesc;
     }
 

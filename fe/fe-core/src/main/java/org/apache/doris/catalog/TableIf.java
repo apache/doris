@@ -29,6 +29,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -132,7 +134,9 @@ public interface TableIf {
 
     DatabaseIf getDatabase();
 
-    Optional<ColumnStatistic> getColumnStatistic();
+    Optional<ColumnStatistic> getColumnStatistic(String colName);
+
+    void write(DataOutput out) throws IOException;
 
     /**
      * Doris table type.
@@ -227,6 +231,10 @@ public interface TableIf {
 
     default boolean isManagedTable() {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
+    }
+
+    default long getLastUpdateTime() {
+        return -1L;
     }
 }
 

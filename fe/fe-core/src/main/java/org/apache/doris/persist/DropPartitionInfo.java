@@ -40,6 +40,8 @@ public class DropPartitionInfo implements Writable {
     private boolean forceDrop = false;
     @SerializedName(value = "recycleTime")
     private long recycleTime = 0;
+    @SerializedName(value = "sql")
+    private String sql;
 
     private DropPartitionInfo() {
     }
@@ -52,6 +54,17 @@ public class DropPartitionInfo implements Writable {
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("DROP PARTITION ");
+        if (isTempPartition) {
+            sb.append("TEMPORARY ");
+        }
+        sb.append("`").append(partitionName).append("`");
+        if (forceDrop) {
+            sb.append(" FORCE");
+        }
+        this.sql = sb.toString();
     }
 
     public Long getDbId() {

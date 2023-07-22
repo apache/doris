@@ -321,7 +321,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
                 }
                 output_block->clear();
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
             EXPECT_TRUE(rowset_reader->get_segment_num_rows(&segment_num_rows).ok());
             size_t total_num_rows = 0;
@@ -820,7 +820,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
                 }
                 output_block->clear();
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             // duplicated keys between segments are counted duplicately
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);
@@ -1055,7 +1055,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
                 }
                 output_block->clear();
             }
-            EXPECT_EQ(Status::Error<END_OF_FILE>(), s);
+            EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
             // duplicated keys between segments are counted duplicately
             // so actual read by rowset reader is less or equal to it
             EXPECT_GE(rowset->rowset_meta()->num_rows(), num_rows_read);

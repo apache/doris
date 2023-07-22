@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -61,7 +60,7 @@ public class EliminateGroupByConstant extends OneRewriteRuleFactory {
                 //   if we do constant folding before normalize aggregate, the subtree will change and matching fail
                 //   such as: select a + 1 + 2 + 3, sum(b) from t group by a + 1 + 2
                 Expression foldExpression = FoldConstantRule.INSTANCE.rewrite(expression, context);
-                if (!(foldExpression instanceof Literal)) {
+                if (!foldExpression.isConstant()) {
                     slotGroupByExprs.add(expression);
                 } else {
                     lit = expression;

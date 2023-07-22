@@ -372,7 +372,7 @@ public class FunctionSet<T> {
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
                 specializedFunction = new ScalarFunction(f.getFunctionName(), newArgTypes, newRetType.get(0), f.hasVarArgs(),
-                        f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+                        f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), true, f.getNullableMode());
             } else {
                 throw new TypeException(templateFunction
                                 + " is not support for template since it's not a ScalarFunction");
@@ -417,7 +417,7 @@ public class FunctionSet<T> {
         if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;
             return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(newTypes), newRetType, f.hasVarArgs(),
-                    f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+                    f.getSymbolName(), f.getBinaryType(), f.isUserVisible(), true, f.getNullableMode());
         }
         return null;
     }
@@ -1101,6 +1101,14 @@ public class FunctionSet<T> {
         String []sumNames = {"sum", "sum_distinct"};
         for (String name : sumNames) {
             addBuiltin(AggregateFunction.createBuiltin(name,
+                    Lists.<Type>newArrayList(Type.BOOLEAN), Type.BIGINT, Type.BIGINT, "",
+                    "",
+                    "",
+                    null, null,
+                    "",
+                    null, false, true, false, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(name,
                     Lists.<Type>newArrayList(Type.TINYINT), Type.BIGINT, Type.BIGINT, "",
                     "",
                     "",
@@ -1348,6 +1356,23 @@ public class FunctionSet<T> {
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
+
+            //first_value/last_value for array
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("first_value",
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
+
+            addBuiltin(AggregateFunction.createAnalyticBuiltin("last_value",
+                    Lists.newArrayList(new ArrayType(t)), new ArrayType(t), Type.ARRAY,
+                    "",
+                    "",
+                    null,
+                    "",
+                    "", true));
         }
 
         // Avg
@@ -1588,6 +1613,7 @@ public class FunctionSet<T> {
     public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
     public static final String EXPLODE_JSON_ARRAY_DOUBLE = "explode_json_array_double";
     public static final String EXPLODE_JSON_ARRAY_STRING = "explode_json_array_string";
+    public static final String EXPLODE_JSON_ARRAY_JSON = "explode_json_array_json";
     public static final String EXPLODE_NUMBERS = "explode_numbers";
     public static final String EXPLODE = "explode";
 
@@ -1634,6 +1660,11 @@ public class FunctionSet<T> {
         addTableFunctionWithCombinator(EXPLODE_JSON_ARRAY_STRING, Type.VARCHAR,
                 Function.NullableMode.DEPEND_ON_ARGUMENT, Lists.newArrayList(Type.VARCHAR), false,
                 "_ZN5doris19DummyTableFunctions25explode_json_array_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE");
+
+        initTableFunctionListWithCombinator(EXPLODE_JSON_ARRAY_JSON);
+        addTableFunctionWithCombinator(EXPLODE_JSON_ARRAY_JSON, Type.VARCHAR,
+                Function.NullableMode.DEPEND_ON_ARGUMENT, Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions25explode_json_array_jsonEPN9doris_udf15FunctionContextERKNS1_9StringValE");
 
         initTableFunctionListWithCombinator(EXPLODE_NUMBERS);
         addTableFunctionWithCombinator(EXPLODE_NUMBERS, Type.INT, Function.NullableMode.DEPEND_ON_ARGUMENT,

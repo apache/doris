@@ -43,9 +43,7 @@ jobs:
           approves=()
           reviewers_unique=()
           for ((i=${#reviewers[@]}-1;i>=0;i--)); do
-              # shellcheck disable=SC2076
-              # shellcheck disable=SC2199
-              if [[ ! "${reviewers_unique[@]}" =~ "${reviewers[$i]}" ]]; then
+            if ! echo "${reviewers_unique[@]}" | grep -q -w "${reviewers[$i]}" && [ "${statuses[$i]}" != "COMMENTED" ]; then
                   reviewers_unique+=( "${reviewers[$i]}" )
                   if [ "${statuses[$i]}" == "APPROVED" ]; then
                       approves+=( "${reviewers[$i]}" )

@@ -20,16 +20,21 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
@@ -57,10 +62,11 @@ public class RuntimeFilterContext {
     // exprId of target to runtime filter.
     private final Map<ExprId, List<RuntimeFilter>> targetExprIdToFilter = Maps.newHashMap();
 
+    private final Map<PlanNodeId, DataStreamSink> planNodeIdToCTEDataSinkMap = Maps.newHashMap();
     private final Map<Plan, List<ExprId>> joinToTargetExprId = Maps.newHashMap();
 
     // olap scan node that contains target of a runtime filter.
-    private final Map<ObjectId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
+    private final Map<RelationId, List<Slot>> targetOnOlapScanNodeMap = Maps.newHashMap();
 
     private final List<org.apache.doris.planner.RuntimeFilter> legacyFilters = Lists.newArrayList();
 
@@ -77,6 +83,21 @@ public class RuntimeFilterContext {
     private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
+
+    // cte to related joins map which can extract common runtime filter to cte inside
+    private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newHashMap();
+
+    // cte candidates which can be pushed into common runtime filter into from outside
+    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newHashMap();
+
+    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
+
+    // cte whose runtime filter has been extracted
+    private final Set<CTEId> processedCTE = Sets.newHashSet();
+
+    // cte whose outer runtime filter has been pushed down into
+    private final Set<CTEId> pushedDownCTE = Sets.newHashSet();
+
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
@@ -94,6 +115,26 @@ public class RuntimeFilterContext {
 
     public FilterSizeLimits getLimits() {
         return limits;
+    }
+
+    public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
+        return cteProducerMap;
+    }
+
+    public Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> getCteRFPushDownMap() {
+        return cteRFPushDownMap;
+    }
+
+    public Map<CTEId, Set<PhysicalHashJoin>> getCteToJoinsMap() {
+        return cteToJoinsMap;
+    }
+
+    public Set<CTEId> getProcessedCTE() {
+        return processedCTE;
+    }
+
+    public Set<CTEId> getPushedDownCTE() {
+        return pushedDownCTE;
     }
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
@@ -119,12 +160,16 @@ public class RuntimeFilterContext {
         }
     }
 
-    public void setTargetsOnScanNode(ObjectId id, Slot slot) {
+    public void setTargetsOnScanNode(RelationId id, Slot slot) {
         this.targetOnOlapScanNodeMap.computeIfAbsent(id, k -> Lists.newArrayList()).add(slot);
     }
 
     public Map<ExprId, SlotRef> getExprIdToOlapScanNodeSlotRef() {
         return exprIdToOlapScanNodeSlotRef;
+    }
+
+    public Map<PlanNodeId, DataStreamSink> getPlanNodeIdToCTEDataSinkMap() {
+        return planNodeIdToCTEDataSinkMap;
     }
 
     public Map<NamedExpression, Pair<PhysicalRelation, Slot>> getAliasTransferMap() {
@@ -148,7 +193,7 @@ public class RuntimeFilterContext {
         return targetExprIdToFilter;
     }
 
-    public Map<ObjectId, List<Slot>> getTargetOnOlapScanNodeMap() {
+    public Map<RelationId, List<Slot>> getTargetOnOlapScanNodeMap() {
         return targetOnOlapScanNodeMap;
     }
 

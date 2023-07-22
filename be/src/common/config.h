@@ -106,8 +106,7 @@ DECLARE_Int32(brpc_num_threads);
 // If no ip match this rule, will choose one randomly.
 DECLARE_String(priority_networks);
 
-// memory mode
-// performance or compact
+// performance moderate or or compact, only tcmalloc compile
 DECLARE_String(memory_mode);
 
 // process memory limit specified as number of bytes
@@ -166,6 +165,10 @@ DECLARE_mString(process_full_gc_size);
 // If false, cancel query when the memory used exceeds exec_mem_limit, same as before.
 DECLARE_mBool(enable_query_memory_overcommit);
 
+// gc will release cache, cancel task, and task will wait for gc to release memory,
+// default gc strategy is conservative, if you want to exclude the interference of gc, let it be true
+DECLARE_mBool(disable_memory_gc);
+
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
 DECLARE_mInt32(thread_wait_gc_max_milliseconds);
 
@@ -198,8 +201,8 @@ DECLARE_Int32(clear_transaction_task_worker_count);
 DECLARE_Int32(delete_worker_count);
 // the count of thread to alter table
 DECLARE_Int32(alter_tablet_worker_count);
-// the count of thread to alter inverted index
-DECLARE_Int32(alter_inverted_index_worker_count);
+// the count of thread to alter index
+DECLARE_Int32(alter_index_worker_count);
 // the count of thread to clone
 DECLARE_Int32(clone_worker_count);
 // the count of thread to clone
@@ -354,6 +357,12 @@ DECLARE_Bool(disable_storage_row_cache);
 DECLARE_String(pk_storage_page_cache_limit);
 // data page size for primary key index
 DECLARE_Int32(primary_key_data_page_size);
+
+// inc_rowset snapshot rs sweep time interval
+DECLARE_mInt32(data_page_cache_stale_sweep_time_sec);
+DECLARE_mInt32(index_page_cache_stale_sweep_time_sec);
+// great impact on the performance of MOW, so it can be longer.
+DECLARE_mInt32(pk_index_page_cache_stale_sweep_time_sec);
 
 DECLARE_Bool(enable_low_cardinality_optimize);
 DECLARE_Bool(enable_low_cardinality_cache_code);
@@ -542,25 +551,6 @@ DECLARE_Int32(min_buffer_size); // 1024, The minimum read buffer size (in bytes)
 // For each io buffer size, the maximum number of buffers the IoMgr will hold onto
 // With 1024B through 8MB buffers, this is up to ~2GB of buffers.
 DECLARE_Int32(max_free_io_buffers);
-
-// Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, DiskIO free buffer.
-DECLARE_Bool(disable_mem_pools);
-
-// The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
-// defaults to bytes if no unit is given, the number of bytes must be a multiple of 2.
-// must larger than 0. and if larger than physical memory size, it will be set to physical memory size.
-// increase this variable can improve performance,
-// but will acquire more free memory which can not be used by other modules.
-DECLARE_mString(chunk_reserved_bytes_limit);
-// 1024, The minimum chunk allocator size (in bytes)
-DECLARE_Int32(min_chunk_reserved_bytes);
-// Disable Chunk Allocator in Vectorized Allocator, this will reduce memory cache.
-// For high concurrent queries, using Chunk Allocator with vectorized Allocator can reduce the impact
-// of gperftools tcmalloc central lock.
-// Jemalloc or google tcmalloc have core cache, Chunk Allocator may no longer be needed after replacing
-// gperftools tcmalloc.
-DECLARE_mBool(disable_chunk_allocator_in_vec);
 
 // The probing algorithm of partitioned hash table.
 // Enable quadratic probing hash table
@@ -967,7 +957,7 @@ DECLARE_Bool(enable_java_support);
 DECLARE_Bool(enable_fuzzy_mode);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_mInt16(pipeline_short_query_timeout_s);
+DECLARE_Bool(enable_workload_group_for_scan);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -984,10 +974,10 @@ DECLARE_Bool(clear_file_cache);
 DECLARE_Bool(enable_file_cache_query_limit);
 
 // inverted index searcher cache
-// cache entry stay time after lookup, default 1h
+// cache entry stay time after lookup
 DECLARE_mInt32(index_cache_entry_stay_time_after_lookup_s);
 // cache entry that have not been visited for a certain period of time can be cleaned up by GC thread
-DECLARE_mInt32(index_cache_entry_no_visit_gc_time_s);
+DECLARE_mInt32(inverted_index_cache_stale_sweep_time_sec);
 // inverted index searcher cache size
 DECLARE_String(inverted_index_searcher_cache_limit);
 // set `true` to enable insert searcher into cache when write inverted index data
@@ -1058,6 +1048,28 @@ DECLARE_Bool(enable_set_in_bitmap_value);
 DECLARE_Int64(max_hdfs_file_handle_cache_num);
 // max number of meta info of external files, such as parquet footer
 DECLARE_Int64(max_external_file_meta_cache_num);
+
+// max_write_buffer_number for rocksdb
+DECLARE_Int32(rocksdb_max_write_buffer_number);
+
+// Allow invalid decimalv2 literal for compatible with old version. Recommend set it false strongly.
+DECLARE_mBool(allow_invalid_decimalv2_literal);
+// the max expiration time of kerberos ticket.
+// If a hdfs filesytem with kerberos authentication live longer
+// than this time, it will be expired.
+DECLARE_mInt64(kerberos_expiration_time_seconds);
+
+// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
+DECLARE_mString(get_stack_trace_tool);
+
+// the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_prefetch_size_ratio);
+
+// the ratio of _low_level_water_level_mark/_batch_size in AutoIncIDBuffer
+DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
+
+// number of threads that fetch auto-inc ranges from FE
+DECLARE_mInt64(auto_inc_fetch_thread_num);
 
 #ifdef BE_TEST
 // test s3

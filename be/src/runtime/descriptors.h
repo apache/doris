@@ -90,7 +90,6 @@ public:
     int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
-    const NullIndicatorOffset& null_indicator_offset() const { return _null_indicator_offset; }
     bool is_materialized() const { return _is_materialized; }
     bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
 
@@ -109,6 +108,8 @@ public:
 
     bool is_key() const { return _is_key; }
     bool need_materialize() const { return _need_materialize; }
+
+    bool is_auto_increment() const { return _is_auto_increment; }
 
 private:
     friend class DescriptorTbl;
@@ -142,6 +143,8 @@ private:
 
     const bool _is_key;
     const bool _need_materialize;
+
+    const bool _is_auto_increment;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);

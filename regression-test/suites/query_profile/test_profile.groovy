@@ -118,7 +118,7 @@ suite('test_profile') {
     for(int i = 0 ; i < QUERY_NUM ; i++){
         def insert_order = QUERY_NUM - i - 1
         def current_obj = show_query_profile_obj[i]
-        def stmt_query_info = current_obj[8]
+        def stmt_query_info = current_obj[9]
         assertNotEquals(current_obj[1].toString(), "N/A".toString())
         assertEquals(stmt_query_info.toString(),  """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }

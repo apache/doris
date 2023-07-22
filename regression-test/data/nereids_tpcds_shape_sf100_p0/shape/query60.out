@@ -23,9 +23,10 @@ PhysicalTopN
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 8))
 ----------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((customer_address.ca_gmt_offset = -7.00))
+----------------------------------PhysicalOlapScan[customer_address]
 --------------------------PhysicalDistribute
 ----------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
 ------------------------------PhysicalProject
@@ -50,9 +51,10 @@ PhysicalTopN
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_moy = 8)(date_dim.d_year = 2000))
 ----------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((customer_address.ca_gmt_offset = -7.00))
+----------------------------------PhysicalOlapScan[customer_address]
 --------------------------PhysicalDistribute
 ----------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
 ------------------------------PhysicalProject
@@ -77,9 +79,10 @@ PhysicalTopN
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_year = 2000)(date_dim.d_moy = 8))
 ----------------------------------------PhysicalOlapScan[date_dim]
-----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_gmt_offset = -7.00))
---------------------------------PhysicalOlapScan[customer_address]
+----------------------------PhysicalDistribute
+------------------------------PhysicalProject
+--------------------------------filter((customer_address.ca_gmt_offset = -7.00))
+----------------------------------PhysicalOlapScan[customer_address]
 --------------------------PhysicalDistribute
 ----------------------------hashJoin[LEFT_SEMI_JOIN](item.i_item_id = item.i_item_id)
 ------------------------------PhysicalProject

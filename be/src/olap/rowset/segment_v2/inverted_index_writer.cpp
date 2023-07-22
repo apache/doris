@@ -172,7 +172,7 @@ public:
             _analyzer.reset(chinese_analyzer);
         } else {
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<TCHAR>>();
+            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
         }
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
@@ -228,8 +228,10 @@ public:
                     new lucene::util::AStringReader(field_value_data, field_value_size),
                     lucene::util::SimpleInputStreamReader::UTF8);
             _field->setValue(stringReader);
-        } else {
+        } else if (_parser_type == InvertedIndexParserType::PARSER_STANDARD) {
             new_field_value(field_value_data, field_value_size, _field);
+        } else {
+            new_field_char_value(field_value_data, field_value_size, _field);
         }
     }
 
@@ -244,6 +246,10 @@ public:
         field->setValue(field_value, false);
         // setValue did not duplicate value, so we don't have to delete
         //_CLDELETE_ARRAY(field_value)
+    }
+
+    void new_field_char_value(const char* s, size_t len, lucene::document::Field* field) {
+        field->setValue((char*)s, len);
     }
 
     Status add_values(const std::string fn, const void* values, size_t count) override {
@@ -409,7 +415,9 @@ public:
             FINALLY_FINALIZE_OUTPUT(meta_out)
             FINALLY_FINALIZE_OUTPUT(data_out)
             FINALLY_FINALIZE_OUTPUT(index_out)
-            FINALLY_FINALIZE_OUTPUT(dir)
+            if constexpr (field_is_numeric_type(field_type)) {
+                FINALLY_FINALIZE_OUTPUT(dir)
+            }
             LOG(WARNING) << "Inverted index writer finish error occurred: " << e.what();
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "Inverted index writer finish error occurred");

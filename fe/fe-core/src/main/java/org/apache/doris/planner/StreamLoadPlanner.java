@@ -176,10 +176,18 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            slotDesc.setAutoInc(col.isAutoInc());
             SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             scanSlotDesc.setIsMaterialized(true);
             scanSlotDesc.setColumn(col);
             scanSlotDesc.setIsNullable(col.isAllowNull());
+            scanSlotDesc.setAutoInc(col.isAutoInc());
+            if (col.isAutoInc()) {
+                // auto-increment column should be non-nullable
+                // however, here we use `NullLiteral` to indicate that a cell should
+                // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
+                scanSlotDesc.setIsNullable(true);
+            }
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
                     if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
@@ -207,9 +215,6 @@ public class StreamLoadPlanner {
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
@@ -254,7 +259,7 @@ public class StreamLoadPlanner {
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete();
 
@@ -310,12 +315,18 @@ public class StreamLoadPlanner {
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
         params.setQueryGlobals(queryGlobals);
+        params.setTableName(destTable.getName());
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
     }
 
+    // single table plan fragmentInstanceIndex is 1(default value)
     public TPipelineFragmentParams planForPipeline(TUniqueId loadId) throws UserException {
+        return this.planForPipeline(loadId, 1);
+    }
+
+    public TPipelineFragmentParams planForPipeline(TUniqueId loadId, int fragmentInstanceIdIndex) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
                 && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
@@ -375,10 +386,18 @@ public class StreamLoadPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            slotDesc.setAutoInc(col.isAutoInc());
             SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             scanSlotDesc.setIsMaterialized(true);
             scanSlotDesc.setColumn(col);
             scanSlotDesc.setIsNullable(col.isAllowNull());
+            scanSlotDesc.setAutoInc(col.isAutoInc());
+            if (col.isAutoInc()) {
+                // auto-increment column should be non-nullable
+                // however, here we use `NullLiteral` to indicate that a cell should
+                // be filled with generated value in `VOlapTableSink::_fill_auto_inc_cols()`
+                scanSlotDesc.setIsNullable(true);
+            }
             for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                 try {
                     if (!importColumnDesc.isColumn() && importColumnDesc.getColumnName() != null
@@ -406,9 +425,6 @@ public class StreamLoadPlanner {
                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
-            // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
-            slotDesc.setNullIndicatorBit(-1);
-            slotDesc.setNullIndicatorByte(0);
             slotDesc.setIsNullable(false);
             LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
@@ -453,7 +469,7 @@ public class StreamLoadPlanner {
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
                 Config.enable_single_replica_load);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete();
 
@@ -467,6 +483,7 @@ public class StreamLoadPlanner {
         TPipelineFragmentParams pipParams = new TPipelineFragmentParams();
         pipParams.setProtocolVersion(PaloInternalServiceVersion.V1);
         pipParams.setFragment(fragment.toThrift());
+        pipParams.setFragmentId(fragmentInstanceIdIndex);
 
         pipParams.setDescTbl(analyzer.getDescTbl().toThrift());
         pipParams.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
@@ -476,7 +493,7 @@ public class StreamLoadPlanner {
         pipParams.setNumSenders(1);
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
-        localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + 1));
+        localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
 
         Map<Integer, List<TScanRangeParams>> perNodeScanRange = Maps.newHashMap();
         List<TScanRangeParams> scanRangeParams = Lists.newArrayList();
@@ -510,8 +527,7 @@ public class StreamLoadPlanner {
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
         pipParams.setQueryGlobals(queryGlobals);
-
-        // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
+        pipParams.setTableName(destTable.getName());
         return pipParams;
     }
 

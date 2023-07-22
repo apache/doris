@@ -112,6 +112,7 @@ void BlockedTaskScheduler::_schedule() {
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
+                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     iter++;
                 } else {
                     _make_task_run(local_blocked_tasks, iter, ready_tasks,
@@ -278,6 +279,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         task->set_previous_core_id(index);
         if (!status.ok()) {
+            task->set_eos_time();
             LOG(WARNING) << fmt::format("Pipeline task failed. reason: {}", status.to_string());
             // Print detail informations below when you debugging here.
             //
@@ -291,6 +293,7 @@ void TaskScheduler::_do_work(size_t index) {
         }
 
         if (eos) {
+            task->set_eos_time();
             // TODO: pipeline parallel need to wait the last task finish to call finalize
             //  and find_p_dependency
             status = task->finalize();
@@ -331,15 +334,19 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state)
         _blocked_task_scheduler->add_blocked_task(task);
     } else {
         auto status = task->close();
-        if (!status.ok()) {
-            // TODO: LOG warning
-        }
-        if (task->is_pending_finish()) {
-            task->set_state(PipelineTaskState::PENDING_FINISH);
-            _blocked_task_scheduler->add_blocked_task(task);
-            return;
+        if (!status.ok() && state != PipelineTaskState::CANCELED) {
+            task->fragment_context()->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                             status.to_string());
+            state = PipelineTaskState::CANCELED;
+        } else {
+            if (task->is_pending_finish()) {
+                task->set_state(PipelineTaskState::PENDING_FINISH);
+                _blocked_task_scheduler->add_blocked_task(task);
+                return;
+            }
         }
         task->set_state(state);
+        task->set_close_pipeline_time();
         task->fragment_context()->close_a_pipeline();
     }
 }
@@ -359,11 +366,6 @@ void TaskScheduler::shutdown() {
             _fix_thread_pool->wait();
         }
     }
-}
-
-void TaskScheduler::update_tg_cpu_share(const taskgroup::TaskGroupInfo& task_group_info,
-                                        taskgroup::TaskGroupPtr task_group) {
-    _task_queue->update_tg_cpu_share(task_group_info, task_group);
 }
 
 } // namespace doris::pipeline
