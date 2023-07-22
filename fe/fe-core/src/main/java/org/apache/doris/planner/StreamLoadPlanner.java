@@ -158,6 +158,10 @@ public class StreamLoadPlanner {
                                 + col.getName());
                         }
                         partialUpdateInputColumns.add(col.getName());
+                        if (destTable.hasSequenceCol() && destTable.getSequenceMapCol() != null
+                                && destTable.getSequenceMapCol().equalsIgnoreCase(col.getName())) {
+                            partialUpdateInputColumns.add(Column.SEQUENCE_COL);
+                        }
                         existInExpr = true;
                         break;
                     }

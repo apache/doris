@@ -248,3 +248,9 @@ MySQL [test]> select * from test_table;
 ```
 At this point, you can replace the original data in the table. To sum up, the sequence column will be compared among all the batches, the largest value of the same key will be imported into Doris table.
 
+## Note
+1. To prevent misuse, in load tasks like StreamLoad/BrokerLoad, user must specify the sequence column; otherwise, user will receive the following error message:
+```
+Table test_tbl has a sequence column, need to specify the sequence column
+```
+2 Starting from version 2.0, Doris supports partial column updates for Merge-on-Write implementation on Unique Key tables. In load tasks with partial column update, users can update only a subset of columns at a time, so it is not mandatory to include the sequence column. If the import task submitted by the user includes the sequence column, it will have no effect on the behavior. However, if the import task does not include the sequence column, Doris will use the matching historical data's sequence column as the value for the updated row's sequence column. If there is no existing column with the same key in the historical data, it will be automatically filled with null or the default value.
