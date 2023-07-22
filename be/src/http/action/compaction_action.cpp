@@ -147,13 +147,11 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             LOG(INFO) << "Manual compaction task is timeout for waiting "
                       << (status == std::future_status::timeout);
         }
-
-        LOG(INFO) << "Manual compaction task is successfully triggered";
-        *json_result =
-                "{\"status\": \"Success\", \"msg\": \"compaction task is successfully "
-                "triggered.\"}";
     }
-
+    LOG(INFO) << "Manual compaction task is successfully triggered";
+    *json_result =
+            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully "
+            "triggered.\"}";
     return Status::OK();
 }
 
