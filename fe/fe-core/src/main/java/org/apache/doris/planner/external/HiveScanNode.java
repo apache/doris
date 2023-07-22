@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner.external;
 
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -67,13 +68,8 @@ public class HiveScanNode extends FileQueryScanNode {
 
     public static final String PROP_FIELD_DELIMITER = "field.delim";
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
-
-    public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
-    public static final String PROP_ARRAY_DELIMITER_HIVE2 = "colelction.delim";
-    public static final String PROP_ARRAY_DELIMITER_HIVE3 = "collection.delim";
-    public static final String DEFAULT_ARRAY_DELIMITER = "\2";
     protected final HMSExternalTable hmsTable;
     private HiveTransaction hiveTransaction = null;
 
@@ -103,9 +99,9 @@ public class HiveScanNode extends FileQueryScanNode {
         String inputFormat = hmsTable.getRemoteTable().getSd().getInputFormat();
         if (inputFormat.contains("TextInputFormat")) {
             for (SlotDescriptor slot : desc.getSlots()) {
-                if (slot.getType().isMapType() || slot.getType().isStructType()) {
+                if (!slot.getType().isScalarType()) {
                     throw new UserException("For column `" + slot.getColumn().getName()
-                            + "`, The column types MAP/STRUCT are not supported yet"
+                            + "`, The column types ARRAY/MAP/STRUCT are not supported yet"
                             + " for text input format of Hive. ");
                 }
             }
@@ -278,16 +274,9 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-        textParams.setColumnSeparator(delimiter.getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
-        textParams.setLineDelimiter(delimiter.getOrDefault(PROP_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
-        if (delimiter.get(PROP_ARRAY_DELIMITER_HIVE2) != null) {
-            textParams.setArrayDelimiter(delimiter.get(PROP_ARRAY_DELIMITER_HIVE2));
-        } else if (delimiter.get(PROP_ARRAY_DELIMITER_HIVE3) != null) {
-            textParams.setArrayDelimiter(delimiter.get(PROP_ARRAY_DELIMITER_HIVE3));
-        } else {
-            textParams.setArrayDelimiter(DEFAULT_ARRAY_DELIMITER);
-        }
+        textParams.setColumnSeparator(hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters()
+                .getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
+        textParams.setLineDelimiter(DEFAULT_LINE_DELIMITER);
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
@@ -309,5 +298,29 @@ public class HiveScanNode extends FileQueryScanNode {
             }
         }
         params.setSlotNameToSchemaPos(columnNameToPosition);
+    }
+
+    @Override
+    public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
+        TFileFormatType fileFormatType;
+        try {
+            fileFormatType = getFileFormatType();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+
+        String aggFunctionName = aggExpr.getFnName().getFunction();
+        if (aggFunctionName.equalsIgnoreCase("COUNT") && fileFormatType == TFileFormatType.FORMAT_PARQUET) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
+        if (col.isAllowNull()) {
+            return false;
+        }
+        return true;
     }
 }

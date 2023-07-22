@@ -511,6 +511,35 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, TypeDescriptor
     return Status::OK();
 }
 
+Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof,TPushAggOp::type push_down_agg_type_opt) {
+
+    if (push_down_agg_type_opt != TPushAggOp::type::COUNT){
+        return Status::NotSupported("min/max push down is not supported for parquet files");
+    }
+    size_t rows = 0;
+
+
+    // out of use _t_metadata->num_rows , because for the same file,
+    // the optimizer may generate multiple VFileScanner with different _scan_range
+    while (_read_row_groups.size() > 0) {
+        _next_row_group_reader();
+        rows+=_current_group_reader->get__remaining_rows();
+    }
+
+    //fill one column is enough
+    auto cols = block->mutate_columns();
+    for(auto& col:cols) {
+        col->resize(rows);
+        break;
+    }
+
+    *read_rows = rows;
+    _current_group_reader.reset(nullptr);
+    _row_group_eof = true;
+    *eof = true;
+    return Status::OK();
+}
+
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         if (_read_row_groups.size() > 0) {

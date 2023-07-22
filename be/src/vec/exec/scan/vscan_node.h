@@ -350,7 +350,8 @@ protected:
 
     std::unordered_map<std::string, int> _colname_to_slot_id;
     std::vector<int> _col_distribute_ids;
-
+public:
+     TPushAggOp::type push_down_agg_type_opt;
 private:
     Status _normalize_conjuncts();
     Status _normalize_predicate(const VExprSPtr& conjunct_expr_root, VExprContext* context,

@@ -113,6 +113,7 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     } else {
         _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
+    push_down_agg_type_opt = tnode.push_down_agg_type_opt;
     return Status::OK();
 }
 

@@ -245,7 +245,19 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         RETURN_IF_ERROR(_init_src_block(block));
         {
             SCOPED_TIMER(_get_block_timer);
+
             // Read next block.
+
+            if (  _parent -> push_down_agg_type_opt  != TPushAggOp::type ::NONE ){
+                //Prevent FE  misjudging the "select count/min/max ..." statement
+                if (Status::OK() ==
+                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof,_parent-> push_down_agg_type_opt ))
+                {
+                    _cur_reader.reset(nullptr);
+                    _cur_reader_eof=true;
+                    return Status::OK();
+                }
+            }
             // Some of column in block may not be filled (column not exist in file)
             RETURN_IF_ERROR(
                     _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
