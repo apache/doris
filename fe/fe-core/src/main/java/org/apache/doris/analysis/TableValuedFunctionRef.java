@@ -44,7 +44,7 @@ public class TableValuedFunctionRef extends TableRef {
         this.funcName = funcName;
         this.params = params;
         this.tableFunction = TableValuedFunctionIf.getTableFunction(funcName, params);
-        // skip http
+        // skip http tvf
         if (!funcName.equals("http")) {
             this.table = tableFunction.getTable();
         }

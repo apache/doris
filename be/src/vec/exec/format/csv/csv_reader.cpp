@@ -674,14 +674,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     io::FileReaderOptions reader_options = FileFactory::get_reader_options(_state);
     reader_options.modification_time =
             _range.__isset.modification_time ? _range.modification_time : 0;
-    if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader,
-                                                        _state->fragment_instance_id()));
-    } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        _file_description, &_file_system,
-                                                        &_file_reader, reader_options));
-    }
     _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
     RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
                                                     reader_options, &_file_system, &_file_reader));

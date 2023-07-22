@@ -522,7 +522,7 @@ Status HttpLoadAction::_process_put(THttpLoadPutParams& params,
 #else
 
 #endif
-    Status plan_status(ctx->put_result.status);
+    Status plan_status(Status::create(ctx->put_result.status));
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan http load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;

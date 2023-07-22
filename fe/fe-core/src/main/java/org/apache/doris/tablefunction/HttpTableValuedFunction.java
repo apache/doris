@@ -36,8 +36,6 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(HttpTableValuedFunction.class);
     public static final String NAME = "http";
 
-    private String filePath;
-
     public HttpTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
