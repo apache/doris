@@ -704,7 +704,7 @@ if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
 fi
 
 if [[ -f "${CMAKE_BUILD_DIR}/compile_commands.json" ]]; then
-    ln -s ${CMAKE_BUILD_DIR}/compile_commands.json ${DORIS_HOME}/compile_commands.json
+    ln -s "${CMAKE_BUILD_DIR}/compile_commands.json" "${DORIS_HOME}/compile_commands.json"
 fi
 
 exit 0
