@@ -897,6 +897,7 @@ public class Env {
                 this.previousFeVersion = Env.FeVersionHistory[0];
             } else {
                 diffVersion();
+                ConnectContext.isMajorVersionUpgrade = true;
             }
         }
 

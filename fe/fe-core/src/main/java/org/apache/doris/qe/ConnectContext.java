@@ -68,7 +68,7 @@ import java.util.Set;
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
-
+    public static boolean isMajorVersionUpgrade = false;
     private static final String SSL_PROTOCOL = "TLS";
 
     // set this id before analyze
@@ -263,7 +263,9 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
-        Env.getCurrentEnv();
+        if (isMajorVersionUpgrade) {
+            sessionVariable.parallelPipelineTaskNum = sessionVariable.parallelExecInstanceNum;
+        }
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
