@@ -15,28 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.implementation;
+package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
-
-import java.util.Optional;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 
 /**
- * Implementation rule that convert logical JdbcScan to physical JdbcScan.
+ * Rewrite jdbc plan to set the conjuncts.
  */
-public class LogicalJdbcScanToPhysicalJdbcScan extends OneImplementationRuleFactory {
+public class PushConjunctsIntoJdbcScan extends OneRewriteRuleFactory {
+
     @Override
     public Rule build() {
-        return logicalJdbcScan().then(jdbcScan ->
-            new PhysicalJdbcScan(
-                jdbcScan.getRelationId(),
-                jdbcScan.getTable(),
-                jdbcScan.getQualifier(),
-                Optional.empty(),
-                jdbcScan.getLogicalProperties(),
-                jdbcScan.getConjuncts())
-        ).toRule(RuleType.LOGICAL_JDBC_SCAN_TO_PHYSICAL_JDBC_SCAN_RULE);
+        return logicalFilter(logicalJdbcScan()).thenApply(ctx -> {
+            LogicalFilter<LogicalJdbcScan> filter = ctx.root;
+            LogicalJdbcScan scan = filter.child();
+            LogicalJdbcScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
+            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
+        }).toRule(RuleType.PUSH_CONJUNCTS_INTO_JDBC_SCAN);
     }
 }
