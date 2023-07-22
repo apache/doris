@@ -138,7 +138,9 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, inverted_index_ctx);
     if (query_tokens.empty()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "invalid input query_str: {}, please check your query sql", match_query_str);
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
     }
 
     auto current_src_array_offset = 0;
@@ -178,7 +180,9 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                     doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, inverted_index_ctx);
     if (query_tokens.empty()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "invalid input query_str: {}, please check your query sql", match_query_str);
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
     }
 
     auto current_src_array_offset = 0;
@@ -225,7 +229,9 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                     inverted_index_ctx);
     if (query_tokens.empty()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "invalid input query_str: {}, please check your query sql", match_query_str);
+                "token parser result is empty for query, "
+                "please check your query: '{}' and index parser: '{}'",
+                match_query_str, inverted_index_parser_type_to_string(parser_type));
     }
 
     auto current_src_array_offset = 0;
