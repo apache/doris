@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -66,7 +67,7 @@ public class JoinOrderJob extends Job {
     }
 
     private Group optimizePlan(Group group) {
-        if (group.isInnerJoinGroup()) {
+        if (group.isValidJoinGroup()) {
             return optimizeJoin(group);
         }
         GroupExpression rootExpr = group.getLogicalExpression();
@@ -111,19 +112,19 @@ public class JoinOrderJob extends Job {
      * @param group root group, should be join type
      * @param hyperGraph build hyperGraph
      */
-    public void buildGraph(Group group, HyperGraph hyperGraph) {
+    public BitSet buildGraph(Group group, HyperGraph hyperGraph) {
         if (group.isProjectGroup()) {
-            buildGraph(group.getLogicalExpression().child(0), hyperGraph);
+            BitSet edgeMap = buildGraph(group.getLogicalExpression().child(0), hyperGraph);
             processProjectPlan(hyperGraph, group);
-            return;
+            return edgeMap;
         }
-        if (!group.isInnerJoinGroup()) {
+        if (!group.isValidJoinGroup()) {
             hyperGraph.addNode(optimizePlan(group));
-            return;
+            return new BitSet();
         }
-        buildGraph(group.getLogicalExpression().child(0), hyperGraph);
-        buildGraph(group.getLogicalExpression().child(1), hyperGraph);
-        hyperGraph.addEdge(group);
+        BitSet leftEdgeMap = buildGraph(group.getLogicalExpression().child(0), hyperGraph);
+        BitSet rightEdgeMap = buildGraph(group.getLogicalExpression().child(1), hyperGraph);
+        return hyperGraph.addEdge(group, leftEdgeMap, rightEdgeMap);
     }
 
     /**

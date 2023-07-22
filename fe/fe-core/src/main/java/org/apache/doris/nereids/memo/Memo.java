@@ -163,6 +163,41 @@ public class Memo {
         return plan;
     }
 
+    public int countMaxContinuousJoin() {
+        return countGroupJoin(root).second;
+    }
+
+    /**
+     * return the max continuous join operator
+     */
+
+    public Pair<Integer, Integer> countGroupJoin(Group group) {
+        GroupExpression logicalExpr = group.getLogicalExpression();
+        List<Pair<Integer, Integer>> children = new ArrayList<>();
+        for (Group child : logicalExpr.children()) {
+            children.add(countGroupJoin(child));
+        }
+
+        if (group.isProjectGroup()) {
+            return children.get(0);
+        }
+
+        int maxJoinCount = 0;
+        int continuousJoinCount = 0;
+        for (Pair<Integer, Integer> child : children) {
+            maxJoinCount = Math.max(maxJoinCount, child.second);
+        }
+        if (group.isValidJoinGroup()) {
+            for (Pair<Integer, Integer> child : children) {
+                continuousJoinCount += child.first;
+            }
+            continuousJoinCount += 1;
+        } else if (group.isProjectGroup()) {
+            return children.get(0);
+        }
+        return Pair.of(continuousJoinCount, Math.max(continuousJoinCount, maxJoinCount));
+    }
+
     /**
      * Add plan to Memo.
      *

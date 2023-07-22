@@ -103,7 +103,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
 
-    public static final int FINISHED_COUNTER_THRESHOLD = 3;
+    public static final int FINISHED_COUNTER_THRESHOLD = 4;
 
     private static VersionCountComparator VERSION_COUNTER_COMPARATOR = new VersionCountComparator();
 

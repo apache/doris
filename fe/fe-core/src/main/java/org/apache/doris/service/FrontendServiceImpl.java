@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -86,6 +87,8 @@ import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
+import org.apache.doris.thrift.TAutoIncrementRangeRequest;
+import org.apache.doris.thrift.TAutoIncrementRangeResult;
 import org.apache.doris.thrift.TBeginTxnRequest;
 import org.apache.doris.thrift.TBeginTxnResult;
 import org.apache.doris.thrift.TBinlog;
@@ -2319,6 +2322,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setTabletReplicaInfos(tabletReplicaInfos);
         result.setToken(Env.getCurrentEnv().getToken());
         result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    @Override
+    public TAutoIncrementRangeResult getAutoIncrementRange(TAutoIncrementRangeRequest request) {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive get auto-increement range request: {}, backend: {}", request, clientAddr);
+
+        TAutoIncrementRangeResult result = new TAutoIncrementRangeResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            Env env = Env.getCurrentEnv();
+            Database db = env.getInternalCatalog().getDbOrMetaException(request.getDbId());
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(request.getTableId(), TableType.OLAP);
+            AutoIncrementGenerator autoIncrementGenerator = null;
+            autoIncrementGenerator = olapTable.getAutoIncrementGenerator();
+            long columnId = request.getColumnId();
+            long length = request.getLength();
+            long lowerBound = -1;
+            if (request.isSetLowerBound()) {
+                lowerBound = request.getLowerBound();
+            }
+            Pair<Long, Long> range = autoIncrementGenerator.getAutoIncrementRange(columnId, length, lowerBound);
+            result.setStart(range.first);
+            result.setLength(range.second);
+        } catch (UserException e) {
+            LOG.warn("failed to get auto-increment range of column {}: {}", request.getColumnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
+        }
         return result;
     }
 

@@ -57,8 +57,62 @@ suite("test_push_conjuncts_inlineview") {
                     )a
                 where
                     a.px = 1;""")
-        contains "4:VSELECT"
+        contains "5:VSELECT"
     }
+
+explain {
+        sql("""SELECT *
+                FROM 
+                    (SELECT `a_key` AS `a_key`
+                    FROM 
+                        (SELECT `b`.`a_key` AS `a_key`
+                        FROM 
+                            (SELECT `a`.`a_key` AS `a_key`
+                            FROM `push_conjunct_table` a) b
+                            GROUP BY  1 ) t2 ) t1
+                        WHERE a_key = '123';""")
+        notContains "having"
+        contains "= '123'"
+    }
+
+sql """
+    WITH ttt AS
+    (SELECT c1,
+         c2,
+         c3,
+         c4,
+         c5,
+         c6,
+         c7
+    FROM 
+        (SELECT '10000003' c1, '0816ffk' c2, '1' c3, 1416.0800 c4, '0816ffk' c5, '2023-07-03 15:36:36' c6, 1 c7 ) a
+        WHERE c7 = 1 )
+    SELECT dd.c1,
+            dd.d1
+    FROM 
+        (SELECT src.c1,
+            
+            CASE
+            WHEN IFNULL(src.c3,'') = ''
+                OR src.c3 = '3' THEN
+            '-1'
+            WHEN src.c4 = 0 THEN
+            '0'
+            WHEN src.c4 <= 200 THEN
+            '1'
+            WHEN src.c4 > 200
+                AND src.c4 <= 500 THEN
+            '2'
+            WHEN src.c4 > 500
+                AND src.c4 <= 1000 THEN
+            '3'
+            ELSE '4'
+            END AS d1
+        FROM ttt src
+        WHERE src.c1 = '10000003'
+        GROUP BY  src.c1, d1 ) dd
+    WHERE dd.d1 IN ('-1');
+"""
 
  sql """ DROP TABLE IF EXISTS `push_conjunct_table` """
 }

@@ -172,6 +172,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterMultiMaterializedView;
+import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
@@ -5437,5 +5438,9 @@ public class Env {
     public void cleanQueryStats(CleanQueryStatsInfo info) throws DdlException {
         queryStats.clear(info);
         editLog.logCleanQueryStats(info);
+    }
+
+    public void replayAutoIncrementIdUpdateLog(AutoIncrementIdUpdateLog log) throws Exception {
+        getInternalCatalog().replayAutoIncrementIdUpdateLog(log);
     }
 }
