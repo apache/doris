@@ -265,10 +265,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
         _tablet_reader_params.direct_mode = true;
         _aggregation = true;
     } else {
-        _tablet_reader_params.direct_mode =
-                _aggregation || single_version ||
-   		(_parent->push_down_agg_type_opt != TPushAggOp::NONE);
-     }
+        _tablet_reader_params.direct_mode = _aggregation || single_version ||
+                                            (_parent->push_down_agg_type_opt != TPushAggOp::NONE);
+    }
 
     RETURN_IF_ERROR(_init_return_columns());
 
@@ -276,9 +275,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.tablet_schema = _tablet_schema;
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
-     if (_parent->push_down_agg_type_opt) {
-         _tablet_reader_params.push_down_agg_type_opt = _parent->push_down_agg_type_opt;
-     }
+    if (_parent->push_down_agg_type_opt) {
+        _tablet_reader_params.push_down_agg_type_opt = _parent->push_down_agg_type_opt;
+    }
     _tablet_reader_params.version = Version(0, _version);
 
     // TODO: If a new runtime filter arrives after `_conjuncts` move to `_common_expr_ctxs_push_down`,

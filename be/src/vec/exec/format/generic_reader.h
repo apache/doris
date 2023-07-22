@@ -31,8 +31,9 @@ class Block;
 class GenericReader {
 public:
     virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof) = 0;
-    
-    virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof,TPushAggOp::type push_down_agg_type_opt) {
+
+    virtual Status get_next_block(Block* block, size_t* read_rows, bool* eof,
+                                  TPushAggOp::type push_down_agg_type_opt) {
         return Status::NotSupported("not support this type!");
     };
 

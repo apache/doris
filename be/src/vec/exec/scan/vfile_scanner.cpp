@@ -248,13 +248,13 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
 
             // Read next block.
 
-            if (  _parent -> push_down_agg_type_opt  != TPushAggOp::type ::NONE ){
+            if (_parent->push_down_agg_type_opt != TPushAggOp::type ::NONE) {
                 //Prevent FE  misjudging the "select count/min/max ..." statement
-                if (Status::OK() ==
-                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof,_parent-> push_down_agg_type_opt ))
-                {
+                if (Status::OK() == _cur_reader->get_next_block(_src_block_ptr, &read_rows,
+                                                                &_cur_reader_eof,
+                                                                _parent->push_down_agg_type_opt)) {
                     _cur_reader.reset(nullptr);
-                    _cur_reader_eof=true;
+                    _cur_reader_eof = true;
                     return Status::OK();
                 }
             }

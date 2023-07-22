@@ -119,7 +119,8 @@ public:
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof,TPushAggOp::type push_down_agg_type_opt) override;
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof,
+                          TPushAggOp::type push_down_agg_type_opt) override;
     void close();
 
     RowRange get_whole_range() { return _whole_range; }
