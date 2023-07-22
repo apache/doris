@@ -322,7 +322,6 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     if (0 == _ranges.size()) {
         return;
     }
-    _file_params.file_type = _ranges[0].file_type;
     _file_params.format_type = _ranges[0].format_type;
     _file_params.src_tuple_id = _params.src_tuple_id;
     _file_params.dest_tuple_id = _params.dest_tuple_id;
@@ -336,6 +335,12 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
 
     for (int i = 0; i < _ranges.size(); ++i) {
         TFileRangeDesc file_range;
+        // TODO(cmy): in previous implementation, the file_type is set in _file_params
+        // and it use _ranges[0].file_type.
+        // Later, this field is moved to TFileRangeDesc, but here we still only use _ranges[0]'s
+        // file_type.
+        // Because I don't know if other range has this field, so just keep it same as before.
+        file_range.file_type = _ranges[0].file_type;
         file_range.load_id = _ranges[i].load_id;
         file_range.path = _ranges[i].path;
         file_range.start_offset = _ranges[i].start_offset;

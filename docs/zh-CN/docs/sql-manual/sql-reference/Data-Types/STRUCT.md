@@ -40,6 +40,11 @@ STRUCT
 
 由多个 Field 组成的结构体，也可被理解为多个列的集合。不能作为 Key 使用，目前 STRUCT 仅支持在 Duplicate 模型的表中使用。
 
+需要手动开启支持，默认关闭.
+```
+admin set frontend config("enable_struct_type" = "true");
+```
+
 一个 Struct 中的 Field 的名字和数量固定，总是为 Nullable，一个 Field 通常由下面部分组成。
 
 - field_name: Field 的标识符，不可重复

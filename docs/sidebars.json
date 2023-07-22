@@ -236,6 +236,7 @@
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
+                "ecosystem/dbt-doris-adapter",
                 {
                     "type": "category",
                     "label": "UDF",
@@ -347,6 +348,7 @@
                                 "sql-manual/sql-functions/date-time-functions/to_date",
                                 "sql-manual/sql-functions/date-time-functions/to_days",
                                 "sql-manual/sql-functions/date-time-functions/time_to_sec",
+                                "sql-manual/sql-functions/date-time-functions/sec_to_time",
                                 "sql-manual/sql-functions/date-time-functions/extract",
                                 "sql-manual/sql-functions/date-time-functions/makedate",
                                 "sql-manual/sql-functions/date-time-functions/str_to_date",
@@ -1266,6 +1268,7 @@
             "items": [
                 "releasenotes/release-2.0-beta",
                 "releasenotes/release-2.0.0Alpha1",
+	        "releasenotes/release-1.2.6",
                 "releasenotes/release-1.2.5",
                 "releasenotes/release-1.2.4.1",
                 "releasenotes/release-1.2.3",

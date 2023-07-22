@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <list>
+#include <mutex>
 #include <ostream>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
@@ -261,7 +262,12 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // If the CreateTabletReq has base_tablet_id then it is a alter-tablet request
     if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
         is_schema_change = true;
-        base_tablet = _get_tablet_unlocked(request.base_tablet_id);
+        // if base_tablet_id's lock diffrent with new_tablet_id, we need lock it.
+        if ((_tablets_shards_mask & request.base_tablet_id) != (_tablets_shards_mask & tablet_id)) {
+            base_tablet = get_tablet(request.base_tablet_id);
+        } else {
+            base_tablet = _get_tablet_unlocked(request.base_tablet_id);
+        }
         if (base_tablet == nullptr) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             return Status::Error<TABLE_CREATE_META_ERROR>(

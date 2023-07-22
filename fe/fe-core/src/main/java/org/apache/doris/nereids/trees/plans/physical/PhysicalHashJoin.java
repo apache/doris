@@ -17,13 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -31,13 +37,17 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -187,6 +197,73 @@ public class PhysicalHashJoin<
             PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalHashJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, markJoinSlotReference,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, left(), right());
+    }
+
+    @Override
+    public boolean pushDownRuntimeFilter(CascadesContext context, IdGenerator<RuntimeFilterId> generator,
+                                         AbstractPhysicalJoin builderNode, Expression srcExpr, Expression probeExpr,
+                                         TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
+        RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        Map<NamedExpression, Pair<PhysicalRelation, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
+
+        // if rf built between plan nodes containing cte both, for example both src slot and target slot are from cte,
+        // or two sub-queries both containing cte, disable this rf since this kind of cross-cte rf will make one side
+        // of cte to wait for a long time until another side cte consumer finished, which will make the rf into
+        // not ready state.
+        AbstractPhysicalPlan builderLeftNode = (AbstractPhysicalPlan) builderNode.child(0);
+        AbstractPhysicalPlan builderRightNode = (AbstractPhysicalPlan) builderNode.child(1);
+        Preconditions.checkState(builderLeftNode != null && builderRightNode != null,
+                "builder join node child node is null");
+        if (RuntimeFilterGenerator.hasCTEConsumerDescendant(builderLeftNode)
+                && RuntimeFilterGenerator.hasCTEConsumerDescendant(builderRightNode)) {
+            return false;
+        }
+
+        boolean pushedDown = false;
+        AbstractPhysicalPlan leftNode = (AbstractPhysicalPlan) child(0);
+        AbstractPhysicalPlan rightNode = (AbstractPhysicalPlan) child(1);
+        Preconditions.checkState(leftNode != null && rightNode != null,
+                "join child node is null");
+
+        pushedDown |= leftNode.pushDownRuntimeFilter(context, generator, builderNode,
+                srcExpr, probeExpr, type, buildSideNdv, exprOrder);
+        pushedDown |= rightNode.pushDownRuntimeFilter(context, generator, builderNode,
+                srcExpr, probeExpr, type, buildSideNdv, exprOrder);
+
+        // currently, we can ensure children in the two side are corresponding to the equal_to's.
+        // so right maybe an expression and left is a slot
+        Slot probeSlot = RuntimeFilterGenerator.checkTargetChild(probeExpr);
+
+        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+        // contains join with denied join type. for example: a left join b on a.id = b.id
+        if (!RuntimeFilterGenerator.checkPushDownPreconditions(builderNode, ctx, probeSlot)) {
+            return false;
+        }
+        Slot olapScanSlot = aliasTransferMap.get(probeSlot).second;
+        PhysicalRelation scan = aliasTransferMap.get(probeSlot).first;
+        Preconditions.checkState(olapScanSlot != null && scan != null);
+        if (!RuntimeFilterGenerator.isCoveredByPlanNode(this, scan)) {
+            return false;
+        }
+
+        // TODO: if can't push down into join's chidren, try to
+        // find possible chance in upper layer
+        if (pushedDown) {
+            return true;
+        }
+
+        // in-filter is not friendly to pipeline
+        if (type == TRuntimeFilterType.IN_OR_BLOOM
+                && ctx.getSessionVariable().getEnablePipelineEngine()
+                && RuntimeFilterGenerator.hasRemoteTarget(this, scan)) {
+            type = TRuntimeFilterType.BLOOM;
+        }
+        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                srcExpr, ImmutableList.of(olapScanSlot), type, exprOrder, this, buildSideNdv);
+        ctx.addJoinToTargetMap(this, olapScanSlot.getExprId());
+        ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+        ctx.setTargetsOnScanNode(aliasTransferMap.get(probeSlot).first.getRelationId(), olapScanSlot);
+        return true;
     }
 
     private class ExprComparator implements Comparator<Expression> {

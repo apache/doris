@@ -722,7 +722,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null
                 || getHavingPred() != null
                 || getWithClause() != null
-                || getAnalyticInfo() != null) {
+                || getAnalyticInfo() != null
+                || hasOutFileClause()) {
             return false;
         }
         // ignore short circuit query
@@ -756,6 +757,9 @@ public class SelectStmt extends QueryStmt {
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.isDupKeysOrMergeOnWrite()) {
             LOG.debug("only support duplicate key or MOW model");
+            return false;
+        }
+        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())) {
             return false;
         }
         if (getOrderByElements() != null) {

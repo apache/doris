@@ -128,6 +128,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.AssertNumRowsNode;
+import org.apache.doris.planner.CTEScanNode;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.EmptySetNode;
@@ -137,7 +138,6 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.IntersectNode;
-import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
@@ -160,6 +160,7 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.planner.external.HiveScanNode;
 import org.apache.doris.planner.external.hudi.HudiScanNode;
 import org.apache.doris.planner.external.iceberg.IcebergScanNode;
+import org.apache.doris.planner.external.jdbc.JdbcScanNode;
 import org.apache.doris.planner.external.paimon.PaimonScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -296,6 +297,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             dataStreamSink.setOutputPartition(dataPartition);
             parentFragment.addChild(inputFragment);
             ((MultiCastPlanFragment) inputFragment).addToDest(exchangeNode);
+
+            CTEScanNode cteScanNode = context.getCteScanNodeMap().get(inputFragment.getFragmentId());
+            Preconditions.checkState(cteScanNode != null, "cte scan node is null");
+            cteScanNode.setFragment(inputFragment);
+            cteScanNode.setPlanNodeId(exchangeNode.getId());
+            context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                    runtimeFilterTranslator.getContext().getPlanNodeIdToCTEDataSinkMap()
+                            .put(cteScanNode.getId(), dataStreamSink));
         } else {
             inputFragment.setDestination(exchangeNode);
             inputFragment.setOutputPartition(dataPartition);
@@ -398,10 +407,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
-        // TODO: should not translate conjunct here. need a new attr in FileScanNode to save push down conjuncts.
-        fileScan.getConjuncts().stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .forEach(scanNode::addConjunct);
+        scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -411,7 +417,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         context.addScanNode(scanNode);
         ScanNode finalScanNode = scanNode;
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(fileScan.getId()).forEach(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(fileScan.getRelationId()).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, finalScanNode, context)
                 )
         );
@@ -453,7 +459,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Utils.execWithUncheckedException(esScanNode::init);
         context.addScanNode(esScanNode);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(esScan.getId()).forEach(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(esScan.getRelationId()).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, esScanNode, context)
                 )
         );
@@ -472,10 +478,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 table instanceof JdbcExternalTable);
+        jdbcScanNode.addConjuncts(translateToLegacyConjuncts(jdbcScan.getConjuncts()));
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(jdbcScan.getId()).forEach(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(jdbcScan.getRelationId()).forEach(
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
                 )
         );
@@ -541,8 +548,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: process translate runtime filter in one place
         //   use real plan node to present rf apply and rf generator
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterTranslator -> runtimeFilterTranslator.getTargetOnScanNode(olapScan.getId()).forEach(
-                        expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, olapScanNode, context)
+                runtimeFilterTranslator -> runtimeFilterTranslator.getTargetOnScanNode(olapScan.getRelationId())
+                        .forEach(expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(
+                                expr, olapScanNode, context)
                 )
         );
         // TODO: we need to remove all finalizeForNereids
@@ -599,8 +607,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         SchemaScanNode scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(schemaScan.getId()).forEach(
-                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(schemaScan.getRelationId())
+                        .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
                 )
         );
         scanNode.finalizeForNereids();
@@ -614,14 +622,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, PlanTranslatorContext context) {
         List<Slot> slots = tvfRelation.getLogicalProperties().getOutput();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getTable(), context);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getFunction().getTable(), context);
 
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
         Utils.execWithUncheckedException(scanNode::init);
         context.getRuntimeTranslator().ifPresent(
-                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(tvfRelation.getId()).forEach(
-                        expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(tvfRelation.getRelationId())
+                        .forEach(expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
                 )
         );
         Utils.execWithUncheckedException(scanNode::finalizeForNereids);
@@ -812,6 +820,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PhysicalCTEProducer<?> cteProducer = context.getCteProduceMap().get(cteId);
         Preconditions.checkState(cteProducer != null, "invalid cteProducer");
 
+        context.getCteConsumerMap().put(cteId, cteConsumer);
         // set datasink to multicast data sink but do not set target now
         // target will be set when translate distribute
         DataStreamSink streamSink = new DataStreamSink();
@@ -820,11 +829,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         multiCastDataSink.getDestinations().add(Lists.newArrayList());
 
         // update expr to slot mapping
-        for (Slot producerSlot : cteProducer.getProjects()) {
+        TupleDescriptor tupleDescriptor = null;
+        for (Slot producerSlot : cteProducer.getOutput()) {
             Slot consumerSlot = cteConsumer.getProducerToConsumerSlotMap().get(producerSlot);
             SlotRef slotRef = context.findSlotRef(producerSlot.getExprId());
+            tupleDescriptor = slotRef.getDesc().getParent();
             context.addExprIdSlotRefPair(consumerSlot.getExprId(), slotRef);
         }
+        CTEScanNode cteScanNode = new CTEScanNode(tupleDescriptor);
+        context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator ->
+                    runtimeFilterTranslator.getTargetOnScanNode(cteConsumer.getRelationId()).forEach(
+                            expr -> runtimeFilterTranslator.translateRuntimeFilterTarget(expr, cteScanNode, context)));
+        context.getCteScanNodeMap().put(multiCastFragment.getFragmentId(), cteScanNode);
+
         return multiCastFragment;
     }
 
@@ -834,21 +851,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment child = cteProducer.child().accept(this, context);
         CTEId cteId = cteProducer.getCteId();
         context.getPlanFragments().remove(child);
-        MultiCastPlanFragment cteProduce = new MultiCastPlanFragment(child);
-        MultiCastDataSink multiCastDataSink = new MultiCastDataSink();
-        cteProduce.setSink(multiCastDataSink);
 
-        List<Expr> outputs = cteProducer.getProjects().stream()
+        MultiCastPlanFragment multiCastPlanFragment = new MultiCastPlanFragment(child);
+        MultiCastDataSink multiCastDataSink = new MultiCastDataSink();
+        multiCastPlanFragment.setSink(multiCastDataSink);
+
+        List<Expr> outputs = cteProducer.getOutput().stream()
                 .map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
 
-        cteProduce.setOutputExprs(outputs);
-        context.getCteProduceFragments().put(cteId, cteProduce);
+        multiCastPlanFragment.setOutputExprs(outputs);
+        context.getCteProduceFragments().put(cteId, multiCastPlanFragment);
         context.getCteProduceMap().put(cteId, cteProducer);
         if (context.getRuntimeTranslator().isPresent()) {
             context.getRuntimeTranslator().get().getContext().getCteProduceMap().put(cteId, cteProducer);
         }
-        context.getPlanFragments().add(cteProduce);
+        context.getPlanFragments().add(multiCastPlanFragment);
         return child;
     }
 
@@ -2292,5 +2310,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
+    }
+
+    private List<Expr> translateToLegacyConjuncts(Set<Expression> conjuncts) {
+        List<Expr> outputExprs = Lists.newArrayList();
+        if (conjuncts != null) {
+            conjuncts.stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                    .forEach(outputExprs::add);
+        }
+        return outputExprs;
     }
 }

@@ -766,6 +766,7 @@ struct TFrontendPingFrontendResult {
     4: required i32 rpcPort
     5: required i64 replayedJournalId
     6: required string version
+    7: optional i64 lastStartupTime
 }
 
 struct TPropertyVal {
@@ -961,8 +962,9 @@ enum TBinlogType {
   CREATE_TABLE = 2,
   DROP_PARTITION = 3,
   DROP_TABLE = 4,
-  ALTER_JOB = 5, 
+  ALTER_JOB = 5,
   MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 6,
+  DUMMY = 7,
 }
 
 struct TBinlog {
@@ -972,6 +974,8 @@ struct TBinlog {
     4: optional i64 db_id
     5: optional list<i64> table_ids
     6: optional string data
+    7: optional i64 belong  // belong == -1 if type is not DUMMY
+    8: optional i64 table_ref // only use for gc
 }
 
 struct TGetBinlogResult {
@@ -1061,6 +1065,20 @@ struct TUpdateFollowerStatsCacheRequest {
     2: optional string colStats;
 }
 
+struct TAutoIncrementRangeRequest {
+    1: optional i64 db_id;
+    2: optional i64 table_id;
+    3: optional i64 column_id;
+    4: optional i64 length
+    5: optional i64 lower_bound // if set, values in result range must larger than `lower_bound`
+}
+
+struct TAutoIncrementRangeResult {
+    1: optional Status.TStatus status
+    2: optional i64 start
+    3: optional i64 length
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1127,4 +1145,6 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+
+    TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 }

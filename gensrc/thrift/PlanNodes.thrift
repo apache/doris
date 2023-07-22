@@ -335,8 +335,10 @@ struct TTableFormatFileDesc {
 }
 
 struct TFileScanRangeParams {
+    // deprecated, move to TFileScanRange
     1: optional Types.TFileType file_type;
     2: optional TFileFormatType format_type;
+    // deprecated, move to TFileScanRange
     3: optional TFileCompressType compress_type;
     // If this is for load job, src point to the source table and dest point to the doris table.
     // If this is for query, only dest_tuple_id is set, including both file slot and partition slot.
@@ -395,6 +397,8 @@ struct TFileRangeDesc {
     8: optional TTableFormatFileDesc table_format_params
     // Use modification time to determine whether the file is changed
     9: optional i64 modification_time
+    10: optional Types.TFileType file_type;
+    11: optional TFileCompressType compress_type;
 }
 
 // TFileScanRange represents a set of descriptions of a file and the rules for reading and converting it.
@@ -402,6 +406,10 @@ struct TFileRangeDesc {
 //  list<TFileRangeDesc>: file location and range
 struct TFileScanRange {
     1: optional list<TFileRangeDesc> ranges
+    // If file_scan_params in TExecPlanFragmentParams is set in TExecPlanFragmentParams
+    // will use that field, otherwise, use this field.
+    // file_scan_params in TExecPlanFragmentParams will always be set in query request,
+    // and TFileScanRangeParams here is used for some other request such as fetch table schema for tvf. 
     2: optional TFileScanRangeParams params
 }
 
@@ -784,7 +792,7 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
-  9: optional bool use_fixed_length_serialization_opt
+  // 9: optional bool use_fixed_length_serialization_opt
 }
 
 struct TRepeatNode {

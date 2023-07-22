@@ -269,7 +269,12 @@ Status ParquetReader::open() {
 }
 
 void ParquetReader::_init_system_properties() {
-    _system_properties.system_type = _scan_params.file_type;
+    if (_scan_range.__isset.file_type) {
+        // for compatibility
+        _system_properties.system_type = _scan_range.file_type;
+    } else {
+        _system_properties.system_type = _scan_params.file_type;
+    }
     _system_properties.properties = _scan_params.properties;
     _system_properties.hdfs_params = _scan_params.hdfs_params;
     if (_scan_params.__isset.broker_addresses) {

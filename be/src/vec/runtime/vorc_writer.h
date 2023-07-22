@@ -98,7 +98,14 @@ private:
     std::unique_ptr<orc::Type> _schema;
     std::unique_ptr<orc::Writer> _writer;
 
-    static constexpr size_t BUFFER_UNIT_SIZE = 4096;
+    // Buffer used by date/datetime/datev2/datetimev2/largeint type
+    // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
+    // The minimum value of largeint has 40 bytes after being converted to string(a negative number occupies a byte)
+    // The bytes of date/datetime/datev2/datetimev2 after converted to string are smaller than largeint
+    // Because a block is 4064 rows by default, here is 4064*40 bytes to BUFFER,
+    static constexpr size_t BUFFER_UNIT_SIZE = 4064 * 40;
+    // buffer reserves 40 bytes. The reserved space is just to prevent Headp-Buffer-Overflow
+    static constexpr size_t BUFFER_RESERVED_SIZE = 40;
 };
 
 } // namespace doris::vectorized

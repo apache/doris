@@ -126,6 +126,7 @@ If the data is stored on S3, the following parameters can be used in properties:
 "s3.access_key" = "ak"
 "s3.secret_key" = "sk"
 "s3.endpoint" = "http://endpoint-uri"
+"s3.region" = "your-region"
 "s3.credentials.provider" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 

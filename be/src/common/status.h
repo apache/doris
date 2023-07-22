@@ -57,6 +57,7 @@ TStatusError(ABORTED);
 TStatusError(DATA_QUALITY_ERROR);
 TStatusError(LABEL_ALREADY_EXISTS);
 TStatusError(NOT_AUTHORIZED);
+TStatusError(HTTP_ERROR);
 #undef TStatusError
 // BE internal errors
 E(OS_ERROR, -100);
@@ -229,6 +230,8 @@ E(CUMULATIVE_INVALID_NEED_MERGED_VERSIONS, -2004);
 E(CUMULATIVE_ERROR_DELETE_ACTION, -2005);
 E(CUMULATIVE_MISS_VERSION, -2006);
 E(CUMULATIVE_CLONE_OCCURRED, -2007);
+E(FULL_NO_SUITABLE_VERSION, -2008);
+E(FULL_MISS_VERSION, -2009);
 E(META_INVALID_ARGUMENT, -3000);
 E(META_OPEN_DB_ERROR, -3001);
 E(META_KEY_NOT_FOUND, -3002);
@@ -285,6 +288,7 @@ inline bool capture_stacktrace(int code) {
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
+        && code != ErrorCode::FULL_NO_SUITABLE_VERSION
         && code != ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
@@ -358,7 +362,7 @@ public:
 #ifdef ENABLE_STACKTRACE
         if (stacktrace && capture_stacktrace(code)) {
             status._err_msg->_stack = get_stack_trace();
-            LOG(WARNING) << "meet error status: " << status;
+            LOG(WARNING) << "meet error status: " << status; // may print too many stacks.
         }
 #endif
         return status;
@@ -397,6 +401,7 @@ public:
     ERROR_CTOR(Aborted, ABORTED)
     ERROR_CTOR(DataQualityError, DATA_QUALITY_ERROR)
     ERROR_CTOR(NotAuthorized, NOT_AUTHORIZED)
+    ERROR_CTOR(HttpError, HTTP_ERROR)
 #undef ERROR_CTOR
 
     template <int code>

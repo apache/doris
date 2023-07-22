@@ -904,7 +904,21 @@ public class Config extends ConfigBase {
      * the default slot number per path in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
-    @ConfField public static int schedule_slot_num_per_path = 2;
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_slot_num_per_path = 4;
+
+    /**
+     * the default slot number per path in tablet scheduler for decommission backend
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_decommission_slot_num_per_path = 8;
+
+    /**
+     * the default batch size in tablet scheduler for a single schedule.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int schedule_batch_size = 50;
+
 
     /**
      * Deprecated after 0.10
@@ -1443,12 +1457,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_default_sample_percentage = 10;
-
-    /*
-     * if true, will allow the system to collect statistics automatically
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_auto_collect_statistics = true;
 
     /*
      * the system automatically checks the time interval for statistics
@@ -2025,4 +2033,31 @@ public class Config extends ConfigBase {
         "Hive行数估算分区采样数",
         "Sample size for hive row count estimation."})
     public static int hive_stats_partition_sample_size = 3000;
+
+    @ConfField
+    public static boolean enable_full_auto_analyze = false;
+
+    @ConfField
+    public static String full_auto_analyze_start_time = "00:00:00";
+
+    @ConfField
+    public static String full_auto_analyze_end_time = "23:59:59";
+
+    @ConfField
+    public static int statistics_sql_parallel_exec_instance_num = 1;
+
+    @ConfField
+    public static long statistics_sql_mem_limit_in_bytes = 2L * 1024 * 1024 * 1024;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "用于强制设定内表的副本数，如果改参数大于零，则用户在建表时指定的副本数将被忽略，而使用本参数设置的值。"
+                    + "同时，建表语句中指定的副本标签等参数会被忽略。该参数不影响包括创建分区、修改表属性的操作。该参数建议仅用于测试环境",
+            "Used to force the number of replicas of the internal table. If the config is greater than zero, "
+                    + "the number of replicas specified by the user when creating the table will be ignored, "
+                    + "and the value set by this parameter will be used. At the same time, the replica tags "
+                    + "and other parameters specified in the create table statement will be ignored. "
+                    + "This config does not effect the operations including creating partitions "
+                    + "and modifying table properties. "
+                    + "This config is recommended to be used only in the test environment"})
+    public static int force_olap_table_replication_num = 0;
 }
