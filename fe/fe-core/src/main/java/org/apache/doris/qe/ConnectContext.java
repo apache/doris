@@ -263,10 +263,7 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
-        Env env = Env.getCurrentEnv();
-        if (env != null) {
-            env.updateSessionVariable(sessionVariable);
-        }
+        Env.getCurrentEnv();
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
