@@ -74,6 +74,7 @@ import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushFilterInsideJoin;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
@@ -256,7 +257,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             //       PhysicalLimits with gather exchange
                             new SplitLimit(),
                             new PruneOlapScanPartition(),
-                            new PruneFileScanPartition()
+                            new PruneFileScanPartition(),
+                            new PushConjunctsIntoJdbcScan()
                     )
             ),
             topic("MV optimization",

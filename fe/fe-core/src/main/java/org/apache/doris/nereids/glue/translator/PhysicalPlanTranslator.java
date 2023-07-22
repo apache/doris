@@ -398,10 +398,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else {
             throw new RuntimeException("do not support table type " + table.getType());
         }
-        // TODO: should not translate conjunct here. need a new attr in FileScanNode to save push down conjuncts.
-        fileScan.getConjuncts().stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
-                .forEach(scanNode::addConjunct);
+        scanNode.addConjuncts(translateToLegacyConjuncts(fileScan.getConjuncts()));
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -472,6 +469,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
                 table instanceof JdbcExternalTable);
+        jdbcScanNode.addConjuncts(translateToLegacyConjuncts(jdbcScan.getConjuncts()));
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode);
         context.getRuntimeTranslator().ifPresent(
@@ -2292,5 +2290,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
+    }
+
+    private List<Expr> translateToLegacyConjuncts(Set<Expression> conjuncts) {
+        List<Expr> outputExprs = Lists.newArrayList();
+        if (conjuncts != null) {
+            conjuncts.stream()
+                .map(e -> ExpressionTranslator.translate(e, context))
+                    .forEach(outputExprs::add);
+        }
+        return outputExprs;
     }
 }
