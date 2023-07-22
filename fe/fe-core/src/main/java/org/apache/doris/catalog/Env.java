@@ -206,6 +206,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -5382,10 +5383,16 @@ public class Env {
     }
 
     public boolean isMajorVersionUpgrade() {
-        if (previousFeVersion == null) {
+        if (previousFeVersion == null || latestFeVersion == null) {
             return false;
         }
         return previousFeVersion.charAt(0) != latestFeVersion.charAt(0);
+    }
+
+    public void updateSessionVariable(SessionVariable sessionVariable) {
+        if (isMajorVersionUpgrade() && sessionVariable != null) {
+            sessionVariable.parallelPipelineTaskNum = sessionVariable.parallelExecInstanceNum;
+        }
     }
 
     public int getOldFeVersion() {

@@ -263,11 +263,9 @@ public class ConnectContext {
             mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
-        // if (Env.getCurrentEnv() != null && Env.getCurrentEnv().isMajorVersionUpgrade()) {
-        //     if (sessionVariable.parallelExecInstanceNum != 1) {
-        //         sessionVariable.parallelPipelineTaskNum = sessionVariable.parallelExecInstanceNum;
-        //     }
-        // }
+        if (Env.getCurrentEnv() != null) {
+            Env.getCurrentEnv().updateSessionVariable(sessionVariable);
+        }
         command = MysqlCommand.COM_SLEEP;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
