@@ -534,11 +534,11 @@ public abstract class ExternalCatalog
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
     }
 
-    public void dropDatabase(String dbName) {
+    public void dropDatabaseForReplay(String dbName) {
         throw new NotImplementedException("dropDatabase not implemented");
     }
 
-    public void createDatabase(long dbId, String dbName) {
+    public void createDatabaseForReplay(long dbId, String dbName) {
         throw new NotImplementedException("createDatabase not implemented");
     }
 

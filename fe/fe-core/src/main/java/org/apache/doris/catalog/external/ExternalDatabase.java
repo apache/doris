@@ -347,13 +347,17 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         throw new NotImplementedException("dropTable() is not implemented");
     }
 
+    public void dropTableForReplay(String tableName) {
+        throw new NotImplementedException("replayDropTableFromEvent() is not implemented");
+    }
+
     @Override
     public CatalogIf getCatalog() {
         return extCatalog;
     }
 
     // Only used for sync hive metastore event
-    public void replayCreateTableFromEvent(String tableName, long tableId) {
+    public void createTableForReplay(String tableName, long tableId) {
         throw new NotImplementedException("createTable() is not implemented");
     }
 }
