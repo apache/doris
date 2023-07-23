@@ -20,5 +20,5 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 /**
  * represent fixed range partition
  */
-public class FixedRangePartition extends PartitionDef {
+public class FixedRangePartition extends PartitionDefinition {
 }

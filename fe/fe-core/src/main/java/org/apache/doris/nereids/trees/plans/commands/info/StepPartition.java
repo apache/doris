@@ -20,5 +20,5 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 /**
  * represent step partition
  */
-public class StepPartition extends PartitionDef {
+public class StepPartition extends PartitionDefinition {
 }

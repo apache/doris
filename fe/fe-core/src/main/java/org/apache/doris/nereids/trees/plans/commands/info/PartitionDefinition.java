@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 /**
- * table distribution description
+ * abstract class for partition definition
  */
-public class DistributionDesc {
+public class PartitionDefinition {
 }

@@ -20,5 +20,5 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 /**
  * represent less than partition
  */
-public class LessThanPartition extends PartitionDef {
+public class LessThanPartition extends PartitionDefinition {
 }

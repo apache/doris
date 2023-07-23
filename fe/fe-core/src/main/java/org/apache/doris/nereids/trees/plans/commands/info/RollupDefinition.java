@@ -17,8 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.nereids.util.Utils;
+
+import java.util.List;
+
 /**
- * abstract class for partition definition
+ * rollup definition
  */
-public class PartitionDef {
+public class RollupDefinition {
+    private final String name;
+    private final List<String> cols;
+
+    public RollupDefinition(String name, List<String> cols) {
+        this.name = name;
+        this.cols = Utils.copyRequiredList(cols);
+    }
+
+    public void validate() {
+    }
 }

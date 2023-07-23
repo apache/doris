@@ -284,11 +284,11 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.ColumnDef;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DistributionDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDef;
-import org.apache.doris.nereids.trees.plans.commands.info.RollupDef;
+import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
@@ -1743,19 +1743,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Object visitCreateTable(CreateTableContext ctx) {
-        List<ColumnDef> cols = visitColumnDefs(ctx.columnDefs());
-        DistributionDesc desc = new DistributionDesc();
+        String dbName = null;
+        String tableName = null;
+        List<String> nameParts = visitMultipartIdentifier(ctx.name);
+        if (nameParts.size() == 1) {
+            tableName = nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            dbName = nameParts.get(0);
+            tableName = nameParts.get(1);
+        } else {
+            throw new AnalysisException("nameParts in create table should be 1 or 2");
+        }
+        List<ColumnDefinition> cols = visitColumnDefs(ctx.columnDefs());
+        String engineName = ctx.engine.getText();
+        DistributionDescriptor desc = new DistributionDescriptor(ctx.HASH() != null, ctx.AUTO() != null, 4, null);
         Map<String, String> properties = visitPropertySeq(ctx.propertySeq());
-        return new CreateTableCommand(null, new CreateTableInfo());
+        return new CreateTableCommand(null, new CreateTableInfo(dbName, tableName, cols, null, engineName, null, "",
+                desc, null, properties));
     }
 
     @Override
-    public List<ColumnDef> visitColumnDefs(ColumnDefsContext ctx) {
+    public List<ColumnDefinition> visitColumnDefs(ColumnDefsContext ctx) {
         return ctx.cols.stream().map(this::visitColumnDef).collect(Collectors.toList());
     }
 
     @Override
-    public ColumnDef visitColumnDef(ColumnDefContext ctx) {
+    public ColumnDefinition visitColumnDef(ColumnDefContext ctx) {
         String colName = ctx.colName.getText();
         DataType colType = visitColType(ctx.colType());
         boolean isKey = ctx.KEY() != null;
@@ -1770,7 +1783,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         String comment = ((Literal) visit(ctx.comment)).getStringValue();
-        return new ColumnDef(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
+        return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, defaultValue, comment);
     }
 
     @Override
@@ -1822,10 +1835,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public RollupDef visitRollupDef(RollupDefContext ctx) {
+    public RollupDefinition visitRollupDef(RollupDefContext ctx) {
         String rollupName = ctx.rollupName.getText();
         List<String> rollupCols = visitIdentifierList(ctx.rollupCols);
-        return new RollupDef(rollupName, rollupCols);
+        return new RollupDefinition(rollupName, rollupCols);
     }
 
     @Override

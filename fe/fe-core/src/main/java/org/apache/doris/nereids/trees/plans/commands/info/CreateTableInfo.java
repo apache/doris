@@ -17,7 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.nereids.util.Utils;
+
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * table info in creating table.
@@ -25,19 +32,53 @@ import java.util.List;
 public class CreateTableInfo {
     private final String dbName;
     private final String tableName;
-    private final List<ColumnDef> columns;
+    private final List<ColumnDefinition> columns;
     private final List<IndexDef> indexes;
     private final String engineName;
     // private final KeysType keyType;
     private final List<String> keys;
     private final String comment;
     // private final List<PartitionInfo> partitions;
-    private final DistributionDesc distribution;
-    private final List<RollupDef> rollups;
+    private final DistributionDescriptor distribution;
+    private final List<RollupDefinition> rollups;
     private final Map<String, String> properties;
-    
-    public CreateTableInfo(String dbName, String tableName, List<ColumnDef> columns, List<IndexDef> indexes,
-            String engineName, List<String> keys, String comment, DistributionDesc distribution,
-            List<RollupDef> rollups, Map<String, String> properties) {
+
+    /**
+     * constructor
+     */
+    public CreateTableInfo(String dbName, String tableName, List<ColumnDefinition> columns, List<IndexDef> indexes,
+            String engineName, List<String> keys, String comment, DistributionDescriptor distribution,
+            List<RollupDefinition> rollups, Map<String, String> properties) {
+        this.dbName = dbName;
+        this.tableName = tableName;
+        this.columns = Utils.copyRequiredList(columns);
+        this.indexes = Utils.copyRequiredList(indexes);
+        this.engineName = engineName;
+        this.keys = Utils.copyRequiredList(keys);
+        this.comment = comment;
+        this.distribution = distribution;
+        this.rollups = Utils.copyRequiredList(rollups);
+        this.properties = properties;
+    }
+
+    /**
+     * translate to catalog create table stmt
+     */
+    public CreateTableStmt translateToCatalogStyle() {
+        List<ColumnDef> columnDefs = columns.stream().map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
+        return new CreateTableStmt(false, false,
+                new TableName(null, dbName, tableName),
+                columnDefs,
+                null,
+                engineName,
+                null,
+                null,
+                distribution.translateToCatalogStyle(),
+                properties,
+                null,
+                comment,
+                null,
+                false);
     }
 }

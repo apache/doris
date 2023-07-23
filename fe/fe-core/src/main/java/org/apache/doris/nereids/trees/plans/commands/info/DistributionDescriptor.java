@@ -17,22 +17,33 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 
 /**
- * rollup definition
+ * table distribution description
  */
-public class RollupDef {
-    private final String name;
+public class DistributionDescriptor {
+    private final boolean isHash;
+    private final boolean isAutoBucket;
+    private final int bucketNum;
     private final List<String> cols;
-
-    public RollupDef(String name, List<String> cols) {
-        this.name = name;
+    
+    public DistributionDescriptor(boolean isHash, boolean isAutoBucket, int bucketNum, List<String> cols) {
+        this.isHash = isHash;
+        this.isAutoBucket = isAutoBucket;
+        this.bucketNum = bucketNum;
         this.cols = Utils.copyRequiredList(cols);
     }
 
-    public void validate() {
+    public DistributionDesc translateToCatalogStyle() {
+        if (isHash) {
+            return new HashDistributionDesc(bucketNum, isAutoBucket, cols);
+        }
+        return new RandomDistributionDesc(bucketNum, isAutoBucket);
     }
 }
