@@ -36,6 +36,7 @@ package-lock.json
 !.idea/vcs.xml
 **/.vscode/
 **/.fleet/
+.idea
 
 # docs
 docs/contents/
