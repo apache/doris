@@ -207,7 +207,6 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -256,7 +255,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -293,11 +291,9 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
-    private static final String VERSION_FILE = "/VERSION";
-    public static String[] FeVersionHistory = { "1_2_4", "1_2_5", "2_0_0" };
+    private static final String VERSION_DIR = "/VERSION";
     public static String latestFeVersion = "2_0_0";
     private String previousFeVersion;
-    private int oldFeVersion;
     private String metaDir;
     private String bdbDir;
     private String imageDir;
@@ -860,7 +856,7 @@ public class Env {
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
-        this.versionDir = EnvUtils.getDorisHome() + VERSION_FILE;
+        this.versionDir = EnvUtils.getDorisHome() + VERSION_DIR;
 
         // 0. get local node and helper node info
         getSelfHostPort();
@@ -880,28 +876,21 @@ public class Env {
                 bdbDir.mkdirs();
             }
         }
+
         File imageDir = new File(this.imageDir);
-        File verDir = new File(this.versionDir);
 
         if (!imageDir.exists()) {
-            // If the 'image' folder does not exist, this is a completely new project.
             imageDir.mkdirs();
+        }
+
+        File verDir = new File(this.versionDir);
+
+        if (!verDir.exists()) {
             verDir.mkdirs();
-            writeLatestVersion();
-            this.previousFeVersion = Env.latestFeVersion;
-        } else {
-            if (!verDir.exists()) {
-                // The current FE is an upgrade from a lower version.
-                verDir.mkdirs();
-                writeLatestVersion();
-                this.previousFeVersion = Env.FeVersionHistory[0];
-            } else {
-                diffVersion();
-                ConnectContext.isMajorVersionUpgrade = true;
-            }
         }
 
         // init plugin manager
+        initVersionInfo();
         pluginMgr.init();
         auditEventProcessor.start();
 
@@ -5355,51 +5344,56 @@ public class Env {
         }
     }
 
-    private void writeLatestVersion() {
-        // "Write down the latest version of FE.
-        String fileName = this.versionDir + "/" + latestFeVersion;
-        try (FileWriter fileWriter = new FileWriter(fileName)) {
-            fileWriter.write("Version :" + latestFeVersion);
-        } catch (IOException e) {
-            LOG.info(e.toString());
-        }
-    }
-
-    private boolean checkVersion(String version) {
-        String versionFile = this.versionDir + "/" + version;
-        File file = new File(versionFile);
-        return file.exists();
-    }
-
-    private void diffVersion() {
-        for (String version : Env.FeVersionHistory) {
-            if (checkVersion(version)) {
-                this.previousFeVersion = version;
-            }
-        }
-        writeLatestVersion();
-        if (previousFeVersion == null) {
-            LOG.error("can not find FeVersion file");
-            previousFeVersion = latestFeVersion;
+    public void writeVersionFile(String version, int seq) {
+        String versionName = versionDir + "/" + version + "-commitid-" + seq + "-version";
+        File versionFile = new File(versionName);
+        try {
+            versionFile.createNewFile();
+        } catch (Exception e) {
+            LOG.error(e.toString());
         }
     }
 
     public boolean isMajorVersionUpgrade() {
-        if (previousFeVersion == null || latestFeVersion == null) {
-            return false;
+        if (previousFeVersion == null) {
+            // There are two possible scenarios when there is no 'previousFeVersion':
+            // If 'image' is empty, it indicates a completely new FE.
+            // If 'image' is not empty, it means an upgrade from a lower version.
+            File imageDir = new File(this.imageDir);
+            File[] files = imageDir.listFiles();
+            if (files == null || files.length == 0) {
+                return false;
+            }
+            return true;
         }
         return previousFeVersion.charAt(0) != latestFeVersion.charAt(0);
     }
 
-    public void updateSessionVariable(SessionVariable sessionVariable) {
-        // if (isMajorVersionUpgrade() && sessionVariable != null) {
-        // sessionVariable.parallelPipelineTaskNum =
-        // sessionVariable.parallelExecInstanceNum;
-        // }
-    }
-
-    public int getOldFeVersion() {
-        return oldFeVersion;
+    private void initVersionInfo() {
+        File folder = new File(versionDir);
+        File[] files = folder.listFiles();
+        int previousSeq = 0;
+        if (files != null) {
+            for (File file : files) {
+                String[] splitArr = file.getName().split("-");
+                String version = splitArr[0];
+                int seq = Integer.parseInt(splitArr[2]);
+                if (seq > previousSeq) {
+                    previousSeq = seq;
+                    previousFeVersion = version;
+                }
+            }
+        }
+        if (previousFeVersion == null) {
+            writeVersionFile(latestFeVersion, 1);
+        } else {
+            if (!previousFeVersion.equals(latestFeVersion)) {
+                writeVersionFile(latestFeVersion, previousSeq + 1);
+            }
+        }
+        if (isMajorVersionUpgrade()) {
+            ConnectContext.isMajorVersionUpgrade = true;
+        }
     }
 
     public int getFollowerCount() {
