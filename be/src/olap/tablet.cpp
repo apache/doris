@@ -2654,13 +2654,12 @@ Status Tablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset, uint
 
 Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                      const std::vector<uint32_t>& rowids,
-                                     const std::string& column_name,
+                                     const TabletColumn& tablet_column,
                                      vectorized::MutableColumnPtr& dst) {
     // read row data
     BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     CHECK(rowset);
 
-    const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
     // find segment
@@ -2681,8 +2680,7 @@ Status Tablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segi
     });
     // create _source column
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator = nullptr;
-    RETURN_IF_ERROR(
-            segment->new_column_iterator(tablet_schema->column(column_name), &column_iterator));
+    RETURN_IF_ERROR(segment->new_column_iterator(tablet_column, &column_iterator));
     segment_v2::ColumnIteratorOptions opt;
     OlapReaderStatistics stats;
     opt.file_reader = segment->file_reader().get();
@@ -3129,8 +3127,9 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
                 continue;
             }
             for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
+                TabletColumn tablet_column = tablet_schema->column(cids_to_read[cid]);
                 auto st = fetch_value_by_rowids(rowset_iter->second, seg_it.first, rids,
-                                                block.get_names()[cid], mutable_columns[cid]);
+                                                tablet_column, mutable_columns[cid]);
                 // set read value to output block
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value";
