@@ -57,7 +57,7 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
-static ALWAYS_INLINE bool time_zone_begins(const char* ptr, const char* end) {
+static bool time_zone_begins(const char* ptr, const char* end) {
     return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
            (isalpha(*ptr) && *ptr != 'T');
 }
