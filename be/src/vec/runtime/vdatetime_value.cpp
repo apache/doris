@@ -30,10 +30,13 @@
 #include <chrono> // IWYU pragma: keep
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath>
+#include <exception>
 #include <string>
 #include <string_view>
 
+#include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "util/timezone_utils.h"
 
@@ -54,29 +57,9 @@ uint8_t mysql_week_mode(uint32_t mode) {
     return mode;
 }
 
-static bool have_offset(const std::string_view& arg) {
-    if (arg.length() < 6) {
-        return false;
-    }
-    const static re2::RE2 HAS_OFFSET_PART("[\\+\\-]\\d{2}:\\d{2}");
-    return RE2::FullMatch(arg.substr(arg.length() - 6), HAS_OFFSET_PART);
-}
-static bool have_zone_name(const std::string_view& arg) {
-    for (auto v : arg) {
-        if (std::isalpha(v) && tolower(v) != 't') {
-            return true;
-        }
-    }
-    return false;
-}
-// Precondition: have_zone_name(arg) == true
-static int timezone_split_pos(const std::string_view& arg) {
-    int split = arg.length() - 1;
-    for (; split >= 0 && !std::isalpha(arg[split]); split--) { // +8 of GMT+8
-    }
-    for (; split >= 0 && (std::isalpha(arg[split]) || arg[split] == '/'); split--) {
-    }
-    return split + 1;
+static ALWAYS_INLINE bool time_zone_begins(const char* ptr, const char* end) {
+    return *ptr == '+' || (*ptr == '-' && ptr + 3 < end && *(ptr + 3) == ':') ||
+           (isalpha(*ptr) && *ptr != 'T');
 }
 
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
@@ -101,50 +84,18 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
 bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
-    return from_date_str_base(date_str, len, 0);
+    return from_date_str_base(date_str, len, nullptr, nullptr);
 }
 //parse timezone to get offset
 bool VecDateTimeValue::from_date_str(const char* date_str, int len,
                                      const cctz::time_zone& local_time_zone,
                                      ZoneList& time_zone_cache) {
-    auto str = std::string_view(date_str, len);
-    long diff = 0;
-    if (have_offset(str) || have_zone_name(str)) {
-        std::string str_tz;
-        if (have_zone_name(str)) {
-            int split = timezone_split_pos(str);
-            if (split <= 0) {
-                return false;
-            }
-            str_tz = str.substr(split);
-            str = str.substr(0, split);
-            len = split;
-        } else { // +08:00
-            if (str[str.length() - 6] != '-' && str[str.length() - 6] != '+') {
-                return false;
-            }
-            str_tz = str.substr(str.length() - 6);
-            str = str.substr(0, str.length() - 6);
-            len -= 6;
-        }
-        if (!str_tz.empty()) {
-            // no lock needed because of the entity is of thread_local
-            if (time_zone_cache.find(str_tz) == time_zone_cache.end()) { // not found
-                if (!TimezoneUtils::find_cctz_time_zone(str_tz, time_zone_cache[str_tz])) {
-                    return false;
-                }
-            }
-            auto given = cctz::convert(cctz::civil_second {}, time_zone_cache[str_tz]);
-            auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
-            // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-            diff = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-        }
-    }
-
-    return from_date_str_base(date_str, len, diff);
+    return from_date_str_base(date_str, len, &local_time_zone, &time_zone_cache);
 }
 
-bool VecDateTimeValue::from_date_str_base(const char* date_str, int len, long sec_offset) {
+bool VecDateTimeValue::from_date_str_base(const char* date_str, int len,
+                                          const cctz::time_zone* local_time_zone,
+                                          ZoneList* time_zone_cache) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -183,6 +134,7 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len, long se
 
     int field_idx = 0;
     int field_len = year_len;
+    long sec_offset = 0;
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS - 1) {
         const char* start = ptr;
         int temp_val = 0;
@@ -202,6 +154,37 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, int len, long se
             field_idx++;
             break;
         }
+
+        // timezone
+        if (UNLIKELY(field_idx > 2 /*for xxxx-xx-xx:xx:xx. dont treat as xxxx-xx(-xx:xx:xx)*/ &&
+                     time_zone_begins(ptr, end))) {
+            if (local_time_zone == nullptr || time_zone_cache == nullptr) {
+                return false;
+            }
+            auto get_tz_offset = [&](const std::string& str_tz,
+                                     const cctz::time_zone* local_time_zone,
+                                     ZoneList* time_zone_cache) -> long {
+                // no lock needed because of the entity is of thread_local
+                if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
+                    if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
+                    }
+                }
+                auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
+                auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
+                // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+                return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+            };
+            try {
+                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone,
+                                           time_zone_cache); // use the whole remain string
+            } catch ([[maybe_unused]] Exception& e) {
+                return false; // invalid format
+            }
+            field_idx++;
+            break;
+        }
+
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
@@ -1917,51 +1900,19 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 // 0    1  2  3  4  5  6      7
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale /* = -1*/) {
-    return from_date_str_base(date_str, len, scale, 0);
+    return from_date_str_base(date_str, len, scale, nullptr, nullptr);
 }
-//parse timezone to get offset
+// when we parse
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, int len,
                                    const cctz::time_zone& local_time_zone,
                                    ZoneList& time_zone_cache, int scale /* = -1*/) {
-    auto str = std::string_view(date_str, len);
-    long diff = 0;
-    if (have_offset(str) || have_zone_name(str)) {
-        std::string str_tz;
-        if (have_zone_name(str)) {
-            int split = timezone_split_pos(str);
-            if (split <= 0) {
-                return false;
-            }
-            str_tz = str.substr(split);
-            str = str.substr(0, split);
-            len = split;
-        } else { // +08:00
-            if (str[str.length() - 6] != '-' && str[str.length() - 6] != '+') {
-                return false;
-            }
-            str_tz = str.substr(str.length() - 6);
-            str = str.substr(0, str.length() - 6);
-            len -= 6;
-        }
-        if (!str_tz.empty()) {
-            // no lock needed because of the entity is of thread_local
-            if (time_zone_cache.find(str_tz) == time_zone_cache.end()) { // not found
-                if (!TimezoneUtils::find_cctz_time_zone(str_tz, time_zone_cache[str_tz])) {
-                    return false;
-                }
-            }
-            auto given = cctz::convert(cctz::civil_second {}, time_zone_cache[str_tz]);
-            auto local = cctz::convert(cctz::civil_second {}, local_time_zone);
-            // these two values is absolute time. so they are negative. need to use (-local) - (-given)
-            diff = std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
-        }
-    }
-
-    return from_date_str_base(date_str, len, scale, diff);
+    return from_date_str_base(date_str, len, scale, &local_time_zone, &time_zone_cache);
 }
 template <typename T>
-bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale, long sec_offset) {
+bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale,
+                                        const cctz::time_zone* local_time_zone,
+                                        ZoneList* time_zone_cache) {
     const char* ptr = date_str;
     const char* end = date_str + len;
     // ONLY 2, 6 can follow by a space
@@ -1988,7 +1939,7 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
     // Compatible with MySQL.
     // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
-    if (pos == end || *pos == '.') {
+    if (pos == end || *pos == '.' || time_zone_begins(pos, end)) { // no delimeter until ./Asia/Z/GMT...
         if (digits == 4 || digits == 8 || digits >= 14) {
             year_len = 4;
         } else {
@@ -1999,16 +1950,17 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
 
     int field_idx = 0;
     int field_len = year_len;
+    long sec_offset = 0;
     while (ptr < end && isdigit(*ptr) && field_idx < MAX_DATE_PARTS) {
         const char* start = ptr;
         int temp_val = 0;
         bool scan_to_delim = (!is_interval_format) && (field_idx != 6);
-        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) {
+        while (ptr < end && isdigit(*ptr) && (scan_to_delim || field_len--)) { // field_len <= 6
             temp_val = temp_val * 10 + (*ptr++ - '0');
         }
         if (field_idx == 6) {
             // Microsecond
-            const auto ms_part = end - start;
+            const auto ms_part = ptr - start;
             temp_val *= std::pow(10, std::max(0L, 6 - ms_part));
             if constexpr (is_datetime) {
                 if (scale >= 0) {
@@ -2045,6 +1997,37 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, int len, int scale
             field_idx++;
             break;
         }
+
+        // timezone
+        if (UNLIKELY(field_idx > 2 /*for xxxx-xx-xx:xx:xx. dont treat as xxxx-xx(-xx:xx:xx)*/ &&
+                     time_zone_begins(ptr, end))) {
+            if (local_time_zone == nullptr || time_zone_cache == nullptr) {
+                return false;
+            }
+            auto get_tz_offset = [&](const std::string& str_tz,
+                                     const cctz::time_zone* local_time_zone,
+                                     ZoneList* time_zone_cache) -> long {
+                // no lock needed because of the entity is of thread_local
+                if (time_zone_cache->find(str_tz) == time_zone_cache->end()) { // not found
+                    if (!TimezoneUtils::find_cctz_time_zone(str_tz, (*time_zone_cache)[str_tz])) {
+                        throw Exception {ErrorCode::INVALID_ARGUMENT, ""};
+                    }
+                }
+                auto given = cctz::convert(cctz::civil_second {}, (*time_zone_cache)[str_tz]);
+                auto local = cctz::convert(cctz::civil_second {}, *local_time_zone);
+                // these two values is absolute time. so they are negative. need to use (-local) - (-given)
+                return std::chrono::duration_cast<std::chrono::seconds>(given - local).count();
+            };
+            try {
+                sec_offset = get_tz_offset(std::string {ptr, end}, local_time_zone,
+                                           time_zone_cache); // use the whole remain string
+            } catch ([[maybe_unused]] Exception& e) {
+                return false; // invalid format
+            }
+            field_idx++;
+            break;
+        }
+
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
