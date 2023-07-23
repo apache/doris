@@ -49,7 +49,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class LdapManager {
     private static final Logger LOG = LogManager.getLogger(LdapManager.class);
 
-    public static final String LDAP_GROUPS_PRIVS_NAME = "ldapGroupsPrivs";
+    public static final String LDAP_DEFAULT_ROLE = "ldapDefaultRole";
 
     private final LdapClient ldapClient = new LdapClient();
 
@@ -205,7 +205,7 @@ public class LdapManager {
     /**
      * Step1: get ldap groups from ldap server;
      * Step2: get roles by ldap groups;
-     * Step3: merge the roles;
+     * Step3: generate default role;
      */
     private Set<Role> getLdapGroupsRoles(String userName, String clusterName) throws DdlException {
         //get user ldap group. the ldap group name should be the same as the doris role name
@@ -219,7 +219,7 @@ public class LdapManager {
         }
         LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
 
-        Role ldapGroupsPrivs = new Role(LDAP_GROUPS_PRIVS_NAME);
+        Role ldapGroupsPrivs = new Role(LDAP_DEFAULT_ROLE);
         grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
         roles.add(ldapGroupsPrivs);
         return roles;

@@ -225,7 +225,7 @@ member: uid=jack,ou=aidp,dc=domain,dc=com
 
 - 怎么判断LDAP用户在doris中有哪些角色？
   
-  使用LDAP用户在doris中登陆，`show grants;`能查看当前用户有哪些角色。其中ldapGroupsPrivs是每个ldap用户在doris中都有的默认角色。
+  使用LDAP用户在doris中登陆，`show grants;`能查看当前用户有哪些角色。其中ldapDefaultRole是每个ldap用户在doris中都有的默认角色。
 - LDAP用户在doris中的角色比预期少怎么排查？
 
   1. 通过`show roles;`查看预期的角色在doris中是否存在，如果不存在，需要通过` CREATE ROLE rol_name;`创建角色。
