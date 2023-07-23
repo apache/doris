@@ -803,7 +803,7 @@ public class Config extends ConfigBase {
      * Commonly, each Backends has one broker scanner.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L; // 3G
+    public static long max_bytes_per_broker_scanner = 5 * 1024 * 1024 * 1024L; // 5G
 
     /**
      * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
