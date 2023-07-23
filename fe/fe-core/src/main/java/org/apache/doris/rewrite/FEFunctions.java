@@ -30,6 +30,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.expressions.ExecFunction;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
@@ -348,6 +353,83 @@ public class FEFunctions {
             return new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(), Type.DATEV2);
         }
         return null;
+    }
+
+    @FEFunction(name = "date_trunc", argTypes = {"DATETIME", "VARCHAR"}, returnType = "DATETIME")
+    public static DateLiteral dateTrunc(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateLike()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                            (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
+                            (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+        }
+        return null;
+    }
+
+    @FEFunction(name = "date_trunc", argTypes = {"DATETIMEV2", "VARCHAR"}, returnType = "DATETIMEV2")
+    public static DateLiteral dateTruncV2(LiteralExpr date, LiteralExpr truncate) {
+        if (date.getType().isDateLike()) {
+            DateLiteral dateLiteral = ((DateLiteral) date);
+            LocalDateTime localDate = dateTruncHelper(LocalDateTime.of(
+                            (int) dateLiteral.getYear(), (int) dateLiteral.getMonth(), (int) dateLiteral.getDay(),
+                            (int) dateLiteral.getHour(), (int) dateLiteral.getMinute(), (int) dateLiteral.getSecond()),
+                    truncate.getStringValue());
+
+            return new DateLiteral(localDate.getYear(), localDate.getMonthValue(), localDate.getDayOfMonth(),
+                    localDate.getHour(), localDate.getMinute(), localDate.getSecond(), date.getType());
+        }
+        return null;
+    }
+
+    private static LocalDateTime dateTruncHelper(LocalDateTime dateTime, String trunc) {
+        int year = dateTime.getYear();
+        int month = dateTime.getMonthValue();
+        int day = dateTime.getDayOfMonth();
+        int hour = dateTime.getHour();
+        int minute = dateTime.getMinute();
+        int second = dateTime.getSecond();
+        switch (trunc.toLowerCase()) {
+            case "year":
+                month = 0;
+            case "quarter": // CHECKSTYLE IGNORE THIS LINE
+                month = ((month - 1) / 3) * 3 + 1;
+            case "month": // CHECKSTYLE IGNORE THIS LINE
+                day = 1;
+                break;
+            case "week":
+                LocalDateTime firstDayOfWeek = firstDayOfWeek(dateTime);
+                year = firstDayOfWeek.getYear();
+                month = firstDayOfWeek.getMonthValue();
+                day = firstDayOfWeek.getDayOfMonth();
+            default: // CHECKSTYLE IGNORE THIS LINE
+                break;
+        }
+        switch (trunc.toLowerCase()) {
+            case "year":
+            case "quarter":
+            case "month":
+            case "week":
+            case "day": // CHECKSTYLE IGNORE THIS LINE
+                hour = 0;
+            case "hour": // CHECKSTYLE IGNORE THIS LINE
+                minute = 0;
+            case "minute": // CHECKSTYLE IGNORE THIS LINE
+                second = 0;
+            default: // CHECKSTYLE IGNORE THIS LINE
+        }
+        return LocalDateTime.of(year, month, day, hour, minute, second);
+    }
+
+    private static int distanceToFirstDayOfWeek(LocalDateTime dateTime) {
+        return dateTime.getDayOfWeek().getValue() - 1;
+    }
+
+    private static LocalDateTime firstDayOfWeek(LocalDateTime dateTime) {
+        return dateTime.plusDays(-distanceToFirstDayOfWeek(dateTime));
     }
 
     private static LocalDateTime toMonday(LocalDateTime dateTime) {
