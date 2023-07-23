@@ -292,7 +292,7 @@ public class Env {
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
     private static final String VERSION_DIR = "/VERSION";
-    public static String latestFeVersion = "2_0_0";
+    private String latestFeVersion;
     private String previousFeVersion;
     private String metaDir;
     private String bdbDir;
@@ -5370,10 +5370,17 @@ public class Env {
     }
 
     private void initVersionInfo() {
+        latestFeVersion = GlobalVariable.feVersion;
         File folder = new File(versionDir);
         File[] files = folder.listFiles();
         int previousSeq = 0;
         if (files != null) {
+            // Every part meaning (2_0_0-commitid-1-version)
+            // [version] - [commitid] - [seq]
+            // 'VersionFile' can be transformed like this.
+            // 2_0_0-commitid-1-version -> 2_1_0-commitid-2-version ->
+            // 2_3_0-commitid-3-version -> 2_0_0-commitid-4-version
+            // You can observe the process of FE upgrades through these files.
             for (File file : files) {
                 String[] splitArr = file.getName().split("-");
                 String version = splitArr[0];
@@ -5386,10 +5393,8 @@ public class Env {
         }
         if (previousFeVersion == null) {
             writeVersionFile(latestFeVersion, 1);
-        } else {
-            if (!previousFeVersion.equals(latestFeVersion)) {
-                writeVersionFile(latestFeVersion, previousSeq + 1);
-            }
+        } else if (!previousFeVersion.equals(latestFeVersion)) {
+            writeVersionFile(latestFeVersion, previousSeq + 1);
         }
         if (isMajorVersionUpgrade()) {
             ConnectContext.isMajorVersionUpgrade = true;
